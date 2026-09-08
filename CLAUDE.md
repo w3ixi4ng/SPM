@@ -18,6 +18,34 @@ tests/
   integration/    crosses a real boundary (Supabase, HTTP)
 ```
 
+## Branches
+
+Work never lands directly on `main`. Every change goes on its own branch, named
+after the task it implements:
+
+```
+<task-id>/<task-name>
+```
+
+```
+S-01.T-01/users-service
+S-02.T-04/expose-events-schema
+```
+
+The task id comes from the tracker, verbatim — dots and dashes included. The
+name is short kebab-case saying what the work is.
+
+Git accepts a dot inside a branch name, so `S-01.T-01/...` is fine. It rejects
+`..`, a part starting with `.`, and spaces — none of which appear in a task id.
+Check an unfamiliar name with `git check-ref-format --branch <name>`.
+
+**If no task id was given, ask the developer for it before starting.** Do not
+invent one, and do not fall back to a bare name — the id is the only thing
+linking the branch back to the task.
+
+Create the branch before writing any files, so the first commit is already in
+the right place.
+
 ## Stack
 
 FastAPI + Pydantic, talking to **Supabase directly** through the
@@ -514,7 +542,8 @@ More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
 
-1. Create the folder under `atomic/` or `composite/`, whichever the rules above
+1. Branch first — `<task-id>/<task-name>`, see [Branches](#branches). Then
+   create the folder under `atomic/` or `composite/`, whichever the rules above
    call for.
 2. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
