@@ -8,9 +8,10 @@ Conventions for this repo. Follow them when adding or changing a service.
 backend/
   services/
     atomic/       one service per entity, owns its own storage
-      user/
-      event/
+      users/
+      events/
     composite/    orchestrates atomic services, owns no storage
+  sql/            schema definition per service, applied by hand
 frontend/
 tests/
   unit/           fast, isolated, everything mocked
@@ -33,18 +34,25 @@ in Supabase.** Services do not share a schema, and no service reads another
 service's tables. The schema is the database-level enforcement of the same
 boundary the code rules describe.
 
-Supabase addresses tables as `schema.table`, so the user service's table is
-`user.user` and the event service's is `event.event`:
+Supabase addresses tables as `schema.table`, so the users service's table is
+`users.users` and the events service's is `events.events`:
 
 | Service | Schema | Table | Addressed as |
 | --- | --- | --- | --- |
-| `atomic/user` | `user` | `user` | `user.user` |
-| `atomic/event` | `event` | `event` | `event.event` |
+| `atomic/users` | `users` | `users` | `users.users` |
+| `atomic/events` | `events` | `events` | `events.events` |
 
 Rules:
 
 - One schema per atomic service, named after the service.
+- **Names are plural.** `users`, not `user`. Beyond reading better, it dodges
+  Postgres reserved words: `create schema user` is a syntax error, `users` is
+  fine. The same trap waits on `order`, `group`, `session`, and `default` —
+  plural clears all of them.
 - **Nothing goes in `public`.** If a table is in `public`, it has no owner.
+  Write every statement as `schema.table` — `create table users.users`, never
+  `create table users`. The SQL Editor has `public` on its search path, so an
+  unqualified name lands there silently and still looks like it worked.
 - A service's client only ever touches its own schema. Needing another
   service's data means calling that service over HTTP, not querying across
   schemas.
@@ -53,19 +61,100 @@ Rules:
 Select the schema on the client before the table:
 
 ```python
-db.schema("event").table("event").select("*").execute()
+db.schema("events").table("events").select("*").execute()
 ```
 
-### ⚠️ Expose the schema, or nothing works
+### Creating a new schema — hand this to the developer
+
+**An agent cannot apply this.** Creating a schema, granting privileges, and
+exposing the schema all happen in the Supabase dashboard, outside this repo.
+
+What an agent *does* do is **write the SQL to that service's file in
+[`backend/sql/`](backend/sql/README.md)** — `backend/sql/users.sql` — and
+commit it. The database is not generated from Python, so those files are the
+only record of what the schema is, and a project should be rebuildable by
+running them.
+
+Then **stop and hand the developer the SQL**, and ask them to:
+
+1. Run it in the Supabase **SQL Editor** — in **both** the dev and test
+   projects, or the two databases drift apart.
+2. Add the schema under **Data API → Settings → Exposed schemas**.
+
+Do not report the service as working until they confirm both. The code is
+correct and still fails until then.
+
+```sql
+-- 1. Create the schema, named after the service. Plural — `user` (singular)
+--    is a reserved word in Postgres and would need quoting everywhere.
+create schema if not exists users;
+
+-- 2. Create the table inside it. Never in public.
+create table if not exists users.users (
+  id         bigint generated always as identity primary key,
+  name       text not null,
+  email      text not null unique,
+  created_at timestamptz not null default now()
+);
+
+-- 3. Grant access to the backend role.
+--    Supabase pre-configures privileges on `public` only. A schema you create
+--    yourself has NONE, so service_role cannot read it until this runs — even
+--    once the schema is exposed.
+grant usage on schema users to service_role;
+grant all on all tables in schema users to service_role;
+grant all on all sequences in schema users to service_role;
+
+-- 4. Same grants for tables added later. This only affects tables created
+--    AFTER it runs, which is why step 3 is still needed for existing ones.
+alter default privileges for role postgres in schema users
+  grant all on tables to service_role;
+alter default privileges for role postgres in schema users
+  grant all on sequences to service_role;
+
+-- 5. Enable RLS so nothing leaks if an anon key ever reaches this table.
+--    service_role bypasses RLS, so the services keep working.
+alter table users.users enable row level security;
+
+-- 6. Nudge PostgREST if the table still is not visible after all of the above.
+notify pgrst, 'reload schema';
+```
+
+Only `service_role` is granted, because only the backend touches tables. Do not
+grant `anon` or `authenticated` unless the browser genuinely needs to query
+that table directly — the frontend goes through the services.
+
+### ⚠️ Expose the schema *and* the table, or nothing works
 
 > **Read this before debugging a new service.**
 >
-> Supabase only serves the schemas you have explicitly exposed. A brand new
-> schema is invisible to the API no matter how correct your table, your keys,
-> and your code are.
+> There are **two** separate steps, and doing only one leaves the service just
+> as broken as doing neither.
 >
-> **Fix:** Supabase dashboard → **Settings → API → Exposed schemas** → add the
-> service's schema → save. PostgREST reloads within a few seconds.
+> **1. Expose the schema** — Supabase dashboard →
+> **Data API → Settings → Exposed schemas** → add the service's schema →
+> save.
+> Without this the whole schema is invisible to the API, no matter how correct
+> your table, keys and code are.
+>
+> **2. Grant the table** — an exposed schema does not mean its tables are
+> reachable. PostgREST serves a table only if the calling role has privileges
+> on that table:
+>
+> ```sql
+> grant usage on schema users to service_role;              -- the schema
+> grant all on all tables in schema users to service_role;  -- the tables
+> ```
+>
+> `grant usage` on the schema alone is not enough. Nor is the dashboard
+> setting. You need both steps.
+
+**Watch the order.** `grant all on all tables in schema ...` applies only to
+tables that exist **when it runs**. Add a table afterwards and it is in an
+exposed, granted schema and still unreachable. That is what the
+`alter default privileges` lines in the SQL block are for — they cover tables
+created later. If a new table 404s while its neighbours work, its grant is
+missing.
 
 This is the single most common reason a new service fails on its first
 request, and **the error does not tell you that's the problem.** What you get
@@ -74,34 +163,45 @@ back instead looks like a bug in your code:
 | What you see | What it actually means |
 | --- | --- |
 | `PGRST106` / "the schema must be one of the following" | The schema is not exposed |
-| `PGRST205` / "Could not find the table ... in the schema cache" | Schema not exposed, or PostgREST hasn't reloaded |
+| `PGRST205` / "Could not find the table ... in the schema cache" | Schema not exposed, the table has no grant, or PostgREST hasn't reloaded |
+| `42501` / "permission denied for schema" | The schema grant was never run |
+| `42501` / "permission denied for table" | The schema is granted but this table is not — added after the grants ran |
 | `42P01` / "relation does not exist" | The table or schema was never created |
+| `42601` / syntax error on `create schema <name>` | The name is a Postgres reserved word — use the plural |
 | Empty `.data` with no error | Wrong schema, or RLS is filtering every row |
 
 So when a new service returns nothing on a query you are sure is right, check
 in this order:
 
 1. Is the schema listed under Exposed schemas?
-2. Does the table exist at `<service>.<table>` and not in `public`?
-3. Is the service using `SUPABASE_SERVICE_KEY`, not the anon key? The anon key
+2. Was `grant usage` run on the schema?
+3. Was `grant all on all tables` run on **this** table? A table added after the
+   grants is not covered unless `alter default privileges` was set first.
+4. Does the table exist at `<service>.<table>` and not in `public`?
+5. Is the service using `SUPABASE_SERVICE_KEY`, not the anon key? The anon key
    is subject to row-level security and will quietly return `[]`.
 
-Do not start rewriting the query until all three are ruled out.
+Do not start rewriting the query until all five are ruled out.
 
 ## Service structure
 
-Every service — atomic or composite — is a FastAPI app with the same four
-files. Do not invent a different layout per service.
+Every service is a FastAPI app with the same layout. Do not invent a different
+one per service.
 
 ```
 backend/services/<atomic|composite>/<name>/
   app.py             FastAPI app + routes
   schemas.py         request + response schemas
-  database.py        Supabase client
+  database.py        Supabase client        (atomic only)
+  clients.py         outbound HTTP          (composite only)
   Dockerfile
   requirements.txt
   README.md
 ```
+
+Atomic services own data, so they have `database.py`. Composite services own
+none and call other services instead, so they have `clients.py`. Everything
+else is identical.
 
 ### `schemas.py`
 
@@ -157,9 +257,30 @@ def get_db() -> Client:
 - Use the service key only on the backend — it bypasses row-level security and
   must never reach the frontend.
 
-Composite services hold no data, so they have no `database.py`. They get a
-`clients.py` instead, holding the base URLs of the atomic services they call,
-also read from the environment.
+### `clients.py` (composite services)
+
+Outbound HTTP goes in `clients.py`, exposed as a dependency — the same reason
+`database.py` exists. It keeps every base URL in one place, gives you one place
+to set timeouts, and gives composite routes a seam that unit tests can override
+exactly like `get_db`.
+
+```python
+import os
+
+import httpx
+
+USERS_URL = os.environ["USERS_SERVICE_URL"]
+EVENTS_URL = os.environ["EVENTS_SERVICE_URL"]
+
+def get_users_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=USERS_URL, timeout=5.0)
+
+def get_events_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=EVENTS_URL, timeout=5.0)
+```
+
+Always set a timeout. A composite calling three services without one is how a
+single slow atomic service stalls every request in the system.
 
 ### `app.py`
 
@@ -173,23 +294,23 @@ from supabase import Client
 from database import get_db
 from schemas import UserCreate, UserRead
 
-app = FastAPI(title="User Service")
+app = FastAPI(title="Users Service")
 
-SCHEMA = "user"
-TABLE = "user"
+SCHEMA = "users"
+TABLE = "users"
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-@app.get("/user/{user_id}", response_model=UserRead)
+@app.get("/users/{user_id}", response_model=UserRead)
 def get_user(user_id: int, db: Client = Depends(get_db)):
     res = db.schema(SCHEMA).table(TABLE).select("*").eq("id", user_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="User not found")
     return res.data[0]
 
-@app.post("/user", response_model=UserRead, status_code=201)
+@app.post("/users", response_model=UserRead, status_code=201)
 def create_user(payload: UserCreate, db: Client = Depends(get_db)):
     res = db.schema(SCHEMA).table(TABLE).insert(payload.model_dump()).execute()
     return res.data[0]
@@ -210,6 +331,9 @@ moves out of the route body.
 
 ### `Dockerfile`
 
+Every service hardcodes **its own port** from the table in
+[Ports](#ports) — not a shared 8000. This is the `users` service (8001):
+
 ```dockerfile
 FROM python:3.11-slim
 
@@ -220,12 +344,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8001
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001"]
 ```
 
 Copy `requirements.txt` and install before copying the rest, so the dependency
 layer stays cached.
+
+Distinct ports mean every service can run at once whether or not Docker is
+involved, and a container's internal port matches its published one — so a URL
+is the same from the host and from inside the network.
 
 ### `requirements.txt`
 
@@ -236,6 +364,78 @@ supabase
 pydantic
 ```
 
+## Ports
+
+Every service gets its own port. Nothing shares 8000.
+
+| Service | Port | Reached at |
+| --- | --- | --- |
+| `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
+| `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
+| first composite | 8000 | reserved |
+
+A new service claims the next free port and must be added to three places, or
+it will not run:
+
+1. its `Dockerfile` — `EXPOSE` and the `--port` in `CMD`
+2. `.env.example` — `<NAME>_SERVICE_PORT`, plus `<NAME>_SERVICE_URL` if
+   composites call it
+3. `docker-compose.yml` — a service block with `"${<NAME>_SERVICE_PORT}:<port>"`
+
+## Running the stack
+
+```bash
+cp .env.example .env      # fill in the Supabase values first
+docker compose up --build
+```
+
+Inside the compose network a service is reachable at its **compose service
+name** — `http://users:8001`, not `localhost`. `localhost` inside a container
+means that container. This is why `.env.example` defaults
+`USERS_SERVICE_URL` to `http://users:8001`; switch it to `localhost` only when
+running services by hand:
+
+```bash
+cd backend/services/atomic/users
+uvicorn app:app --reload --port 8001
+```
+
+Each service defines a `/health` check in `docker-compose.yml`, so a composite
+can wait for its dependencies with `depends_on: condition: service_healthy`
+instead of racing them at startup.
+
+The frontend reaches the backend through `VITE_API_URL`, set in
+`frontend/.env`. Point it at the composite service that serves the frontend —
+or, once Kong is set up as the gateway, at Kong, which routes to the services
+behind it.
+
+## CI
+
+Two workflows in `.github/workflows/`. Both run on pushes and pull requests to
+`main`, and can be started by hand.
+
+| Workflow | What it does | When it runs |
+| --- | --- | --- |
+| `semgrep-sast.yml` | Static analysis of the code — Python, JavaScript, React, secrets | Every push. Findings fail the job. |
+| `wapiti-dast.yml` | Attacks the running services and reports what it finds | Skipped until a service has a `Dockerfile` |
+
+**Wapiti is dormant right now.** A preflight job builds its scan list from the
+services that have a `Dockerfile`, so with none written it skips cleanly. Adding
+the first `Dockerfile` wakes it up — expect the job to start running on that PR.
+
+### Repo secrets
+
+Wapiti needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in
+**Settings → Secrets and variables → Actions**. Without them the containers exit
+at import and the job fails.
+
+**These are the test project's credentials, not your own project's.** The scan
+runs aggressively against every endpoint it finds, including `POST`, `PUT` and
+`DELETE`, and the service key bypasses row-level security — so it will create
+and delete real rows in whatever project it is pointed at. CI writes them to
+`.env.test` and starts the stack with `--env-file .env.test`, the same as
+integration tests.
+
 ## Rules
 
 - **Atomic services never call other services.** They own one entity and expose
@@ -243,52 +443,96 @@ pydantic
 - **Composite services own no tables.** All state lives behind an atomic
   service; composites talk to them over HTTP only.
 - **No ORM.** Query Supabase through its client.
-- **One Postgres schema per service**, named after the service, so tables
-  are addressed as `event.event`. Never query across schemas, and never put
-  a table in `public`.
+- **One Postgres schema per service**, named after the service and plural, so
+  tables are addressed as `events.events`. Never query across schemas, and
+  never put a table in `public`.
+- **Each service's schema lives in `backend/sql/<service>.sql`**, declarative
+  and committed with the code that needs it. Change it by editing the file and
+  rebuilding the schema, not by patching the database by hand — and apply it to
+  the dev *and* test projects at the same time.
 - Config comes from environment variables, never from committed values.
 - `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are required by every atomic
   service. Every variable a service reads must be listed in the root
   [`.env.example`](.env.example) with an empty value — that file is the
   contract for what a new developer has to fill in. `.env` itself is
   gitignored; `.env.example` is deliberately not.
+- **`.env` is your project, `.env.test` is the throwaway one.** Integration
+  tests and any scanning run against `.env.test`
+  (`docker compose --env-file .env.test up`), because they create and delete
+  real rows.
 - Return the right status codes: `201` on create, `404` when missing, `422` is
   handled by FastAPI's validation.
 
 ## Tests
 
-Tests live at the repo root in `tests/`, not next to the service. Mirror the
-source path:
+Tests live at the repo root in `tests/`, not next to the service, in a folder
+that mirrors the source path:
 
 ```
-tests/unit/atomic/user/test_app.py
-tests/integration/atomic/user/test_app.py
+tests/unit/atomic/users/test_app.py
+tests/integration/atomic/users/test_app.py
 ```
 
-- `tests/unit/` — never touches Supabase. Override `get_db` with a fake client
-  via `app.dependency_overrides[get_db]`.
-- `tests/integration/` — hits a real Supabase project and real HTTP between
-  services. Point these at a test project, never production.
+- **`tests/unit/`** — one service on its own, with a fake in place of Supabase.
+  Swap it in with `app.dependency_overrides[get_db]`; a `MagicMock` handles the
+  `.schema().table().select().execute()` chain without extra code. No network,
+  no database, no Docker.
+- **`tests/integration/`** — the real service in Docker against a real Supabase
+  project, plus, once composite services exist, a composite calling an atomic
+  service over HTTP.
 
-Use FastAPI's `TestClient`. Each test cleans up the rows it creates.
+**Many unit tests, few integration tests.** Unit tests cost nothing, so cover
+every case in them — good input, bad input, a missing record. Integration tests
+are slow and need the stack running, so keep them to what only they can prove:
+usually one save-then-read per service, which confirms the table, the grants,
+the schema exposure and the connection all at once.
+
+**A passing unit test does not mean the service works.** The fake agrees with
+everything, so none of this shows up until integration: a column that does not
+exist, the wrong Postgres schema, a table left in `public`, missing grants, a
+schema that was never exposed, RLS filtering every row, or a composite calling
+`localhost` instead of the Docker service name.
+
+Integration tests point at the **test** Supabase project, never a real one, and
+delete the rows they create — the suite has to run twice in a row. That is what
+`.env.test` is for: `.env` is the project you work against day to day,
+`.env.test` is the one tests are allowed to destroy. Both are gitignored.
 
 ```bash
 pytest tests/unit
+
+docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
 ```
+
+**No end-to-end tests yet.** Those drive a real browser through the whole path
+— frontend, composite, atomic, database. That needs a working frontend and
+working services first, so add `tests/e2e/` only once the stack runs end to
+end. Do not scaffold it before then.
+
+More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
 
 1. Create the folder under `atomic/` or `composite/`, whichever the rules above
    call for.
-2. Add all four files plus `requirements.txt` and `README.md`.
+2. Add the files listed in [Service structure](#service-structure) —
+   `database.py` for an atomic service, `clients.py` for a composite.
 3. Add the `README.md` even if the service is a stub — git will not commit an
    empty folder.
 4. Create the matching test folders under `tests/unit/` and
    `tests/integration/`.
-5. Create the service's schema in Supabase, then the table inside it
-   (`<service>.<table>`) — neither gets generated from Python.
-6. **Expose the new schema** under Settings → API → Exposed schemas. Skipping
-   this makes every query fail with an error that points somewhere else — see
+5. Write the schema SQL from
+   [Creating a new schema](#creating-a-new-schema--hand-this-to-the-developer)
+   to `backend/sql/<service>.sql`, commit it, then **hand it to the developer
+   to run**. Schemas, tables, and grants are not generated from Python and an
+   agent cannot create them.
+6. **Ask the developer to expose the schema** under Data API → Settings →
+   Exposed schemas, *and* to confirm the table grants ran — both are required, and one
+   without the other leaves the service broken. Confirm before you call the
+   service finished. Skipping either makes every query fail with an error that points
+   somewhere else — see
    [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-or-nothing-works).
-7. List the service in its parent `README.md` table.
+7. Claim the next free port and register it in the Dockerfile,
+   `.env.example`, and `docker-compose.yml` — see [Ports](#ports).
+8. List the service in its parent `README.md` table.

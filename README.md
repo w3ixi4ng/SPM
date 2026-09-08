@@ -7,7 +7,7 @@ Microservices project.
 ```
 backend/
   services/
-    atomic/       one service per entity (user, event)
+    atomic/       one service per entity (users, events)
     composite/    orchestrates atomic services
 frontend/
 tests/
@@ -17,6 +17,18 @@ tests/
 
 Each service is a FastAPI app with `app.py`, `schemas.py`, `database.py`, and a
 `Dockerfile`. See [`AGENTS.md`](AGENTS.md) for the full conventions.
+
+## Running
+
+```bash
+cp .env.example .env      # fill in the Supabase values first
+docker compose up --build
+```
+
+| Service | Port |
+| --- | --- |
+| users | 8001 |
+| events | 8002 |
 
 - [`AGENTS.md`](AGENTS.md) — service structure and conventions
 - [`tests/README.md`](tests/README.md) — how tests are organised

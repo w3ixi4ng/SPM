@@ -1,0 +1,131 @@
+name: DAST Scan with Wapiti
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # DAST needs something running. Build the scan matrix from the services that
+  # actually have a Dockerfile, so a half-built backend still scans what exists
+  # instead of failing the run.
+  preflight:
+    name: Find runnable services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.check.outputs.services }}
+      has_services: ${{ steps.check.outputs.has_services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        run: |
+          # Declared services and their ports — keep in step with
+          # docker-compose.yml and the port table in AGENTS.md.
+          matrix='[]'
+          for entry in "users:8001" "events:8002"; do
+            name="${entry%%:*}"
+            port="${entry##*:}"
+            if [ -f "backend/services/atomic/$name/Dockerfile" ]; then
+              matrix=$(printf '%s' "$matrix" \
+                | jq -c --arg s "$name" --argjson p "$port" \
+                    '. + [{service: $s, port: $p}]')
+            fi
+          done
+
+          echo "services=$matrix" >> "$GITHUB_OUTPUT"
+
+          if [ "$(printf '%s' "$matrix" | jq 'length')" -gt 0 ]; then
+            echo "has_services=true" >> "$GITHUB_OUTPUT"
+            echo "Scanning: $matrix" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_services=false" >> "$GITHUB_OUTPUT"
+            echo "No service Dockerfiles yet — skipping the DAST scan." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  dast_scan:
+    name: Wapiti (${{ matrix.service }})
+    needs: preflight
+    if: needs.preflight.outputs.has_services == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.preflight.outputs.services) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # database.py reads these at import, so the container exits without them.
+      # Point these secrets at a TEST Supabase project, never production —
+      # an aggressive scan writes data.
+      - name: Write .env.test for docker compose
+        run: |
+          cat > .env.test <<ENV
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          USERS_SERVICE_PORT=8001
+          EVENTS_SERVICE_PORT=8002
+          USERS_SERVICE_URL=http://users:8001
+          EVENTS_SERVICE_URL=http://events:8002
+          ENV
+
+      # Only this matrix entry's service — compose would otherwise try to build
+      # every service, including ones that are not written yet.
+      # --wait blocks until the healthcheck in docker-compose.yml passes.
+      - name: Start ${{ matrix.service }}
+        run: docker compose --env-file .env.test up -d --build --wait ${{ matrix.service }}
+
+      - name: Install Wapiti
+        run: |
+          python -m pip install --upgrade pip
+          pip install wapiti3
+
+      # Modules are pinned to what applies to a FastAPI JSON API. The default
+      # set also runs WordPress/Drupal/Joomla enumeration, shellshock, log4shell
+      # and .htaccess checks, none of which can apply to this stack.
+      - name: Run Wapiti DAST scan
+        run: |
+          wapiti \
+            -u http://localhost:${{ matrix.port }}/docs \
+            -m sql,timesql,exec,file,ssrf,redirect,http_headers,cookieflags,csp,methods,xxe,crlf,upload \
+            --scope domain \
+            --scan-force aggressive \
+            --flush-session \
+            -f html \
+            -o wapiti_report_${{ matrix.service }}
+        # /docs is the FastAPI Swagger page. Wapiti follows HTML links, and a
+        # JSON API root gives it nothing to crawl, so seeding it there is what
+        # gets the scan to the endpoints at all.
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wapiti-report-${{ matrix.service }}
+          path: wapiti_report_${{ matrix.service }}/
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.test down -v

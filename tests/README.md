@@ -1,34 +1,70 @@
 # Tests
 
-Test suite for the backend services.
+Two kinds of test, in two folders.
 
-## Layout
+| Folder | What it does | Needs |
+| --- | --- | --- |
+| `unit/` | Runs one service on its own, with a **fake** Supabase that returns whatever the test tells it. | Nothing |
+| `integration/` | Runs the real service in Docker against a **real** (test) Supabase. | Docker, a filled-in `.env.test`, a test Supabase project |
 
-| Folder | Purpose |
-| --- | --- |
-| `unit/` | Fast, isolated tests. No network, no database, no running services — collaborators are mocked or stubbed. |
-| `integration/` | Tests that cross a boundary: real database, HTTP calls between services, message broker, etc. |
+## The difference, plainly
 
-## Conventions
+A unit test checks *your code*. The fake database says yes to everything, so
+the test only proves your code behaves correctly when it gets a given answer.
 
-- Test files are named `test_<subject>.py`.
-- Mirror the source layout inside each folder, e.g. tests for
-  `backend/services/atomic/user` live in `unit/atomic/user/` and
-  `integration/atomic/user/`.
-- Each test is independent and can run in any order.
+An integration test checks *the whole thing actually works* — that the table
+exists, that the service can reach it, and that a saved record comes back.
+
+This matters here more than usual. Every Supabase trap in
+[`AGENTS.md`](../AGENTS.md) — a schema that was never exposed, missing grants,
+a table that landed in `public` — is **invisible to unit tests**. The fake
+pretends it all worked.
+
+> A green unit-test run does not mean the service works. It means the code is
+> right *if* the database is set up correctly.
+
+## How many of each
+
+**Lots of unit tests, only a few integration tests.**
+
+Unit tests cost nothing to run, so use them for every case: good input, bad
+input, a record that is not there. Integration tests are slow and need Docker,
+so keep them to the things only they can prove — usually one save-then-read per
+service. If that passes, the schema, the permissions, and the connection are
+all confirmed at once.
+
+## End-to-end tests — later
+
+Not set up, on purpose. An end-to-end test drives a real browser through the
+whole path — frontend, composite service, atomic service, database — the way a
+person would: log in, create something, check it appears.
+
+That needs a working frontend, working services, and real user journeys to
+test. None of those exist yet, so there is nothing for it to click on.
+
+Add it once the stack works end to end, as `tests/e2e/` with a browser tool
+such as Cypress or Playwright, and name specs after journeys (`userAuth`,
+`createTask`) rather than after services.
+
+## Naming
+
+Test files are `test_<subject>.py`, in a folder that mirrors the service:
+
+```
+tests/unit/atomic/users/test_app.py
+tests/integration/atomic/users/test_app.py
+```
 
 ## Running
 
 ```bash
-# everything
-pytest tests
-
-# only the fast ones
+# fast ones, no setup
 pytest tests/unit
 
-# only the ones that need services up
+# needs the stack running first, against the test project
+docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
 ```
 
-Integration tests expect their dependencies (databases, atomic services) to be
-reachable. Bring them up first, e.g. `docker compose up -d`.
+Details: [`unit/README.md`](unit/README.md) ·
+[`integration/README.md`](integration/README.md)
