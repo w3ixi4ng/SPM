@@ -498,7 +498,9 @@ that mirrors the source path:
 
 ```
 tests/unit/atomic/users/test_app.py
+tests/unit/atomic/users/TEST_CASES.md
 tests/integration/atomic/users/test_app.py
+tests/integration/atomic/users/TEST_CASES.md
 ```
 
 - **`tests/unit/`** — one service on its own, with a fake in place of Supabase.
@@ -538,6 +540,54 @@ pytest tests/integration
 working services first, so add `tests/e2e/` only once the stack runs end to
 end. Do not scaffold it before then.
 
+### `TEST_CASES.md`
+
+The tests are the code; `TEST_CASES.md` is the written record of what they
+prove. One per test folder, next to the `test_*.py` it describes.
+
+Each case states the **specification** — written once, changed only when the
+requirement changes:
+
+| Field | What goes in it |
+| --- | --- |
+| ID | `TC-<SERVICE>-<NNN>`, see below |
+| Scenario | One line: the objective |
+| Pre-conditions | The starting state. Unit: what the fake returns. Integration: `.env.test`, the stack, the schema exposed and granted |
+| Steps | Numbered, followable by someone who has not read the code |
+| Test data | The actual values, not a description of them |
+| Expected | Specific enough that two people agree on pass/fail |
+
+Then the **latest execution** — overwritten each run, not appended:
+
+| Field | What goes in it |
+| --- | --- |
+| Actual | What happened |
+| Status | Pass / Fail / Not Executed / Blocked |
+| Evidence | The pytest node id, plus a CI link or issue number where one applies |
+
+No run history is kept, only the most recent result, so each file's header
+records the commit and environment it was last run against — a pass is only
+ever passing as of that build.
+
+**Blocked is not Fail.** Blocked means the case could not run — the schema is
+not applied, the stack is down. Say which. An integration case is honestly
+Blocked until the developer has run the SQL and exposed the schema, and that
+is worth writing down rather than leaving blank.
+
+Vague cases are the failure mode. "Create a user with valid data" is a wish;
+`{"name": "Ada", "email": "ada@example.com"}` → `201` with `id` present, and
+readable at `GET /users/{id}`, is a test case.
+
+**IDs.** `TC-<SERVICE>-<NNN>`, service uppercased, numbered by layer:
+
+```
+TC-USERS-001    001-099   unit
+TC-USERS-101    101-199   integration
+```
+
+Allocated in order and never recycled. Drop a case and the gap stays — an ID
+quoted in a commit or an issue has to keep pointing at the same case.
+
 More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
@@ -550,7 +600,8 @@ More detail in [`tests/README.md`](tests/README.md).
 3. Add the `README.md` even if the service is a stub — git will not commit an
    empty folder.
 4. Create the matching test folders under `tests/unit/` and
-   `tests/integration/`.
+   `tests/integration/`, each with a `TEST_CASES.md` recording its cases —
+   see [`TEST_CASES.md`](#test_casesmd).
 5. Write the schema SQL from
    [Creating a new schema](#creating-a-new-schema--hand-this-to-the-developer)
    to `backend/sql/<service>.sql`, commit it, then **hand it to the developer
