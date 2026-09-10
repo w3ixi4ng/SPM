@@ -437,6 +437,229 @@ The frontend reaches the backend through `VITE_API_URL`, set in
 or, once Kong is set up as the gateway, at Kong, which routes to the services
 behind it.
 
+## Frontend / UI
+
+`frontend/` is React + Tailwind CSS + `lucide-react`, no `framer-motion`. Every
+page follows the same design system below, so a new page matches the existing
+ones without re-deriving the look each time.
+
+### Environment constraint — no Tailwind JIT
+
+Only Tailwind's pre-built utility classes resolve. Arbitrary-value syntax like
+`bg-[#123456]` or `font-[Fraunces]` does **not** work. Structural classes
+(`flex`, `grid`, `gap-4`, `rounded-sm`, `px-6`, `max-w-6xl`) come from
+Tailwind; every brand color and font is applied through inline `style={{}}` or
+a plain `<style>` block instead. Do not reach for arbitrary-value Tailwind
+classes to fix a color or font that doesn't look right — that's the sign it
+needs to go through `style` instead.
+
+### File layout
+
+One file per page, CSS and JS together. Break a page into small components
+inside that same file (`Header`, `Hero`, `Footer`, ...) rather than splitting
+across files, and export exactly one default per page.
+
+### Color tokens
+
+Define this object once per page and reference it via `style`, never inline
+hex elsewhere:
+
+```js
+const C = {
+  ink: "#10192B",       // primary text, dark section backgrounds
+  inkSoft: "#1C2A42",   // surfaces sitting on top of `ink` (cards on dark bg)
+  inkFaint: "#4C5A70",  // secondary/muted text
+  paper: "#F8F6F1",     // page background (light sections)
+  paperDim: "#F1EEE6",  // slightly recessed light surface (alt sections)
+  line: "#E3DFD3",      // hairline borders on paper
+  lineOnInk: "#2A3A54", // hairline borders on ink
+  teal: "#0E7C74",      // primary accent — CTAs, active states, links
+  tealBright: "#149E92",// accent on dark backgrounds (better contrast)
+  tealDeep: "#0A5F59",  // pressed/active state of primary accent
+  sky: "#3C6E96",       // secondary accent — icons, minor highlights
+  amber: "#B5842B",     // warning / partial status
+  rose: "#B25547",      // error / urgent status
+  green: "#3F8F5F",     // success / operational status
+};
+```
+
+- `paper` is the default page background; `ink` is for dark bands and primary
+  text. Never pure black or Tailwind's `slate-900`.
+- `teal` is the only primary action color on a page. `sky`/`amber`/`rose`/
+  `green` are supporting/status colors, not alternative CTAs — don't
+  introduce a second "primary" hue.
+- No gradients as decoration. Keep body text at 4.5:1 contrast against
+  whichever background token it sits on.
+
+### Typography
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap');
+.font-display { font-family: 'Fraunces', Georgia, serif; }
+.font-ui { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+```
+
+`.font-display` (Fraunces) is for headlines, big stat numerals, and hero copy
+only — it's the brand voice, used sparingly. `.font-ui` (Inter) is the default
+for everything else (nav, body, labels, forms, tables); set it on the page's
+root wrapper and opt into `.font-display` per element.
+
+Reuse this scale rather than inventing new sizes per page:
+
+| Element | Classes |
+| --- | --- |
+| Hero/H1 | `text-4xl sm:text-5xl font-display leading-[1.08]` |
+| Section H2 | `text-3xl font-display` |
+| Big stat numeral | `text-4xl font-display` |
+| Body copy | `text-base`/`text-sm`, `.font-ui`, `leading-relaxed`, `inkFaint` |
+| Meta/caption | `text-xs`, `.font-ui`, `inkFaint` |
+
+No all-caps eyebrow labels above headings, and no bolding/coloring a single
+word inside a headline for emphasis. Constrain body copy width (`max-w-sm` /
+`max-w-md` / `max-w-3xl`) so paragraphs don't run edge-to-edge.
+
+### Layout
+
+- Container: `max-w-6xl mx-auto px-6` for full-width sections, `max-w-3xl` for
+  narrow long-form content (testimonials, prose).
+- Left-align hero and section copy — centered stacks read as a generic
+  template.
+- Vary section shape instead of repeating a card grid everywhere: hero is a
+  two-column asymmetric grid; stats are one row divided by hairlines
+  (`divide-x`), not separate cards; a features/services section is one larger
+  lead item plus a compact `divide-y` list for the rest, not N identical
+  cards; a testimonial is a plain block quote on a dimmed band, no card
+  border or shadow.
+- Alternate section backgrounds between `paper`, `paperDim`, and `ink` for
+  rhythm instead of adding borders/shadows everywhere.
+- Numbered markers (01/02/03) only for a genuine sequence (a real timeline or
+  ordered steps) — not for nav items, stats, or a features list.
+- `rounded-sm` everywhere buttons/inputs/cards get radius. Don't mix radius
+  sizes on one page.
+
+### One bold moment per page
+
+Exactly one visually rich, animated element per page; everything else stays
+quiet and structural:
+
+1. Identify the thing most characteristic of what the page does (a live
+   preview, a key number, a real interaction).
+2. Build that with real motion/data — a working count-up, progress
+   animation, or countdown — not a static mockup image.
+3. Keep every other element restrained: hairline borders, no shadows outside
+   that one hero element, minimal hover states.
+
+Don't add scroll-triggered fade-ins to every section or hover-lift to every
+card — reserve entrance animation (`rise-in`, ~0.7s, staggered by up to
+~150ms for at most two elements) for the single hero element:
+
+```css
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise-in { animation: riseIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+```
+
+| Trigger | Use |
+| --- | --- |
+| Page load | One `rise-in` on the single hero element only |
+| Scroll into view | Count-up on stat numerals (`IntersectionObserver`, threshold 0.4) |
+| Hover on primary button | `-translate-y-0.5`, 200ms |
+| Hover on nav link | Color transition only, 200ms, no movement |
+| Panel/drawer open | translateX slide, 320ms |
+| Anything else | No animation |
+
+Respect `prefers-reduced-motion` — animated classes should degrade to an
+instant state change when it's set.
+
+### Components to reuse
+
+**Primary button**
+
+```jsx
+<button
+  className="px-5 py-3 rounded-sm font-medium transition-transform duration-200 hover:-translate-y-0.5"
+  style={{ backgroundColor: C.teal, color: C.paper }}
+>
+  Start planning
+</button>
+```
+
+**Secondary/ghost button**
+
+```jsx
+<button
+  className="px-5 py-3 rounded-sm font-medium border transition-colors duration-200"
+  style={{ borderColor: C.ink, color: C.ink }}
+>
+  Log in
+</button>
+```
+
+**Sticky header** — transparent at the top; once `window.scrollY > 8`, gains a
+translucent blurred background and a hairline bottom border. Reuse the same
+scroll-listener pattern on every page that has a header.
+
+**Slide-over panel** — the house pattern for any secondary flow that
+shouldn't navigate away (login, filters, item detail, quick-create), used
+instead of a centered modal dialog:
+
+- Fixed, full height, right-anchored, `max-w-md`.
+- Backdrop `rgba(16,25,43,0.5)`, closes on click.
+- Enter animation: `translateX` 100% → 0 over `0.32s`
+  (`cubic-bezier(0.22, 1, 0.36, 1)`).
+- Closes on `Escape`, always has a visible `X` close button top-right, traps
+  focus while open, returns focus to the trigger on close.
+
+**Status indicators** — small filled or dashed dots: `green` = done/
+operational, `amber` = partial/warning, `inkFaint` outline = not started,
+`rose` = urgent/error. Always pair the color with a text label, never color
+alone.
+
+**Stat numeral** — `.font-display` number in `ink`/`paper`, small `.font-ui`
+label underneath in `inkFaint`, `tealBright`/`teal` colored suffix (`+`, `%`,
+`h`). Animate with count-up on scroll-into-view, except for anything already
+above the fold in the page's "one bold moment," which animates on mount.
+
+**Divided list row** (services, checklists) — icon (20px, `sky` or
+`inkFaint`) + title (`text-base font-medium`, `ink`) + one-line description
+(`text-sm`, `inkFaint`), rows separated by `divide-y` in `line`. No card
+background, no shadow.
+
+### Copy voice
+
+Plain, active-voice, specific. Buttons say what happens ("Start planning",
+"Sign in", "Save changes"), not "Submit" or "Learn more". No filler
+adjectives ("revolutionary", "seamless", "cutting-edge"). Section headings
+describe what the section is ("Venue & vendor logistics"), not a marketing
+tagline. Numbers read like product facts ("98.7% on-time launch rate"), not
+superlatives. Errors and empty states say what happened and what to do next,
+in the product's voice.
+
+### Accessibility floor
+
+Non-negotiable on every page:
+
+- Icon-only buttons have an `aria-label`.
+- Visible focus states on every interactive element — don't remove Tailwind's
+  default outline without replacing it.
+- Color is never the only signal for status; pair it with a label.
+- Panels/drawers trap focus while open, close on `Escape`, return focus to
+  the trigger on close.
+- 4.5:1 text contrast against whichever background token the text sits on.
+
+### Checklist before shipping a page
+
+- [ ] Uses the `C` color object and `.font-display`/`.font-ui` — no raw
+      Tailwind color/font classes for brand elements.
+- [ ] Exactly one bold/animated hero moment; everything else is quiet.
+- [ ] Section shapes vary — no repeated "four identical cards" pattern.
+- [ ] Buttons/panels reuse the exact patterns above rather than new variants.
+- [ ] Copy follows the active-voice, no-filler rules above.
+- [ ] Accessibility floor above is met.
+- [ ] Single file, CSS + JS together, one default export.
+
 ## CI
 
 Two workflows in `.github/workflows/`. Both run on pushes and pull requests to
