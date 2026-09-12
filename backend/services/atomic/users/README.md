@@ -34,6 +34,57 @@ Paths are bare, the way every service in this repo mounts its routes. The
 `/api/users/...` the frontend calls is the gateway's prefix, not this service's
 — Kong (or the Vite dev proxy) strips it.
 
+### Request and response
+
+Every endpoint takes and returns JSON. The session travels in cookies, never in
+a body — no endpoint accepts or returns a token.
+
+**`POST /users/signup`**
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `name` | string | yes | 1–100 characters, trimmed |
+| `email` | string | yes | a valid address; lower-cased before storage |
+| `password` | string | yes | 8–72 characters (bcrypt ignores anything past 72) |
+
+```json
+// 201, plus Set-Cookie: sb_access_token, sb_refresh_token
+{"id": "3f1c...", "name": "Ada Lovelace", "email": "ada@example.com"}
+```
+
+**`POST /users/login`**
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `email` | string | yes | a valid address |
+| `password` | string | yes | 1–72 characters — deliberately not the sign-up rules, so an older password still logs in |
+
+```json
+// 200, plus Set-Cookie: sb_access_token, sb_refresh_token
+{"id": "3f1c...", "name": "Ada Lovelace", "email": "ada@example.com"}
+```
+
+**`POST /users/logout`** — no body. Returns `204` with no content, and both
+cookies expired.
+
+**`GET /users/me`** — no body, no parameters. The session cookies identify the
+caller.
+
+```json
+// 200
+{"id": "3f1c...", "name": "Ada Lovelace", "email": "ada@example.com"}
+```
+
+**`GET /health`** — no body.
+
+```json
+// 200
+{"status": "ok"}
+```
+
+`id` is the Supabase Auth user's id, a uuid. `created_at` exists on the row but
+is not returned.
+
 ### Errors
 
 | Status | When |
@@ -123,15 +174,52 @@ when one is missing points somewhere else entirely — see
 
 ## Running
 
-```bash
-docker compose up --build users        # port 8001
+**First, once per Supabase project:** apply
+[`backend/sql/users.sql`](../../../sql/users.sql) and expose the `users` schema
+(Data API → Settings → Exposed schemas). Nothing below works until both are
+done, and the error you get says something else entirely.
 
-# or directly, with the root .env loaded into the environment
+### For development
+
+Reads the root `.env` — your own project, the one whose rows survive.
+
+```bash
+docker compose up -d --build --wait users    # port 8001
+
+# or directly, with the root .env loaded into your shell
 cd backend/services/atomic/users
 uvicorn app:app --reload --port 8001
 ```
 
-## Tests
+```bash
+curl http://localhost:8001/health
+curl -i -X POST http://localhost:8001/users/signup   -H "Content-Type: application/json"   -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correct-horse-battery"}'
+```
+
+`-i` shows the `Set-Cookie` headers, which is the part worth checking.
+
+### For tests
+
+Unit tests need nothing — no Docker, no Supabase, no `.env`:
+
+```bash
+pip install -r tests/requirements.txt
+pytest tests/unit/atomic/users
+```
+
+Integration tests need the stack up against `.env.test` — the throwaway
+project, because they create and delete real accounts:
+
+```bash
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/atomic/users
+docker compose --env-file .env.test down
+```
+
+Changing a value in an env file needs `--force-recreate`; a running container
+keeps the environment it started with.
+
+## Test cases
 
 - Unit: `tests/unit/atomic/users/` — cases in
   [`TEST_CASES.md`](../../../../tests/unit/atomic/users/TEST_CASES.md)

@@ -18,33 +18,41 @@ tests/
   integration/    crosses a real boundary (Supabase, HTTP)
 ```
 
-## Branches
+## Branches and commits
 
 Work never lands directly on `main`. Every change goes on its own branch, named
-after the task it implements:
+for what the work is — short, kebab-case, no ceremony:
 
 ```
-<task-id>/<task-name>
+users-auth
+expose-events-schema
 ```
-
-```
-S-01.T-01/users-service
-S-02.T-04/expose-events-schema
-```
-
-The task id comes from the tracker, verbatim — dots and dashes included. The
-name is short kebab-case saying what the work is.
-
-Git accepts a dot inside a branch name, so `S-01.T-01/...` is fine. It rejects
-`..`, a part starting with `.`, and spaces — none of which appear in a task id.
-Check an unfamiliar name with `git check-ref-format --branch <name>`.
-
-**If no task id was given, ask the developer for it before starting.** Do not
-invent one, and do not fall back to a bare name — the id is the only thing
-linking the branch back to the task.
 
 Create the branch before writing any files, so the first commit is already in
 the right place.
+
+### The task id goes in the commit message
+
+A branch is temporary and gets deleted on merge. The commit is what survives, so
+that is where the link back to the tracker lives. Every commit ends with the id
+of the task it implements, verbatim — dots and dashes included:
+
+```
+add: users service auth endpoints
+
+Sign-up, login, logout and /users/me on the users service, wrapping
+Supabase Auth so the browser never holds a token.
+
+Task: S-01.T-01
+```
+
+A trailer, so it is greppable — `git log --grep="Task: S-01.T-01"` finds the
+work for a task however the branch was named. If one commit genuinely
+implements more than one task, give each its own `Task:` line.
+
+**If no task id was given, ask the developer for it before committing.** Do not
+invent one. An unpushed commit can be amended; once it is pushed and reviewed,
+the message is effectively fixed.
 
 ## Stack
 
@@ -224,7 +232,7 @@ backend/services/<atomic|composite>/<name>/
   clients.py         outbound HTTP          (composite only)
   Dockerfile
   requirements.txt
-  README.md
+  README.md         API doc — see below
 ```
 
 Atomic services own data, so they have `database.py`. Composite services own
@@ -391,6 +399,28 @@ uvicorn[standard]
 supabase
 pydantic
 ```
+
+### `README.md`
+
+**Every service documents its own API here.** A reader should be able to call
+the service without opening `app.py`. Four things, always:
+
+1. **Endpoints** — method, path, and what each one does. One row each.
+2. **Request** — the body fields or query parameters each endpoint takes, with
+   types and which are required. Name the actual fields: "a user payload" is
+   not a parameter list.
+3. **Response** — the JSON that comes back on success, and every status code it
+   answers with on failure, with what each one means. Show the body, do not
+   describe it.
+4. **How to run it** — the command for **development** and the command for
+   **tests**, both spelled out, including whatever has to be true first: the
+   schema applied, `.env` or `.env.test` filled in, the stack up.
+
+A stub service still gets a README — git will not commit an empty folder — but
+once it has routes, it has all four.
+
+Keep it in step with the code. A README describing a field that no longer
+exists is worse than no README, because it is believed.
 
 ## Ports
 
@@ -592,13 +622,14 @@ More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
 
-1. Branch first — `<task-id>/<task-name>`, see [Branches](#branches). Then
-   create the folder under `atomic/` or `composite/`, whichever the rules above
-   call for.
+1. Branch first — see [Branches and commits](#branches-and-commits), and get
+   the task id for the commit message. Then create the folder under `atomic/`
+   or `composite/`, whichever the rules above call for.
 2. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
-3. Add the `README.md` even if the service is a stub — git will not commit an
-   empty folder.
+3. Add the `README.md` — endpoints, request and response params, and how to
+   run it for development and for tests. See [`README.md`](#readmemd). Add it
+   even if the service is a stub; git will not commit an empty folder.
 4. Create the matching test folders under `tests/unit/` and
    `tests/integration/`, each with a `TEST_CASES.md` recording its cases —
    see [`TEST_CASES.md`](#test_casesmd).
