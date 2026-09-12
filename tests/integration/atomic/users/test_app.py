@@ -15,7 +15,7 @@ from http.cookies import SimpleCookie
 
 import httpx
 import pytest
-from conftest import BASE_URL, requires_env
+from .conftest import BASE_URL, requires_env
 
 pytestmark = requires_env
 

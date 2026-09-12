@@ -12,6 +12,35 @@
 name: spm
 
 services:
+
+# The front door. The browser calls Kong and nothing else, so adding a
+# service later costs the frontend no change -- only a rule in kong.yml.
+  kong:
+    image: kong:3.7
+    ports:
+      - "${KONG_PROXY_PORT}:8000"
+    environment:
+      # DB-less: the routing table is backend/kong/kong.yml, not a database.
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      # No admin API. DB-less does not need one, and Kong's default admin port
+      # is 8001 -- which the users service already owns.
+      KONG_ADMIN_LISTEN: "off"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./backend/kong:/kong:ro
+    depends_on:
+      users:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
   users:
     build: ./backend/services/atomic/users
     ports:
@@ -36,3 +65,6 @@ services:
       retries: 5
       start_period: 5s
     restart: unless-stopped
+
+
+

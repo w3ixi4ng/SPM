@@ -425,13 +425,18 @@ exists is worse than no README, because it is believed.
 
 ## Ports
 
-Every service gets its own port. Nothing shares 8000.
+Every service gets its own port. 8000 is the gateway's.
 
 | Service | Port | Reached at |
 | --- | --- | --- |
+| **Kong (gateway)** | **8000** | `http://localhost:8000/api/...` — the only one a browser uses |
 | `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
 | `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
-| first composite | 8000 | reserved |
+| first composite | 8100 | reserved |
+
+Services stay published on their own ports as well, so you can bypass the
+gateway to test a service on its own — which is what the integration tests do.
+Composites start at 8100 to leave the 800x block to atomic services.
 
 A new service claims the next free port and must be added to three places, or
 it will not run:
@@ -440,6 +445,10 @@ it will not run:
 2. `.env.example` — `<NAME>_SERVICE_PORT`, plus `<NAME>_SERVICE_URL` if
    composites call it
 3. `docker-compose.yml` — a service block with `"${<NAME>_SERVICE_PORT}:<port>"`
+
+If the browser needs to reach it, add a fourth: a rule in
+[`backend/kong/kong.yml`](backend/kong/README.md), so the frontend keeps
+calling `/api/...` and never learns the port.
 
 ## Running the stack
 
@@ -757,6 +766,12 @@ tests/integration/atomic/users/test_app.py
 tests/integration/atomic/users/TEST_CASES.md
 ```
 
+Every test folder gets an empty `__init__.py`, all the way down. Two services
+both have a `tests/unit/.../test_app.py`, and without packages pytest cannot
+give them distinct module names — `pytest tests` fails to collect with "import
+file mismatch" while each suite passes on its own. Being a package also means a
+test imports its neighbouring conftest relatively: `from .conftest import ...`.
+
 - **`tests/unit/`** — one service on its own, with a fake in place of Supabase.
   Swap it in with `app.dependency_overrides[get_db]`; a `MagicMock` handles the
   `.schema().table().select().execute()` chain without extra code. No network,
@@ -855,8 +870,8 @@ More detail in [`tests/README.md`](tests/README.md).
    run it for development and for tests. See [`README.md`](#readmemd). Add it
    even if the service is a stub; git will not commit an empty folder.
 4. Create the matching test folders under `tests/unit/` and
-   `tests/integration/`, each with a `TEST_CASES.md` recording its cases —
-   see [`TEST_CASES.md`](#test_casesmd).
+   `tests/integration/`, each with an empty `__init__.py` and a
+   `TEST_CASES.md` recording its cases — see [`TEST_CASES.md`](#test_casesmd).
 5. Write the schema SQL from
    [Creating a new schema](#creating-a-new-schema--hand-this-to-the-developer)
    to `backend/sql/<service>.sql`, commit it, then **hand it to the developer

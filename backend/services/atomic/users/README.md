@@ -120,26 +120,19 @@ Login returns no token. It sets two cookies — `sb_access_token` and
 `sb_refresh_token` — each `HttpOnly`, `Secure` and `SameSite=Lax`, so script on
 the page cannot read them and cross-site requests do not carry them.
 
-`SameSite=Lax` means **the frontend has to reach these routes same-origin.**
-In development that is a Vite proxy:
+The frontend never calls this service directly. It calls **Kong** at
+`/api/users/...`, and Kong forwards to `http://users:8001/users/...` — see
+[`backend/kong/`](../../../kong/README.md). That is what keeps the frontend
+from knowing this service's port at all.
 
-```js
-// frontend/vite.config.js
-server: {
-  proxy: {
-    "/api": {
-      target: "http://localhost:8001",
-      changeOrigin: true,
-      rewrite: (path) => path.replace(/^\/api/, ""),
-    },
-  },
-}
-```
-
-and in production it is Kong in front of both. Calling `http://localhost:8001`
-straight from `http://localhost:5173` will look like it works and then quietly
-drop the cookie — that is the one thing to check first if login "succeeds" and
-`/users/me` still says 401.
+It also keeps the browser on **one origin**, which is what the cookies need.
+In development Vite serves the app and proxies `/api` to Kong
+([`frontend/vite.config.js`](../../../../frontend/vite.config.js)); in
+production Kong fronts both. Calling `http://localhost:8001` straight from
+`http://localhost:5173` is cross-origin, and the browser blocks it for want of
+CORS headers this service deliberately does not send — the fix is the proxy,
+not the headers, because CORS with credentials would also force the weaker
+`SameSite=None`.
 
 The access token lasts about an hour, so `/users/me` refreshes it from the
 refresh cookie when it has expired and writes the renewed pair back on the same

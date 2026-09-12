@@ -8,7 +8,7 @@ integration tests are for.
 
 from types import SimpleNamespace
 
-from conftest import (
+from .conftest import (
     EMAIL,
     NAME,
     PROFILE,
