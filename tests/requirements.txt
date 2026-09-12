@@ -1,0 +1,7 @@
+# Everything the test suite needs, on top of each service's own
+# requirements.txt:  pip install -r tests/requirements.txt
+pytest
+httpx            # TestClient, and the integration tests' HTTP calls
+fastapi
+pydantic[email]
+supabase
