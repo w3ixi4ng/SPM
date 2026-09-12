@@ -438,17 +438,42 @@ Services stay published on their own ports as well, so you can bypass the
 gateway to test a service on its own — which is what the integration tests do.
 Composites start at 8100 to leave the 800x block to atomic services.
 
-A new service claims the next free port and must be added to three places, or
-it will not run:
+A new service claims the next free port and must be registered in **four**
+places. Miss one and it does not run, or runs and cannot be reached:
 
 1. its `Dockerfile` — `EXPOSE` and the `--port` in `CMD`
 2. `.env.example` — `<NAME>_SERVICE_PORT`, plus `<NAME>_SERVICE_URL` if
    composites call it
-3. `docker-compose.yml` — a service block with `"${<NAME>_SERVICE_PORT}:<port>"`
+3. `docker-compose.yml` — a service block publishing
+   `"${<NAME>_SERVICE_PORT}:<port>"`, with a `/health` healthcheck so
+   dependants can wait on it
+4. `backend/kong/kong.yml` — a route, if the browser reaches it
 
-If the browser needs to reach it, add a fourth: a rule in
-[`backend/kong/kong.yml`](backend/kong/README.md), so the frontend keeps
-calling `/api/...` and never learns the port.
+### The gateway
+
+Everything the browser calls goes through Kong, so the frontend knows one
+prefix — `/api` — and never a port. A new service is one entry, and the
+service's own path prefix goes on the **url**, not the route:
+
+```yaml
+  - name: events
+    url: http://events:8002/events     # the service's own prefix
+    routes:
+      - name: events
+        paths:
+          - /api/events                # what the browser calls
+        strip_path: true
+```
+
+Kong strips `/api/events` and appends what is left to the url, so
+`/api/events/42` arrives as `/events/42`. Leave the prefix off the url and it
+arrives as `/42` — a 404 that reads like the service is broken.
+
+Kong is DB-less: that file is the entire configuration, so a routing change is
+a diff, not an admin API call. It takes effect on `docker compose restart kong`.
+
+A service with no browser-facing routes — one only composites call — needs no
+Kong entry. More in [`backend/kong/README.md`](backend/kong/README.md).
 
 ## Running the stack
 
@@ -660,6 +685,7 @@ More detail in [`tests/README.md`](tests/README.md).
    service finished. Skipping either makes every query fail with an error that points
    somewhere else — see
    [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-or-nothing-works).
-7. Claim the next free port and register it in the Dockerfile,
-   `.env.example`, and `docker-compose.yml` — see [Ports](#ports).
+7. Claim the next free port and register it in all four places — the
+   Dockerfile, `.env.example`, `docker-compose.yml`, and
+   `backend/kong/kong.yml` if the browser reaches it. See [Ports](#ports).
 8. List the service in its parent `README.md` table.
