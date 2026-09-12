@@ -8,15 +8,16 @@ where the code thinks it is.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait` then `pytest tests/integration/atomic/users` |
-| Last run | Not yet run — see Status below |
-| Environment | Would be: `.env.test` pointing at the test Supabase project, users service on `localhost:8001` |
-| Result | 3 Blocked |
+| Last run | 2026-09-12, commit `0bb3615` |
+| Environment | `.env.test` → test Supabase project, `users` schema applied and exposed, email confirmation off; users service in Docker on `localhost:8001` |
+| Result | 3 passed |
 
-**Everything below is Blocked, not Failed.** The cases cannot run until a
-developer has applied [`backend/sql/users.sql`](../../../../backend/sql/users.sql)
-to the test project and exposed the `users` schema. Blocked says "this has not
-been proven yet"; Failed would say "this was tried and the service is wrong",
-and that would be a different and worse claim.
+These passed as of the commit above, and a pass is only ever a pass as of a
+build. They return to Blocked — not Failed — the moment they run against a
+project where [`backend/sql/users.sql`](../../../../backend/sql/users.sql) has
+not been applied or the `users` schema is not exposed. Blocked says "this has
+not been proven here"; Failed would say "this was tried and the service is
+wrong", which is a different and worse claim.
 
 **Shared pre-conditions.** Every case needs all of:
 
@@ -64,8 +65,11 @@ whether the case passes or fails, so the suite can be run twice in a row.
   - Step 5: `204`.
   - Step 6: `200`, body identical to step 1's.
   - Step 7: `200` with the same `id`.
-- **Actual:** —
-- **Status:** Blocked — schema not yet applied or exposed on the test project.
+- **Actual:** As expected at every step. Sign-up returned `201` with a session,
+  the row was readable at `users.users` by the returned id, both cookies came
+  back `HttpOnly` and `Secure` with no token in the body, and the profile was
+  identical across sign-up, `/users/me`, login, and `/users/me` again.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_signup_login_me_logout_round_trip`
 
 ## TC-USERS-102 — the same address cannot sign up twice
@@ -80,8 +84,8 @@ whether the case passes or fails, so the suite can be run twice in a row.
 - **Test data:** As TC-USERS-101.
 - **Expected:** Step 1 `201`; step 2 `409` with `detail` exactly
   `"Email already registered"`, and no second account.
-- **Actual:** —
-- **Status:** Blocked — schema not yet applied or exposed on the test project.
+- **Actual:** First `201`, second `409` with `"Email already registered"`.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_signing_up_twice_with_one_email_is_refused`
 
 ## TC-USERS-103 — `/users/me` without cookies is a 401
@@ -92,6 +96,6 @@ whether the case passes or fails, so the suite can be run twice in a row.
 - **Steps:** 1. `GET /users/me` with no `Cookie` header.
 - **Test data:** None.
 - **Expected:** `401`, `detail` exactly `"Not authenticated"`.
-- **Actual:** —
-- **Status:** Blocked — stack not yet runnable against the test project.
+- **Actual:** `401` with `"Not authenticated"`.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_me_without_a_session_is_401`
