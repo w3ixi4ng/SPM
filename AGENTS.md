@@ -31,28 +31,29 @@ expose-events-schema
 Create the branch before writing any files, so the first commit is already in
 the right place.
 
-### The task id goes in the commit message
+### The task id goes in the pull request
 
-A branch is temporary and gets deleted on merge. The commit is what survives, so
-that is where the link back to the tracker lives. Every commit ends with the id
-of the task it implements, verbatim — dots and dashes included:
+A branch gets deleted on merge and a commit message is awkward to correct once
+it is pushed. The pull request is what a reviewer actually reads and what the
+tracker links to, so that is where the task id lives. Every PR description names
+the task it implements, verbatim — dots and dashes included:
 
-```
-add: users service auth endpoints
-
-Sign-up, login, logout and /users/me on the users service, wrapping
-Supabase Auth so the browser never holds a token.
-
+```markdown
 Task: S-01.T-01
+
+Adds sign-up, login, logout and /users/me to the users service, wrapping
+Supabase Auth so the browser never holds a token.
 ```
 
-A trailer, so it is greppable — `git log --grep="Task: S-01.T-01"` finds the
-work for a task however the branch was named. If one commit genuinely
-implements more than one task, give each its own `Task:` line.
+A PR covering more than one task gives each its own line. A description can be
+edited at any time, which is the point — an id can be added or corrected later
+without rewriting anything.
 
-**If no task id was given, ask the developer for it before committing.** Do not
-invent one. An unpushed commit can be amended; once it is pushed and reviewed,
-the message is effectively fixed.
+**If no task id was given, ask the developer for it before opening the PR.** Do
+not invent one.
+
+Commit messages need no id. Write them for whoever is reading the diff: what
+changed and why, not which ticket asked for it.
 
 ## Stack
 
@@ -622,9 +623,9 @@ More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
 
-1. Branch first — see [Branches and commits](#branches-and-commits), and get
-   the task id for the commit message. Then create the folder under `atomic/`
-   or `composite/`, whichever the rules above call for.
+1. Branch first — see [Branches and commits](#branches-and-commits). Then
+   create the folder under `atomic/` or `composite/`, whichever the rules above
+   call for. The task id is needed for the PR description, not yet.
 2. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
 3. Add the `README.md` — endpoints, request and response params, and how to
