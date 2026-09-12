@@ -7,6 +7,10 @@
 # own port -- http://users:8001. `localhost` inside a container means that
 # container, which is why USERS_SERVICE_URL defaults to the name form.
 
+# Pinned, rather than derived from the directory name, so a checkout in a
+# differently-named folder still builds spm-users and spm_default.
+name: spm
+
 services:
   users:
     build: ./backend/services/atomic/users

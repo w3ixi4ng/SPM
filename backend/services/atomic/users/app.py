@@ -1,5 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
@@ -39,6 +41,37 @@ async def clear_dead_session(request: Request, exc: StarletteHTTPException):
     if getattr(request.state, "clear_session", False):
         clear_session_cookies(response)
     return response
+
+
+@app.exception_handler(RequestValidationError)
+async def readable_validation_error(request: Request, exc: RequestValidationError):
+    """Answer a 422 in the same shape as every other error.
+
+    FastAPI's own is a list of objects under `detail`, so a frontend has to
+    branch on whether `detail` is a string or an array -- on the one status a
+    sign-up form hits most. This keeps `detail` a sentence and puts the
+    per-field messages where a form can read them straight off.
+    """
+    errors: dict[str, str] = {}
+    for error in exc.errors():
+        path = [str(part) for part in error["loc"] if part != "body"]
+        errors.setdefault(".".join(path) or "body", error["msg"])
+
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Please check the details you entered", "errors": errors},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Keep a crash JSON, so the frontend can read it like any other error.
+
+    Without this an unhandled exception comes back as text/plain, and the
+    caller's `response.json()` throws on exactly the responses worth logging.
+    Starlette re-raises afterwards, so the traceback still reaches the logs.
+    """
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 def _auth_error(exc: AuthApiError) -> HTTPException:

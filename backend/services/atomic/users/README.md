@@ -44,6 +44,25 @@ Paths are bare, the way every service in this repo mounts its routes. The
 | `429` | Supabase is rate-limiting that address. |
 | `502` | Supabase Auth could not be reached or made no sense. |
 
+Every error has the same shape, so a caller reads `detail` once and is done:
+
+```json
+{"detail": "Email already registered"}
+```
+
+A `422` adds the per-field messages a form needs, with `detail` still a
+sentence rather than FastAPI's default list of error objects:
+
+```json
+{
+  "detail": "Please check the details you entered",
+  "errors": {"email": "value is not a valid email address"}
+}
+```
+
+That includes crashes — an unhandled exception is JSON too, not `text/plain`,
+so the frontend can parse the responses most worth logging.
+
 ## Sessions
 
 Login returns no token. It sets two cookies — `sb_access_token` and

@@ -9,7 +9,7 @@ client.
 | Suite | `pytest tests/unit/atomic/users` |
 | Last run | 2026-09-12, working tree of branch `user-auth` |
 | Environment | Python 3.12.5, pytest 9.1.1, fastapi 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
-| Result | 22 passed |
+| Result | 23 passed |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -325,3 +325,17 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_logout_works_without_a_session`
+
+## TC-USERS-023 — validation errors match the shape of every other error
+
+- **Scenario:** A frontend reads `detail` the same way whatever went wrong, and
+  gets per-field messages it can put next to the inputs.
+- **Pre-conditions:** Shared.
+- **Steps:** 1. `POST /users/signup` with two fields wrong at once.
+- **Test data:** `{"name": "Ada Lovelace", "email": "not-an-email", "password": "short"}`
+- **Expected:** `422`; `detail` is a **string**, not FastAPI's list of error
+  objects; `errors` holds one entry per bad field — exactly `email` and
+  `password`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_validation_errors_arrive_in_the_same_shape_as_every_other_error`

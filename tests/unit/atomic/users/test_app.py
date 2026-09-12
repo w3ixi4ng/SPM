@@ -317,3 +317,20 @@ def test_me_is_404_when_the_profile_row_is_gone(client, db, auth):
     response = client.get("/users/me")
 
     assert response.status_code == 404
+
+
+# --- TC-USERS-023 ---------------------------------------------------------
+def test_validation_errors_arrive_in_the_same_shape_as_every_other_error(client, db):
+    on_select(db, [])
+
+    response = client.post(
+        "/users/signup", json={**SIGNUP, "email": "not-an-email", "password": "short"}
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    # A sentence, not FastAPI's list of objects: the caller reads `detail` the
+    # same way whatever went wrong.
+    assert isinstance(body["detail"], str)
+    # And the per-field messages a form can put next to its inputs.
+    assert set(body["errors"]) == {"email", "password"}
