@@ -81,6 +81,8 @@ jobs:
           cat > .env.test <<ENV
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
           USERS_SERVICE_PORT=8001
           EVENTS_SERVICE_PORT=8002
           USERS_SERVICE_URL=http://users:8001
