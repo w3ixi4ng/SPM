@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { CircleAlert, Loader2 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { signUp } from '../lib/auth.js'
 
 const C = {
   ink: '#10192B',
@@ -8,6 +10,18 @@ const C = {
   line: '#E3DFD3',
   teal: '#0E7C74',
   rose: '#B25547',
+}
+
+// Mirrors backend/services/atomic/users/schemas.py::SignUpRequest exactly, so
+// a bad value is caught here instead of round-tripping to the server first.
+const NAME_MAX = 100
+const PASSWORD_MIN = 8
+const PASSWORD_MAX = 72
+
+const FRIENDLY_FIELD_ERRORS = {
+  name: `Please enter a name (up to ${NAME_MAX} characters).`,
+  email: 'Please enter a valid email address.',
+  password: `Password must be ${PASSWORD_MIN}-${PASSWORD_MAX} characters.`,
 }
 
 function withAlpha(hex, alpha) {
@@ -20,13 +34,21 @@ function withAlpha(hex, alpha) {
 
 function validate({ name, email, password }) {
   const errors = {}
-  if (!name.trim()) errors.name = 'Please enter your name.'
-  if (!email.trim()) errors.email = 'Please enter your email address.'
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+
+  const trimmedName = name.trim()
+  if (!trimmedName) errors.name = 'Please enter your name.'
+  else if (trimmedName.length > NAME_MAX) errors.name = `Name must be ${NAME_MAX} characters or fewer.`
+
+  const trimmedEmail = email.trim()
+  if (!trimmedEmail) errors.email = 'Please enter your email address.'
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
     errors.email = 'Please enter a valid email address.'
   }
+
   if (!password) errors.password = 'Please create a password.'
-  else if (password.length < 8) errors.password = 'Password must be at least 8 characters.'
+  else if (password.length < PASSWORD_MIN) errors.password = `Password must be at least ${PASSWORD_MIN} characters.`
+  else if (password.length > PASSWORD_MAX) errors.password = `Password must be ${PASSWORD_MAX} characters or fewer.`
+
   return errors
 }
 
@@ -43,29 +65,61 @@ function FieldError({ id, message }) {
 }
 
 export default function SignUp() {
+  const navigate = useNavigate()
+
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState({})
+  const [formError, setFormError] = useState(null)
+  const [status, setStatus] = useState('idle')
 
   const nameRef = useRef(null)
   const emailRef = useRef(null)
   const passwordRef = useRef(null)
   const fieldRefs = { name: nameRef, email: emailRef, password: passwordRef }
 
+  const isSubmitting = status === 'loading' || status === 'success'
+
   function clearFieldError(field) {
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+    if (formError) setFormError(null)
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
+    if (isSubmitting) return
 
     const validationErrors = validate({ name, email, password })
     setErrors(validationErrors)
+    setFormError(null)
 
     const firstInvalid = Object.keys(validationErrors)[0]
     if (firstInvalid) {
       fieldRefs[firstInvalid]?.current?.focus()
+      return
+    }
+
+    setStatus('loading')
+    try {
+      await signUp({ name: name.trim(), email: email.trim(), password })
+      setStatus('success')
+      setTimeout(() => navigate('/dashboard'), 700)
+    } catch (err) {
+      setStatus('idle')
+      if (err.status === 409) {
+        setFormError('This email is already registered. Log in instead, or use a different email.')
+      } else if (err.status === 422 && err.fieldErrors) {
+        const mapped = {}
+        for (const field of Object.keys(err.fieldErrors)) {
+          mapped[field] = FRIENDLY_FIELD_ERRORS[field] || err.fieldErrors[field]
+        }
+        setErrors(mapped)
+      } else if (err.status === 429) {
+        setFormError("You've tried too many times. Wait a moment and try again.")
+      } else {
+        setFormError(err.message || 'Something went wrong. Please try again.')
+      }
     }
   }
 
@@ -97,6 +151,7 @@ export default function SignUp() {
         .csp-input[aria-invalid="true"]:focus-visible {
           box-shadow: 0 0 0 3px ${withAlpha(C.rose, 0.15)};
         }
+        .csp-input:disabled { opacity: 0.65; cursor: not-allowed; }
 
         @media (prefers-reduced-motion: reduce) {
           .rise-in { animation: none !important; }
@@ -115,6 +170,17 @@ export default function SignUp() {
           events.
         </p>
 
+        {formError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-sm px-4 py-3 mb-5 font-ui text-sm"
+            style={{ backgroundColor: withAlpha(C.rose, 0.1), color: C.rose }}
+          >
+            <CircleAlert size={18} className="shrink-0 mt-0.5" aria-hidden="true" />
+            <span>{formError}</span>
+          </div>
+        )}
+
         <form noValidate onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label htmlFor="signup-name" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
@@ -126,12 +192,14 @@ export default function SignUp() {
               name="name"
               type="text"
               autoComplete="name"
+              maxLength={NAME_MAX}
               placeholder="Ada Lovelace"
               value={name}
               onChange={(e) => {
                 setName(e.target.value)
                 clearFieldError('name')
               }}
+              disabled={isSubmitting}
               aria-invalid={Boolean(errors.name)}
               aria-describedby={errors.name ? 'signup-name-error' : undefined}
               className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
@@ -155,6 +223,7 @@ export default function SignUp() {
                 setEmail(e.target.value)
                 clearFieldError('email')
               }}
+              disabled={isSubmitting}
               aria-invalid={Boolean(errors.email)}
               aria-describedby={errors.email ? 'signup-email-error' : undefined}
               className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
@@ -172,12 +241,14 @@ export default function SignUp() {
               name="password"
               type="password"
               autoComplete="new-password"
-              placeholder="At least 8 characters"
+              maxLength={PASSWORD_MAX}
+              placeholder={`${PASSWORD_MIN}-${PASSWORD_MAX} characters`}
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value)
                 clearFieldError('password')
               }}
+              disabled={isSubmitting}
               aria-invalid={Boolean(errors.password)}
               aria-describedby={errors.password ? 'signup-password-error' : undefined}
               className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
@@ -187,10 +258,20 @@ export default function SignUp() {
 
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-sm font-medium font-ui transition-transform duration-200 hover:-translate-y-0.5"
+            disabled={isSubmitting}
+            className={`w-full flex items-center justify-center gap-2 px-5 py-3 rounded-sm font-medium font-ui transition-transform duration-200 disabled:opacity-70 ${
+              isSubmitting ? '' : 'hover:-translate-y-0.5'
+            }`}
             style={{ backgroundColor: C.teal, color: C.paper }}
           >
-            Sign Up
+            {status === 'loading' && (
+              <>
+                <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                Creating account...
+              </>
+            )}
+            {status === 'success' && 'Account created'}
+            {status === 'idle' && 'Sign Up'}
           </button>
         </form>
 

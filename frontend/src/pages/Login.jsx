@@ -91,15 +91,15 @@ function BrandPanel() {
 
 export default function Login() {
   const navigate = useNavigate()
-  const usernameId = useId()
+  const emailId = useId()
   const passwordId = useId()
-  const usernameErrorId = useId()
+  const emailErrorId = useId()
   const passwordErrorId = useId()
 
-  const usernameRef = useRef(null)
+  const emailRef = useRef(null)
   const passwordRef = useRef(null)
 
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
@@ -108,10 +108,10 @@ export default function Login() {
 
   const isSubmitting = status === 'loading' || status === 'success'
 
-  function handleUsernameChange(e) {
-    setUsername(e.target.value)
-    if (errors.username) {
-      setErrors((prev) => ({ ...prev, username: undefined }))
+  function handleEmailChange(e) {
+    setEmail(e.target.value)
+    if (errors.email) {
+      setErrors((prev) => ({ ...prev, email: undefined }))
     }
     if (authError) setAuthError(null)
   }
@@ -126,7 +126,10 @@ export default function Login() {
 
   function validate() {
     const next = {}
-    if (!username.trim()) next.username = 'Please enter your username.'
+    if (!email.trim()) next.email = 'Please enter your email.'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      next.email = 'Please enter a valid email address.'
+    }
     if (!password) next.password = 'Please enter your password.'
     return next
   }
@@ -139,8 +142,8 @@ export default function Login() {
     setErrors(next)
     setAuthError(null)
 
-    if (next.username) {
-      usernameRef.current?.focus()
+    if (next.email) {
+      emailRef.current?.focus()
       return
     }
     if (next.password) {
@@ -149,14 +152,20 @@ export default function Login() {
     }
 
     setStatus('loading')
-    login({ username: username.trim(), password })
+    login({ email: email.trim(), password })
       .then(() => {
         setStatus('success')
         setTimeout(() => navigate('/dashboard'), 700)
       })
-      .catch(() => {
+      .catch((err) => {
         setStatus('idle')
-        setAuthError('Incorrect username or password. Please try again.')
+        if (err.status === 401) {
+          setAuthError('Incorrect email or password. Please try again.')
+        } else if (err.status === 429) {
+          setAuthError("You've tried too many times. Wait a moment and try again.")
+        } else {
+          setAuthError(err.message || 'Something went wrong. Please try again.')
+        }
       })
   }
 
@@ -262,37 +271,37 @@ export default function Login() {
             <form noValidate onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label
-                  htmlFor={usernameId}
+                  htmlFor={emailId}
                   className="block font-ui text-sm font-medium mb-1.5"
                   style={{ color: C.ink }}
                 >
-                  Username
+                  Email
                 </label>
                 <input
-                  ref={usernameRef}
-                  id={usernameId}
-                  name="username"
-                  type="text"
-                  autoComplete="username"
-                  placeholder="e.g. jane.doe"
-                  value={username}
-                  onChange={handleUsernameChange}
+                  ref={emailRef}
+                  id={emailId}
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={handleEmailChange}
                   disabled={isSubmitting}
-                  aria-invalid={Boolean(errors.username)}
+                  aria-invalid={Boolean(errors.email)}
                   aria-describedby={
-                    errors.username ? usernameErrorId : undefined
+                    errors.email ? emailErrorId : undefined
                   }
                   className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm disabled:opacity-60"
                 />
                 <div className="min-h-5 mt-1">
-                  {errors.username && (
+                  {errors.email && (
                     <p
-                      id={usernameErrorId}
+                      id={emailErrorId}
                       role="alert"
                       className="csp-error font-ui text-xs"
                       style={{ color: C.rose }}
                     >
-                      {errors.username}
+                      {errors.email}
                     </p>
                   )}
                 </div>
