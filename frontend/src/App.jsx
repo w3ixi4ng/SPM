@@ -1,121 +1,168 @@
 import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
 import './App.css'
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
+
+const DASHBOARD_LABELS = {
+  event_organiser: 'Event Organiser Dashboard',
+  event_coordinator: 'Event Coordinator Dashboard',
+  venue_staff: 'Venue Staff Dashboard',
+  technical_support: 'Technical Support Dashboard',
+  attendee: 'Attendee Dashboard',
+}
+
+function validateForm(values) {
+  const errors = {}
+  const identifier = values.identifier.trim()
+
+  if (!identifier) {
+    errors.identifier = 'Email is required.'
+  } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(identifier)) {
+    errors.identifier = 'Use your account email. Username login is not available yet.'
+  }
+
+  if (!values.password) {
+    errors.password = 'Password is required.'
+  }
+
+  return errors
+}
+
+async function login(values) {
+  const response = await fetch(`${API_URL}/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      identifier: values.identifier.trim(),
+      password: values.password,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Invalid credentials')
+  }
+
+  return response.json()
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [values, setValues] = useState({ identifier: '', password: '' })
+  const [fieldErrors, setFieldErrors] = useState({})
+  const [formError, setFormError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [session, setSession] = useState(null)
+
+  function updateField(event) {
+    const { name, value } = event.target
+    setValues((current) => ({ ...current, [name]: value }))
+    setFieldErrors((current) => ({ ...current, [name]: '' }))
+    setFormError('')
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    const errors = validateForm(values)
+    setFieldErrors(errors)
+    setFormError('')
+
+    if (Object.keys(errors).length > 0) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const nextSession = await login(values)
+      sessionStorage.setItem('connectsphere_access_token', nextSession.access_token)
+      sessionStorage.setItem(
+        'connectsphere_refresh_token',
+        nextSession.refresh_token,
+      )
+      window.history.pushState({}, '', nextSession.redirect_path)
+      setSession(nextSession)
+    } catch {
+      setFormError('Invalid email or password.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (session) {
+    const dashboardTitle = DASHBOARD_LABELS[session.user.role] || 'Dashboard'
+
+    return (
+      <main className="app-shell">
+        <section className="dashboard-view" aria-labelledby="dashboard-title">
+          <p className="eyebrow">ConnectSphere</p>
+          <h1 id="dashboard-title">{dashboardTitle}</h1>
+          <p className="dashboard-email">{session.user.email}</p>
+        </section>
+      </main>
+    )
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <main className="login-page">
+      <section className="login-panel" aria-labelledby="login-title">
+        <div className="brand-block">
+          <p className="eyebrow">ConnectSphere</p>
+          <h1 id="login-title">Log in</h1>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+
+        <form className="login-form" onSubmit={handleSubmit} noValidate>
+          <div className="field-group">
+            <label htmlFor="identifier">Email or username</label>
+            <input
+              id="identifier"
+              name="identifier"
+              type="text"
+              autoComplete="username"
+              value={values.identifier}
+              onChange={updateField}
+              aria-invalid={Boolean(fieldErrors.identifier)}
+              aria-describedby={
+                fieldErrors.identifier ? 'identifier-error' : undefined
+              }
+            />
+            {fieldErrors.identifier ? (
+              <p className="field-error" id="identifier-error">
+                {fieldErrors.identifier}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="field-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={values.password}
+              onChange={updateField}
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+            />
+            {fieldErrors.password ? (
+              <p className="field-error" id="password-error">
+                {fieldErrors.password}
+              </p>
+            ) : null}
+          </div>
+
+          {formError ? (
+            <p className="form-error" role="alert">
+              {formError}
+            </p>
+          ) : null}
+
+          <button className="submit-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Logging in...' : 'Log in'}
+          </button>
+        </form>
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
