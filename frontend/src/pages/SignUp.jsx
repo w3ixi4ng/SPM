@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { CircleAlert, Loader2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
+import useAuth from '../auth/useAuth.js'
 import { signUp } from '../lib/auth.js'
 
 const C = {
@@ -66,6 +67,7 @@ function FieldError({ id, message }) {
 
 export default function SignUp() {
   const navigate = useNavigate()
+  const { refresh } = useAuth()
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -103,6 +105,7 @@ export default function SignUp() {
     setStatus('loading')
     try {
       await signUp({ name: name.trim(), email: email.trim(), password })
+      await refresh()
       setStatus('success')
       setTimeout(() => navigate('/dashboard'), 700)
     } catch (err) {

@@ -5,6 +5,7 @@ frontend knows one base URL — `/api` — instead of a port per service.
 
 ```
 browser  ->  /api/users/login  ->  Kong  ->  http://users:8001/users/login
+browser  ->  /api/events/42    ->  Kong  ->  http://events:8002/events/42
 ```
 
 ## Configuration
@@ -38,6 +39,10 @@ prefix off the url sends it `/42` instead, and you get a 404 that looks like
 the service is broken.
 
 The frontend needs no change — it already calls `/api/...`.
+
+The configured event health path is `/api/events/health`. It reaches the
+events service's prefixed health alias; the service-standard direct health
+path remains `http://localhost:8002/health`.
 
 ## Ports
 

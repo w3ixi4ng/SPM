@@ -9,6 +9,8 @@ class UserBase(BaseModel):
 
 
 class SignUpRequest(UserBase):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
     # 72 bytes is bcrypt's limit -- everything past it is dropped before
     # hashing, so a longer password is not the stronger one it looks like.
     password: str = Field(min_length=8, max_length=72)
@@ -27,3 +29,9 @@ class LoginRequest(BaseModel):
 class UserRead(UserBase):
     # The profile shares its id with the Supabase Auth user, so it is a uuid.
     id: str
+
+
+class CurrentUserRead(UserRead):
+    # This comes from verified Supabase Auth app_metadata, never users.users or
+    # user_metadata. None lets clients fail closed for older unassigned users.
+    role: str | None

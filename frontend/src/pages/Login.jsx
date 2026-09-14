@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Check, CircleAlert, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
+import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import { login } from '../lib/auth.js'
 
@@ -91,6 +92,7 @@ function BrandPanel() {
 
 export default function Login() {
   const navigate = useNavigate()
+  const { refresh } = useAuth()
   const emailId = useId()
   const passwordId = useId()
   const emailErrorId = useId()
@@ -153,6 +155,7 @@ export default function Login() {
 
     setStatus('loading')
     login({ email: email.trim(), password })
+      .then(() => refresh())
       .then(() => {
         setStatus('success')
         setTimeout(() => navigate('/dashboard'), 700)

@@ -8,6 +8,8 @@ integration tests are for.
 
 from types import SimpleNamespace
 
+import pytest
+
 from .conftest import (
     EMAIL,
     NAME,
@@ -57,6 +59,10 @@ def test_signup_creates_account_and_profile(client, db, auth):
 
     auth.auth.sign_up.assert_called_once_with(
         {"email": EMAIL, "password": SIGNUP["password"]}
+    )
+    db.auth.admin.update_user_by_id.assert_called_once_with(
+        USER_ID,
+        {"app_metadata": {"role": "event_organiser"}},
     )
     # The profile carries the auth user's id rather than one of its own.
     db.schema.return_value.table.return_value.insert.assert_called_once_with(
@@ -261,8 +267,25 @@ def test_me_returns_the_signed_in_user(client, db, auth):
     response = client.get("/users/me")
 
     assert response.status_code == 200
-    assert response.json() == {"id": USER_ID, "name": NAME, "email": EMAIL}
+    assert response.json() == {
+        "id": USER_ID,
+        "name": NAME,
+        "email": EMAIL,
+        "role": "event_organiser",
+    }
     auth.auth.get_user.assert_called_once_with("access-token")
+
+
+# --- TC-USERS-026 ---------------------------------------------------------
+def test_me_returns_no_role_when_trusted_role_is_missing(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user(role=None))
+    on_select(db, [PROFILE])
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 200
+    assert response.json()["role"] is None
 
 
 # --- TC-USERS-018 ---------------------------------------------------------
@@ -334,3 +357,36 @@ def test_validation_errors_arrive_in_the_same_shape_as_every_other_error(client,
     assert isinstance(body["detail"], str)
     # And the per-field messages a form can put next to its inputs.
     assert set(body["errors"]) == {"email", "password"}
+
+
+# --- TC-USERS-024 ---------------------------------------------------------
+@pytest.mark.parametrize(
+    "requested_role",
+    ["event_coordinator", "venue_staff", "technical_support", "attendee"],
+)
+def test_signup_cannot_choose_an_internal_role(client, db, auth, requested_role):
+    response = client.post(
+        "/users/signup",
+        json={**SIGNUP, "role": requested_role},
+    )
+
+    assert response.status_code == 422
+    assert "role" in response.json()["errors"]
+    auth.auth.sign_up.assert_not_called()
+    db.auth.admin.update_user_by_id.assert_not_called()
+
+
+# --- TC-USERS-025 ---------------------------------------------------------
+def test_signup_removes_account_when_trusted_role_assignment_fails(client, db, auth):
+    on_select(db, [])
+    auth.auth.sign_up.return_value = SimpleNamespace(
+        user=fake_user(), session=fake_session()
+    )
+    db.auth.admin.update_user_by_id.side_effect = RuntimeError("admin update failed")
+
+    response = client.post("/users/signup", json=SIGNUP)
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Could not configure user account"
+    db.auth.admin.delete_user.assert_called_once_with(USER_ID)
+    db.schema.return_value.table.return_value.insert.assert_not_called()

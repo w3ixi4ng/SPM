@@ -38,7 +38,17 @@ import {
   X,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getEventRequest, saveEventRequest } from '../lib/eventRequests.js'
+import useAuth from '../auth/useAuth.js'
+import {
+  createEventDraft,
+  createSubmittedEvent,
+  eventErrorMessage,
+  eventFieldErrorsToForm,
+  eventResponseToForm,
+  getEventRequest,
+  submitEventDraft,
+  updateEventDraft,
+} from '../lib/eventRequests.js'
 
 const C = {
   ink: '#10192B',
@@ -113,19 +123,35 @@ function withAlpha(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-function validateForSubmit(form) {
+function validateDraft(form) {
   const errors = {}
+  if (form.startTime && form.endTime && form.endTime <= form.startTime) {
+    errors.endTime = 'End time must be after the start time.'
+  }
+  if (
+    form.attendance !== ''
+    && (!Number.isInteger(Number(form.attendance)) || Number(form.attendance) <= 0)
+  ) {
+    errors.attendance = 'Expected attendance must be a positive whole number.'
+  }
+  const invalidEquipment = Object.values(form.equipmentRequests).some((quantity) => {
+    if (quantity === '' || Number(quantity) === 0) return false
+    return !Number.isInteger(Number(quantity)) || Number(quantity) <= 0
+  })
+  if (invalidEquipment) {
+    errors.equipmentRequests = 'Equipment quantities must be positive whole numbers.'
+  }
+  return errors
+}
+
+function validateForSubmit(form) {
+  const errors = validateDraft(form)
   if (!form.name.trim()) errors.name = 'Please enter an event name.'
   if (!form.purpose.trim()) errors.purpose = 'Please describe the purpose of this event.'
   if (!form.date) errors.date = 'Please choose a date.'
   if (!form.startTime) errors.startTime = 'Please choose a start time.'
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
-  if (form.startTime && form.endTime && form.endTime <= form.startTime) {
-    errors.endTime = 'End time must be after the start time.'
-  }
-  if (!form.attendance || Number(form.attendance) <= 0) {
-    errors.attendance = 'Please enter expected attendance.'
-  }
+  if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
   if (!form.venue.trim()) errors.venue = 'Please enter a venue.'
 
   const hasInvalidEquipment = EQUIPMENT_CATALOG.some((item) => {
@@ -135,7 +161,7 @@ function validateForSubmit(form) {
     return q < 0 || q > item.available
   })
   if (hasInvalidEquipment) {
-    errors.equipment = 'Fix the equipment quantities before submitting.'
+    errors.equipmentRequests = 'Fix the equipment quantities before submitting.'
   }
 
   return errors
@@ -718,21 +744,26 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
 }
 
 function StatusBadge({ status }) {
-  const isDraft = status === 'draft'
-  const color = isDraft ? C.amber : C.green
-  const label = isDraft ? 'Draft' : 'Submitted'
+  const presentation = {
+    draft: { color: C.amber, label: 'Draft' },
+    submitted: { color: C.green, label: 'Submitted' },
+    unsaved: { color: C.sky, label: 'Not saved' },
+  }[status] ?? { color: C.inkFaint, label: 'Not loaded' }
 
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm font-ui text-xs font-medium"
-      style={{ color, backgroundColor: withAlpha(color, 0.12) }}
+      style={{
+        color: presentation.color,
+        backgroundColor: withAlpha(presentation.color, 0.12),
+      }}
     >
       <span
         className="w-1.5 h-1.5 rounded-full"
-        style={{ backgroundColor: color }}
+        style={{ backgroundColor: presentation.color }}
         aria-hidden="true"
       />
-      {label}
+      {presentation.label}
     </span>
   )
 }
@@ -752,10 +783,14 @@ function FieldError({ id, message }) {
 export default function EventRequestForm() {
   const { id: routeId } = useParams()
   const navigate = useNavigate()
+  const { refresh } = useAuth()
 
   const [form, setForm] = useState(EMPTY_FORM)
-  const [status, setStatus] = useState('draft')
+  const [status, setStatus] = useState(routeId ? null : 'unsaved')
   const [errors, setErrors] = useState({})
+  const [formError, setFormError] = useState(null)
+  const [loadState, setLoadState] = useState(routeId ? 'loading' : 'ready')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [saveState, setSaveState] = useState('idle')
   const [submitState, setSubmitState] = useState('idle')
   const [equipmentPanelOpen, setEquipmentPanelOpen] = useState(false)
@@ -763,21 +798,64 @@ export default function EventRequestForm() {
   const fieldRefs = useRef({})
   const equipmentTriggerRef = useRef(null)
 
+  function applyEvent(event) {
+    const nextForm = eventResponseToForm(event)
+    setForm({
+      ...EMPTY_FORM,
+      ...nextForm,
+      equipmentRequests: {
+        ...EMPTY_EQUIPMENT_REQUESTS,
+        ...nextForm.equipmentRequests,
+      },
+    })
+    setStatus(event.status)
+    setErrors({})
+    setFormError(null)
+  }
+
+  function focusFirstError(nextErrors) {
+    const firstInvalid = Object.keys(nextErrors)[0]
+    if (!firstInvalid) return
+    if (firstInvalid === 'equipmentRequests') equipmentTriggerRef.current?.focus()
+    else fieldRefs.current[firstInvalid]?.focus()
+  }
+
+  function handleApiFailure(error) {
+    const fieldErrors = eventFieldErrorsToForm(error.fieldErrors)
+    setErrors(fieldErrors)
+    setFormError(eventErrorMessage(error))
+    focusFirstError(fieldErrors)
+    if (error.status === 401) refresh().catch(() => {})
+  }
+
   useEffect(() => {
-    if (!routeId) return
-    const existing = getEventRequest(routeId)
-    if (existing) {
-      setForm({
-        ...EMPTY_FORM,
-        ...existing,
-        equipmentRequests: { ...EMPTY_EQUIPMENT_REQUESTS, ...existing.equipmentRequests },
+    let active = true
+    if (!routeId) return undefined
+
+    getEventRequest(routeId)
+      .then((event) => {
+        if (!active) return
+        applyEvent(event)
+        setLoadState('ready')
       })
-      setStatus(existing.status)
+      .catch((error) => {
+        if (!active) return
+        const fieldErrors = eventFieldErrorsToForm(error.fieldErrors)
+        setLoadState('error')
+        setErrors(fieldErrors)
+        setFormError(eventErrorMessage(error))
+        focusFirstError(fieldErrors)
+        if (error.status === 401) refresh().catch(() => {})
+      })
+
+    return () => {
+      active = false
     }
-  }, [routeId])
+  }, [loadAttempt, refresh, routeId])
 
   const isSubmitted = status === 'submitted'
-  const isBusy = saveState === 'saving' || submitState === 'submitting'
+  const isBusy = loadState === 'loading' || saveState === 'saving' || submitState === 'submitting'
+  const canShowForm = !routeId || loadState === 'ready'
 
   const selectedEquipment = EQUIPMENT_CATALOG.filter(
     (item) => Number(form.equipmentRequests[item.id]) > 0,
@@ -786,6 +864,7 @@ export default function EventRequestForm() {
   function updateField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+    if (formError) setFormError(null)
     if (saveState === 'saved') setSaveState('idle')
   }
 
@@ -794,6 +873,10 @@ export default function EventRequestForm() {
       ...prev,
       equipmentRequests: { ...prev.equipmentRequests, [itemId]: value },
     }))
+    if (errors.equipmentRequests) {
+      setErrors((prev) => ({ ...prev, equipmentRequests: undefined }))
+    }
+    if (formError) setFormError(null)
     if (saveState === 'saved') setSaveState('idle')
   }
 
@@ -802,41 +885,56 @@ export default function EventRequestForm() {
     equipmentTriggerRef.current?.focus()
   }, [])
 
-  function handleSaveDraft() {
+  async function handleSaveDraft() {
     if (isBusy || isSubmitted) return
+
+    const validationErrors = validateDraft(form)
+    setErrors(validationErrors)
+    if (Object.keys(validationErrors).length) {
+      focusFirstError(validationErrors)
+      return
+    }
+
+    setFormError(null)
     setSaveState('saving')
-    const record = saveEventRequest(form, 'draft')
-    setForm(record)
-    setStatus('draft')
-    if (!routeId) navigate(`/events/${record.id}`, { replace: true })
-    setSaveState('saved')
+    try {
+      const event = routeId
+        ? await updateEventDraft(routeId, form)
+        : await createEventDraft(form)
+      applyEvent(event)
+      setSaveState('saved')
+      if (!routeId) navigate(`/events/${event.id}`, { replace: true })
+    } catch (error) {
+      handleApiFailure(error)
+      setSaveState('idle')
+    }
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     if (isBusy || isSubmitted) return
 
     const validationErrors = validateForSubmit(form)
     setErrors(validationErrors)
 
-    const firstInvalid = Object.keys(validationErrors)[0]
-    if (firstInvalid === 'equipment') {
-      equipmentTriggerRef.current?.focus()
-      return
-    }
-    if (firstInvalid) {
-      fieldRefs.current[firstInvalid]?.focus()
+    if (Object.keys(validationErrors).length) {
+      focusFirstError(validationErrors)
       return
     }
 
+    setFormError(null)
     setSubmitState('submitting')
-    setTimeout(() => {
-      const record = saveEventRequest(form, 'submitted')
-      setForm(record)
-      setStatus('submitted')
+    try {
+      const event = routeId
+        ? await submitEventDraft(routeId, form)
+        : await createSubmittedEvent(form)
+      applyEvent(event)
       setSubmitState('idle')
-      if (!routeId) navigate(`/events/${record.id}`, { replace: true })
-    }, 500)
+      if (!routeId) navigate(`/events/${event.id}`, { replace: true })
+    } catch (error) {
+      handleApiFailure(error)
+      setSubmitState('idle')
+    }
   }
 
   return (
@@ -927,7 +1025,7 @@ export default function EventRequestForm() {
 
         <div className="flex items-start justify-between gap-4 mb-2">
           <h1 className="font-display text-3xl sm:text-4xl leading-tight" style={{ color: C.ink }}>
-            New event request
+            {routeId ? 'Event request' : 'New event request'}
           </h1>
           <StatusBadge status={status} />
         </div>
@@ -937,6 +1035,37 @@ export default function EventRequestForm() {
         </p>
 
         <div className="rise-in">
+          {loadState === 'loading' && routeId && (
+            <p className="font-ui text-sm flex items-center gap-2" style={{ color: C.inkFaint }}>
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              Loading event request…
+            </p>
+          )}
+
+          {formError && (
+            <div
+              role="alert"
+              className="font-ui text-sm rounded-sm px-4 py-3 mb-6"
+              style={{ backgroundColor: withAlpha(C.rose, 0.1), color: C.rose }}
+            >
+              <p>{formError}</p>
+              {loadState === 'error' && routeId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoadState('loading')
+                    setStatus(null)
+                    setFormError(null)
+                    setLoadAttempt((attempt) => attempt + 1)
+                  }}
+                  className="font-medium underline mt-2"
+                >
+                  Try loading again
+                </button>
+              )}
+            </div>
+          )}
+
           {isSubmitted && (
             <p
               className="font-ui text-sm rounded-sm px-4 py-3 mb-6"
@@ -946,6 +1075,7 @@ export default function EventRequestForm() {
             </p>
           )}
 
+          {canShowForm && (
           <form noValidate onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="event-name" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
@@ -1084,7 +1214,10 @@ export default function EventRequestForm() {
                 <Plus size={16} aria-hidden="true" />
                 Add equipment
               </button>
-              <FieldError id="event-equipment-error" message={errors.equipment} />
+              <FieldError
+                id="event-equipment-error"
+                message={errors.equipmentRequests}
+              />
 
               <div className="mt-4">
                 {selectedEquipment.length === 0 ? (
@@ -1137,7 +1270,11 @@ export default function EventRequestForm() {
                   style={{ borderColor: C.ink, color: C.ink }}
                 >
                   <Save size={16} aria-hidden="true" />
-                  {saveState === 'saved' ? 'Saved' : 'Save draft'}
+                  {saveState === 'saving'
+                    ? 'Saving…'
+                    : saveState === 'saved'
+                      ? 'Saved'
+                      : 'Save draft'}
                 </button>
                 <button
                   type="submit"
@@ -1162,6 +1299,7 @@ export default function EventRequestForm() {
               </div>
             )}
           </form>
+          )}
         </div>
       </div>
 

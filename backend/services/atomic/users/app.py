@@ -6,7 +6,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
 from database import get_auth, get_db
-from schemas import LoginRequest, SignUpRequest, UserRead
+from schemas import CurrentUserRead, LoginRequest, SignUpRequest, UserRead
 from security import (
     ACCESS_COOKIE,
     clear_session_cookies,
@@ -26,6 +26,7 @@ app = FastAPI(title="Users Service")
 
 SCHEMA = "users"
 TABLE = "users"
+PUBLIC_SIGNUP_ROLE = "event_organiser"
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -131,6 +132,15 @@ def signup(
         raise HTTPException(status_code=502, detail="Authentication service unavailable")
 
     try:
+        db.auth.admin.update_user_by_id(
+            created.user.id,
+            {"app_metadata": {"role": PUBLIC_SIGNUP_ROLE}},
+        )
+    except Exception:
+        _discard_auth_user(db, created.user.id)
+        raise HTTPException(status_code=500, detail="Could not configure user account")
+
+    try:
         inserted = (
             db.schema(SCHEMA)
             .table(TABLE)
@@ -216,9 +226,10 @@ def logout(
 
 # Keep this above any "/users/{user_id}" added later: FastAPI matches in
 # declaration order, and a dynamic route declared first would swallow "me".
-@app.get("/users/me", response_model=UserRead)
+@app.get("/users/me", response_model=CurrentUserRead)
 def me(user=Depends(get_current_user), db: Client = Depends(get_db)):
     res = db.schema(SCHEMA).table(TABLE).select("*").eq("id", user.id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="User profile not found")
-    return res.data[0]
+    app_metadata = getattr(user, "app_metadata", None) or {}
+    return {**res.data[0], "role": app_metadata.get("role")}

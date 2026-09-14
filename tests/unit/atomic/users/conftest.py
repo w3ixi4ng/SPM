@@ -38,8 +38,9 @@ def fake_session(access="access-token", refresh="refresh-token", expires_in=3600
     )
 
 
-def fake_user(uid=USER_ID, email=EMAIL):
-    return SimpleNamespace(id=uid, email=email)
+def fake_user(uid=USER_ID, email=EMAIL, role="event_organiser"):
+    app_metadata = {} if role is None else {"role": role}
+    return SimpleNamespace(id=uid, email=email, app_metadata=app_metadata)
 
 
 def on_select(db, rows):

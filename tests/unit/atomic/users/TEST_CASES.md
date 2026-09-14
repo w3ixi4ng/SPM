@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-09-12, working tree of branch `user-auth` |
+| Last run | 2026-09-14, working tree of branch `events-schema` |
 | Environment | Python 3.12.5, pytest 9.1.1, fastapi 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
-| Result | 23 passed |
+| Result | 29 passed |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -61,6 +61,8 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Expected:** `201`; body exactly
   `{"id": "1111...1111", "name": "Ada Lovelace", "email": "ada@example.com"}`;
   `sign_up` called with `{"email": "ada@example.com", "password": "correct-horse-battery"}`;
+  the trusted Auth app metadata is updated server-side to
+  `{"role": "event_organiser"}`;
   the insert called with `{"id": <auth user id>, "name": ..., "email": ...}` —
   the profile takes the auth id, it does not mint its own; two cookies,
   `sb_access_token` and `sb_refresh_token`, each `HttpOnly`, `SameSite=lax`,
@@ -339,3 +341,43 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_validation_errors_arrive_in_the_same_shape_as_every_other_error`
+
+## TC-USERS-024 — public signup cannot choose an internal role
+
+- **Scenario:** A caller cannot promote itself through the public signup body.
+- **Pre-conditions:** Shared.
+- **Steps:** Submit the normal signup payload with each internal/non-public role
+  added as a `role` field.
+- **Test data:** `event_coordinator`, `venue_staff`, `technical_support`, and
+  `attendee`.
+- **Expected:** Every request returns `422`; Supabase signup and admin role
+  assignment are never called.
+- **Actual:** As expected for all four roles.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_signup_cannot_choose_an_internal_role`
+
+## TC-USERS-025 — failed trusted-role assignment is rolled back
+
+- **Scenario:** Signup does not leave an account without its required public role.
+- **Pre-conditions:** Supabase Auth creates the user, then the trusted admin
+  metadata update raises.
+- **Steps:** `POST /users/signup` with the shared payload.
+- **Test data:** Shared signup payload.
+- **Expected:** `500` with `Could not configure user account`; the new Auth user
+  is deleted and no profile insert is attempted.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_signup_removes_account_when_trusted_role_assignment_fails`
+
+## TC-USERS-026 — `/users/me` safely reports a missing trusted role
+
+- **Scenario:** An authenticated legacy account without `app_metadata.role`
+  does not acquire a role from another source.
+- **Pre-conditions:** A valid session resolves to a user with empty app metadata;
+  its profile row exists.
+- **Steps:** 1. `GET /users/me`. 2. Inspect the response role.
+- **Test data:** The standard profile and no trusted role.
+- **Expected:** `200` with `role: null`.
+- **Actual:** `200` with `role: null`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_me_returns_no_role_when_trusted_role_is_missing`
