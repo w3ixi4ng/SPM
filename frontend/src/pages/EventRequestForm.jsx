@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Armchair,
   Cable,
@@ -60,32 +60,32 @@ const MONTH_NAMES = [
 ]
 
 const EQUIPMENT_CATALOG = [
-  { id: 'projector', label: 'Projector', available: 6, icon: Projector },
-  { id: 'microphone', label: 'Wireless microphone', available: 10, icon: Mic },
-  { id: 'speaker', label: 'PA speaker system', available: 4, icon: Speaker },
-  { id: 'tables', label: 'Folding tables', available: 20, icon: Table2 },
-  { id: 'chairs', label: 'Chairs', available: 100, icon: Armchair },
-  { id: 'extension-cords', label: 'Extension cords', available: 15, icon: Cable },
-  { id: 'stage-lighting', label: 'Stage lighting kit', available: 8, icon: Lightbulb },
-  { id: 'video-camera', label: 'Video camera', available: 3, icon: Camera },
-  { id: 'tv-screen', label: 'TV display screen', available: 6, icon: Tv },
-  { id: 'wifi-router', label: 'Portable Wi-Fi router', available: 5, icon: Wifi },
-  { id: 'power-strip', label: 'Power strip', available: 12, icon: Plug },
-  { id: 'signage', label: 'Directional signage set', available: 10, icon: MapPin },
-  { id: 'waste-bins', label: 'Waste bins', available: 15, icon: Trash2 },
-  { id: 'utensil-set', label: 'Catering utensil set', available: 20, icon: Utensils },
-  { id: 'beverage-dispenser', label: 'Beverage dispenser', available: 6, icon: CupSoda },
-  { id: 'storage-crates', label: 'Storage crates', available: 25, icon: Package },
-  { id: 'umbrellas', label: 'Outdoor umbrellas', available: 8, icon: Umbrella },
-  { id: 'pedestal-fans', label: 'Pedestal fans', available: 10, icon: Fan },
-  { id: 'portable-heaters', label: 'Portable heaters', available: 6, icon: Thermometer },
-  { id: 'first-aid-kit', label: 'First aid kit', available: 4, icon: ShieldAlert },
-  { id: 'toolkit', label: 'Toolkit', available: 5, icon: Wrench },
-  { id: 'flashlights', label: 'Flashlights', available: 12, icon: Flashlight },
-  { id: 'laptop', label: 'Presentation laptop', available: 4, icon: Laptop },
-  { id: 'printer', label: 'Portable printer', available: 2, icon: Printer },
-  { id: 'checkin-kiosk', label: 'QR check-in kiosk', available: 3, icon: QrCode },
-  { id: 'banners', label: 'Event banners', available: 10, icon: Flag },
+  { id: 'projector', label: 'Projector', available: 6, costPerDay: 25, icon: Projector, description: '1080p projector with HDMI and VGA input, includes a screen stand.' },
+  { id: 'microphone', label: 'Wireless microphone', available: 10, costPerDay: 8, icon: Mic, description: 'Handheld wireless mic with a dedicated receiver, fresh batteries included.' },
+  { id: 'speaker', label: 'PA speaker system', available: 4, costPerDay: 35, icon: Speaker, description: 'Powered speaker pair, enough for a room of up to 150 people.' },
+  { id: 'tables', label: 'Folding tables', available: 20, costPerDay: 5, icon: Table2, description: '6-foot folding table, seats six comfortably.' },
+  { id: 'chairs', label: 'Chairs', available: 100, costPerDay: 2, icon: Armchair, description: 'Stackable padded chair, indoor or outdoor use.' },
+  { id: 'extension-cords', label: 'Extension cords', available: 15, costPerDay: 3, icon: Cable, description: '10-metre heavy-duty extension cord with three outlets.' },
+  { id: 'stage-lighting', label: 'Stage lighting kit', available: 8, costPerDay: 40, icon: Lightbulb, description: 'Two adjustable LED par lights on stands, with a basic controller.' },
+  { id: 'video-camera', label: 'Video camera', available: 3, costPerDay: 30, icon: Camera, description: 'HD camcorder with tripod, good for recording talks or panels.' },
+  { id: 'tv-screen', label: 'TV display screen', available: 6, costPerDay: 20, icon: Tv, description: '55-inch display on a rolling stand, HDMI input.' },
+  { id: 'wifi-router', label: 'Portable Wi-Fi router', available: 5, costPerDay: 10, icon: Wifi, description: 'Battery-backed router for venues without reliable Wi-Fi.' },
+  { id: 'power-strip', label: 'Power strip', available: 12, costPerDay: 3, icon: Plug, description: '6-outlet power strip with surge protection.' },
+  { id: 'signage', label: 'Directional signage set', available: 10, costPerDay: 6, icon: MapPin, description: 'Freestanding A-frame sign with a blank insert for your own text.' },
+  { id: 'waste-bins', label: 'Waste bins', available: 15, costPerDay: 4, icon: Trash2, description: '50-litre bin with a liner, general waste or recycling.' },
+  { id: 'utensil-set', label: 'Catering utensil set', available: 20, costPerDay: 12, icon: Utensils, description: 'Serving set for one table: tongs, ladles, and serving spoons.' },
+  { id: 'beverage-dispenser', label: 'Beverage dispenser', available: 6, costPerDay: 10, icon: CupSoda, description: '10-litre insulated dispenser with a tap, hot or cold drinks.' },
+  { id: 'storage-crates', label: 'Storage crates', available: 25, costPerDay: 3, icon: Package, description: 'Stackable plastic crate, holds up to 20kg.' },
+  { id: 'umbrellas', label: 'Outdoor umbrellas', available: 8, costPerDay: 8, icon: Umbrella, description: '2.5-metre market umbrella with a weighted base.' },
+  { id: 'pedestal-fans', label: 'Pedestal fans', available: 10, costPerDay: 6, icon: Fan, description: 'Oscillating floor fan, three speed settings.' },
+  { id: 'portable-heaters', label: 'Portable heaters', available: 6, costPerDay: 9, icon: Thermometer, description: 'Electric space heater, safe for indoor use.' },
+  { id: 'first-aid-kit', label: 'First aid kit', available: 4, costPerDay: 5, icon: ShieldAlert, description: 'Fully stocked kit meeting standard workplace first-aid guidelines.' },
+  { id: 'toolkit', label: 'Toolkit', available: 5, costPerDay: 7, icon: Wrench, description: 'General-purpose toolkit for last-minute setup fixes.' },
+  { id: 'flashlights', label: 'Flashlights', available: 12, costPerDay: 2, icon: Flashlight, description: 'Rechargeable LED flashlight, useful for backstage or outdoor areas.' },
+  { id: 'laptop', label: 'Presentation laptop', available: 4, costPerDay: 18, icon: Laptop, description: 'Laptop pre-loaded with presentation software, HDMI and USB-C out.' },
+  { id: 'printer', label: 'Portable printer', available: 2, costPerDay: 10, icon: Printer, description: 'Compact printer for name tags or last-minute handouts.' },
+  { id: 'checkin-kiosk', label: 'QR check-in kiosk', available: 3, costPerDay: 15, icon: QrCode, description: 'Tablet on a stand for scanning guest QR codes at the door.' },
+  { id: 'banners', label: 'Event banners', available: 10, costPerDay: 6, icon: Flag, description: 'Retractable banner stand, 85 x 200cm, reusable frame.' },
 ]
 
 const EMPTY_EQUIPMENT_REQUESTS = Object.fromEntries(
@@ -127,6 +127,17 @@ function validateForSubmit(form) {
     errors.attendance = 'Please enter expected attendance.'
   }
   if (!form.venue.trim()) errors.venue = 'Please enter a venue.'
+
+  const hasInvalidEquipment = EQUIPMENT_CATALOG.some((item) => {
+    const raw = form.equipmentRequests[item.id]
+    if (raw === '' || raw === undefined) return false
+    const q = Number(raw)
+    return q < 0 || q > item.available
+  })
+  if (hasInvalidEquipment) {
+    errors.equipment = 'Fix the equipment quantities before submitting.'
+  }
+
   return errors
 }
 
@@ -169,6 +180,7 @@ function toISODate(year, month, day) {
 function DateSelect({ id, value, onChange, error, disabled }) {
   const [open, setOpen] = useState(false)
   const today = new Date()
+  today.setHours(0, 0, 0, 0)
   const parsed = value ? value.split('-').map(Number) : null
   const [viewYear, setViewYear] = useState(parsed ? parsed[0] : today.getFullYear())
   const [viewMonth, setViewMonth] = useState(parsed ? parsed[1] - 1 : today.getMonth())
@@ -184,6 +196,7 @@ function DateSelect({ id, value, onChange, error, disabled }) {
     ...Array.from({ length: startOffset }, () => null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ]
+  const yearOptions = Array.from({ length: 6 }, (_, i) => today.getFullYear() + i)
 
   function selectDay(day) {
     onChange(toISODate(viewYear, viewMonth, day))
@@ -213,12 +226,11 @@ function DateSelect({ id, value, onChange, error, disabled }) {
     return parsed && parsed[0] === viewYear && parsed[1] === viewMonth + 1 && parsed[2] === day
   }
 
-  function isToday(day) {
-    return (
-      today.getFullYear() === viewYear &&
-      today.getMonth() === viewMonth &&
-      today.getDate() === day
-    )
+  // Only strictly-future dates are selectable -- today and every past date
+  // are disabled and muted, not just visually de-emphasized.
+  function isPastOrToday(day) {
+    const cellDate = new Date(viewYear, viewMonth, day)
+    return cellDate <= today
   }
 
   return (
@@ -247,7 +259,7 @@ function DateSelect({ id, value, onChange, error, disabled }) {
           className="csp-popover absolute z-10 mt-2 w-72 rounded-sm border p-4"
           style={{ backgroundColor: C.paper, borderColor: C.line, color: C.ink }}
         >
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between gap-2 mb-3">
             <button
               type="button"
               onClick={goPrevMonth}
@@ -257,9 +269,32 @@ function DateSelect({ id, value, onChange, error, disabled }) {
             >
               <ChevronLeft size={16} aria-hidden="true" />
             </button>
-            <span className="font-ui text-sm font-medium">
-              {MONTH_NAMES[viewMonth]} {viewYear}
-            </span>
+            <div className="flex items-center gap-1">
+              <select
+                aria-label="Month"
+                value={viewMonth}
+                onChange={(e) => setViewMonth(Number(e.target.value))}
+                className="csp-calendar-select font-ui text-sm font-medium rounded-sm"
+              >
+                {MONTH_NAMES.map((m, i) => (
+                  <option key={m} value={i}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Year"
+                value={viewYear}
+                onChange={(e) => setViewYear(Number(e.target.value))}
+                className="csp-calendar-select font-ui text-sm font-medium rounded-sm"
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={goNextMonth}
@@ -284,28 +319,26 @@ function DateSelect({ id, value, onChange, error, disabled }) {
           </div>
 
           <div className="grid grid-cols-7 gap-1">
-            {cells.map((day, i) =>
-              day === null ? (
-                <span key={`blank-${i}`} />
-              ) : (
+            {cells.map((day, i) => {
+              if (day === null) return <span key={`blank-${i}`} />
+              const disabledDay = isPastOrToday(day)
+              return (
                 <button
                   key={day}
                   type="button"
                   onClick={() => selectDay(day)}
+                  disabled={disabledDay}
                   className="csp-day-btn font-ui text-sm rounded-sm py-1.5"
                   style={
                     isSelected(day)
                       ? { backgroundColor: C.teal, color: C.paper }
-                      : {
-                          color: C.ink,
-                          border: `1px solid ${isToday(day) ? C.teal : 'transparent'}`,
-                        }
+                      : { color: disabledDay ? C.inkFaint : C.ink }
                   }
                 >
                   {day}
                 </button>
-              ),
-            )}
+              )
+            })}
           </div>
         </div>
       )}
@@ -401,28 +434,109 @@ function TimeSelect({ id, value, onChange, error, disabled }) {
   )
 }
 
+function EquipmentDetail({ item, quantity, onQuantityChange, disabled }) {
+  const Icon = item.icon
+  const numericValue = Number(quantity)
+  const isNegative = quantity !== '' && numericValue < 0
+  const isOverStock = quantity !== '' && numericValue > item.available
+  const isInvalid = isNegative || isOverStock
+  const errorId = `equip-detail-${item.id}-error`
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div
+        className="w-56 aspect-square rounded-sm flex items-center justify-center"
+        style={{ backgroundColor: C.paperDim }}
+      >
+        <Icon size={96} aria-hidden="true" style={{ color: C.sky }} />
+      </div>
+
+      <div>
+        <h3 className="font-display text-2xl" style={{ color: C.ink }}>
+          {item.label}
+        </h3>
+        <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>
+          {item.available} available
+        </p>
+      </div>
+
+      <p className="font-display text-xl" style={{ color: C.ink }}>
+        ${item.costPerDay}
+        <span className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          {' '}
+          / day
+        </span>
+      </p>
+
+      <p className="font-ui text-sm leading-relaxed max-w-sm" style={{ color: C.inkFaint }}>
+        {item.description}
+      </p>
+
+      <div>
+        <label htmlFor={`equip-detail-${item.id}`} className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+          Quantity
+        </label>
+        <input
+          id={`equip-detail-${item.id}`}
+          type="number"
+          min="0"
+          max={item.available}
+          placeholder="0"
+          value={quantity}
+          onChange={(e) => onQuantityChange(e.target.value)}
+          disabled={disabled}
+          aria-invalid={isInvalid}
+          aria-describedby={isInvalid ? errorId : undefined}
+          className="csp-input w-24 rounded-sm px-3 py-2 font-ui text-sm"
+        />
+        {isInvalid && (
+          <p id={errorId} role="alert" className="font-ui text-xs mt-1" style={{ color: C.rose }}>
+            {isNegative ? 'Enter 0 or more.' : `Only ${item.available} available.`}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled }) {
   const panelRef = useRef(null)
   const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState(null)
 
   useEffect(() => {
-    if (open) setQuery('')
+    if (open) {
+      setQuery('')
+      setSelectedId(EQUIPMENT_CATALOG[0]?.id ?? null)
+    }
   }, [open])
 
+  const focusableSelector =
+    'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+  function getFocusable() {
+    return panelRef.current ? Array.from(panelRef.current.querySelectorAll(focusableSelector)) : []
+  }
+
+  // Runs once per open/close transition only -- deliberately depends on
+  // `open` alone. `onClose` is a new function on every render of the parent
+  // form, and including it here would re-run this on every keystroke
+  // anywhere in the form (e.g. a quantity input), yanking focus back to the
+  // first focusable element -- the search box -- mid-type.
   useEffect(() => {
     if (!open) return undefined
-
-    const panel = panelRef.current
-    const focusableSelector =
-      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-    function getFocusable() {
-      return panel ? Array.from(panel.querySelectorAll(focusableSelector)) : []
-    }
-
     const focusTimer = setTimeout(() => {
       getFocusable()[0]?.focus()
     }, 0)
+    return () => clearTimeout(focusTimer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // The Tab-trap and Escape listener can safely depend on `onClose` -- all
+  // it does is attach/detach a document listener, which has no visible
+  // effect on focus by itself.
+  useEffect(() => {
+    if (!open) return undefined
 
     function handleKeyDown(e) {
       if (e.key === 'Escape') {
@@ -445,10 +559,7 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
     }
 
     document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      clearTimeout(focusTimer)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
 
   if (!open) return null
@@ -456,6 +567,14 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
   const filtered = EQUIPMENT_CATALOG.filter((item) =>
     item.label.toLowerCase().includes(query.trim().toLowerCase()),
   )
+  const selectedItem = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null
+
+  const hasInvalidQuantity = EQUIPMENT_CATALOG.some((item) => {
+    const raw = quantities[item.id]
+    if (raw === '' || raw === undefined) return false
+    const q = Number(raw)
+    return q < 0 || q > item.available
+  })
 
   return (
     <>
@@ -465,32 +584,19 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
         onClick={onClose}
         aria-hidden="true"
       />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add equipment"
-        className="csp-panel-slide fixed inset-y-0 right-0 z-50 w-full max-w-md flex flex-col"
-        style={{ backgroundColor: C.paper }}
-      >
-        <div className="flex-1 overflow-y-auto">
-          <div className="csp-panel-header sticky top-0 z-10 flex items-center gap-3 px-6 py-4 border-b">
-            <div className="relative flex-1">
-              <Search
-                size={16}
-                aria-hidden="true"
-                className="absolute left-3 top-1/2 -translate-y-1/2"
-                style={{ color: C.inkFaint }}
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search equipment..."
-                aria-label="Search equipment"
-                className="csp-input w-full rounded-sm pl-9 pr-4 py-2.5 font-ui text-sm"
-              />
-            </div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add equipment"
+          className="csp-modal-in w-full max-w-4xl rounded-sm border overflow-hidden flex flex-col"
+          style={{ backgroundColor: C.paper, borderColor: C.line, maxHeight: 'calc(100vh - 3rem)' }}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: C.line }}>
+            <span className="font-ui text-sm font-medium" style={{ color: C.ink }}>
+              Equipment
+            </span>
             <button
               type="button"
               onClick={onClose}
@@ -502,46 +608,109 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
             </button>
           </div>
 
-          {filtered.length === 0 ? (
-            <p className="font-ui text-sm px-6 py-8" style={{ color: C.inkFaint }}>
-              No equipment matches &ldquo;{query}&rdquo;.
-            </p>
-          ) : (
-            <div className="divide-y" style={{ color: C.line }}>
-              {filtered.map((item) => {
-                const Icon = item.icon
-                return (
-                  <div key={item.id} className="flex items-center gap-4 px-6 py-3">
-                    <Icon size={20} aria-hidden="true" className="shrink-0" style={{ color: C.sky }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-ui text-base font-medium" style={{ color: C.ink }}>
-                        {item.label}
-                      </p>
-                      <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-                        Available quantity: {item.available}
-                      </p>
-                    </div>
-                    <div>
-                      <label htmlFor={`equip-${item.id}`} className="sr-only">
-                        Quantity of {item.label} to request
-                      </label>
-                      <input
-                        id={`equip-${item.id}`}
-                        type="number"
-                        min="0"
-                        max={item.available}
-                        placeholder="0"
-                        value={quantities[item.id]}
-                        onChange={(e) => onQuantityChange(item.id, e.target.value)}
-                        disabled={disabled}
-                        className="csp-input w-20 rounded-sm px-3 py-2 font-ui text-sm"
-                      />
-                    </div>
+          <div className="flex-1 overflow-y-auto md:flex md:overflow-hidden">
+            <div
+              className="border-b md:border-b-0 md:border-r md:w-2/5 flex flex-col md:overflow-hidden"
+              style={{ borderColor: C.line }}
+            >
+              <div className="csp-panel-header sticky top-0 z-10 px-4 py-3 border-b shrink-0">
+                <div className="relative">
+                  <Search
+                    size={16}
+                    aria-hidden="true"
+                    className="absolute left-3 top-1/2 -translate-y-1/2"
+                    style={{ color: C.inkFaint }}
+                  />
+                  <input
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search equipment..."
+                    aria-label="Search equipment"
+                    className="csp-input w-full rounded-sm pl-9 pr-3 py-2 font-ui text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="md:flex-1 md:overflow-y-auto p-3">
+                {filtered.length === 0 ? (
+                  <p className="font-ui text-sm px-2 py-6" style={{ color: C.inkFaint }}>
+                    No equipment matches &ldquo;{query}&rdquo;.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {filtered.map((item) => {
+                      const Icon = item.icon
+                      const qty = Number(quantities[item.id]) || 0
+                      const isSelected = selectedItem?.id === item.id
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelectedId(item.id)}
+                          aria-pressed={isSelected}
+                          className="csp-catalog-tile relative flex flex-col items-start gap-2 rounded-sm p-2 text-left"
+                          style={isSelected ? { backgroundColor: withAlpha(C.teal, 0.1) } : undefined}
+                        >
+                          <div
+                            className="w-full aspect-square rounded-sm flex items-center justify-center"
+                            style={{ backgroundColor: C.paperDim }}
+                          >
+                            <Icon size={36} aria-hidden="true" style={{ color: C.sky }} />
+                          </div>
+                          <span className="font-ui text-xs font-medium leading-snug" style={{ color: C.ink }}>
+                            {item.label}
+                          </span>
+                          {qty > 0 && (
+                            <span
+                              className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 rounded-full font-ui text-xs font-medium"
+                              style={{ backgroundColor: C.teal, color: C.paper }}
+                            >
+                              {qty}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
-                )
-              })}
+                )}
+              </div>
             </div>
-          )}
+
+            <div className="md:flex-1 md:overflow-y-auto p-6">
+              {selectedItem ? (
+                <EquipmentDetail
+                  item={selectedItem}
+                  quantity={quantities[selectedItem.id]}
+                  onQuantityChange={(v) => onQuantityChange(selectedItem.id, v)}
+                  disabled={disabled}
+                />
+              ) : (
+                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                  Select an item to see rental details.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t shrink-0" style={{ borderColor: C.line }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={hasInvalidQuantity}
+              className={`w-full flex items-center justify-center px-5 py-3 rounded-sm font-medium font-ui transition-transform duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                hasInvalidQuantity ? '' : 'hover:-translate-y-0.5'
+              }`}
+              style={{ backgroundColor: C.teal, color: C.paper }}
+            >
+              Save
+            </button>
+            {hasInvalidQuantity && (
+              <p className="font-ui text-xs mt-2 text-center" style={{ color: C.rose }}>
+                Fix the highlighted quantities before saving.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </>
@@ -628,10 +797,10 @@ export default function EventRequestForm() {
     if (saveState === 'saved') setSaveState('idle')
   }
 
-  function closeEquipmentPanel() {
+  const closeEquipmentPanel = useCallback(() => {
     setEquipmentPanelOpen(false)
     equipmentTriggerRef.current?.focus()
-  }
+  }, [])
 
   function handleSaveDraft() {
     if (isBusy || isSubmitted) return
@@ -651,6 +820,10 @@ export default function EventRequestForm() {
     setErrors(validationErrors)
 
     const firstInvalid = Object.keys(validationErrors)[0]
+    if (firstInvalid === 'equipment') {
+      equipmentTriggerRef.current?.focus()
+      return
+    }
     if (firstInvalid) {
       fieldRefs.current[firstInvalid]?.focus()
       return
@@ -675,11 +848,11 @@ export default function EventRequestForm() {
         }
         .rise-in { animation: riseIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
-        @keyframes panelSlideIn {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
+        @keyframes modalIn {
+          from { opacity: 0; transform: scale(0.96); }
+          to { opacity: 1; transform: scale(1); }
         }
-        .csp-panel-slide { animation: panelSlideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        .csp-modal-in { animation: modalIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
         .csp-panel-header {
           background-color: ${withAlpha(C.paper, 0.82)};
@@ -715,10 +888,31 @@ export default function EventRequestForm() {
           outline-offset: 2px;
         }
         .csp-day-btn:hover { background-color: ${C.paperDim}; }
+        .csp-day-btn:disabled { pointer-events: none; }
         .csp-time-option:hover { background-color: ${C.paperDim}; }
 
+        .csp-calendar-select {
+          border: 1px solid transparent;
+          background: ${C.paper};
+          color: ${C.ink};
+          padding: 2px 4px;
+          cursor: pointer;
+        }
+        .csp-calendar-select:hover { background-color: ${C.paperDim}; }
+        .csp-calendar-select:focus-visible {
+          outline: none;
+          border-color: ${C.teal};
+          box-shadow: 0 0 0 3px ${withAlpha(C.teal, 0.15)};
+        }
+
+        .csp-catalog-tile:hover { background-color: ${C.paperDim}; }
+        .csp-catalog-tile:focus-visible {
+          outline: 2px solid ${C.teal};
+          outline-offset: 2px;
+        }
+
         @media (prefers-reduced-motion: reduce) {
-          .rise-in, .csp-panel-slide { animation: none !important; }
+          .rise-in, .csp-modal-in { animation: none !important; }
         }
       `}</style>
 
@@ -742,10 +936,7 @@ export default function EventRequestForm() {
           is ready for review.
         </p>
 
-        <div
-          className="rise-in border rounded-sm px-6 py-8 sm:px-10 sm:py-10"
-          style={{ borderColor: C.line }}
-        >
+        <div className="rise-in">
           {isSubmitted && (
             <p
               className="font-ui text-sm rounded-sm px-4 py-3 mb-6"
@@ -893,6 +1084,7 @@ export default function EventRequestForm() {
                 <Plus size={16} aria-hidden="true" />
                 Add equipment
               </button>
+              <FieldError id="event-equipment-error" message={errors.equipment} />
 
               <div className="mt-4">
                 {selectedEquipment.length === 0 ? (
