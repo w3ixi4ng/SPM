@@ -113,6 +113,18 @@ function withAlpha(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+// A quantity that is negative or exceeds stock is not an "incomplete field"
+// -- it is impossible to fulfil -- so it blocks Save Draft too, unlike the
+// rest of validateForSubmit's checks.
+function hasInvalidEquipment(form) {
+  return EQUIPMENT_CATALOG.some((item) => {
+    const raw = form.equipmentRequests[item.id]
+    if (raw === '' || raw === undefined) return false
+    const q = Number(raw)
+    return q < 0 || q > item.available
+  })
+}
+
 function validateForSubmit(form) {
   const errors = {}
   if (!form.name.trim()) errors.name = 'Please enter an event name.'
@@ -128,13 +140,7 @@ function validateForSubmit(form) {
   }
   if (!form.venue.trim()) errors.venue = 'Please enter a venue.'
 
-  const hasInvalidEquipment = EQUIPMENT_CATALOG.some((item) => {
-    const raw = form.equipmentRequests[item.id]
-    if (raw === '' || raw === undefined) return false
-    const q = Number(raw)
-    return q < 0 || q > item.available
-  })
-  if (hasInvalidEquipment) {
+  if (hasInvalidEquipment(form)) {
     errors.equipment = 'Fix the equipment quantities before submitting.'
   }
 
@@ -794,16 +800,45 @@ export default function EventRequestForm() {
       ...prev,
       equipmentRequests: { ...prev.equipmentRequests, [itemId]: value },
     }))
+    if (errors.equipment) setErrors((prev) => ({ ...prev, equipment: undefined }))
     if (saveState === 'saved') setSaveState('idle')
   }
 
   const closeEquipmentPanel = useCallback(() => {
+    // X, Escape and the backdrop all close the panel without going through
+    // the (disabled-while-invalid) Save button, so a negative or over-stock
+    // value the user was mid-typing would otherwise sit in form state
+    // untouched. Rather than guess what they meant (e.g. clamping to the
+    // max), just drop it -- the field goes back to empty, as if nothing
+    // was entered.
+    setForm((prev) => {
+      let changed = false
+      const sanitized = { ...prev.equipmentRequests }
+      for (const item of EQUIPMENT_CATALOG) {
+        const raw = sanitized[item.id]
+        if (raw === '' || raw === undefined) continue
+        const q = Number(raw)
+        if (q < 0 || q > item.available) {
+          sanitized[item.id] = ''
+          changed = true
+        }
+      }
+      return changed ? { ...prev, equipmentRequests: sanitized } : prev
+    })
+    setErrors((prev) => (prev.equipment ? { ...prev, equipment: undefined } : prev))
     setEquipmentPanelOpen(false)
     equipmentTriggerRef.current?.focus()
   }, [])
 
   function handleSaveDraft() {
     if (isBusy || isSubmitted) return
+
+    if (hasInvalidEquipment(form)) {
+      setErrors((prev) => ({ ...prev, equipment: 'Fix the equipment quantities before saving.' }))
+      equipmentTriggerRef.current?.focus()
+      return
+    }
+
     setSaveState('saving')
     const record = saveEventRequest(form, 'draft')
     setForm(record)
