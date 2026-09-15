@@ -65,11 +65,5 @@ def cleanup(admin):
     created: list[str] = []
     yield created
     for user_id in created:
-        try:
-            admin.schema("users").table("users").delete().eq("id", user_id).execute()
-        except Exception:
-            pass
-        try:
-            admin.auth.admin.delete_user(user_id)
-        except Exception:
-            pass
+        admin.schema("users").table("users").delete().eq("id", user_id).execute()
+        admin.auth.admin.delete_user(user_id)

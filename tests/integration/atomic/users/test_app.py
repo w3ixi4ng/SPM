@@ -70,6 +70,8 @@ def test_signup_login_me_logout_round_trip(api, cleanup, admin):
         admin.schema("users").table("users").select("*").eq("id", profile["id"]).execute()
     )
     assert stored.data, "no row in users.users -- check the schema is exposed and granted"
+    auth_user = admin.auth.admin.get_user_by_id(profile["id"]).user
+    assert auth_user.app_metadata["role"] == "event_organiser"
 
     signup_session = session_cookies(created)
     if not signup_session:
@@ -86,7 +88,7 @@ def test_signup_login_me_logout_round_trip(api, cleanup, admin):
 
     me = api.get("/users/me", headers=as_header(signup_session))
     assert me.status_code == 200, me.text
-    assert me.json() == profile
+    assert me.json() == {**profile, "role": "event_organiser"}
 
     assert api.post("/users/logout", headers=as_header(signup_session)).status_code == 204
 
@@ -97,6 +99,7 @@ def test_signup_login_me_logout_round_trip(api, cleanup, admin):
     me_again = api.get("/users/me", headers=as_header(session_cookies(signed_in)))
     assert me_again.status_code == 200
     assert me_again.json()["id"] == profile["id"]
+    assert me_again.json()["role"] == "event_organiser"
 
 
 # --- TC-USERS-102 ---------------------------------------------------------
@@ -120,3 +123,24 @@ def test_me_without_a_session_is_401(api):
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
+
+
+# --- TC-USERS-104 ---------------------------------------------------------
+def test_public_signup_cannot_choose_another_role(api, cleanup):
+    response = api.post(
+        "/users/signup",
+        json={
+            "name": "Ada Lovelace",
+            "email": unique_email(),
+            "password": PASSWORD,
+            "role": "event_coordinator",
+        },
+    )
+
+    # If this assertion ever fails because an account was incorrectly created,
+    # still register it for fixture cleanup before reporting the failure.
+    if response.status_code == 201:
+        cleanup.append(response.json()["id"])
+
+    assert response.status_code == 422
+    assert "role" in response.json()["errors"]

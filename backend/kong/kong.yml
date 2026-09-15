@@ -24,3 +24,13 @@ services:
         paths:
           - /api/users
         strip_path: true
+
+  - name: events
+    # Keep /events on the upstream URL. Kong strips /api/events, then appends
+    # the remaining path, so /api/events/{id} reaches /events/{id}.
+    url: http://events:8002/events
+    routes:
+      - name: events
+        paths:
+          - /api/events
+        strip_path: true

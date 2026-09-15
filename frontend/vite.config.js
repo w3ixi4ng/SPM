@@ -4,8 +4,6 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
-
   // Vite serves the app and forwards /api to Kong, so the browser only ever
   // sees one origin: localhost:5173. That is what makes the session cookies
   // work -- a direct call to another port would be cross-origin, which needs

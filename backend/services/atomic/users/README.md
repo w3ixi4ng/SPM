@@ -47,6 +47,11 @@ a body — no endpoint accepts or returns a token.
 | `email` | string | yes | a valid address; lower-cased before storage |
 | `password` | string | yes | 8–72 characters (bcrypt ignores anything past 72) |
 
+No other fields are accepted. In particular, public signup has no `role`
+field. After Supabase creates the account, the backend uses its administrative
+client to assign trusted `app_metadata.role=event_organiser`; callers cannot
+select an internal role.
+
 ```json
 // 201, plus Set-Cookie: sb_access_token, sb_refresh_token
 {"id": "3f1c...", "name": "Ada Lovelace", "email": "ada@example.com"}
@@ -72,8 +77,13 @@ caller.
 
 ```json
 // 200
-{"id": "3f1c...", "name": "Ada Lovelace", "email": "ada@example.com"}
+{"id": "3f1c...", "name": "Ada Lovelace", "email": "ada@example.com", "role": "event_organiser"}
 ```
+
+`role` is read from the verified Auth user's trusted `app_metadata.role`. It is
+`null` for an authenticated account with no assigned role; the browser must
+fail closed for that state. It never comes from `user_metadata` or the profile
+table.
 
 **`GET /health`** — no body.
 
