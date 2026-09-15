@@ -123,6 +123,18 @@ function withAlpha(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+// A quantity that is negative or exceeds stock is not an "incomplete field"
+// -- it is impossible to fulfil -- so it blocks Save Draft too, unlike the
+// rest of validateForSubmit's checks.
+function hasInvalidEquipment(form) {
+  return EQUIPMENT_CATALOG.some((item) => {
+    const raw = form.equipmentRequests[item.id]
+    if (raw === '' || raw === undefined) return false
+    const q = Number(raw)
+    return q < 0 || q > item.available
+  })
+}
+
 function validateDraft(form) {
   const errors = {}
   if (form.startTime && form.endTime && form.endTime <= form.startTime) {
@@ -154,13 +166,7 @@ function validateForSubmit(form) {
   if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
   if (!form.venue.trim()) errors.venue = 'Please enter a venue.'
 
-  const hasInvalidEquipment = EQUIPMENT_CATALOG.some((item) => {
-    const raw = form.equipmentRequests[item.id]
-    if (raw === '' || raw === undefined) return false
-    const q = Number(raw)
-    return q < 0 || q > item.available
-  })
-  if (hasInvalidEquipment) {
+  if (hasInvalidEquipment(form)) {
     errors.equipmentRequests = 'Fix the equipment quantities before submitting.'
   }
 
@@ -881,6 +887,31 @@ export default function EventRequestForm() {
   }
 
   const closeEquipmentPanel = useCallback(() => {
+    // X, Escape and the backdrop all close the panel without going through
+    // the (disabled-while-invalid) Save button, so a negative or over-stock
+    // value the user was mid-typing would otherwise sit in form state
+    // untouched. Rather than guess what they meant (e.g. clamping to the
+    // max), just drop it -- the field goes back to empty, as if nothing
+    // was entered.
+    setForm((prev) => {
+      let changed = false
+      const sanitized = { ...prev.equipmentRequests }
+      for (const item of EQUIPMENT_CATALOG) {
+        const raw = sanitized[item.id]
+        if (raw === '' || raw === undefined) continue
+        const q = Number(raw)
+        if (q < 0 || q > item.available) {
+          sanitized[item.id] = ''
+          changed = true
+        }
+      }
+      return changed ? { ...prev, equipmentRequests: sanitized } : prev
+    })
+    setErrors((prev) => (
+      prev.equipmentRequests
+        ? { ...prev, equipmentRequests: undefined }
+        : prev
+    ))
     setEquipmentPanelOpen(false)
     equipmentTriggerRef.current?.focus()
   }, [])
@@ -889,6 +920,9 @@ export default function EventRequestForm() {
     if (isBusy || isSubmitted) return
 
     const validationErrors = validateDraft(form)
+    if (hasInvalidEquipment(form)) {
+      validationErrors.equipmentRequests = 'Fix the equipment quantities before saving.'
+    }
     setErrors(validationErrors)
     if (Object.keys(validationErrors).length) {
       focusFirstError(validationErrors)
