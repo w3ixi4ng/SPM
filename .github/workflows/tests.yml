@@ -175,3 +175,92 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose --env-file .env.test down -v
+
+  # ---------------------------------------------------------------------
+  # A real browser, driven through Kong against the whole stack -- the built
+  # frontend included. These are the only tests that prove the pieces fit
+  # together: the gateway's routing, the SPA fallback, and a session cookie
+  # surviving a page load.
+  #
+  # Kept to four journeys on purpose. They are the slowest thing here and
+  # every one of them can only fail for a reason the other suites cannot see.
+  # ---------------------------------------------------------------------
+  e2e:
+    name: End-to-end (playwright)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check the required secrets are set
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_SERVICE_KEY SUPABASE_ANON_KEY; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            exit 1
+          fi
+
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<ENV
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
+          USERS_SERVICE_PORT=8001
+          EVENTS_SERVICE_PORT=8002
+          KONG_PROXY_PORT=8000
+          USERS_SERVICE_URL=http://users:8001
+          EVENTS_SERVICE_URL=http://events:8002
+          ENV
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      # pip installs the bindings; the browser is a separate download.
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Start the stack
+        run: docker compose --env-file .env.test up -d --build --wait
+
+      - name: Run end-to-end tests
+        run: pytest tests/e2e -v
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs
+
+      # A failed browser test is close to unreadable without these.
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          if-no-files-found: ignore
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.test down -v

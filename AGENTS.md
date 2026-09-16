@@ -444,10 +444,18 @@ Every service gets its own port. 8000 is the gateway's.
 | **Kong (gateway)** | **8000** | `http://localhost:8000/api/...` — the only one a browser uses |
 | `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
 | `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
+| `frontend` | — | `http://frontend:80` — through Kong only, see below |
 | first composite | 8100 | reserved |
 
 Services stay published on their own ports as well, so you can bypass the
 gateway to test a service on its own — which is what the integration tests do.
+
+**The frontend is the exception: it is not published at all.** The app calls a
+relative `/api`, so it is only coherent on an origin that serves both it and
+the services — Kong. Published on its own port it would load and then 404 every
+API call, which reads as a broken backend. Reach it at
+`http://localhost:${KONG_PROXY_PORT}`, or run `npm run dev` for hot reload,
+whose Vite proxy imitates the same arrangement.
 Composites start at 8100 to leave the 800x block to atomic services.
 
 A new service claims the next free port and must be registered in **four**
@@ -535,11 +543,16 @@ apart at a glance:
 | **Unit (pytest)** | `pytest tests/unit` | Nothing |
 | **Unit (node)** | `node --test tests/unit/frontend/test_*.mjs` | Nothing — no `npm ci`, these import `frontend/src/lib/` directly |
 | **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration` | The repo secrets below |
+| **End-to-end (playwright)** | the same stack, plus `playwright install --with-deps chromium`, then `pytest tests/e2e` | The repo secrets below |
 
-The integration job brings up the **whole** stack, Kong included, because the
-events tests exercise the gateway routes as well as the service directly. It
-is skipped on pull requests from forks: those get no secrets, and a job that
-cannot authenticate would fail for a reason the contributor cannot fix.
+Both Docker jobs bring up the **whole** stack, Kong and the frontend included:
+the events tests exercise the gateway routes as well as the service directly,
+and the browser has nothing to open otherwise. Both are skipped on pull
+requests from forks — those get no secrets, and a job that cannot authenticate
+would fail for a reason the contributor cannot fix.
+
+The e2e job uploads Playwright's `test-results/` on every run. A failed browser
+test is close to unreadable without them.
 
 A missing secret would otherwise surface as "container is unhealthy", which
 points nowhere — so the job checks for them first and fails naming the
@@ -641,10 +654,20 @@ docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
 ```
 
-**No end-to-end tests yet.** Those drive a real browser through the whole path
-— frontend, composite, atomic, database. That needs a working frontend and
-working services first, so add `tests/e2e/` only once the stack runs end to
-end. Do not scaffold it before then.
+- **`tests/e2e/`** — a real browser, driving the built frontend through Kong
+  against both services and a real (test) Supabase project. Needs the whole
+  stack up, Chromium installed, and email confirmation off in the test project.
+
+**Fewer e2e tests than integration tests.** They are the slowest thing in the
+repo and have more ways to be flaky than everything else combined, so a
+journey earns its place only if no other suite can prove it: Kong's routing,
+nginx's SPA fallback, an httpOnly cookie surviving a page load, and whether
+`frontend/src/lib/access.js` still agrees with the events service's
+`authorization.py`. Validation rules and status codes are already covered in
+`tests/unit/` — do not restage them in a browser.
+
+Name a spec after the journey, not the service: `test_sign_up.py`, never
+`test_users.py`. Details in [`tests/e2e/README.md`](tests/e2e/README.md).
 
 ### `TEST_CASES.md`
 

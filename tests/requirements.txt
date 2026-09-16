@@ -5,3 +5,7 @@ httpx            # TestClient, and the integration tests' HTTP calls
 fastapi
 pydantic[email]
 supabase
+
+# e2e only. The browser itself is a separate download that pip cannot do:
+#   playwright install chromium
+pytest-playwright

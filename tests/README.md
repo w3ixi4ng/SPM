@@ -6,6 +6,7 @@ Two kinds of test, in two folders.
 | --- | --- | --- |
 | `unit/` | Runs one service on its own, with a **fake** Supabase that returns whatever the test tells it. | Nothing |
 | `integration/` | Runs the real service in Docker against a **real** (test) Supabase. | Docker, a filled-in `.env.test`, a test Supabase project |
+| `e2e/` | Drives a **real browser** over the whole stack through Kong. | All of the above, plus Chromium and the frontend container |
 
 ## The difference, plainly
 
@@ -33,18 +34,20 @@ so keep them to the things only they can prove — usually one save-then-read pe
 service. If that passes, the schema, the permissions, and the connection are
 all confirmed at once.
 
-## End-to-end tests — later
+## End-to-end tests
 
-Not set up, on purpose. An end-to-end test drives a real browser through the
-whole path — frontend, composite service, atomic service, database — the way a
-person would: log in, create something, check it appears.
+`tests/e2e/` drives a real browser (Playwright, through pytest) over the built
+frontend, Kong, both services and a real test Supabase project — the way a
+person would: sign up, log in, file a request, check it appears.
 
-That needs a working frontend, working services, and real user journeys to
-test. None of those exist yet, so there is nothing for it to click on.
+Four journeys, and that is meant to stay small. They are the slowest tests here
+and the most fragile, so one belongs there only if nothing cheaper can prove
+it: the gateway's routing, nginx's SPA fallback, an httpOnly cookie surviving a
+page load, and whether the frontend's permission mirror still matches the
+backend's policy.
 
-Add it once the stack works end to end, as `tests/e2e/` with a browser tool
-such as Cypress or Playwright, and name specs after journeys (`userAuth`,
-`createTask`) rather than after services.
+Needs the whole stack up, Chromium installed, and email confirmation off in the
+test project. See [`e2e/README.md`](e2e/README.md).
 
 ## Naming
 
@@ -68,6 +71,10 @@ node --test tests/unit/frontend/test_*.mjs
 # needs the stack running first, against the test project
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
+
+# a real browser over the same stack -- needs `playwright install chromium`
+pytest tests/e2e
+
 docker compose --env-file .env.test down -v
 ```
 

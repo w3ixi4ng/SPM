@@ -36,12 +36,36 @@ services:
         condition: service_healthy
       events:
         condition: service_healthy
+      frontend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+# The built React bundle, served by nginx behind Kong.
+#
+# Deliberately NOT published on a host port. The app calls a relative `/api`,
+# which only resolves when something serves the app and the services on one
+# origin -- that is Kong, on ${KONG_PROXY_PORT}. Reaching this container
+# directly would load the page and 404 every API call, which looks like a
+# broken backend. For day-to-day frontend work run `npm run dev` instead; its
+# Vite proxy forwards /api to Kong and gives you hot reload.
+  frontend:
+    build: ./frontend
+    healthcheck:
+      # busybox wget -- the nginx alpine image has no curl. 127.0.0.1, not
+      # localhost: `listen 80` binds IPv4 only, localhost resolves to ::1
+      # first, and busybox wget does not fall back the way Python's urllib
+      # does in the other services' checks. It just reports "connection
+      # refused" from a container that is serving pages perfectly well.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
   users:
     build: ./backend/services/atomic/users

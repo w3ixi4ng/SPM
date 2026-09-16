@@ -34,3 +34,22 @@ services:
         paths:
           - /api/events
         strip_path: true
+
+  # The frontend, last and least specific. Kong matches the longest path
+  # prefix first, so `/api/users` and `/api/events` still win over `/` and
+  # this only catches what they did not.
+  #
+  # strip_path is false because the SPA needs its own path: React Router reads
+  # /dashboard/event-organiser from the URL, and nginx needs it to serve
+  # index.html. Stripping it would deliver every deep link as `/`.
+  #
+  # This is what makes the session cookies work without CORS -- the app and
+  # the services are one origin here, which is the arrangement
+  # frontend/vite.config.js proxies to imitate in development.
+  - name: frontend
+    url: http://frontend:80
+    routes:
+      - name: frontend
+        paths:
+          - /
+        strip_path: false
