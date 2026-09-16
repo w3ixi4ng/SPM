@@ -8,7 +8,7 @@ authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-14, working tree of branch `events-schema` |
+| Last run | 2026-09-17, branch `S-07/T-01` |
 | Environment | Local Node.js; no network or Supabase |
 | Result | 8 passed |
 
@@ -55,6 +55,8 @@ authoritative.
 - **Expected:** Business fields use backend names and numeric quantities;
   `id`, `organiser_id`, `status`, `created_at`, and `updated_at` are absent;
   the empty draft contains only `equipment_requests: {}`.
+- **Note:** covers `special_requirements` as well, including trimming and the
+  blank-to-null rule.
 - **Actual:** Business fields were mapped exactly and all server-owned fields
   were omitted; an empty draft mapped to an empty equipment object only.
 - **Status:** Pass
@@ -68,6 +70,8 @@ authoritative.
 - **Test data:** Draft response with SQL-style times and integer quantities.
 - **Expected:** Fields are camelCase, times are `HH:MM`, and attendance is an
   input-compatible string.
+- **Note:** covers `special_requirements` as well, including trimming and the
+  blank-to-null rule.
 - **Actual:** All response fields mapped to their input-compatible values.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `API responses populate the existing React state shape`

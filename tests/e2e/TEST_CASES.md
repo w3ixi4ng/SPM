@@ -9,7 +9,7 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-16, branch `update/ci` at `279d9db` + working tree |
+| Last run | 2026-09-17, branch `S-07/T-01` at `ea7cab7` |
 | Environment | `.env.test` → test Supabase project, `users` and `events` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
 | Result | 4 passed (twice consecutively) |
 
@@ -73,10 +73,13 @@ surviving a page load.
 - **Test data:** name `E2E Launch <random>`, purpose `Proving the path from
   browser to database.`, start and end both day 15 of next month,
   `9:00 AM`–`11:00 AM`, attendance `40`, venue `Hall A`.
-- **Expected:** Submitting redirects to `/events/<uuid>`, and the event's name
-  appears in **Your requests** on a freshly loaded dashboard — so it was
+- **Expected:** A "Request submitted." confirmation appears, submitting
+  redirects to `/events/<uuid>`, and the event's name appears in **Your
+  requests** on a freshly loaded dashboard, marked submitted — so it was
   stored and read back, not just echoed.
-- **Actual:** Redirected to `/events/<uuid>`; the name appeared in the list.
+- **Actual:** The "Request submitted." confirmation appeared, the browser landed
+  on `/events/<uuid>`, and the event showed in **Your requests** marked
+  submitted.
 - **Status:** Pass
 - **Evidence:** `test_event_request.py::test_organiser_submits_an_event_request_and_sees_it_listed`
 

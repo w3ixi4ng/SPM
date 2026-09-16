@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-16, working tree of branch `event-request-status-toast` |
+| Last run | 2026-09-17, branch `S-07/T-01` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 40 passed |
+| Result | 48 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -489,3 +489,91 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_updating_submitted_event_still_requires_submitted_fields`
+
+## TC-EVENTS-041 — a draft accepts other requirements
+
+- **Scenario:** Free-text requirements outside the fixed fields are kept on a draft.
+- **Pre-conditions:** None — schema validation only.
+- **Steps:** Build an `EventDraftCreate` with `special_requirements` set.
+- **Test data:** `"  Sign-up sheet on the door  "`.
+- **Expected:** Accepted, stored trimmed as `"Sign-up sheet on the door"`.
+- **Actual:** Trimmed and retained.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_draft_accepts_special_requirements`
+
+## TC-EVENTS-042 — a submitted request accepts other requirements
+
+- **Scenario:** The same field survives on a submitted request, not just a draft.
+- **Pre-conditions:** None.
+- **Steps:** Build an `EventSubmittedCreate` from a valid payload plus `special_requirements`.
+- **Test data:** `"Registration closes a week before"`.
+- **Expected:** Accepted and retained.
+- **Actual:** Retained.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_submitted_request_accepts_special_requirements`
+
+## TC-EVENTS-043 — other requirements are optional for submission
+
+- **Scenario:** The field is a place to say something, not something that must be said.
+- **Pre-conditions:** None.
+- **Steps:** Build a valid submitted payload (1) omitting the field, (2) with only whitespace.
+- **Test data:** field absent; field `"   "`.
+- **Expected:** Both valid; both normalise to `None`. No validation error.
+- **Actual:** Both accepted as `None`.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_special_requirements_is_optional_for_submission`
+
+## TC-EVENTS-044 — creating a submitted event records the submission time
+
+- **Scenario:** Submitting records when it happened, so the action is auditable.
+- **Pre-conditions:** Authenticated organiser; fake Supabase.
+- **Steps:** `POST /events` with a valid submitted payload; inspect the insert sent to the database.
+- **Test data:** The standard valid submitted payload.
+- **Expected:** `201`, and the inserted row carries a non-null `submitted_at`. Checked on the write, not the response — a client must not be able to choose its own submission time.
+- **Actual:** `submitted_at` present on the insert.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_creating_a_submitted_event_records_the_submission_time`
+
+## TC-EVENTS-045 — creating a draft records no submission time
+
+- **Scenario:** A draft has not been submitted, so the column stays empty.
+- **Pre-conditions:** Authenticated organiser; fake Supabase.
+- **Steps:** `POST /events/drafts`; inspect the insert.
+- **Test data:** `{"name": "Planning draft"}`.
+- **Expected:** `201`, and `submitted_at` is explicitly `None` — so the column always means "submitted at this time", never "last touched".
+- **Actual:** `submitted_at` was `None`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_creating_a_draft_records_no_submission_time`
+
+## TC-EVENTS-046 — submitting an existing draft records the submission time
+
+- **Scenario:** The draft-then-submit path records the time as well as the create-submitted path.
+- **Pre-conditions:** Authenticated organiser owning a draft.
+- **Steps:** `POST /events/{id}/submit` with a valid payload; inspect the update.
+- **Test data:** The standard valid submitted payload.
+- **Expected:** `200`, and the update carries a non-null `submitted_at`.
+- **Actual:** `submitted_at` present on the update.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_submitting_a_draft_records_the_submission_time`
+
+## TC-EVENTS-047 — another organiser's draft cannot be edited
+
+- **Scenario:** Ownership is enforced on writes, not only on reads.
+- **Pre-conditions:** Authenticated organiser; the owned lookup returns nothing, which is what another user's event looks like.
+- **Steps:** `PATCH /events/{id}` with a change.
+- **Test data:** `{"name": "Changed"}`.
+- **Expected:** `404` `"Event not found"`, and **no update is issued at all** — the request must not reach the table.
+- **Actual:** `404`; update never called.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_cannot_update_another_users_draft`
+
+## TC-EVENTS-048 — another organiser's draft cannot be submitted
+
+- **Scenario:** The same ownership rule on the submit route.
+- **Pre-conditions:** As above.
+- **Steps:** `POST /events/{id}/submit` with a valid payload.
+- **Test data:** The standard valid submitted payload.
+- **Expected:** `404` `"Event not found"`, and no update issued.
+- **Actual:** `404`; update never called.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_cannot_submit_another_users_draft`

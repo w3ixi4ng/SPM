@@ -5,6 +5,7 @@ const TEXT_FIELDS = {
   purpose: 'purpose',
   venue: 'venue',
   accessibility: 'accessibility_requirements',
+  specialRequirements: 'special_requirements',
 }
 
 const VALUE_FIELDS = {
@@ -25,6 +26,7 @@ const API_TO_FORM_FIELD = {
   venue: 'venue',
   equipment_requests: 'equipmentRequests',
   accessibility_requirements: 'accessibility',
+  special_requirements: 'specialRequirements',
 }
 
 function equipmentPayload(equipmentRequests = {}) {
@@ -72,6 +74,7 @@ export function eventResponseToForm(event) {
     venue: event.venue ?? '',
     equipmentRequests: event.equipment_requests ?? {},
     accessibility: event.accessibility_requirements ?? '',
+    specialRequirements: event.special_requirements ?? '',
   }
 }
 

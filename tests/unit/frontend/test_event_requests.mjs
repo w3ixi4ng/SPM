@@ -28,6 +28,7 @@ const FORM = {
   venue: 'Main auditorium',
   equipmentRequests: { projector: '2', microphone: '', chairs: '0' },
   accessibility: '  Wheelchair access  ',
+  specialRequirements: '  Registration closes a week before  ',
   created_at: 'must-not-be-sent',
   updated_at: 'must-not-be-sent',
 }
@@ -46,6 +47,8 @@ const API_EVENT = {
   venue: 'Main auditorium',
   equipment_requests: { projector: 2 },
   accessibility_requirements: 'Wheelchair access',
+  special_requirements: 'Registration closes a week before',
+  submitted_at: null,
   created_at: '2026-09-14T00:00:00Z',
   updated_at: '2026-09-14T00:00:00Z',
 }
@@ -56,6 +59,7 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     purpose: 'Connect alumni',
     venue: 'Main auditorium',
     accessibility_requirements: 'Wheelchair access',
+    special_requirements: 'Registration closes a week before',
     start_date: '2026-10-20',
     start_time: '18:00',
     end_date: '2026-10-20',
@@ -75,6 +79,7 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     attendance: '',
     venue: '',
     accessibility: '',
+    specialRequirements: '',
     equipmentRequests: {},
   }, { omitEmpty: true }), { equipment_requests: {} })
 })
@@ -92,6 +97,7 @@ test('API responses populate the existing React state shape', () => {
     venue: 'Main auditorium',
     equipmentRequests: { projector: 2 },
     accessibility: 'Wheelchair access',
+    specialRequirements: 'Registration closes a week before',
   })
 })
 
