@@ -21,22 +21,34 @@ tests/
 ## Branches and commits
 
 Work never lands directly on `main`. Every change goes on its own branch, named
-for what the work is — short, kebab-case, no ceremony:
+for the work it implements: the story id, a slash, then the task ids.
 
 ```
-users-auth
-expose-events-schema
+S-01/T-01
+S-07/T-01.T-02
 ```
+
+The story id goes first so every branch belonging to one story sorts together
+and `git branch --list 'S-07/*'` is the whole story. A branch covering more
+than one task joins them with a dot, in ascending order — the same dot the
+task id itself uses.
+
+Nothing else goes in the name. No description, no initials, no `feature/`
+prefix. The ids are the name, and the pull request is where the work gets
+described.
 
 Create the branch before writing any files, so the first commit is already in
-the right place.
+the right place. **That means the task id is needed before the work starts,
+not at the end.** If you were not given one, ask for it — do not invent one
+and do not start on a placeholder name meaning to rename it later.
 
 ### The task id goes in the pull request
 
-A branch gets deleted on merge and a commit message is awkward to correct once
-it is pushed. The pull request is what a reviewer actually reads and what the
-tracker links to, so that is where the task id lives. Every PR description names
-the task it implements, verbatim — dots and dashes included:
+The branch carries the ids too, but a branch is deleted on merge and a commit
+message is awkward to correct once it is pushed. The pull request is what a
+reviewer actually reads and what the tracker links to, so that is where the
+task id lives for good. Every PR description names the task it implements,
+verbatim — dots and dashes included:
 
 ```markdown
 Task: S-01.T-01
@@ -49,8 +61,8 @@ A PR covering more than one task gives each its own line. A description can be
 edited at any time, which is the point — an id can be added or corrected later
 without rewriting anything.
 
-**If no task id was given, ask the developer for it before opening the PR.** Do
-not invent one.
+**If no task id was given, ask the developer for it** — at branch time, which
+is before any file is written. Do not invent one.
 
 Commit messages need no id. Write them for whoever is reading the diff: what
 changed and why, not which ticket asked for it.
@@ -886,9 +898,10 @@ More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
 
-1. Branch first — see [Branches and commits](#branches-and-commits). Then
-   create the folder under `atomic/` or `composite/`, whichever the rules above
-   call for. The task id is needed for the PR description, not yet.
+1. Branch first — see [Branches and commits](#branches-and-commits). The
+   branch is named `<story-id>/<task-ids>`, so the task id has to be in hand
+   before anything is written; ask for it if it was not given. Then create the
+   folder under `atomic/` or `composite/`, whichever the rules above call for.
 2. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
 3. Add the `README.md` — endpoints, request and response params, and how to

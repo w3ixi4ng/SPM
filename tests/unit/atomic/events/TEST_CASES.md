@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-14, working tree of branch `events-schema` |
+| Last run | 2026-09-16, working tree of branch `S-07.T-01/event-request-form` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 34 passed |
+| Result | 39 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -406,3 +406,69 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_list_rejects_role_without_view_permission`
+
+## TC-EVENTS-035 — PATCH validates the resulting date order
+
+- **Scenario:** A partial date update cannot leave a stored end date before the
+  stored start date.
+- **Pre-conditions:** The owned draft already has `start_date=2026-10-20`.
+- **Steps:** PATCH only `end_date=2026-10-19`.
+- **Test data:** Existing start `2026-10-20`; body `{"end_date": "2026-10-19"}`.
+- **Expected:** `422` containing `end_date must be on or after start_date`;
+  update is never sent to Supabase.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_update_validates_date_order_against_existing_draft`
+
+## TC-EVENTS-036 — multi-day event may end earlier in the clock than it starts
+
+- **Scenario:** An event that spans midnight is not held to the single-day
+  `end_time` > `start_time` rule.
+- **Pre-conditions:** A valid organiser session; the insert returns the stored
+  event.
+- **Steps:** `POST /events` with `start_date` one day before `end_date` and
+  `end_time` earlier in the clock than `start_time`.
+- **Test data:** `start_date=2026-10-20`, `start_time=22:00`,
+  `end_date=2026-10-21`, `end_time=02:00`.
+- **Expected:** `201` and status `submitted`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_create_accepts_multi_day_event_with_end_time_before_start_time`
+
+## TC-EVENTS-037 — invalid draft date ordering
+
+- **Scenario:** A draft with both dates supplied requires end on or after start.
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventDraftCreate` with start `2026-10-20` and end
+  `2026-10-19`.
+- **Test data:** `{"start_date": "2026-10-20", "end_date": "2026-10-19"}`.
+- **Expected:** `ValidationError` containing `end_date must be on or after start_date`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_draft_rejects_end_date_before_start_date`
+
+## TC-EVENTS-038 — invalid submitted date ordering
+
+- **Scenario:** A submitted end date must be on or after its start date.
+- **Pre-conditions:** The otherwise-valid submitted payload from TC-EVENTS-006.
+- **Steps:** Set `end_date` earlier than `start_date` and instantiate
+  `EventSubmittedCreate`.
+- **Test data:** `"start_date": "2026-10-20", "end_date": "2026-10-19"`.
+- **Expected:** `ValidationError` containing `end_date must be on or after start_date`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_submitted_request_rejects_end_date_before_start_date`
+
+## TC-EVENTS-039 — submitted multi-day event allows an earlier end clock time
+
+- **Scenario:** A submitted request spanning two calendar days is not held to
+  the single-day `end_time` > `start_time` rule.
+- **Pre-conditions:** The otherwise-valid submitted payload from TC-EVENTS-006.
+- **Steps:** Set `start_date`/`end_date` one day apart and `end_time` earlier
+  than `start_time`, then instantiate `EventSubmittedCreate`.
+- **Test data:** `start_date=2026-10-20`, `start_time=22:00`,
+  `end_date=2026-10-21`, `end_time=02:00`.
+- **Expected:** The model is valid.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_submitted_request_allows_end_time_before_start_time_across_days`

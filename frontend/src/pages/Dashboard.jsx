@@ -112,7 +112,7 @@ function EventRequestList({ refreshAuth }) {
                       {event.name || 'Untitled event'}
                     </h3>
                     <p className="font-ui text-xs mt-1" style={{ color: C.inkFaint }}>
-                      {event.event_date || 'No date selected'}
+                      {event.start_date || 'No date selected'}
                     </p>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">

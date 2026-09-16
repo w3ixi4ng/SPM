@@ -49,9 +49,10 @@ When supplied, values still have to be valid.
 | --- | --- | --- |
 | `name` | string or null | Blank text becomes null. |
 | `purpose` | string or null | Blank text becomes null. |
-| `event_date` | `YYYY-MM-DD` or null | Optional. |
-| `start_time` | time or null | If both times exist, must be before `end_time`. |
-| `end_time` | time or null | If both times exist, must be after `start_time`. |
+| `start_date` | `YYYY-MM-DD` or null | Optional. |
+| `start_time` | time or null | If both times exist and the event is single-day, must be before `end_time`. |
+| `end_date` | `YYYY-MM-DD` or null | Optional. If both dates exist, must be on or after `start_date`. |
+| `end_time` | time or null | If both times exist and the event is single-day, must be after `start_time`. |
 | `expected_attendance` | integer or null | Greater than zero when present. |
 | `venue` | string or null | Blank text becomes null. |
 | `equipment_requests` | object | Optional; values must be positive integers. Defaults to `{}` on create. |
@@ -74,9 +75,10 @@ event.
 | --- | --- | --- | --- |
 | `name` | string | yes | Nonblank. |
 | `purpose` | string | yes | Nonblank. |
-| `event_date` | `YYYY-MM-DD` | yes | |
-| `start_time` | time | yes | Before `end_time`. |
-| `end_time` | time | yes | After `start_time`. |
+| `start_date` | `YYYY-MM-DD` | yes | |
+| `start_time` | time | yes | Before `end_time` when the event is single-day. |
+| `end_date` | `YYYY-MM-DD` | yes | On or after `start_date`. |
+| `end_time` | time | yes | After `start_time` when the event is single-day (`end_date == start_date`); unconstrained relative to `start_time` for a multi-day event. |
 | `expected_attendance` | integer | yes | Greater than zero. |
 | `venue` | string | yes | Nonblank. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
@@ -86,8 +88,9 @@ event.
 {
   "name": "Alumni networking evening",
   "purpose": "Connect alumni with graduating students",
-  "event_date": "2026-10-20",
+  "start_date": "2026-10-20",
   "start_time": "18:00",
+  "end_date": "2026-10-20",
   "end_time": "21:00",
   "expected_attendance": 120,
   "venue": "Main auditorium",
@@ -108,8 +111,9 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "status": "submitted",
   "name": "Alumni networking evening",
   "purpose": "Connect alumni with graduating students",
-  "event_date": "2026-10-20",
+  "start_date": "2026-10-20",
   "start_time": "18:00:00",
+  "end_date": "2026-10-20",
   "end_time": "21:00:00",
   "expected_attendance": 120,
   "venue": "Main auditorium",

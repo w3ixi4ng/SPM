@@ -25,8 +25,9 @@ create table if not exists events.events (
   status                     text not null default 'draft',
   name                       text,
   purpose                    text,
-  event_date                 date,
+  start_date                 date,
   start_time                 time without time zone,
+  end_date                   date,
   end_time                   time without time zone,
   expected_attendance        integer,
   venue                      text,
@@ -50,8 +51,22 @@ create table if not exists events.events (
   constraint events_attendance_positive
     check (expected_attendance is null or expected_attendance > 0),
 
+  -- The end date, if set, is never before the start date -- an event
+  -- spanning midnight (end_date > start_date) is fine; end_date < start_date
+  -- never is.
+  constraint events_date_order
+    check (start_date is null or end_date is null or end_date >= start_date),
+
+  -- end_time only has to be after start_time when the event stays on one
+  -- calendar day. A multi-day event (end_date > start_date) may legitimately
+  -- end at a clock time earlier than it started.
   constraint events_time_order
-    check (start_time is null or end_time is null or end_time > start_time),
+    check (
+      start_time is null or end_time is null
+      or start_date is null or end_date is null
+      or end_date > start_date
+      or end_time > start_time
+    ),
 
   constraint events_equipment_requests_object
     check (jsonb_typeof(equipment_requests) = 'object'),
@@ -62,8 +77,9 @@ create table if not exists events.events (
       or (
         name is not null
         and purpose is not null
-        and event_date is not null
+        and start_date is not null
         and start_time is not null
+        and end_date is not null
         and end_time is not null
         and expected_attendance is not null
         and venue is not null

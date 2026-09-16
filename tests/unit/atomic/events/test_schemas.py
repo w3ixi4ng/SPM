@@ -9,8 +9,9 @@ from .conftest import EventDraftCreate, EventDraftUpdate, EventSubmittedCreate
 SUBMITTED = {
     "name": "Alumni networking evening",
     "purpose": "Connect alumni with graduating students",
-    "event_date": "2026-10-20",
+    "start_date": "2026-10-20",
     "start_time": "18:00",
+    "end_date": "2026-10-20",
     "end_time": "21:00",
     "expected_attendance": 120,
     "venue": "Main auditorium",
@@ -41,8 +42,9 @@ def test_empty_draft_is_valid():
     assert EventDraftCreate().model_dump() == {
         "name": None,
         "purpose": None,
-        "event_date": None,
+        "start_date": None,
         "start_time": None,
+        "end_date": None,
         "end_time": None,
         "expected_attendance": None,
         "venue": None,
@@ -128,3 +130,31 @@ def test_request_schemas_reject_server_managed_fields():
         ("created_at",),
         ("updated_at",),
     }
+
+
+# --- TC-EVENTS-037 --------------------------------------------------------
+def test_draft_rejects_end_date_before_start_date():
+    with pytest.raises(ValidationError, match="end_date must be on or after start_date"):
+        EventDraftCreate(start_date="2026-10-20", end_date="2026-10-19")
+
+
+# --- TC-EVENTS-038 --------------------------------------------------------
+def test_submitted_request_rejects_end_date_before_start_date():
+    with pytest.raises(ValidationError, match="end_date must be on or after start_date"):
+        EventSubmittedCreate(**{**SUBMITTED, "end_date": "2026-10-19"})
+
+
+# --- TC-EVENTS-039 --------------------------------------------------------
+def test_submitted_request_allows_end_time_before_start_time_across_days():
+    submitted = EventSubmittedCreate(
+        **{
+            **SUBMITTED,
+            "start_date": "2026-10-20",
+            "start_time": "22:00",
+            "end_date": "2026-10-21",
+            "end_time": "02:00",
+        }
+    )
+
+    assert submitted.end_date > submitted.start_date
+    assert submitted.end_time < submitted.start_time
