@@ -54,6 +54,11 @@ def test_draft_to_submission_round_trip(organiser_session):
         assert final.status_code == 200, final.text
         assert final.json()["status"] == "submitted"
         assert final.json()["name"] == submitted["name"]
+        # The submission is recorded, not just the state change: organiser_id
+        # says who, submitted_at says when. A real column and a real write,
+        # which is the part only this test can prove.
+        assert final.json()["submitted_at"] is not None
+        assert final.json()["organiser_id"] == organiser_session["user_id"]
 
 
 def test_kong_routes_every_event_operation(organiser_session):

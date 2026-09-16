@@ -57,6 +57,7 @@ When supplied, values still have to be valid.
 | `venue` | string or null | Blank text becomes null. |
 | `equipment_requests` | object | Optional; values must be positive integers. Defaults to `{}` on create. |
 | `accessibility_requirements` | string or null | Blank text becomes null. |
+| `special_requirements` | string or null | Anything the fixed fields do not cover — registration arrangements, catering, security. Blank text becomes null. |
 
 An empty draft is valid:
 
@@ -90,6 +91,7 @@ failure, rather than reaching the database's own constraint as an opaque
 | `venue` | string | yes | Nonblank. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
 | `accessibility_requirements` | string or null | no | Blank text becomes null. |
+| `special_requirements` | string or null | no | Free text. Blank becomes null. |
 
 ```json
 {
@@ -102,11 +104,21 @@ failure, rather than reaching the database's own constraint as an opaque
   "expected_attendance": 120,
   "venue": "Main auditorium",
   "equipment_requests": {"projector": 1, "microphone": 2},
-  "accessibility_requirements": "Wheelchair access"
+  "accessibility_requirements": "Wheelchair access",
+  "special_requirements": "Registration closes a week before",
+  "submitted_at": "2026-09-17T10:04:11.502Z",
+  "special_requirements": "Registration closes a week before",
+  "submitted_at": null
 }
 ```
 
 ## Response
+
+> `submitted_at` is set by the service when a request is submitted and is null
+> on a draft. Like `organiser_id` and `status` it is never read from the request
+> body — a client able to choose its own submission time could backdate one.
+> With `organiser_id` it is the record of who submitted the request and when.
+
 
 Create endpoints return `201`; list, get, update, and submit-existing return
 `200`. Every event object has this shape:

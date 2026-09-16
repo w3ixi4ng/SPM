@@ -76,6 +76,8 @@ def event_row(**changes):
         "venue": None,
         "equipment_requests": {},
         "accessibility_requirements": None,
+        "special_requirements": None,
+        "submitted_at": None,
         "created_at": "2026-09-14T00:00:00Z",
         "updated_at": "2026-09-14T00:00:00Z",
     }

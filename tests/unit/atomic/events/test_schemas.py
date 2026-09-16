@@ -50,6 +50,7 @@ def test_empty_draft_is_valid():
         "venue": None,
         "equipment_requests": {},
         "accessibility_requirements": None,
+        "special_requirements": None,
     }
 
 
@@ -158,3 +159,30 @@ def test_submitted_request_allows_end_time_before_start_time_across_days():
 
     assert submitted.end_date > submitted.start_date
     assert submitted.end_time < submitted.start_time
+
+
+# --- TC-EVENTS-041 --------------------------------------------------------
+def test_draft_accepts_special_requirements():
+    draft = EventDraftCreate(special_requirements="  Sign-up sheet on the door  ")
+
+    assert draft.special_requirements == "Sign-up sheet on the door"
+
+
+# --- TC-EVENTS-042 --------------------------------------------------------
+def test_submitted_request_accepts_special_requirements():
+    submitted = EventSubmittedCreate(
+        **SUBMITTED, special_requirements="Registration closes a week before"
+    )
+
+    assert submitted.special_requirements == "Registration closes a week before"
+
+
+# --- TC-EVENTS-043 --------------------------------------------------------
+def test_special_requirements_is_optional_for_submission():
+    # Omitted entirely, and blank, are both fine -- the field is a place to
+    # say something, not something that must be said.
+    assert EventSubmittedCreate(**SUBMITTED).special_requirements is None
+    assert (
+        EventSubmittedCreate(**SUBMITTED, special_requirements="   ").special_requirements
+        is None
+    )

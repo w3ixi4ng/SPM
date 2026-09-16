@@ -26,10 +26,12 @@ project.
 - **Expected:** Create `201`; read and update `200`; final submission `200`;
   list contains the draft and only the authenticated organiser's rows;
   organiser id equals the authenticated user's id; status changes from `draft`
-  to `submitted`; cleanup removes every created record.
-- **Actual:** Not run this pass -- the test now submits `start_date`/`end_date`
-  (see `backend/sql/events.sql`), which does not exist in either Supabase
-  project's `events.events` table yet.
+  to `submitted`; `submitted_at` is set on the submitted row, so the submitting
+  user and the time of submission are both recoverable; cleanup removes every
+  created record.
+- **Actual:** Not run this pass -- the test submits `start_date`/`end_date` and
+  now reads back `submitted_at` (see `backend/sql/events.sql`), none of which
+  exist in either Supabase project's `events.events` table yet.
 - **Status:** Blocked
 - **Evidence:** `test_app.py::test_draft_to_submission_round_trip`
 

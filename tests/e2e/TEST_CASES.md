@@ -73,11 +73,15 @@ surviving a page load.
 - **Test data:** name `E2E Launch <random>`, purpose `Proving the path from
   browser to database.`, start and end both day 15 of next month,
   `9:00 AM`–`11:00 AM`, attendance `40`, venue `Hall A`.
-- **Expected:** Submitting redirects to `/events/<uuid>`, and the event's name
-  appears in **Your requests** on a freshly loaded dashboard — so it was
+- **Expected:** A "Request submitted." confirmation appears, submitting
+  redirects to `/events/<uuid>`, and the event's name appears in **Your
+  requests** on a freshly loaded dashboard, marked submitted — so it was
   stored and read back, not just echoed.
-- **Actual:** Redirected to `/events/<uuid>`; the name appeared in the list.
-- **Status:** Pass
+- **Actual:** Not run this pass. The case now also asserts the "Request
+  submitted." confirmation and that the row reads as submitted in the list, and
+  the form posts `special_requirements`, which does not exist in the test
+  project's `events.events` table yet.
+- **Status:** Blocked -- apply `backend/sql/events.sql` to the test project.
 - **Evidence:** `test_event_request.py::test_organiser_submits_an_event_request_and_sees_it_listed`
 
 ## TC-E2E-204 — a non-organiser cannot reach organiser routes

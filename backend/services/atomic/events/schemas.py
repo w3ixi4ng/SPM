@@ -36,8 +36,16 @@ class EventDraftCreate(BaseModel):
     venue: str | None = None
     equipment_requests: dict[str, PositiveInt] = Field(default_factory=dict)
     accessibility_requirements: str | None = None
+    special_requirements: str | None = None
 
-    @field_validator("name", "purpose", "venue", "accessibility_requirements", mode="before")
+    @field_validator(
+        "name",
+        "purpose",
+        "venue",
+        "accessibility_requirements",
+        "special_requirements",
+        mode="before",
+    )
     @classmethod
     def normalise_optional_text(cls, value):
         if isinstance(value, str):
@@ -68,8 +76,16 @@ class EventSubmittedCreate(BaseModel):
     venue: str
     equipment_requests: dict[str, PositiveInt] = Field(default_factory=dict)
     accessibility_requirements: str | None = None
+    special_requirements: str | None = None
 
-    @field_validator("name", "purpose", "venue", "accessibility_requirements", mode="before")
+    @field_validator(
+        "name",
+        "purpose",
+        "venue",
+        "accessibility_requirements",
+        "special_requirements",
+        mode="before",
+    )
     @classmethod
     def normalise_text(cls, value):
         if isinstance(value, str):
@@ -97,5 +113,9 @@ class EventRead(BaseModel):
     venue: str | None
     equipment_requests: dict[str, int]
     accessibility_requirements: str | None
+    special_requirements: str | None
+    # Null while the request is a draft. With organiser_id this is the record
+    # of who submitted it and when.
+    submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime

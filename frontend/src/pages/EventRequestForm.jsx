@@ -116,6 +116,7 @@ const EMPTY_FORM = {
   venue: '',
   equipmentRequests: EMPTY_EQUIPMENT_REQUESTS,
   accessibility: '',
+  specialRequirements: '',
 }
 
 // Mirrors the backend's same-day rule (see events service schemas.py): once
@@ -1541,6 +1542,23 @@ export default function EventRequestForm() {
                 placeholder="Wheelchair access, live captioning, quiet room..."
                 value={form.accessibility}
                 onChange={(e) => updateField('accessibility', e.target.value)}
+                className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm resize-none"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="event-special" className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
+                Other requirements
+                <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
+              </label>
+              <textarea
+                id="event-special"
+                name="specialRequirements"
+                rows={2}
+                placeholder="Registration or sign-up arrangements, catering, security, anything else..."
+                value={form.specialRequirements}
+                onChange={(e) => updateField('specialRequirements', e.target.value)}
+                disabled={isSubmitted}
                 className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm resize-none"
               />
             </div>

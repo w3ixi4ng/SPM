@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -62,9 +63,24 @@ def _execute(operation):
         ) from exc
 
 
+def _submitted_now() -> str:
+    """The submission timestamp, as the record of when it happened.
+
+    Set by the service, never taken from the payload -- the same rule as
+    organiser_id and status. A client that could choose its own submission
+    time could backdate one.
+    """
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _insert_event(payload, event_status: str, organiser_id: str, db: Client):
     values = payload.model_dump(mode="json")
     values.update({"organiser_id": organiser_id, "status": event_status})
+    # Null on a draft, so the column means "submitted at this time" and never
+    # "last touched". The table's check constraint enforces the same pairing.
+    values["submitted_at"] = (
+        _submitted_now() if event_status == "submitted" else None
+    )
     result = _execute(db.schema(SCHEMA).table(TABLE).insert(values))
     if not result.data:
         raise HTTPException(
@@ -203,6 +219,7 @@ def submit_draft(
 
     changes = payload.model_dump(mode="json")
     changes["status"] = "submitted"
+    changes["submitted_at"] = _submitted_now()
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)

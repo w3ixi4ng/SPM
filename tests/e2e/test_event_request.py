@@ -58,6 +58,10 @@ def test_organiser_submits_an_event_request_and_sees_it_listed(
 
     page.get_by_role("button", name="Submit request").click()
 
+    # The organiser is told it worked. The acceptance criterion asks for a
+    # clear indication, and a silent redirect is not one.
+    page.get_by_text("Request submitted.").wait_for(timeout=30000)
+
     # A submitted request redirects to its own page, which is the first proof
     # the events service accepted it and gave it an id.
     page.wait_for_url(re.compile(r"/events/[0-9a-f-]{36}$"), timeout=30000)
@@ -67,3 +71,7 @@ def test_organiser_submits_an_event_request_and_sees_it_listed(
     page.goto("/dashboard/event-organiser")
     page.wait_for_url(re.compile(r"/dashboard/event-organiser$"), timeout=20000)
     page.get_by_text(name, exact=True).wait_for(timeout=20000)
+
+    # And it reads as submitted rather than draft -- the list is where the two
+    # are meant to be told apart at a glance.
+    page.get_by_text("submitted", exact=False).first.wait_for(timeout=20000)

@@ -91,8 +91,12 @@ def test_create_derives_organiser_and_status_from_session(client, db, auth):
             "venue": None,
             "equipment_requests": {},
             "accessibility_requirements": None,
+            "special_requirements": None,
             "organiser_id": ORGANISER_ID,
             "status": "draft",
+            # A draft has no submission time, and the column says so rather
+            # than being left out -- see TC-EVENTS-045.
+            "submitted_at": None,
         }
     )
 
@@ -201,14 +205,15 @@ def test_submit_existing_draft(client, db, auth):
 
     assert response.status_code == 200
     assert response.json()["status"] == "submitted"
-    db.schema.return_value.table.return_value.update.assert_called_once_with(
-        {
-            **SUBMITTED,
-            "start_time": "18:00:00",
-            "end_time": "21:00:00",
-            "status": "submitted",
-        }
-    )
+    sent = db.schema.return_value.table.return_value.update.call_args[0][0]
+    assert sent["submitted_at"] is not None
+    assert {key: value for key, value in sent.items() if key != "submitted_at"} == {
+        **SUBMITTED,
+        "special_requirements": None,
+        "start_time": "18:00:00",
+        "end_time": "21:00:00",
+        "status": "submitted",
+    }
 
 
 # --- TC-EVENTS-023 --------------------------------------------------------
@@ -379,3 +384,68 @@ def test_create_accepts_multi_day_event_with_end_time_before_start_time(client, 
 
     assert response.status_code == 201
     assert response.json()["status"] == "submitted"
+
+
+# --- TC-EVENTS-044 --------------------------------------------------------
+def test_creating_a_submitted_event_records_the_submission_time(client, db, auth):
+    authenticate(client, auth)
+    on_insert(db, [event_row(status="submitted", submitted_at="2026-09-17T10:00:00Z", **SUBMITTED)])
+
+    response = client.post("/events", json=SUBMITTED)
+
+    assert response.status_code == 201
+    # The service sets it; a client cannot choose its own submission time, so
+    # what matters is what went to the database, not what came back.
+    sent = db.schema.return_value.table.return_value.insert.call_args[0][0]
+    assert sent["submitted_at"] is not None
+
+
+# --- TC-EVENTS-045 --------------------------------------------------------
+def test_creating_a_draft_records_no_submission_time(client, db, auth):
+    authenticate(client, auth)
+    on_insert(db, [event_row()])
+
+    response = client.post("/events/drafts", json={"name": "Planning draft"})
+
+    assert response.status_code == 201
+    sent = db.schema.return_value.table.return_value.insert.call_args[0][0]
+    assert sent["submitted_at"] is None
+
+
+# --- TC-EVENTS-046 --------------------------------------------------------
+def test_submitting_a_draft_records_the_submission_time(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row()])
+    on_update(db, [event_row(status="submitted", submitted_at="2026-09-17T10:00:00Z", **SUBMITTED)])
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 200
+    sent = db.schema.return_value.table.return_value.update.call_args[0][0]
+    assert sent["submitted_at"] is not None
+
+
+# --- TC-EVENTS-047 --------------------------------------------------------
+def test_cannot_update_another_users_draft(client, db, auth):
+    authenticate(client, auth)
+    # The owned lookup filters on organiser_id, so another user's event is
+    # indistinguishable from one that does not exist.
+    on_owned_select(db, [])
+
+    response = client.patch(f"/events/{EVENT_ID}", json={"name": "Changed"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Event not found"
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-048 --------------------------------------------------------
+def test_cannot_submit_another_users_draft(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [])
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Event not found"
+    db.schema.return_value.table.return_value.update.assert_not_called()

@@ -33,6 +33,18 @@ create table if not exists events.events (
   venue                      text,
   equipment_requests         jsonb not null default '{}'::jsonb,
   accessibility_requirements text,
+
+  -- A catch-all for anything the fixed fields do not cover -- registration
+  -- arrangements, catering, security, whatever the organiser needs to say.
+  -- Deliberately one free-text field rather than a column per concern: the
+  -- requirement names no structure, and inventing one would be guessing.
+  special_requirements       text,
+
+  -- When the request was submitted, and null while it is a draft. Together
+  -- with organiser_id this is the record of who submitted and when.
+  -- Not updated_at: that moves for any write, so it cannot be relied on as a
+  -- submission time even though a submitted event is currently uneditable.
+  submitted_at               timestamptz,
   created_at                 timestamptz not null default now(),
   updated_at                 timestamptz not null default now(),
 
@@ -70,6 +82,15 @@ create table if not exists events.events (
 
   constraint events_equipment_requests_object
     check (jsonb_typeof(equipment_requests) = 'object'),
+
+  -- A submitted row always carries its submission time, and a draft never
+  -- does. Enforced here so the audit record cannot be lost to a code path
+  -- that forgets to set it.
+  constraint events_submitted_at_present
+    check (
+      (status = 'submitted' and submitted_at is not null)
+      or (status <> 'submitted' and submitted_at is null)
+    ),
 
   constraint events_submitted_fields_required
     check (
@@ -128,4 +149,28 @@ alter default privileges for role postgres in schema events
 alter table events.events enable row level security;
 
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.
+-- ---------------------------------------------------------------------------
+-- Already have this table? `create table if not exists` above does nothing to
+-- it, so run this instead. Safe to run twice.
+--
+--   alter table events.events
+--     add column if not exists special_requirements text,
+--     add column if not exists submitted_at         timestamptz;
+--
+--   -- Backfill before adding the constraint, or existing submitted rows
+--   -- violate it. updated_at is the closest thing to a submission time for
+--   -- rows that predate this column; a submitted event cannot be edited, so
+--   -- for those it has not moved since.
+--   update events.events
+--      set submitted_at = updated_at
+--    where status = 'submitted' and submitted_at is null;
+--
+--   alter table events.events
+--     add constraint events_submitted_at_present
+--     check (
+--       (status = 'submitted' and submitted_at is not null)
+--       or (status <> 'submitted' and submitted_at is null)
+--     );
+-- ---------------------------------------------------------------------------
+
 notify pgrst, 'reload schema';
