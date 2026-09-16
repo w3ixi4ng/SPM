@@ -9,7 +9,7 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-16, branch `update/ci` at `279d9db` + working tree |
+| Last run | 2026-09-17, branch `S-07/T-01` at `ea7cab7` |
 | Environment | `.env.test` → test Supabase project, `users` and `events` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
 | Result | 4 passed (twice consecutively) |
 
@@ -77,11 +77,10 @@ surviving a page load.
   redirects to `/events/<uuid>`, and the event's name appears in **Your
   requests** on a freshly loaded dashboard, marked submitted — so it was
   stored and read back, not just echoed.
-- **Actual:** Not run this pass. The case now also asserts the "Request
-  submitted." confirmation and that the row reads as submitted in the list, and
-  the form posts `special_requirements`, which does not exist in the test
-  project's `events.events` table yet.
-- **Status:** Blocked -- apply `backend/sql/events.sql` to the test project.
+- **Actual:** The "Request submitted." confirmation appeared, the browser landed
+  on `/events/<uuid>`, and the event showed in **Your requests** marked
+  submitted.
+- **Status:** Pass
 - **Evidence:** `test_event_request.py::test_organiser_submits_an_event_request_and_sees_it_listed`
 
 ## TC-E2E-204 — a non-organiser cannot reach organiser routes

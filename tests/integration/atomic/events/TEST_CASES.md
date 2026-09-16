@@ -7,9 +7,9 @@ project.
 | | |
 | --- | --- |
 | Suite | Start the events service against `.env.test`, then `pytest tests/integration/atomic/events` |
-| Last run | 2026-09-16, working tree of branch `S-07.T-01/event-request-form` |
+| Last run | 2026-09-17, branch `S-07/T-01` at `ea7cab7` |
 | Environment | `.env.test` test Supabase project; `events` schema applied, granted and exposed; users, events, and Kong healthy in Docker |
-| Result | Blocked -- `backend/sql/events.sql` now defines `start_date`/`end_date` in place of `event_date`; the dev and test Supabase projects still have the old column and need the schema rebuilt (see the file's rebuild instructions) before this suite can run again |
+| Result | 2 passed |
 
 ## TC-EVENTS-101 — authenticated draft-to-submission round trip
 
@@ -29,10 +29,11 @@ project.
   to `submitted`; `submitted_at` is set on the submitted row, so the submitting
   user and the time of submission are both recoverable; cleanup removes every
   created record.
-- **Actual:** Not run this pass -- the test submits `start_date`/`end_date` and
-  now reads back `submitted_at` (see `backend/sql/events.sql`), none of which
-  exist in either Supabase project's `events.events` table yet.
-- **Status:** Blocked
+- **Actual:** Full round trip passed. The submitted row came back with
+  `submitted_at` set and `organiser_id` equal to the authenticated user, so the
+  submission is recoverable after the fact. Ran twice consecutively; cleanup
+  left no rows behind.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_draft_to_submission_round_trip`
 
 ## TC-EVENTS-102 — every events operation routes through Kong
