@@ -739,30 +739,53 @@ Non-negotiable on every page:
 
 ## CI
 
-Two workflows in `.github/workflows/`. Both run on pushes and pull requests to
+Three workflows in `.github/workflows/`. All run on pushes and pull requests to
 `main`, and can be started by hand.
 
 | Workflow | What it does | When it runs |
 | --- | --- | --- |
+| `tests.yml` | Runs the test suites — see below | Every push. A failure fails the job. |
 | `semgrep-sast.yml` | Static analysis of the code — Python, JavaScript, React, secrets | Every push. Findings fail the job. |
-| `wapiti-dast.yml` | Attacks the running services and reports what it finds | Skipped until a service has a `Dockerfile` |
+| `wapiti-dast.yml` | Attacks the running services and reports what it finds | Every push, once a service has a `Dockerfile` |
 
-**Wapiti is dormant right now.** A preflight job builds its scan list from the
-services that have a `Dockerfile`, so with none written it skips cleanly. Adding
-the first `Dockerfile` wakes it up — expect the job to start running on that PR.
+### What `tests.yml` runs
+
+Three independent jobs, so a broken unit test and a broken container are told
+apart at a glance:
+
+| Job | Command | Needs |
+| --- | --- | --- |
+| **Unit (pytest)** | `pytest tests/unit` | Nothing |
+| **Unit (node)** | `node --test tests/unit/frontend/test_*.mjs` | Nothing — no `npm ci`, these import `frontend/src/lib/` directly |
+| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration` | The repo secrets below |
+
+The integration job brings up the **whole** stack, Kong included, because the
+events tests exercise the gateway routes as well as the service directly. It
+is skipped on pull requests from forks: those get no secrets, and a job that
+cannot authenticate would fail for a reason the contributor cannot fix.
+
+A missing secret would otherwise surface as "container is unhealthy", which
+points nowhere — so the job checks for them first and fails naming the
+variable. `wapiti-dast.yml` does the same, deliberately duplicated rather than
+factored into a composite action for two call sites.
 
 ### Repo secrets
 
-Wapiti needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in
+The integration job and Wapiti both need `SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY` and `SUPABASE_ANON_KEY` in
 **Settings → Secrets and variables → Actions**. Without them the containers exit
 at import and the job fails.
 
-**These are the test project's credentials, not your own project's.** The scan
-runs aggressively against every endpoint it finds, including `POST`, `PUT` and
-`DELETE`, and the service key bypasses row-level security — so it will create
-and delete real rows in whatever project it is pointed at. CI writes them to
-`.env.test` and starts the stack with `--env-file .env.test`, the same as
-integration tests.
+**These are the test project's credentials, not your own project's.** Both
+create and delete real rows — the integration tests by design, and the scan
+because it attacks every endpoint it finds, including `POST`, `PUT` and
+`DELETE`. The service key bypasses row-level security, so nothing stops either
+of them. CI writes the secrets to `.env.test` and starts the stack with
+`--env-file .env.test`, exactly as you would locally.
+
+The test project needs the same setup as your own: every schema in
+`backend/sql/` applied, exposed, and granted. An integration job that fails on
+a fresh project is almost always that, not the code.
 
 ## Rules
 

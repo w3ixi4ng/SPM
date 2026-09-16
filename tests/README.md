@@ -61,10 +61,20 @@ tests/integration/atomic/users/test_app.py
 # fast ones, no setup
 pytest tests/unit
 
+# the frontend's unit tests are Node's own runner, not pytest -- they import
+# frontend/src/lib/ directly, so there is nothing to install
+node --test tests/unit/frontend/test_*.mjs
+
 # needs the stack running first, against the test project
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
+docker compose --env-file .env.test down -v
 ```
+
+All three run in CI on every push and pull request, as the three jobs of
+`.github/workflows/tests.yml`. The integration job needs the repo secrets and
+is skipped on pull requests from forks — see
+[`AGENTS.md`](../AGENTS.md#ci).
 
 Details: [`unit/README.md`](unit/README.md) ·
 [`integration/README.md`](integration/README.md)
