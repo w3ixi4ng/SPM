@@ -19,8 +19,9 @@ from .conftest import (
 SUBMITTED = {
     "name": "Alumni networking evening",
     "purpose": "Connect alumni with graduating students",
-    "event_date": "2026-10-20",
+    "start_date": "2026-10-20",
     "start_time": "18:00",
+    "end_date": "2026-10-20",
     "end_time": "21:00",
     "expected_attendance": 120,
     "venue": "Main auditorium",
@@ -81,8 +82,9 @@ def test_create_derives_organiser_and_status_from_session(client, db, auth):
         {
             "name": None,
             "purpose": None,
-            "event_date": None,
+            "start_date": None,
             "start_time": None,
+            "end_date": None,
             "end_time": None,
             "expected_attendance": None,
             "venue": None,
@@ -326,3 +328,33 @@ def test_list_rejects_role_without_view_permission(client, db, auth):
     assert response.status_code == 403
     assert response.json()["detail"] == "Permission denied"
     db.schema.assert_not_called()
+
+
+# --- TC-EVENTS-035 --------------------------------------------------------
+def test_update_validates_date_order_against_existing_draft(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(start_date="2026-10-20")])
+
+    response = client.patch(f"/events/{EVENT_ID}", json={"end_date": "2026-10-19"})
+
+    assert response.status_code == 422
+    assert "end_date must be on or after start_date" in response.json()["errors"]["body"]
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-036 --------------------------------------------------------
+def test_create_accepts_multi_day_event_with_end_time_before_start_time(client, db, auth):
+    authenticate(client, auth)
+    overnight = {
+        **SUBMITTED,
+        "start_date": "2026-10-20",
+        "start_time": "22:00",
+        "end_date": "2026-10-21",
+        "end_time": "02:00",
+    }
+    on_insert(db, [event_row(status="submitted", **overnight)])
+
+    response = client.post("/events", json=overnight)
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "submitted"
