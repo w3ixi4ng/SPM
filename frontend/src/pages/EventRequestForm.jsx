@@ -96,7 +96,8 @@ const EMPTY_FORM = {
   id: '',
   name: '',
   purpose: '',
-  date: '',
+  startDate: '',
+  endDate: '',
   startTime: '',
   endTime: '',
   attendance: '',
@@ -104,6 +105,14 @@ const EMPTY_FORM = {
   equipmentRequests: EMPTY_EQUIPMENT_REQUESTS,
   accessibility: '',
 }
+
+function combineDateTime(dateValue, timeValue) {
+  if (!dateValue || !timeValue) return null
+  const combined = new Date(`${dateValue}T${timeValue}:00`)
+  return Number.isNaN(combined.getTime()) ? null : combined
+}
+
+const DATE_TIME_FIELDS = ['startDate', 'startTime', 'endDate', 'endTime']
 
 function withAlpha(hex, alpha) {
   const n = Number.parseInt(hex.slice(1), 16)
@@ -125,12 +134,39 @@ function hasInvalidEquipment(form) {
   })
 }
 
+<<<<<<< Updated upstream
+=======
+function validateDraft(form) {
+  const errors = {}
+  const start = combineDateTime(form.startDate, form.startTime)
+  const end = combineDateTime(form.endDate, form.endTime)
+  if (start && end && end <= start) {
+    errors.endDateTime = 'The event must end after it starts.'
+  }
+  if (
+    form.attendance !== ''
+    && (!Number.isInteger(Number(form.attendance)) || Number(form.attendance) <= 0)
+  ) {
+    errors.attendance = 'Expected attendance must be a positive whole number.'
+  }
+  const invalidEquipment = Object.values(form.equipmentRequests).some((quantity) => {
+    if (quantity === '' || Number(quantity) === 0) return false
+    return !Number.isInteger(Number(quantity)) || Number(quantity) <= 0
+  })
+  if (invalidEquipment) {
+    errors.equipmentRequests = 'Equipment quantities must be positive whole numbers.'
+  }
+  return errors
+}
+
+>>>>>>> Stashed changes
 function validateForSubmit(form) {
   const errors = {}
   if (!form.name.trim()) errors.name = 'Please enter an event name.'
   if (!form.purpose.trim()) errors.purpose = 'Please describe the purpose of this event.'
-  if (!form.date) errors.date = 'Please choose a date.'
+  if (!form.startDate) errors.startDate = 'Please choose a start date.'
   if (!form.startTime) errors.startTime = 'Please choose a start time.'
+  if (!form.endDate) errors.endDate = 'Please choose an end date.'
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
   if (form.startTime && form.endTime && form.endTime <= form.startTime) {
     errors.endTime = 'End time must be after the start time.'
@@ -183,11 +219,15 @@ function toISODate(year, month, day) {
   return `${year}-${mm}-${dd}`
 }
 
-function DateSelect({ id, value, onChange, error, disabled }) {
+function DateSelect({ id, value, onChange, error, disabled, minDate }) {
   const [open, setOpen] = useState(false)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const parsed = value ? value.split('-').map(Number) : null
+  const minDateParts = minDate ? minDate.split('-').map(Number) : null
+  const minDateObj = minDateParts
+    ? new Date(minDateParts[0], minDateParts[1] - 1, minDateParts[2])
+    : null
   const [viewYear, setViewYear] = useState(parsed ? parsed[0] : today.getFullYear())
   const [viewMonth, setViewMonth] = useState(parsed ? parsed[1] - 1 : today.getMonth())
 
@@ -233,10 +273,15 @@ function DateSelect({ id, value, onChange, error, disabled }) {
   }
 
   // Only strictly-future dates are selectable -- today and every past date
-  // are disabled and muted, not just visually de-emphasized.
-  function isPastOrToday(day) {
+  // are disabled and muted, not just visually de-emphasized. When minDate is
+  // given (the end-date picker, once a start date is chosen), anything
+  // before it is disabled too, so an impossible end date can't be picked in
+  // the first place rather than only being caught by validation afterwards.
+  function isDisabled(day) {
     const cellDate = new Date(viewYear, viewMonth, day)
-    return cellDate <= today
+    if (cellDate <= today) return true
+    if (minDateObj && cellDate < minDateObj) return true
+    return false
   }
 
   return (
@@ -327,7 +372,7 @@ function DateSelect({ id, value, onChange, error, disabled }) {
           <div className="grid grid-cols-7 gap-1">
             {cells.map((day, i) => {
               if (day === null) return <span key={`blank-${i}`} />
-              const disabledDay = isPastOrToday(day)
+              const disabledDay = isDisabled(day)
               return (
                 <button
                   key={day}
@@ -372,7 +417,7 @@ function formatTimeDisplay(value) {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`
 }
 
-function TimeSelect({ id, value, onChange, error, disabled }) {
+function TimeSelect({ id, value, onChange, error, disabled, minTime }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef(null)
   const triggerRef = useRef(null)
@@ -390,6 +435,13 @@ function TimeSelect({ id, value, onChange, error, disabled }) {
     onChange(time)
     setOpen(false)
     triggerRef.current?.focus()
+  }
+
+  // minTime is exclusive: only used for the end-time picker once the end
+  // date matches the start date, so a same-day end time that isn't strictly
+  // after the start time can't be picked in the first place.
+  function isDisabledTime(time) {
+    return Boolean(minTime) && time <= minTime
   }
 
   return (
@@ -419,20 +471,29 @@ function TimeSelect({ id, value, onChange, error, disabled }) {
           className="csp-popover absolute z-10 mt-2 w-full max-h-56 overflow-y-auto rounded-sm border"
           style={{ backgroundColor: C.paper, borderColor: C.line }}
         >
-          {TIME_OPTIONS.map((time) => (
-            <button
-              key={time}
-              type="button"
-              role="option"
-              aria-selected={value === time}
-              data-selected={value === time}
-              onClick={() => selectTime(time)}
-              className="csp-time-option w-full text-left px-4 py-2 font-ui text-sm"
-              style={value === time ? { backgroundColor: C.teal, color: C.paper } : { color: C.ink }}
-            >
-              {formatTimeDisplay(time)}
-            </button>
-          ))}
+          {TIME_OPTIONS.map((time) => {
+            const disabledTime = isDisabledTime(time)
+            return (
+              <button
+                key={time}
+                type="button"
+                role="option"
+                aria-selected={value === time}
+                aria-disabled={disabledTime}
+                data-selected={value === time}
+                disabled={disabledTime}
+                onClick={() => selectTime(time)}
+                className="csp-time-option w-full text-left px-4 py-2 font-ui text-sm"
+                style={
+                  value === time
+                    ? { backgroundColor: C.teal, color: C.paper }
+                    : { color: disabledTime ? C.inkFaint : C.ink }
+                }
+              >
+                {formatTimeDisplay(time)}
+              </button>
+            )
+          })}
         </div>
       )}
       <FieldError id={`${id}-error`} message={error} />
@@ -479,7 +540,7 @@ function EquipmentDetail({ item, quantity, onQuantityChange, disabled }) {
       </p>
 
       <div>
-        <label htmlFor={`equip-detail-${item.id}`} className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+        <label htmlFor={`equip-detail-${item.id}`} className="font-display text-s mb-1.5" style={{ color: C.ink }}>
           Quantity
         </label>
         <input
@@ -792,6 +853,13 @@ export default function EventRequestForm() {
   function updateField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+<<<<<<< Updated upstream
+=======
+    if (errors.endDateTime && DATE_TIME_FIELDS.includes(field)) {
+      setErrors((prev) => ({ ...prev, endDateTime: undefined }))
+    }
+    if (formError) setFormError(null)
+>>>>>>> Stashed changes
     if (saveState === 'saved') setSaveState('idle')
   }
 
@@ -875,7 +943,7 @@ export default function EventRequestForm() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: C.paper }}>
+    <div className="min-h-screen" style={{ backgroundColor: C.paperDim }}>
       <style>{`
         @keyframes riseIn {
           from { opacity: 0; transform: translateY(14px); }
@@ -925,6 +993,7 @@ export default function EventRequestForm() {
         .csp-day-btn:hover { background-color: ${C.paperDim}; }
         .csp-day-btn:disabled { pointer-events: none; }
         .csp-time-option:hover { background-color: ${C.paperDim}; }
+        .csp-time-option:disabled { pointer-events: none; }
 
         .csp-calendar-select {
           border: 1px solid transparent;
@@ -983,7 +1052,7 @@ export default function EventRequestForm() {
 
           <form noValidate onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="event-name" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              <label htmlFor="event-name" className="font-display text-s mb-1.5" style={{ color: C.ink }}>
                 Event name
               </label>
               <input
@@ -1003,7 +1072,7 @@ export default function EventRequestForm() {
             </div>
 
             <div>
-              <label htmlFor="event-purpose" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              <label htmlFor="event-purpose" className="font-display text-s mb-1.5" style={{ color: C.ink }}>
                 Purpose
               </label>
               <textarea
@@ -1022,48 +1091,80 @@ export default function EventRequestForm() {
               <FieldError id="event-purpose-error" message={errors.purpose} />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label htmlFor="event-date" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
-                  Date
-                </label>
-                <DateSelect
-                  id="event-date"
-                  value={form.date}
-                  onChange={(v) => updateField('date', v)}
-                  error={errors.date}
-                  disabled={isSubmitted}
-                />
+            <fieldset className="border-0 p-0 m-0">
+              <legend className="font-display text-s mb-1.5 p-0" style={{ color: C.ink }}>
+                Starts
+              </legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="event-start-date" className="sr-only">
+                    Start date
+                  </label>
+                  <DateSelect
+                    id="event-start-date"
+                    value={form.startDate}
+                    onChange={(v) => updateField('startDate', v)}
+                    error={errors.startDate}
+                    disabled={isSubmitted}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="event-start-time" className="sr-only">
+                    Start time
+                  </label>
+                  <TimeSelect
+                    id="event-start-time"
+                    value={form.startTime}
+                    onChange={(v) => updateField('startTime', v)}
+                    error={errors.startTime}
+                    disabled={isSubmitted}
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="event-start" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
-                  Start time
-                </label>
-                <TimeSelect
-                  id="event-start"
-                  value={form.startTime}
-                  onChange={(v) => updateField('startTime', v)}
-                  error={errors.startTime}
-                  disabled={isSubmitted}
-                />
+            </fieldset>
+
+            <fieldset className="border-0 p-0 m-0">
+              <legend className="font-display text-s mb-1.5 p-0" style={{ color: C.ink }}>
+                Ends
+              </legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="event-end-date" className="sr-only">
+                    End date
+                  </label>
+                  <DateSelect
+                    id="event-end-date"
+                    value={form.endDate}
+                    onChange={(v) => updateField('endDate', v)}
+                    error={errors.endDate}
+                    disabled={isSubmitted}
+                    minDate={form.startDate || undefined}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="event-end-time" className="sr-only">
+                    End time
+                  </label>
+                  <TimeSelect
+                    id="event-end-time"
+                    value={form.endTime}
+                    onChange={(v) => updateField('endTime', v)}
+                    error={errors.endTime}
+                    disabled={isSubmitted}
+                    minTime={
+                      form.startDate && form.endDate && form.startDate === form.endDate
+                        ? form.startTime || undefined
+                        : undefined
+                    }
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="event-end" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
-                  End time
-                </label>
-                <TimeSelect
-                  id="event-end"
-                  value={form.endTime}
-                  onChange={(v) => updateField('endTime', v)}
-                  error={errors.endTime}
-                  disabled={isSubmitted}
-                />
-              </div>
-            </div>
+              <FieldError id="event-end-datetime-error" message={errors.endDateTime} />
+            </fieldset>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="event-attendance" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+                <label htmlFor="event-attendance" className="font-display text-s mb-1.5" style={{ color: C.ink }}>
                   Expected attendance
                 </label>
                 <input
@@ -1083,7 +1184,7 @@ export default function EventRequestForm() {
                 <FieldError id="event-attendance-error" message={errors.attendance} />
               </div>
               <div>
-                <label htmlFor="event-venue" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+                <label htmlFor="event-venue" className="font-display text-s mb-1.5" style={{ color: C.ink }}>
                   Venue
                 </label>
                 <input
@@ -1104,7 +1205,7 @@ export default function EventRequestForm() {
             </div>
 
             <div>
-              <span className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              <span className="block font-display text-s mb-1.5" style={{ color: C.ink }}>
                 Equipment
                 <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
               </span>
@@ -1113,10 +1214,14 @@ export default function EventRequestForm() {
                 type="button"
                 onClick={() => setEquipmentPanelOpen(true)}
                 disabled={isSubmitted}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-medium font-ui border transition-colors duration-200 disabled:opacity-60"
-                style={{ borderColor: C.ink, color: C.ink }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md font-medium font-ui border transition-all duration-200 hover:bg-[rgba(0,0,0,0.04)] disabled:opacity-60"
+                style={{
+                  borderColor: C.ink,
+                  color: C.ink,
+                  backgroundColor: "transparent",
+                }}
               >
-                <Plus size={16} aria-hidden="true" />
+                <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
                 Add equipment
               </button>
               <FieldError id="event-equipment-error" message={errors.equipment} />
@@ -1146,7 +1251,7 @@ export default function EventRequestForm() {
             </div>
 
             <div>
-              <label htmlFor="event-accessibility" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              <label htmlFor="event-accessibility" className="font-display text-s mb-1.5" style={{ color: C.ink }}>
                 Accessibility requirements
                 <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
               </label>

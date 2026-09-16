@@ -13,7 +13,7 @@ export default function ForgotPassword() {
   return (
     <div
       className="min-h-screen flex items-center justify-center px-6 py-16"
-      style={{ backgroundColor: C.paper }}
+      style={{ backgroundColor: C.paperDim }}
     >
       <style>{`
         @keyframes riseIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }

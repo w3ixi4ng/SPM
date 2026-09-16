@@ -8,6 +8,7 @@ const C = {
   ink: '#10192B',
   inkFaint: '#4C5A70',
   paper: '#F8F6F1',
+  paperDim: '#F1EEE6',
   line: '#E3DFD3',
   teal: '#0E7C74',
   tealBright: '#149E92',
@@ -163,7 +164,7 @@ export default function Login() {
   return (
     <div
       className="min-h-screen flex flex-col md:flex-row"
-      style={{ backgroundColor: C.paper }}
+      style={{ backgroundColor: C.paperDim }}
     >
       <style>{`
         @keyframes riseIn {
@@ -180,7 +181,7 @@ export default function Login() {
 
         .csp-input {
           border: 1px solid ${C.line};
-          background: ${C.paper};
+          background: #FFFFFF;
           color: ${C.ink};
           transition: border-color 0.2s, box-shadow 0.2s;
         }
@@ -227,10 +228,7 @@ export default function Login() {
           className="rise-in w-full max-w-md"
           style={{ animationDelay: '130ms' }}
         >
-          <div
-            className="border rounded-sm px-6 py-8 sm:px-10 sm:py-10"
-            style={{ borderColor: C.line }}
-          >
+          <div className="rounded-sm px-6 py-8 sm:px-10 sm:py-10">
             <h1
               className="font-display text-3xl mb-2"
               style={{ color: C.ink }}
@@ -262,8 +260,13 @@ export default function Login() {
             <form noValidate onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label
+<<<<<<< Updated upstream
                   htmlFor={usernameId}
                   className="block font-ui text-sm font-medium mb-1.5"
+=======
+                  htmlFor={emailId}
+                  className="block font-display text-sm font-medium mb-1.5"
+>>>>>>> Stashed changes
                   style={{ color: C.ink }}
                 >
                   Username
@@ -301,7 +304,7 @@ export default function Login() {
               <div>
                 <label
                   htmlFor={passwordId}
-                  className="block font-ui text-sm font-medium mb-1.5"
+                  className="block font-display text-sm font-medium mb-1.5"
                   style={{ color: C.ink }}
                 >
                   Password
