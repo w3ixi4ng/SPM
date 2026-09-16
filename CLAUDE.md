@@ -802,6 +802,10 @@ a fresh project is almost always that, not the code.
 
 ## Rules
 
+- **Acceptance criteria come from the developer, and the test cases are
+  confirmed before any code is written.** Never invent an acceptance criterion
+  or infer one from a task title — ask, and wait. See
+  [Acceptance criteria and test cases come first](#acceptance-criteria-and-test-cases-come-first).
 - **Atomic services never call other services.** They own one entity and expose
   CRUD over it. Anything spanning two entities is a composite service.
 - **Composite services own no tables.** All state lives behind an atomic
@@ -962,6 +966,11 @@ Name a spec after the journey, not the service: `test_sign_up.py`, never
 The tests are the code; `TEST_CASES.md` is the written record of what they
 prove. One per test folder, next to the `test_*.py` it describes.
 
+**The specification half is written before the code and confirmed by the
+developer** — see
+[Acceptance criteria and test cases come first](#acceptance-criteria-and-test-cases-come-first).
+Cases written afterwards describe what was built instead of checking it.
+
 Each case states the **specification** — written once, changed only when the
 requirement changes:
 
@@ -1007,32 +1016,67 @@ quoted in a commit or an issue has to keep pointing at the same case.
 
 More detail in [`tests/README.md`](tests/README.md).
 
+## Acceptance criteria and test cases come first
+
+**Nothing is written until both exist.** Not the service, not a route, not a
+page. This is a hard gate, and it is the developer's to open.
+
+1. **The developer provides the acceptance criteria.** An agent does not write
+   them, infer them from the task title, or work from a guess at what the story
+   probably means. If they were not given, **ask and wait** — the same rule as
+   the task id, for the same reason: an acceptance criterion nobody wrote down
+   gets quietly satisfied by whatever the code happens to do.
+
+2. **The test cases are written next, and the developer confirms them.** Write
+   them into the relevant `TEST_CASES.md` as specification — ID, Scenario,
+   Pre-conditions, Steps, Test data, Expected — with Actual blank and Status
+   `Not Executed`. Then stop and have the developer agree they are the right
+   cases, and that together they cover every acceptance criterion.
+
+Only then does code get written.
+
+The order is the point. `TEST_CASES.md` separates what a case *specifies* from
+what a run *produced*, and cases written after the code collapse that
+distinction: they stop being a check on the work and become a description of
+it, agreeing with whatever was built, bugs included. Confirming them up front
+is also the cheapest moment to discover that an acceptance criterion is
+ambiguous, untestable, or describes something nobody meant to build — the cost
+of finding that out in review is a rewrite.
+
+Write the cases for every criterion, including the ones that are inconvenient.
+If a criterion cannot be expressed as a case with a specific expected result,
+it is not ready to build against; say so and ask for it to be reworded rather
+than picking an interpretation and coding to it.
+
 ## When adding a new service
 
-1. Branch first — see [Branches and commits](#branches-and-commits). The
+1. **Acceptance criteria in hand and test cases confirmed**, per the section
+   above. Do not skip ahead to the folder because the service "obviously" needs
+   to exist.
+2. Branch — see [Branches and commits](#branches-and-commits). The
    branch is named `<story-id>/<task-ids>`, so the task id has to be in hand
    before anything is written; ask for it if it was not given. Then create the
    folder under `atomic/` or `composite/`, whichever the rules above call for.
-2. Add the files listed in [Service structure](#service-structure) —
+3. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
-3. Add the `README.md` — endpoints, request and response params, and how to
+4. Add the `README.md` — endpoints, request and response params, and how to
    run it for development and for tests. See [`README.md`](#readmemd). Add it
    even if the service is a stub; git will not commit an empty folder.
-4. Create the matching test folders under `tests/unit/` and
+5. Create the matching test folders under `tests/unit/` and
    `tests/integration/`, each with an empty `__init__.py` and a
    `TEST_CASES.md` recording its cases — see [`TEST_CASES.md`](#test_casesmd).
-5. Write the schema SQL from
+6. Write the schema SQL from
    [Creating a new schema](#creating-a-new-schema--hand-this-to-the-developer)
    to `backend/sql/<service>.sql`, commit it, then **hand it to the developer
    to run**. Schemas, tables, and grants are not generated from Python and an
    agent cannot create them.
-6. **Ask the developer to expose the schema** under Data API → Settings →
+7. **Ask the developer to expose the schema** under Data API → Settings →
    Exposed schemas, *and* to confirm the table grants ran — both are required, and one
    without the other leaves the service broken. Confirm before you call the
    service finished. Skipping either makes every query fail with an error that points
    somewhere else — see
    [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-and-the-table-or-nothing-works).
-7. Claim the next free port and register it in all four places — the
+8. Claim the next free port and register it in all four places — the
    Dockerfile, `.env.example`, `docker-compose.yml`, and
    `backend/kong/kong.yml` if the browser reaches it. See [Ports](#ports).
-8. List the service in its parent `README.md` table.
+9. List the service in its parent `README.md` table.
