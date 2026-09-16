@@ -54,6 +54,24 @@ npm run dev
 Vite proxies `/api` to Kong on port 8000. The backend stack must therefore be
 running for login and role resolution.
 
+## In Docker
+
+`docker compose up --build` from the repository root builds this app and serves
+it from nginx behind Kong, at `http://localhost:8000`. That is the arrangement
+the end-to-end tests drive and the one production uses.
+
+The container is **not** published on a host port. The app calls a relative
+`/api`, so it is only coherent on an origin serving both it and the services;
+reached directly it would render and then 404 every API call. Use `npm run dev`
+for day-to-day work — the Vite proxy above imitates the same single origin, and
+you get hot reload.
+
+Two things this build depends on, both easy to break:
+
+- `nginx.conf` falls back to `index.html`, because React Router's paths do not
+  exist on disk. Without it, reloading `/dashboard/event-organiser` is a 404.
+- Kong routes `/` here **last**; `/api/*` is more specific and still wins.
+
 ## Verification
 
 From the repository root:

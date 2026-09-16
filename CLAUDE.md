@@ -444,10 +444,18 @@ Every service gets its own port. 8000 is the gateway's.
 | **Kong (gateway)** | **8000** | `http://localhost:8000/api/...` — the only one a browser uses |
 | `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
 | `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
+| `frontend` | — | `http://frontend:80` — through Kong only, see below |
 | first composite | 8100 | reserved |
 
 Services stay published on their own ports as well, so you can bypass the
 gateway to test a service on its own — which is what the integration tests do.
+
+**The frontend is the exception: it is not published at all.** The app calls a
+relative `/api`, so it is only coherent on an origin that serves both it and
+the services — Kong. Published on its own port it would load and then 404 every
+API call, which reads as a broken backend. Reach it at
+`http://localhost:${KONG_PROXY_PORT}`, or run `npm run dev` for hot reload,
+whose Vite proxy imitates the same arrangement.
 Composites start at 8100 to leave the 800x block to atomic services.
 
 A new service claims the next free port and must be registered in **four**
@@ -739,30 +747,58 @@ Non-negotiable on every page:
 
 ## CI
 
-Two workflows in `.github/workflows/`. Both run on pushes and pull requests to
+Three workflows in `.github/workflows/`. All run on pushes and pull requests to
 `main`, and can be started by hand.
 
 | Workflow | What it does | When it runs |
 | --- | --- | --- |
+| `tests.yml` | Runs the test suites — see below | Every push. A failure fails the job. |
 | `semgrep-sast.yml` | Static analysis of the code — Python, JavaScript, React, secrets | Every push. Findings fail the job. |
-| `wapiti-dast.yml` | Attacks the running services and reports what it finds | Skipped until a service has a `Dockerfile` |
+| `wapiti-dast.yml` | Attacks the running services and reports what it finds | Every push, once a service has a `Dockerfile` |
 
-**Wapiti is dormant right now.** A preflight job builds its scan list from the
-services that have a `Dockerfile`, so with none written it skips cleanly. Adding
-the first `Dockerfile` wakes it up — expect the job to start running on that PR.
+### What `tests.yml` runs
+
+Three independent jobs, so a broken unit test and a broken container are told
+apart at a glance:
+
+| Job | Command | Needs |
+| --- | --- | --- |
+| **Unit (pytest)** | `pytest tests/unit` | Nothing |
+| **Unit (node)** | `node --test tests/unit/frontend/test_*.mjs` | Nothing — no `npm ci`, these import `frontend/src/lib/` directly |
+| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration` | The repo secrets below |
+| **End-to-end (playwright)** | the same stack, plus `playwright install --with-deps chromium`, then `pytest tests/e2e` | The repo secrets below |
+
+Both Docker jobs bring up the **whole** stack, Kong and the frontend included:
+the events tests exercise the gateway routes as well as the service directly,
+and the browser has nothing to open otherwise. Both are skipped on pull
+requests from forks — those get no secrets, and a job that cannot authenticate
+would fail for a reason the contributor cannot fix.
+
+The e2e job uploads Playwright's `test-results/` on every run. A failed browser
+test is close to unreadable without them.
+
+A missing secret would otherwise surface as "container is unhealthy", which
+points nowhere — so the job checks for them first and fails naming the
+variable. `wapiti-dast.yml` does the same, deliberately duplicated rather than
+factored into a composite action for two call sites.
 
 ### Repo secrets
 
-Wapiti needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in
+The integration job and Wapiti both need `SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY` and `SUPABASE_ANON_KEY` in
 **Settings → Secrets and variables → Actions**. Without them the containers exit
 at import and the job fails.
 
-**These are the test project's credentials, not your own project's.** The scan
-runs aggressively against every endpoint it finds, including `POST`, `PUT` and
-`DELETE`, and the service key bypasses row-level security — so it will create
-and delete real rows in whatever project it is pointed at. CI writes them to
-`.env.test` and starts the stack with `--env-file .env.test`, the same as
-integration tests.
+**These are the test project's credentials, not your own project's.** Both
+create and delete real rows — the integration tests by design, and the scan
+because it attacks every endpoint it finds, including `POST`, `PUT` and
+`DELETE`. The service key bypasses row-level security, so nothing stops either
+of them. CI writes the secrets to `.env.test` and starts the stack with
+`--env-file .env.test`, exactly as you would locally.
+
+The test project needs the same setup as your own: every schema in
+`backend/sql/` applied, exposed, and granted. An integration job that fails on
+a fresh project is almost always that, not the code.
 
 ## Rules
 
@@ -785,9 +821,12 @@ integration tests.
   contract for what a new developer has to fill in. `.env` itself is
   gitignored; `.env.example` is deliberately not.
 - **`.env` is your project, `.env.test` is the throwaway one.** Integration
-  tests and any scanning run against `.env.test`
+  tests, e2e tests and any scanning run against `.env.test`
   (`docker compose --env-file .env.test up`), because they create and delete
-  real rows.
+  real rows. **Start the stack immediately before running them** — a container
+  keeps whichever file created it, so a stack left running from earlier can be
+  on `.env` without saying so. See
+  [Bring the stack up yourself](#⚠️-bring-the-stack-up-yourself-every-time).
 - Return the right status codes: `201` on create, `404` when missing, `422` is
   handled by FastAPI's validation.
 
@@ -841,10 +880,82 @@ docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
 ```
 
-**No end-to-end tests yet.** Those drive a real browser through the whole path
-— frontend, composite, atomic, database. That needs a working frontend and
-working services first, so add `tests/e2e/` only once the stack runs end to
-end. Do not scaffold it before then.
+### ⚠️ Bring the stack up yourself, every time
+
+> **Read this before believing an integration or e2e failure.**
+>
+> `--env-file .env.test` is read **once, when a container is created**, and
+> baked in. `pytest` never starts anything — it assumes a stack is already
+> running and reads `.env.test` separately, on the host, for the admin client
+> it cleans up with.
+>
+> So there are two readers at two different moments, and they can disagree.
+> A plain `docker compose up` — from another terminal, an IDE's Docker panel,
+> or Docker Desktop restarting containers on launch — recreates the stack from
+> **`.env`**, your own project. Nothing warns you. The services are healthy and
+> answer every request; they are simply writing somewhere else.
+>
+> **Always start the stack immediately before you run the tests**, in the same
+> sitting. Never reuse one from earlier — not even one you started correctly.
+>
+> ```bash
+> docker compose --env-file .env.test down -v
+> docker compose --env-file .env.test up -d --build --wait
+> pytest tests/integration
+> ```
+>
+> To check a stack you did not just start:
+>
+> ```bash
+> docker exec spm-users-1 python -c "import os;print(os.environ['SUPABASE_URL'])"
+> ```
+>
+> That must equal `SUPABASE_URL` in `.env.test`. If it equals the one in
+> `.env`, the stack is on your own project — recreate it.
+
+**What this looks like when it happens.** The tests write through the services
+into one project and verify through the admin client in the other, so the row
+is genuinely missing where it looks:
+
+| What you see | What you will go and check | What it actually is |
+| --- | --- | --- |
+| `no row in users.users -- check the schema is exposed and granted` | grants, exposed schemas, RLS | the row is in the other project |
+| `assert 401 == 201` on a route that works by hand | the auth code, the cookies | the token came from a different project's Auth |
+| `AuthApiError: User not found` during cleanup | the fixture's teardown | the user was created in the other project |
+
+None of these name the cause, and all three send you somewhere real but
+irrelevant — the same failure mode as
+[the exposed-schema trap](#%EF%B8%8F-expose-the-schema-and-the-table-or-nothing-works).
+Rule out the project before you touch any SQL.
+
+**It leaves rows behind in your dev project.** Cleanup runs against
+`.env.test`, so anything the services wrote to `.env` survives, and the suite
+that is supposed to be runnable twice has quietly polluted the database you
+demo from. They are addressed `spm-test-*` and `spm-e2e-*`, so they are easy
+to find:
+
+```sql
+select id, email from users.users where email like 'spm-%';
+```
+
+**CI cannot hit this.** Each job writes `.env.test`, brings the stack up, and
+runs pytest in one sequence, so the two always agree. This is a local-only
+failure, which is worse — it is the environment you debug in.
+
+- **`tests/e2e/`** — a real browser, driving the built frontend through Kong
+  against both services and a real (test) Supabase project. Needs the whole
+  stack up, Chromium installed, and email confirmation off in the test project.
+
+**Fewer e2e tests than integration tests.** They are the slowest thing in the
+repo and have more ways to be flaky than everything else combined, so a
+journey earns its place only if no other suite can prove it: Kong's routing,
+nginx's SPA fallback, an httpOnly cookie surviving a page load, and whether
+`frontend/src/lib/access.js` still agrees with the events service's
+`authorization.py`. Validation rules and status codes are already covered in
+`tests/unit/` — do not restage them in a browser.
+
+Name a spec after the journey, not the service: `test_sign_up.py`, never
+`test_users.py`. Details in [`tests/e2e/README.md`](tests/e2e/README.md).
 
 ### `TEST_CASES.md`
 
@@ -920,7 +1031,7 @@ More detail in [`tests/README.md`](tests/README.md).
    without the other leaves the service broken. Confirm before you call the
    service finished. Skipping either makes every query fail with an error that points
    somewhere else — see
-   [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-or-nothing-works).
+   [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-and-the-table-or-nothing-works).
 7. Claim the next free port and register it in all four places — the
    Dockerfile, `.env.example`, `docker-compose.yml`, and
    `backend/kong/kong.yml` if the browser reaches it. See [Ports](#ports).

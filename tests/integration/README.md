@@ -64,14 +64,28 @@ database, and the suite has to be runnable twice in a row.
 
 Suspect the database before your code. Almost every failure here is setup:
 
+- **the running stack is on `.env`, not `.env.test`** — the most likely cause
+  and the least obvious. A container keeps whichever env file created it, and
+  `pytest` does not start the stack or check it. A plain `docker compose up`
+  from anywhere — another terminal, an IDE panel, Docker Desktop restarting
+  containers — rebuilds it from `.env`. The services stay healthy and answer
+  everything; they just write to your own project. Check it before anything
+  else:
+
+  ```bash
+  docker exec spm-users-1 python -c "import os;print(os.environ['SUPABASE_URL'])"
+  ```
+
+  It must match `.env.test`. Recreate the stack if it does not, and note that
+  rows written to `.env` in the meantime are still there — cleanup ran against
+  the other project. They are addressed `spm-test-*` and `spm-e2e-*`.
 - the schema was never exposed under Data API → Settings
 - the grants were never run
 - the table ended up in `public`
-- you forgot `--env-file .env.test`, so the stack came up against `.env`
 
 The error messages point somewhere else entirely — the table of what they
 really mean is in
-[`AGENTS.md`](../../AGENTS.md#%EF%B8%8F-expose-the-schema-or-nothing-works).
+[`AGENTS.md`](../../AGENTS.md#%EF%B8%8F-expose-the-schema-and-the-table-or-nothing-works).
 
 ## Running
 

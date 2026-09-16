@@ -1,0 +1,11 @@
+# Installed inside the image by `npm ci`; copying the host's copy would both
+# slow the build and risk platform-specific binaries.
+node_modules
+dist
+dist-ssr
+
+.env
+.env.*
+!.env.example
+
+npm-debug.log*

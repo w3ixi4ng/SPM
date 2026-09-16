@@ -1,0 +1,266 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Fast, isolated, no setup. Supabase is a MagicMock, so nothing here
+  # needs a secret, a container, or a network.
+  # ---------------------------------------------------------------------
+  unit:
+    name: Unit (pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # The service code is imported directly, so its own dependencies have to
+      # be here too -- that is what tests/requirements.txt collects. The
+      # per-service conftests put the service folder on sys.path and stub the
+      # Supabase environment variables themselves, so there is nothing else to
+      # set up.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit -v
+
+  # ---------------------------------------------------------------------
+  # The frontend's policy mirror and API contract, checked without a browser.
+  # These import frontend/src/lib/*.js directly and use only node:test and
+  # node:assert, so there is no install step and no node_modules.
+  # ---------------------------------------------------------------------
+  frontend_unit:
+    name: Unit (node)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run frontend unit tests
+        run: node --test tests/unit/frontend/test_*.mjs
+
+  # ---------------------------------------------------------------------
+  # The real services in Docker against the real TEST Supabase project.
+  # These create and delete real rows, which is why they run against the
+  # same .env.test the DAST scan uses.
+  #
+  # Skipped on pull requests from forks: those get no secrets, and a job that
+  # cannot authenticate would fail for a reason the contributor cannot fix.
+  # ---------------------------------------------------------------------
+  integration:
+    name: Integration (pytest + docker)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # A blank secret is not a missing-key error: the client raises
+      # "supabase_key is required" at import, uvicorn never starts, and compose
+      # reports only "container is unhealthy" -- which points nowhere. Fail
+      # here instead, naming the variable. Same check as wapiti-dast.yml.
+      - name: Check the required secrets are set
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_SERVICE_KEY SUPABASE_ANON_KEY; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            {
+              echo "### Missing secrets"
+              echo ""
+              echo "Set\`$missing\` under **Settings → Secrets and variables →"
+              echo "Actions**, using the **test** Supabase project's values --"
+              echo "these tests create and delete real rows."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          case "$SUPABASE_URL" in
+            */rest/v1*)
+              echo "::error::SUPABASE_URL is the RESTful endpoint, not the project URL"
+              {
+                echo "### SUPABASE_URL is wrong"
+                echo ""
+                echo "It must be \`https://<ref>.supabase.co\` -- host only. The"
+                echo "client appends \`/rest/v1\` itself, and the doubled path"
+                echo "comes back as PGRST125."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
+
+      # Two readers: docker compose passes these into the containers, and the
+      # conftests load the same file on the host so cleanup can reach Supabase
+      # directly. Point these secrets at a TEST project, never production.
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<ENV
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
+          USERS_SERVICE_PORT=8001
+          EVENTS_SERVICE_PORT=8002
+          KONG_PROXY_PORT=8000
+          USERS_SERVICE_URL=http://users:8001
+          EVENTS_SERVICE_URL=http://events:8002
+          ENV
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      # The whole stack, not one service: the events tests call the gateway as
+      # well as the service directly. --wait holds until every healthcheck in
+      # docker-compose.yml passes, so the tests never race a booting container.
+      - name: Start the stack
+        run: docker compose --env-file .env.test up -d --build --wait
+
+      - name: Run integration tests
+        run: pytest tests/integration -v
+
+      # Almost every failure here is database setup, not code -- a schema that
+      # was never exposed, grants that never ran. The container logs are where
+      # that actually shows up.
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.test down -v
+
+  # ---------------------------------------------------------------------
+  # A real browser, driven through Kong against the whole stack -- the built
+  # frontend included. These are the only tests that prove the pieces fit
+  # together: the gateway's routing, the SPA fallback, and a session cookie
+  # surviving a page load.
+  #
+  # Kept to four journeys on purpose. They are the slowest thing here and
+  # every one of them can only fail for a reason the other suites cannot see.
+  # ---------------------------------------------------------------------
+  e2e:
+    name: End-to-end (playwright)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check the required secrets are set
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_SERVICE_KEY SUPABASE_ANON_KEY; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            exit 1
+          fi
+
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<ENV
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
+          USERS_SERVICE_PORT=8001
+          EVENTS_SERVICE_PORT=8002
+          KONG_PROXY_PORT=8000
+          USERS_SERVICE_URL=http://users:8001
+          EVENTS_SERVICE_URL=http://events:8002
+          ENV
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      # pip installs the bindings; the browser is a separate download.
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Start the stack
+        run: docker compose --env-file .env.test up -d --build --wait
+
+      - name: Run end-to-end tests
+        run: pytest tests/e2e -v
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs
+
+      # A failed browser test is close to unreadable without these.
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          if-no-files-found: ignore
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.test down -v
