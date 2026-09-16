@@ -1,0 +1,36 @@
+# Kong's routing table, in DB-less mode: this file IS the configuration. There
+# is no database and no admin API, so a change here means restarting Kong, and
+# the gateway's behaviour is reviewable in a diff like everything else.
+#
+# One rule per service. The frontend knows `/api` and nothing else -- not a
+# port, not a service name, not how many services there are.
+
+_format_version: "3.0"
+
+services:
+  - name: users
+    # The path matters. Kong strips the matched route prefix and appends what
+    # is left to this URL, so:
+    #
+    #   /api/users/signup  ->  strip /api/users  ->  /signup
+    #                      ->  http://users:8001/users + /signup
+    #                      ->  http://users:8001/users/signup
+    #
+    # which is the route the service actually serves. Drop the /users here and
+    # every request arrives one path segment short.
+    url: http://users:8001/users
+    routes:
+      - name: users
+        paths:
+          - /api/users
+        strip_path: true
+
+  - name: events
+    # Keep /events on the upstream URL. Kong strips /api/events, then appends
+    # the remaining path, so /api/events/{id} reaches /events/{id}.
+    url: http://events:8002/events
+    routes:
+      - name: events
+        paths:
+          - /api/events
+        strip_path: true

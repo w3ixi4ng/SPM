@@ -18,33 +18,42 @@ tests/
   integration/    crosses a real boundary (Supabase, HTTP)
 ```
 
-## Branches
+## Branches and commits
 
 Work never lands directly on `main`. Every change goes on its own branch, named
-after the task it implements:
+for what the work is — short, kebab-case, no ceremony:
 
 ```
-<task-id>/<task-name>
+users-auth
+expose-events-schema
 ```
-
-```
-S-01.T-01/users-service
-S-02.T-04/expose-events-schema
-```
-
-The task id comes from the tracker, verbatim — dots and dashes included. The
-name is short kebab-case saying what the work is.
-
-Git accepts a dot inside a branch name, so `S-01.T-01/...` is fine. It rejects
-`..`, a part starting with `.`, and spaces — none of which appear in a task id.
-Check an unfamiliar name with `git check-ref-format --branch <name>`.
-
-**If no task id was given, ask the developer for it before starting.** Do not
-invent one, and do not fall back to a bare name — the id is the only thing
-linking the branch back to the task.
 
 Create the branch before writing any files, so the first commit is already in
 the right place.
+
+### The task id goes in the pull request
+
+A branch gets deleted on merge and a commit message is awkward to correct once
+it is pushed. The pull request is what a reviewer actually reads and what the
+tracker links to, so that is where the task id lives. Every PR description names
+the task it implements, verbatim — dots and dashes included:
+
+```markdown
+Task: S-01.T-01
+
+Adds sign-up, login, logout and /users/me to the users service, wrapping
+Supabase Auth so the browser never holds a token.
+```
+
+A PR covering more than one task gives each its own line. A description can be
+edited at any time, which is the point — an id can be added or corrected later
+without rewriting anything.
+
+**If no task id was given, ask the developer for it before opening the PR.** Do
+not invent one.
+
+Commit messages need no id. Write them for whoever is reading the diff: what
+changed and why, not which ticket asked for it.
 
 ## Stack
 
@@ -224,7 +233,7 @@ backend/services/<atomic|composite>/<name>/
   clients.py         outbound HTTP          (composite only)
   Dockerfile
   requirements.txt
-  README.md
+  README.md         API doc — see below
 ```
 
 Atomic services own data, so they have `database.py`. Composite services own
@@ -392,23 +401,79 @@ supabase
 pydantic
 ```
 
+### `README.md`
+
+**Every service documents its own API here.** A reader should be able to call
+the service without opening `app.py`. Four things, always:
+
+1. **Endpoints** — method, path, and what each one does. One row each.
+2. **Request** — the body fields or query parameters each endpoint takes, with
+   types and which are required. Name the actual fields: "a user payload" is
+   not a parameter list.
+3. **Response** — the JSON that comes back on success, and every status code it
+   answers with on failure, with what each one means. Show the body, do not
+   describe it.
+4. **How to run it** — the command for **development** and the command for
+   **tests**, both spelled out, including whatever has to be true first: the
+   schema applied, `.env` or `.env.test` filled in, the stack up.
+
+A stub service still gets a README — git will not commit an empty folder — but
+once it has routes, it has all four.
+
+Keep it in step with the code. A README describing a field that no longer
+exists is worse than no README, because it is believed.
+
 ## Ports
 
-Every service gets its own port. Nothing shares 8000.
+Every service gets its own port. 8000 is the gateway's.
 
 | Service | Port | Reached at |
 | --- | --- | --- |
+| **Kong (gateway)** | **8000** | `http://localhost:8000/api/...` — the only one a browser uses |
 | `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
 | `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
-| first composite | 8000 | reserved |
+| first composite | 8100 | reserved |
 
-A new service claims the next free port and must be added to three places, or
-it will not run:
+Services stay published on their own ports as well, so you can bypass the
+gateway to test a service on its own — which is what the integration tests do.
+Composites start at 8100 to leave the 800x block to atomic services.
+
+A new service claims the next free port and must be registered in **four**
+places. Miss one and it does not run, or runs and cannot be reached:
 
 1. its `Dockerfile` — `EXPOSE` and the `--port` in `CMD`
 2. `.env.example` — `<NAME>_SERVICE_PORT`, plus `<NAME>_SERVICE_URL` if
    composites call it
-3. `docker-compose.yml` — a service block with `"${<NAME>_SERVICE_PORT}:<port>"`
+3. `docker-compose.yml` — a service block publishing
+   `"${<NAME>_SERVICE_PORT}:<port>"`, with a `/health` healthcheck so
+   dependants can wait on it
+4. `backend/kong/kong.yml` — a route, if the browser reaches it
+
+### The gateway
+
+Everything the browser calls goes through Kong, so the frontend knows one
+prefix — `/api` — and never a port. A new service is one entry, and the
+service's own path prefix goes on the **url**, not the route:
+
+```yaml
+  - name: events
+    url: http://events:8002/events     # the service's own prefix
+    routes:
+      - name: events
+        paths:
+          - /api/events                # what the browser calls
+        strip_path: true
+```
+
+Kong strips `/api/events` and appends what is left to the url, so
+`/api/events/42` arrives as `/events/42`. Leave the prefix off the url and it
+arrives as `/42` — a 404 that reads like the service is broken.
+
+Kong is DB-less: that file is the entire configuration, so a routing change is
+a diff, not an admin API call. It takes effect on `docker compose restart kong`.
+
+A service with no browser-facing routes — one only composites call — needs no
+Kong entry. More in [`backend/kong/README.md`](backend/kong/README.md).
 
 ## Running the stack
 
@@ -726,6 +791,12 @@ tests/integration/atomic/users/test_app.py
 tests/integration/atomic/users/TEST_CASES.md
 ```
 
+Every test folder gets an empty `__init__.py`, all the way down. Two services
+both have a `tests/unit/.../test_app.py`, and without packages pytest cannot
+give them distinct module names — `pytest tests` fails to collect with "import
+file mismatch" while each suite passes on its own. Being a package also means a
+test imports its neighbouring conftest relatively: `from .conftest import ...`.
+
 - **`tests/unit/`** — one service on its own, with a fake in place of Supabase.
   Swap it in with `app.dependency_overrides[get_db]`; a `MagicMock` handles the
   `.schema().table().select().execute()` chain without extra code. No network,
@@ -815,16 +886,17 @@ More detail in [`tests/README.md`](tests/README.md).
 
 ## When adding a new service
 
-1. Branch first — `<task-id>/<task-name>`, see [Branches](#branches). Then
+1. Branch first — see [Branches and commits](#branches-and-commits). Then
    create the folder under `atomic/` or `composite/`, whichever the rules above
-   call for.
+   call for. The task id is needed for the PR description, not yet.
 2. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
-3. Add the `README.md` even if the service is a stub — git will not commit an
-   empty folder.
+3. Add the `README.md` — endpoints, request and response params, and how to
+   run it for development and for tests. See [`README.md`](#readmemd). Add it
+   even if the service is a stub; git will not commit an empty folder.
 4. Create the matching test folders under `tests/unit/` and
-   `tests/integration/`, each with a `TEST_CASES.md` recording its cases —
-   see [`TEST_CASES.md`](#test_casesmd).
+   `tests/integration/`, each with an empty `__init__.py` and a
+   `TEST_CASES.md` recording its cases — see [`TEST_CASES.md`](#test_casesmd).
 5. Write the schema SQL from
    [Creating a new schema](#creating-a-new-schema--hand-this-to-the-developer)
    to `backend/sql/<service>.sql`, commit it, then **hand it to the developer
@@ -836,6 +908,7 @@ More detail in [`tests/README.md`](tests/README.md).
    service finished. Skipping either makes every query fail with an error that points
    somewhere else — see
    [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-or-nothing-works).
-7. Claim the next free port and register it in the Dockerfile,
-   `.env.example`, and `docker-compose.yml` — see [Ports](#ports).
+7. Claim the next free port and register it in all four places — the
+   Dockerfile, `.env.example`, `docker-compose.yml`, and
+   `backend/kong/kong.yml` if the browser reaches it. See [Ports](#ports).
 8. List the service in its parent `README.md` table.

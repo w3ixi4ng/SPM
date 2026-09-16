@@ -1,17 +1,28 @@
-const MOCK_DELAY_MS = 900
-const MOCK_USERNAME = 'demo'
-const MOCK_PASSWORD = 'password123'
+import { requestJSON } from './api.js'
 
-// Placeholder for Supabase Auth (see VITE_SUPABASE_* in .env.example) — swap
-// the body for supabase.auth.signInWithPassword and keep the same signature.
-export function login({ username, password }) {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      if (username === MOCK_USERNAME && password === MOCK_PASSWORD) {
-        resolve({ id: 'mock-user-1', username })
-      } else {
-        reject(new Error('invalid_credentials'))
-      }
-    }, MOCK_DELAY_MS)
+// Talks to the real users service via Kong (see backend/services/atomic/users).
+// The session comes back as httpOnly cookies, not a token, so every call needs
+// credentials: 'include' and the response body is never read for a session id.
+export function login({ email, password }) {
+  return requestJSON('/users/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
   })
+}
+
+export function signUp({ name, email, password }) {
+  return requestJSON('/users/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password }),
+  })
+}
+
+export function getCurrentUser() {
+  return requestJSON('/users/me')
+}
+
+export function logout() {
+  return requestJSON('/users/logout', { method: 'POST' })
 }

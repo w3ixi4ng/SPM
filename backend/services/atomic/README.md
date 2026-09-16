@@ -8,5 +8,5 @@ Each atomic service owns exactly one entity and its storage. Rules:
 
 | Service | Entity |
 | --- | --- |
-| [`users/`](users/README.md) | Users |
+| [`users/`](users/README.md) | Users — account, session and profile |
 | [`events/`](events/README.md) | Events |

@@ -73,6 +73,48 @@ jobs:
         with:
           python-version: "3.12"
 
+      # A blank secret is not a missing-key error: the client raises
+      # "supabase_key is required" at import, uvicorn never starts, and compose
+      # reports only "container is unhealthy" — which points nowhere. Fail here
+      # instead, naming the variable.
+      - name: Check the required secrets are set
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_SERVICE_KEY SUPABASE_ANON_KEY; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            {
+              echo "### Missing secrets"
+              echo ""
+              echo "Set\`$missing\` under **Settings → Secrets and variables →"
+              echo "Actions**, using the **test** Supabase project's values —"
+              echo "this scan creates and deletes real rows."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          case "$SUPABASE_URL" in
+            */rest/v1*)
+              echo "::error::SUPABASE_URL is the RESTful endpoint, not the project URL"
+              {
+                echo "### SUPABASE_URL is wrong"
+                echo ""
+                echo "It must be \`https://<ref>.supabase.co\` — host only. The"
+                echo "client appends \`/rest/v1\` itself, and the doubled path"
+                echo "comes back as PGRST125."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
+
       # database.py reads these at import, so the container exits without them.
       # Point these secrets at a TEST Supabase project, never production —
       # an aggressive scan writes data.
@@ -81,7 +123,10 @@ jobs:
           cat > .env.test <<ENV
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
           USERS_SERVICE_PORT=8001
+          KONG_PROXY_PORT=8000
           EVENTS_SERVICE_PORT=8002
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002

@@ -1,0 +1,91 @@
+# Values come from .env (your project) or .env.test (the throwaway one):
+#
+#   docker compose up --build
+#   docker compose --env-file .env.test up -d --build --wait
+#
+# Inside this network a service is reached by its compose service name and its
+# own port -- http://users:8001. `localhost` inside a container means that
+# container, which is why USERS_SERVICE_URL defaults to the name form.
+
+# Pinned, rather than derived from the directory name, so a checkout in a
+# differently-named folder still builds spm-users and spm_default.
+name: spm
+
+services:
+
+# The front door. The browser calls Kong and nothing else, so adding a
+# service later costs the frontend no change -- only a rule in kong.yml.
+  kong:
+    image: kong:3.7
+    ports:
+      - "${KONG_PROXY_PORT}:8000"
+    environment:
+      # DB-less: the routing table is backend/kong/kong.yml, not a database.
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      # No admin API. DB-less does not need one, and Kong's default admin port
+      # is 8001 -- which the users service already owns.
+      KONG_ADMIN_LISTEN: "off"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./backend/kong:/kong:ro
+    depends_on:
+      users:
+        condition: service_healthy
+      events:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+  users:
+    build: ./backend/services/atomic/users
+    ports:
+      - "${USERS_SERVICE_PORT}:8001"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+    healthcheck:
+      # python, not curl: the slim image has no curl, and adding one just for
+      # a health check is a package to keep patched for no reason.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  events:
+    build: ./backend/services/atomic/events
+    ports:
+      - "${EVENTS_SERVICE_PORT}:8002"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8002/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
