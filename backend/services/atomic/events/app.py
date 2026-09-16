@@ -145,7 +145,7 @@ def get_event(
 
 
 @app.patch("/events/{event_id}", response_model=EventRead)
-def update_draft(
+def update_event(
     event_id: UUID,
     payload: EventDraftUpdate,
     user=Depends(require_permission("events:update_own_draft")),
@@ -153,22 +153,26 @@ def update_draft(
 ):
     organiser_id = str(user.id)
     existing = _get_owned_event(event_id, organiser_id, db)
-    if existing["status"] != "draft":
-        raise HTTPException(status_code=409, detail="Submitted events cannot be edited")
 
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
         return existing
 
     # A PATCH may supply only one time while the other already exists on the
-    # draft. Validate the resulting record, not only the partial request, so a
-    # cross-field conflict is still a 422 instead of reaching the SQL CHECK.
+    # record. Validate the resulting record, not only the partial request, so
+    # a cross-field conflict is still a 422 instead of reaching the SQL CHECK.
+    #
+    # A submitted event still has to satisfy every submitted-required rule
+    # after the edit -- the draft schema would happily accept a PATCH that
+    # nulls out a required field, which the database's own constraint would
+    # then reject as an opaque storage failure instead of a readable 422.
+    validator = EventSubmittedCreate if existing["status"] == "submitted" else EventDraftCreate
     candidate = {
         field: existing.get(field) for field in EventDraftCreate.model_fields
     }
     candidate.update(changes)
     try:
-        EventDraftCreate.model_validate(candidate)
+        validator.model_validate(candidate)
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
 
@@ -178,11 +182,10 @@ def update_draft(
         .update(changes)
         .eq("id", str(event_id))
         .eq("organiser_id", organiser_id)
-        .eq("status", "draft")
     )
     result = _execute(operation)
     if not result.data:
-        raise HTTPException(status_code=409, detail="Event is no longer an editable draft")
+        raise HTTPException(status_code=404, detail="Event not found")
     return result.data[0]
 
 
