@@ -821,9 +821,12 @@ a fresh project is almost always that, not the code.
   contract for what a new developer has to fill in. `.env` itself is
   gitignored; `.env.example` is deliberately not.
 - **`.env` is your project, `.env.test` is the throwaway one.** Integration
-  tests and any scanning run against `.env.test`
+  tests, e2e tests and any scanning run against `.env.test`
   (`docker compose --env-file .env.test up`), because they create and delete
-  real rows.
+  real rows. **Start the stack immediately before running them** — a container
+  keeps whichever file created it, so a stack left running from earlier can be
+  on `.env` without saying so. See
+  [Bring the stack up yourself](#⚠️-bring-the-stack-up-yourself-every-time).
 - Return the right status codes: `201` on create, `404` when missing, `422` is
   handled by FastAPI's validation.
 
@@ -876,6 +879,68 @@ pytest tests/unit
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration
 ```
+
+### ⚠️ Bring the stack up yourself, every time
+
+> **Read this before believing an integration or e2e failure.**
+>
+> `--env-file .env.test` is read **once, when a container is created**, and
+> baked in. `pytest` never starts anything — it assumes a stack is already
+> running and reads `.env.test` separately, on the host, for the admin client
+> it cleans up with.
+>
+> So there are two readers at two different moments, and they can disagree.
+> A plain `docker compose up` — from another terminal, an IDE's Docker panel,
+> or Docker Desktop restarting containers on launch — recreates the stack from
+> **`.env`**, your own project. Nothing warns you. The services are healthy and
+> answer every request; they are simply writing somewhere else.
+>
+> **Always start the stack immediately before you run the tests**, in the same
+> sitting. Never reuse one from earlier — not even one you started correctly.
+>
+> ```bash
+> docker compose --env-file .env.test down -v
+> docker compose --env-file .env.test up -d --build --wait
+> pytest tests/integration
+> ```
+>
+> To check a stack you did not just start:
+>
+> ```bash
+> docker exec spm-users-1 python -c "import os;print(os.environ['SUPABASE_URL'])"
+> ```
+>
+> That must equal `SUPABASE_URL` in `.env.test`. If it equals the one in
+> `.env`, the stack is on your own project — recreate it.
+
+**What this looks like when it happens.** The tests write through the services
+into one project and verify through the admin client in the other, so the row
+is genuinely missing where it looks:
+
+| What you see | What you will go and check | What it actually is |
+| --- | --- | --- |
+| `no row in users.users -- check the schema is exposed and granted` | grants, exposed schemas, RLS | the row is in the other project |
+| `assert 401 == 201` on a route that works by hand | the auth code, the cookies | the token came from a different project's Auth |
+| `AuthApiError: User not found` during cleanup | the fixture's teardown | the user was created in the other project |
+
+None of these name the cause, and all three send you somewhere real but
+irrelevant — the same failure mode as
+[the exposed-schema trap](#%EF%B8%8F-expose-the-schema-and-the-table-or-nothing-works).
+Rule out the project before you touch any SQL.
+
+**It leaves rows behind in your dev project.** Cleanup runs against
+`.env.test`, so anything the services wrote to `.env` survives, and the suite
+that is supposed to be runnable twice has quietly polluted the database you
+demo from. They are addressed `spm-test-*` and `spm-e2e-*`, so they are easy
+to find:
+
+```sql
+select id, email from users.users where email like 'spm-%';
+```
+
+**CI cannot hit this.** Each job writes `.env.test`, brings the stack up, and
+runs pytest in one sequence, so the two always agree. This is a local-only
+failure, which is worse — it is the environment you debug in.
 
 - **`tests/e2e/`** — a real browser, driving the built frontend through Kong
   against both services and a real (test) Supabase project. Needs the whole
@@ -966,7 +1031,7 @@ More detail in [`tests/README.md`](tests/README.md).
    without the other leaves the service broken. Confirm before you call the
    service finished. Skipping either makes every query fail with an error that points
    somewhere else — see
-   [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-or-nothing-works).
+   [Expose the schema, or nothing works](#%EF%B8%8F-expose-the-schema-and-the-table-or-nothing-works).
 7. Claim the next free port and register it in all four places — the
    Dockerfile, `.env.example`, `docker-compose.yml`, and
    `backend/kong/kong.yml` if the browser reaches it. See [Ports](#ports).
