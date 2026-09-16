@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  AlertCircle,
   Armchair,
   Cable,
   CalendarDays,
   Camera,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -816,6 +818,36 @@ function FieldError({ id, message }) {
   )
 }
 
+function Toast({ toast, onDismiss }) {
+  if (!toast) return null
+  const isError = toast.tone === 'error'
+  const color = isError ? C.rose : C.green
+  const Icon = isError ? AlertCircle : CheckCircle2
+
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
+      className="csp-toast-in fixed top-6 right-6 z-[60] w-full max-w-xs flex items-start gap-3 rounded-sm border px-4 py-3"
+      style={{ backgroundColor: withAlpha(color, 0.1), borderColor: withAlpha(color, 0.3) }}
+    >
+      <Icon size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color }} />
+      <p className="font-ui text-sm flex-1" style={{ color }}>
+        {toast.message}
+      </p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss notification"
+        className="csp-icon-btn shrink-0 rounded-sm p-1 -m-1"
+        style={{ color }}
+      >
+        <X size={16} aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
 function UnsavedChangesDialog({ onCancel, onDiscard, onSave }) {
   const dialogRef = useRef(null)
 
@@ -863,8 +895,8 @@ function UnsavedChangesDialog({ onCancel, onDiscard, onSave }) {
             className="font-ui text-sm mt-2 leading-relaxed"
             style={{ color: C.inkFaint }}
           >
-            This event request has changes that have not been saved. Save it
-            as a draft before leaving, or leave without saving.
+            This event request has changes that have not been saved. Save
+            them before leaving, or leave without saving.
           </p>
           <div className="flex flex-col gap-2 mt-6">
             <button
@@ -874,7 +906,7 @@ function UnsavedChangesDialog({ onCancel, onDiscard, onSave }) {
               style={{ backgroundColor: C.teal, color: C.paper }}
             >
               <Save size={16} aria-hidden="true" />
-              Save draft and leave
+              Save and leave
             </button>
             <div className="flex gap-2">
               <button
@@ -915,6 +947,17 @@ export default function EventRequestForm() {
   const [saveState, setSaveState] = useState('idle')
   const [submitState, setSubmitState] = useState('idle')
   const [equipmentPanelOpen, setEquipmentPanelOpen] = useState(false)
+  const [toast, setToast] = useState(null)
+
+  function showToast(tone, message) {
+    setToast({ tone, message })
+  }
+
+  useEffect(() => {
+    if (!toast) return undefined
+    const timer = setTimeout(() => setToast(null), 4000)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   const fieldRefs = useRef({})
   const equipmentTriggerRef = useRef(null)
@@ -986,9 +1029,10 @@ export default function EventRequestForm() {
   const isSubmitted = status === 'submitted'
   const isBusy = loadState === 'loading' || saveState === 'saving' || submitState === 'submitting'
   const canShowForm = !routeId || loadState === 'ready'
-  // A submitted request can no longer change, so it is never "unsaved" no
-  // matter what the (disabled, inert) fields hold.
-  const isDirty = !isSubmitted && JSON.stringify(form) !== JSON.stringify(savedForm)
+  // Submitting no longer freezes the record, so it can be dirty too -- the
+  // leave-confirmation applies the same way to an in-progress edit of a
+  // submitted event as it does to a draft.
+  const isDirty = JSON.stringify(form) !== JSON.stringify(savedForm)
 
   const selectedEquipment = EQUIPMENT_CATALOG.filter(
     (item) => Number(form.equipmentRequests[item.id]) > 0,
@@ -1067,11 +1111,18 @@ export default function EventRequestForm() {
   // `redirectTo`, when passed, is where a *successful* save sends the user
   // afterward (the "save and leave" path out of the unsaved-changes dialog)
   // instead of the normal stay-on-page/redirect-to-the-new-id behaviour.
-  async function handleSaveDraft({ redirectTo } = {}) {
-    if (isBusy || isSubmitted) return
+  //
+  // Submitting a request no longer locks it: this same save path now also
+  // handles editing an already-submitted event, PATCHing it in place and
+  // leaving its status as `submitted`. The one difference is which rules the
+  // resulting record has to satisfy -- a draft can stay incomplete, but an
+  // edited submitted event must still have every submitted-required field,
+  // matching the backend's own stricter check on that same PATCH.
+  async function handleSave({ redirectTo } = {}) {
+    if (isBusy) return
 
-    const validationErrors = validateDraft(form)
-    if (hasInvalidEquipment(form)) {
+    const validationErrors = isSubmitted ? validateForSubmit(form) : validateDraft(form)
+    if (!isSubmitted && hasInvalidEquipment(form)) {
       validationErrors.equipmentRequests = 'Fix the equipment quantities before saving.'
     }
     setErrors(validationErrors)
@@ -1088,11 +1139,13 @@ export default function EventRequestForm() {
         : await createEventDraft(form)
       applyEvent(event)
       setSaveState('saved')
+      showToast('success', event.status === 'submitted' ? 'Changes saved.' : 'Draft saved.')
       if (redirectTo) navigate(redirectTo)
       else if (!routeId) navigate(`/events/${event.id}`, { replace: true })
     } catch (error) {
       handleApiFailure(error)
       setSaveState('idle')
+      showToast('error', eventErrorMessage(error))
     }
   }
 
@@ -1115,12 +1168,19 @@ export default function EventRequestForm() {
 
   function saveAndLeave() {
     setShowLeaveConfirm(false)
-    handleSaveDraft({ redirectTo: '/dashboard' })
+    handleSave({ redirectTo: '/dashboard' })
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (isBusy || isSubmitted) return
+    if (isBusy) return
+
+    // A submitted event has no further "submit" step -- the form's one
+    // submit button at that point is "Save changes", so route it there.
+    if (isSubmitted) {
+      handleSave()
+      return
+    }
 
     const validationErrors = validateForSubmit(form)
     setErrors(validationErrors)
@@ -1138,10 +1198,12 @@ export default function EventRequestForm() {
         : await createSubmittedEvent(form)
       applyEvent(event)
       setSubmitState('idle')
+      showToast('success', 'Request submitted.')
       if (!routeId) navigate(`/events/${event.id}`, { replace: true })
     } catch (error) {
       handleApiFailure(error)
       setSubmitState('idle')
+      showToast('error', eventErrorMessage(error))
     }
   }
 
@@ -1159,6 +1221,12 @@ export default function EventRequestForm() {
           to { opacity: 1; transform: scale(1); }
         }
         .csp-modal-in { animation: modalIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+        @keyframes toastIn {
+          from { opacity: 0; transform: translate(16px, -8px); }
+          to { opacity: 1; transform: none; }
+        }
+        .csp-toast-in { animation: toastIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
         .csp-panel-header {
           background-color: ${withAlpha(C.paper, 0.82)};
@@ -1218,7 +1286,7 @@ export default function EventRequestForm() {
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .rise-in, .csp-modal-in { animation: none !important; }
+          .rise-in, .csp-modal-in, .csp-toast-in { animation: none !important; }
         }
       `}</style>
 
@@ -1281,7 +1349,8 @@ export default function EventRequestForm() {
               className="font-ui text-sm rounded-sm px-4 py-3 mb-6"
               style={{ backgroundColor: withAlpha(C.green, 0.1), color: C.green }}
             >
-              This request has been submitted and can no longer be edited.
+              This request has been submitted. You can still make changes —
+              save them below.
             </p>
           )}
 
@@ -1299,7 +1368,6 @@ export default function EventRequestForm() {
                 placeholder="e.g. Alumni networking evening"
                 value={form.name}
                 onChange={(e) => updateField('name', e.target.value)}
-                disabled={isSubmitted}
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'event-name-error' : undefined}
                 className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
@@ -1319,7 +1387,6 @@ export default function EventRequestForm() {
                 placeholder="What is this event for, and who is it for?"
                 value={form.purpose}
                 onChange={(e) => updateField('purpose', e.target.value)}
-                disabled={isSubmitted}
                 aria-invalid={Boolean(errors.purpose)}
                 aria-describedby={errors.purpose ? 'event-purpose-error' : undefined}
                 className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm resize-none"
@@ -1337,7 +1404,6 @@ export default function EventRequestForm() {
                   value={form.startDate}
                   onChange={(v) => updateField('startDate', v)}
                   error={errors.startDate}
-                  disabled={isSubmitted}
                 />
               </div>
               <div>
@@ -1349,7 +1415,6 @@ export default function EventRequestForm() {
                   value={form.startTime}
                   onChange={(v) => updateField('startTime', v)}
                   error={errors.startTime}
-                  disabled={isSubmitted}
                 />
               </div>
               <div>
@@ -1361,7 +1426,6 @@ export default function EventRequestForm() {
                   value={form.endDate}
                   onChange={(v) => updateField('endDate', v)}
                   error={errors.endDate}
-                  disabled={isSubmitted}
                   minDate={form.startDate || undefined}
                 />
               </div>
@@ -1374,7 +1438,6 @@ export default function EventRequestForm() {
                   value={form.endTime}
                   onChange={(v) => updateField('endTime', v)}
                   error={errors.endTime}
-                  disabled={isSubmitted}
                   isOptionDisabled={(time) => (
                     isSameDay(form) && Boolean(form.startTime) && time <= form.startTime
                   )}
@@ -1396,7 +1459,6 @@ export default function EventRequestForm() {
                   placeholder="e.g. 120"
                   value={form.attendance}
                   onChange={(e) => updateField('attendance', e.target.value)}
-                  disabled={isSubmitted}
                   aria-invalid={Boolean(errors.attendance)}
                   aria-describedby={errors.attendance ? 'event-attendance-error' : undefined}
                   className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
@@ -1415,7 +1477,6 @@ export default function EventRequestForm() {
                   placeholder="e.g. Main auditorium"
                   value={form.venue}
                   onChange={(e) => updateField('venue', e.target.value)}
-                  disabled={isSubmitted}
                   aria-invalid={Boolean(errors.venue)}
                   aria-describedby={errors.venue ? 'event-venue-error' : undefined}
                   className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
@@ -1433,7 +1494,6 @@ export default function EventRequestForm() {
                 ref={equipmentTriggerRef}
                 type="button"
                 onClick={() => setEquipmentPanelOpen(true)}
-                disabled={isSubmitted}
                 className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-medium font-ui border transition-colors duration-200 disabled:opacity-60"
                 style={{ borderColor: C.ink, color: C.ink }}
               >
@@ -1481,16 +1541,33 @@ export default function EventRequestForm() {
                 placeholder="Wheelchair access, live captioning, quiet room..."
                 value={form.accessibility}
                 onChange={(e) => updateField('accessibility', e.target.value)}
-                disabled={isSubmitted}
                 className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm resize-none"
               />
             </div>
 
-            {!isSubmitted && (
+            {isSubmitted ? (
+              <div className="flex sm:items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={isBusy}
+                  className={`flex items-center justify-center gap-2 px-5 py-3 rounded-sm font-medium font-ui transition-transform duration-200 disabled:opacity-70 ${
+                    isBusy ? '' : 'hover:-translate-y-0.5'
+                  }`}
+                  style={{ backgroundColor: C.teal, color: C.paper }}
+                >
+                  <Save size={16} aria-hidden="true" />
+                  {saveState === 'saving'
+                    ? 'Saving…'
+                    : saveState === 'saved'
+                      ? 'Saved'
+                      : 'Save changes'}
+                </button>
+              </div>
+            ) : (
               <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={handleSaveDraft}
+                  onClick={() => handleSave()}
                   disabled={isBusy}
                   className="flex items-center justify-center gap-2 px-5 py-3 rounded-sm font-medium font-ui border transition-colors duration-200 disabled:opacity-60"
                   style={{ borderColor: C.ink, color: C.ink }}
@@ -1534,7 +1611,6 @@ export default function EventRequestForm() {
         onClose={closeEquipmentPanel}
         quantities={form.equipmentRequests}
         onQuantityChange={updateEquipmentQuantity}
-        disabled={isSubmitted}
       />
 
       {showLeaveConfirm && (
@@ -1544,6 +1620,8 @@ export default function EventRequestForm() {
           onSave={saveAndLeave}
         />
       )}
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   )
 }
