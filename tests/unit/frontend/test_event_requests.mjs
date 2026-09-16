@@ -20,8 +20,9 @@ const FORM = {
   status: 'submitted',
   name: '  Alumni evening  ',
   purpose: 'Connect alumni',
-  date: '2026-10-20',
+  startDate: '2026-10-20',
   startTime: '18:00',
+  endDate: '2026-10-20',
   endTime: '21:00',
   attendance: '120',
   venue: 'Main auditorium',
@@ -37,8 +38,9 @@ const API_EVENT = {
   status: 'draft',
   name: 'Alumni evening',
   purpose: 'Connect alumni',
-  event_date: '2026-10-20',
+  start_date: '2026-10-20',
   start_time: '18:00:00',
+  end_date: '2026-10-20',
   end_time: '21:00:00',
   expected_attendance: 120,
   venue: 'Main auditorium',
@@ -54,8 +56,9 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     purpose: 'Connect alumni',
     venue: 'Main auditorium',
     accessibility_requirements: 'Wheelchair access',
-    event_date: '2026-10-20',
+    start_date: '2026-10-20',
     start_time: '18:00',
+    end_date: '2026-10-20',
     end_time: '21:00',
     expected_attendance: 120,
     equipment_requests: { projector: 2 },
@@ -65,8 +68,9 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     ...FORM,
     name: '',
     purpose: '',
-    date: '',
+    startDate: '',
     startTime: '',
+    endDate: '',
     endTime: '',
     attendance: '',
     venue: '',
@@ -80,8 +84,9 @@ test('API responses populate the existing React state shape', () => {
     id: API_EVENT.id,
     name: 'Alumni evening',
     purpose: 'Connect alumni',
-    date: '2026-10-20',
+    startDate: '2026-10-20',
     startTime: '18:00',
+    endDate: '2026-10-20',
     endTime: '21:00',
     attendance: '120',
     venue: 'Main auditorium',
@@ -154,6 +159,12 @@ test('event API errors map to safe status and field feedback', () => {
     attendance: 'Input should be greater than 0',
     equipmentRequests: 'Input should be greater than 0',
     endTime: 'End time must be after the start time.',
+  })
+
+  assert.deepEqual(eventFieldErrorsToForm({
+    body: 'Value error, end_date must be on or after start_date',
+  }), {
+    endDate: 'End date must be on or after the start date.',
   })
 
   assert.match(eventErrorMessage({ status: 401 }), /session/i)

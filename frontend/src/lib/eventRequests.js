@@ -8,16 +8,18 @@ const TEXT_FIELDS = {
 }
 
 const VALUE_FIELDS = {
-  date: 'event_date',
+  startDate: 'start_date',
   startTime: 'start_time',
+  endDate: 'end_date',
   endTime: 'end_time',
 }
 
 const API_TO_FORM_FIELD = {
   name: 'name',
   purpose: 'purpose',
-  event_date: 'date',
+  start_date: 'startDate',
   start_time: 'startTime',
+  end_date: 'endDate',
   end_time: 'endTime',
   expected_attendance: 'attendance',
   venue: 'venue',
@@ -62,8 +64,9 @@ export function eventResponseToForm(event) {
     id: event.id,
     name: event.name ?? '',
     purpose: event.purpose ?? '',
-    date: event.event_date ?? '',
+    startDate: event.start_date ?? '',
     startTime: event.start_time?.slice(0, 5) ?? '',
+    endDate: event.end_date ?? '',
     endTime: event.end_time?.slice(0, 5) ?? '',
     attendance: event.expected_attendance?.toString() ?? '',
     venue: event.venue ?? '',
@@ -80,6 +83,8 @@ export function eventFieldErrorsToForm(fieldErrors) {
     if (formField) mapped[formField] = message
     else if (message.includes('end_time must be after start_time')) {
       mapped.endTime = 'End time must be after the start time.'
+    } else if (message.includes('end_date must be on or after start_date')) {
+      mapped.endDate = 'End date must be on or after the start date.'
     }
   }
   return mapped

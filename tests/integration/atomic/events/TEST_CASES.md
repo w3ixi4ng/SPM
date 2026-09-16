@@ -7,9 +7,9 @@ project.
 | | |
 | --- | --- |
 | Suite | Start the events service against `.env.test`, then `pytest tests/integration/atomic/events` |
-| Last run | 2026-09-14, working tree of branch `events-schema` |
+| Last run | 2026-09-16, working tree of branch `S-07.T-01/event-request-form` |
 | Environment | `.env.test` test Supabase project; `events` schema applied, granted and exposed; users, events, and Kong healthy in Docker |
-| Result | 2 passed |
+| Result | Blocked -- `backend/sql/events.sql` now defines `start_date`/`end_date` in place of `event_date`; the dev and test Supabase projects still have the old column and need the schema rebuilt (see the file's rebuild instructions) before this suite can run again |
 
 ## TC-EVENTS-101 — authenticated draft-to-submission round trip
 
@@ -27,11 +27,10 @@ project.
   list contains the draft and only the authenticated organiser's rows;
   organiser id equals the authenticated user's id; status changes from `draft`
   to `submitted`; cleanup removes every created record.
-- **Actual:** Draft creation returned `201` with the authenticated organiser id;
-  the owner-scoped list contained it; read, draft update and submission returned
-  `200`; persisted status changed from `draft` to `submitted`; teardown deleted
-  the event and Auth user.
-- **Status:** Pass
+- **Actual:** Not run this pass -- the test now submits `start_date`/`end_date`
+  (see `backend/sql/events.sql`), which does not exist in either Supabase
+  project's `events.events` table yet.
+- **Status:** Blocked
 - **Evidence:** `test_app.py::test_draft_to_submission_round_trip`
 
 ## TC-EVENTS-102 — every events operation routes through Kong
@@ -51,8 +50,7 @@ project.
   `201`; list, read, update, and draft submission return `200`; the list
   contains the draft and only rows owned by the cookie-authenticated user;
   cleanup removes all records.
-- **Actual:** Every routed operation, including the owner-scoped list, returned
-  the expected status and data; teardown deleted both event rows and the Auth
-  user.
-- **Status:** Pass
+- **Actual:** Not run this pass -- same blocker as TC-EVENTS-101: the schema
+  in both Supabase projects has not been rebuilt with `start_date`/`end_date`.
+- **Status:** Blocked
 - **Evidence:** `test_app.py::test_kong_routes_every_event_operation`

@@ -15,8 +15,9 @@ def test_draft_to_submission_round_trip(organiser_session):
     submitted = {
         "name": "Alumni networking evening",
         "purpose": "Connect alumni with graduating students",
-        "event_date": "2026-10-20",
+        "start_date": "2026-10-20",
         "start_time": "18:00",
+        "end_date": "2026-10-20",
         "end_time": "21:00",
         "expected_attendance": 120,
         "venue": "Main auditorium",
@@ -60,8 +61,9 @@ def test_kong_routes_every_event_operation(organiser_session):
     submitted = {
         "name": "Gateway integration event",
         "purpose": "Verify every events route through Kong",
-        "event_date": "2026-11-12",
+        "start_date": "2026-11-12",
         "start_time": "09:00",
+        "end_date": "2026-11-12",
         "end_time": "11:00",
         "expected_attendance": 40,
         "venue": "Seminar room",

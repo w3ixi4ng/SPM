@@ -10,13 +10,27 @@ class EventStatus(str, Enum):
     SUBMITTED = "submitted"
 
 
+# Shared by EventDraftCreate and EventSubmittedCreate: end_date, if set, may
+# never be before start_date. end_time only has to be after start_time when
+# the event stays on one calendar day -- a multi-day event (end_date after
+# start_date) may end at a clock time earlier than it started.
+def _check_end_after_start(start_date, start_time, end_date, end_time):
+    if start_date is not None and end_date is not None and end_date < start_date:
+        raise ValueError("end_date must be on or after start_date")
+
+    same_day = start_date is None or end_date is None or start_date == end_date
+    if same_day and start_time is not None and end_time is not None and end_time <= start_time:
+        raise ValueError("end_time must be after start_time")
+
+
 class EventDraftCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
     purpose: str | None = None
-    event_date: date | None = None
+    start_date: date | None = None
     start_time: time | None = None
+    end_date: date | None = None
     end_time: time | None = None
     expected_attendance: PositiveInt | None = None
     venue: str | None = None
@@ -33,12 +47,7 @@ class EventDraftCreate(BaseModel):
 
     @model_validator(mode="after")
     def end_must_follow_start(self):
-        if (
-            self.start_time is not None
-            and self.end_time is not None
-            and self.end_time <= self.start_time
-        ):
-            raise ValueError("end_time must be after start_time")
+        _check_end_after_start(self.start_date, self.start_time, self.end_date, self.end_time)
         return self
 
 
@@ -51,8 +60,9 @@ class EventSubmittedCreate(BaseModel):
 
     name: str
     purpose: str
-    event_date: date
+    start_date: date
     start_time: time
+    end_date: date
     end_time: time
     expected_attendance: PositiveInt
     venue: str
@@ -69,8 +79,7 @@ class EventSubmittedCreate(BaseModel):
 
     @model_validator(mode="after")
     def end_must_follow_start(self):
-        if self.end_time <= self.start_time:
-            raise ValueError("end_time must be after start_time")
+        _check_end_after_start(self.start_date, self.start_time, self.end_date, self.end_time)
         return self
 
 
@@ -80,8 +89,9 @@ class EventRead(BaseModel):
     status: EventStatus
     name: str | None
     purpose: str | None
-    event_date: date | None
+    start_date: date | None
     start_time: time | None
+    end_date: date | None
     end_time: time | None
     expected_attendance: int | None
     venue: str | None
