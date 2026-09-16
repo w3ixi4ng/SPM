@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-16, working tree of branch `S-07.T-01/event-request-form` |
-| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 39 passed |
+| Last run | 2026-09-16, working tree of branch `event-request-status-toast` |
+| Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 40 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -244,16 +244,19 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_update_owned_draft_uses_only_supplied_fields`
 
-## TC-EVENTS-021 — submitted event cannot be edited
+## TC-EVENTS-021 — a submitted event can still be edited
 
-- **Scenario:** The draft update endpoint cannot change a submitted event.
+- **Scenario:** Submitting a request does not lock it — the organiser can keep
+  changing it afterwards. The update endpoint no longer gates on status; the
+  event stays `submitted` after the edit.
 - **Pre-conditions:** The owned lookup returns status `submitted`.
 - **Steps:** `PATCH` the event with a new name.
 - **Test data:** `{"name": "Changed"}`.
-- **Expected:** `409`; update is never called.
+- **Expected:** `200`; the response has the new name and status `submitted`;
+  the update payload contains only `name`.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_cannot_update_submitted_event`
+- **Evidence:** `test_app.py::test_can_update_submitted_event`
 
 ## TC-EVENTS-022 — submit an existing draft
 
@@ -472,3 +475,17 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_schemas.py::test_submitted_request_allows_end_time_before_start_time_across_days`
+
+## TC-EVENTS-040 — editing a submitted event still enforces submitted-required fields
+
+- **Scenario:** PATCH on a submitted event is validated against the
+  submitted-required rules, not the draft's permissive ones, so it cannot
+  null out a field the database's own constraint requires.
+- **Pre-conditions:** The owned lookup returns the submitted payload from
+  TC-EVENTS-014.
+- **Steps:** `PATCH` the event, clearing `venue`.
+- **Test data:** `{"venue": ""}`.
+- **Expected:** `422` identifying `venue`; update is never called.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_updating_submitted_event_still_requires_submitted_fields`

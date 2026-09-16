@@ -14,6 +14,7 @@ from .conftest import (
     on_owned_list,
     on_owned_select,
     on_update,
+    on_update_owned,
 )
 
 SUBMITTED = {
@@ -146,7 +147,7 @@ def test_cannot_retrieve_another_users_event(client, db, auth):
 def test_update_owned_draft_uses_only_supplied_fields(client, db, auth):
     authenticate(client, auth)
     on_owned_select(db, [event_row(name="Old name")])
-    on_update(db, [event_row(name="New name")])
+    on_update_owned(db, [event_row(name="New name")])
 
     response = client.patch(f"/events/{EVENT_ID}", json={"name": "New name"})
 
@@ -158,14 +159,34 @@ def test_update_owned_draft_uses_only_supplied_fields(client, db, auth):
 
 
 # --- TC-EVENTS-021 --------------------------------------------------------
-def test_cannot_update_submitted_event(client, db, auth):
+def test_can_update_submitted_event(client, db, auth):
     authenticate(client, auth)
     on_owned_select(db, [event_row(status="submitted", **SUBMITTED)])
+    on_update_owned(db, [event_row(status="submitted", **{**SUBMITTED, "name": "Changed"})])
 
     response = client.patch(f"/events/{EVENT_ID}", json={"name": "Changed"})
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Submitted events cannot be edited"
+    assert response.status_code == 200
+    assert response.json()["name"] == "Changed"
+    assert response.json()["status"] == "submitted"
+    db.schema.return_value.table.return_value.update.assert_called_once_with(
+        {"name": "Changed"}
+    )
+
+
+# --- TC-EVENTS-040 --------------------------------------------------------
+def test_updating_submitted_event_still_requires_submitted_fields(client, db, auth):
+    # A PATCH on a submitted event is validated against the submitted-required
+    # rules, not the draft's permissive ones -- otherwise it could null out a
+    # field the database's own constraint requires, turning a readable 422
+    # into an opaque storage failure.
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(status="submitted", **SUBMITTED)])
+
+    response = client.patch(f"/events/{EVENT_ID}", json={"venue": ""})
+
+    assert response.status_code == 422
+    assert "venue" in response.json()["errors"]
     db.schema.return_value.table.return_value.update.assert_not_called()
 
 

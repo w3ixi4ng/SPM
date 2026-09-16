@@ -11,7 +11,7 @@ queries another service's tables.
 | `POST` | `/events` | `events:create` | Create an immediately submitted request. |
 | `GET` | `/events` | `events:view_own` | List the authenticated organiser's event requests, most recently updated first. |
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
-| `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned draft. |
+| `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft with a complete submission and submit it. |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -64,8 +64,15 @@ An empty draft is valid:
 {}
 ```
 
-`PATCH` changes only fields present in the request. It cannot edit a submitted
-event.
+`PATCH` changes only fields present in the request, and works on a submitted
+event as well as a draft — submitting a request does not lock it. The status
+of the record is never changed by a PATCH; a submitted event stays
+`submitted` after the edit. The one difference: on a submitted event, the
+resulting record is checked against the *submitted*-required rules below (not
+the permissive draft ones), so a PATCH cannot null out a field the database
+requires — that comes back as `422`, the same as any other validation
+failure, rather than reaching the database's own constraint as an opaque
+`500`.
 
 ### Submitted fields
 
@@ -140,7 +147,7 @@ matches the verified user. An organiser with no requests receives `[]`.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist or belongs to another user. |
-| `409` | A submitted event was edited or submitted again. |
+| `409` | A submitted event was submitted again (`POST /events/{event_id}/submit`). Editing a submitted event via `PATCH` is allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

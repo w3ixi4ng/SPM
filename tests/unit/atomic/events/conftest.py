@@ -109,8 +109,21 @@ def on_owned_list(db, rows=None, error=None):
 
 
 def on_update(db, rows):
+    # Three .eq() calls: id, organiser_id, and status='draft' -- this is the
+    # draft-to-submitted transition (POST /events/{id}/submit), which is
+    # still only allowed from a draft.
     operation = (
         db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value
+    )
+    operation.execute.return_value = SimpleNamespace(data=rows)
+
+
+def on_update_owned(db, rows):
+    # Two .eq() calls: id and organiser_id only -- PATCH /events/{id} edits
+    # an owned event regardless of its status, so there is no status filter
+    # to chain a third .eq() onto.
+    operation = (
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=rows)
 
