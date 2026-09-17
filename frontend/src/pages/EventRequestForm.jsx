@@ -1308,9 +1308,8 @@ export default function EventRequestForm() {
           </h1>
           <StatusBadge status={status} />
         </div>
-        <p className="font-ui text-sm leading-relaxed mb-8 max-w-md" style={{ color: C.inkFaint }}>
-          Fill in what you know and save a draft, or submit when the request
-          is ready for review.
+        <p className="font-ui text-sm leading-relaxed mb-8" style={{ color: C.inkFaint }}>
+          Fill in what you know and save a draft, or submit when the request is ready for review.
         </p>
 
         <div className="rise-in">
