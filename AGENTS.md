@@ -21,48 +21,44 @@ tests/
 ## Branches and commits
 
 Work never lands directly on `main`. Every change goes on its own branch, named
-for the work it implements: the story id, a slash, then the task ids.
+for the story it implements: the story id, a slash, then the story name.
 
 ```
-S-01/T-01
-S-07/T-01.T-02
+S-01/user-accounts
+S-07/event-requests
 ```
 
 The story id goes first so every branch belonging to one story sorts together
-and `git branch --list 'S-07/*'` is the whole story. A branch covering more
-than one task joins them with a dot, in ascending order — the same dot the
-task id itself uses.
+and `git branch --list 'S-07/*'` is the whole story. The story name is the
+story's title in lowercase kebab-case — short, and the same name the tracker
+uses, so the branch reads as the story without looking the id up.
 
-Nothing else goes in the name. No description, no initials, no `feature/`
-prefix. The ids are the name, and the pull request is where the work gets
-described.
+Nothing else goes in the name. No task ids, no initials, no `feature/` prefix.
+The pull request is where the work gets described.
+
+Infrastructure and tooling work that belongs to no story — CI, docs, repo
+setup — goes on `update/<area>` instead, e.g. `update/ci`.
 
 Create the branch before writing any files, so the first commit is already in
-the right place. **That means the task id is needed before the work starts,
-not at the end.** If you were not given one, ask for it — do not invent one
+the right place. **That means the story id and name are needed before the work
+starts, not at the end.** If you were not given them, ask — do not invent them
 and do not start on a placeholder name meaning to rename it later.
 
-### The task id goes in the pull request
+### The story goes in the pull request
 
-The branch carries the ids too, but a branch is deleted on merge and a commit
-message is awkward to correct once it is pushed. The pull request is what a
-reviewer actually reads and what the tracker links to, so that is where the
-task id lives for good. Every PR description names the task it implements,
-verbatim — dots and dashes included:
+The branch carries the story too, but a branch is deleted on merge. The pull
+request is what a reviewer actually reads and what the tracker links to, so
+every PR description names the story it implements, id verbatim:
 
 ```markdown
-Task: S-01.T-01
+Story: S-01 User accounts
 
 Adds sign-up, login, logout and /users/me to the users service, wrapping
 Supabase Auth so the browser never holds a token.
 ```
 
-A PR covering more than one task gives each its own line. A description can be
-edited at any time, which is the point — an id can be added or corrected later
-without rewriting anything.
-
-**If no task id was given, ask the developer for it** — at branch time, which
-is before any file is written. Do not invent one.
+A description can be edited at any time, which is the point — the story can be
+added or corrected later without rewriting anything.
 
 Commit messages need no id. Write them for whoever is reading the diff: what
 changed and why, not which ticket asked for it.
@@ -801,7 +797,7 @@ page. This is a hard gate, and it is the developer's to open.
 1. **The developer provides the acceptance criteria.** An agent does not write
    them, infer them from the task title, or work from a guess at what the story
    probably means. If they were not given, **ask and wait** — the same rule as
-   the task id, for the same reason: an acceptance criterion nobody wrote down
+   the story id, for the same reason: an acceptance criterion nobody wrote down
    gets quietly satisfied by whatever the code happens to do.
 
 2. **The test cases are written next, and the developer confirms them.** Write
@@ -831,8 +827,8 @@ than picking an interpretation and coding to it.
    above. Do not skip ahead to the folder because the service "obviously" needs
    to exist.
 2. Branch — see [Branches and commits](#branches-and-commits). The
-   branch is named `<story-id>/<task-ids>`, so the task id has to be in hand
-   before anything is written; ask for it if it was not given. Then create the
+   branch is named `<story-id>/<story-name>`, so both have to be in hand
+   before anything is written; ask for them if they were not given. Then create the
    folder under `atomic/` or `composite/`, whichever the rules above call for.
 3. Add the files listed in [Service structure](#service-structure) —
    `database.py` for an atomic service, `clients.py` for a composite.
