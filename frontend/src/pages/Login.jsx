@@ -215,6 +215,18 @@ export default function Login() {
         .csp-btn-primary { transition: transform 0.2s, background-color 0.2s; }
         .csp-btn-primary:disabled { cursor: not-allowed; }
 
+        .csp-text-link {
+          color: ${C.teal};
+          text-decoration: none;
+          transition: color 0.2s;
+        }
+        .csp-text-link:hover { color: ${C.tealBright}; text-decoration: underline; }
+        .csp-text-link:focus-visible {
+          outline: 2px solid ${C.teal};
+          outline-offset: 2px;
+          border-radius: 2px;
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .rise-in, .csp-error {
             animation: none !important;
@@ -425,11 +437,7 @@ export default function Login() {
               style={{ color: C.inkFaint }}
             >
               Don't have an account?{' '}
-              <Link
-                to="/signup"
-                className="font-medium transition-colors duration-200 hover:underline"
-                style={{ color: C.teal }}
-              >
+              <Link to="/signup" className="csp-text-link font-medium">
                 Sign up
               </Link>
             </p>

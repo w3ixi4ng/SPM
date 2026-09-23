@@ -163,6 +163,17 @@ export default function Dashboard({ role }) {
         @media (prefers-reduced-motion: reduce) {
           .rise-in { animation: none; }
         }
+
+        .csp-signout-btn {
+          border-color: ${C.ink};
+          color: ${C.ink};
+          transition: background-color 0.2s, color 0.2s;
+        }
+        .csp-signout-btn:hover { background-color: ${C.ink}; color: ${C.paper}; }
+        .csp-signout-btn:focus-visible {
+          outline: 2px solid ${C.teal};
+          outline-offset: 2px;
+        }
       `}</style>
       <div className="rise-in w-full max-w-5xl mx-auto">
         <header className="flex items-center justify-between gap-6 mb-14">
@@ -170,8 +181,7 @@ export default function Dashboard({ role }) {
           <button
             type="button"
             onClick={handleSignOut}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-sm font-ui text-sm border"
-            style={{ borderColor: C.line, color: C.ink }}
+            className="csp-signout-btn inline-flex items-center gap-2 px-4 py-2 rounded-sm font-ui text-sm border"
           >
             <LogOut size={15} aria-hidden="true" />
             Sign out

@@ -11,6 +11,7 @@ const C = {
   paper: '#F8F6F1',
   line: '#E3DFD3',
   teal: '#0E7C74',
+  tealBright: '#149E92',
   rose: '#B25547',
 }
 
@@ -179,6 +180,18 @@ export default function SignUp() {
           box-shadow: 0 0 0 3px ${withAlpha(C.rose, 0.15)};
         }
         .csp-input:disabled { opacity: 0.65; cursor: not-allowed; }
+
+        .csp-text-link {
+          color: ${C.teal};
+          text-decoration: none;
+          transition: color 0.2s;
+        }
+        .csp-text-link:hover { color: ${C.tealBright}; text-decoration: underline; }
+        .csp-text-link:focus-visible {
+          outline: 2px solid ${C.teal};
+          outline-offset: 2px;
+          border-radius: 2px;
+        }
 
         @media (prefers-reduced-motion: reduce) {
           .rise-in { animation: none !important; }
@@ -350,11 +363,7 @@ export default function SignUp() {
             </label>
 
             <div className="flex items-center justify-between pt-2">
-              <Link
-                to="/login"
-                className="font-ui text-sm font-medium transition-colors duration-200 hover:underline"
-                style={{ color: C.teal }}
-              >
+              <Link to="/login" className="csp-text-link font-ui text-sm font-medium">
                 Log in instead
               </Link>
               <button
