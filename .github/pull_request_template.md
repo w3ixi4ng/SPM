@@ -1,12 +1,7 @@
 Story:
 
-<!-- The story id and name. -->
-
-Task:
-
-<!-- The task id, verbatim, dots and dashes included: `Task: S-01.T-01`.
-     One line per task if this PR covers more than one. If you were not given
-     an id, ask before opening the PR -- do not invent one. -->
+<!-- The story id and name, id verbatim: `Story: S-01 User accounts`.
+     If you were not given them, ask before opening the PR -- do not invent them. -->
 
 ## What this changes
 
