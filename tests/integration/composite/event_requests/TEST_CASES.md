@@ -10,16 +10,33 @@ the unit tests cannot check, because their fakes agree with everything.
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
 | Last run | 2026-09-24, developer's local stack |
 | Environment | `.env.test` test Supabase project; `events` and `users` schemas applied, granted, and exposed; full stack up via docker compose |
-| Result | 11 passed, 1 failed (TC-EVENTREQUESTS-102 — see below) |
+| Result | 12 passed |
 
-TC-EVENTREQUESTS-102 failed on first real run: the pool of coordinators is
-whatever currently exists in the project, not only the accounts a given test
-creates, so a coordinator left over from manual testing or an earlier run was
-still "free" and won the assignment instead of the request being rejected.
-Fixed by having every case below account for the *whole* pool — blocking or
-exempting every coordinator that exists, not only its own fixtures — via
-`conftest.py`'s `all_coordinator_ids`/`block_other_coordinators`. Not yet
-re-run against the fix.
+Two real bugs surfaced and were fixed getting to a clean run, neither in the
+feature itself:
+
+1. **The pool of coordinators is whatever currently exists in the project**,
+   not only the accounts a given test creates — a coordinator left over from
+   manual testing or an earlier run was still "free" and won the assignment
+   instead of the request being rejected (first hit on TC-EVENTREQUESTS-102).
+   Fixed by having every case account for the *whole* pool — blocking or
+   exempting every coordinator that exists, not only its own fixtures — via
+   `conftest.py`'s `all_coordinator_ids`/`block_other_coordinators`.
+2. **`block_other_coordinators` itself had a dict-merge bug**: its insert
+   dict set `name`/`purpose`/`expected_attendance`/`venue` explicitly, then
+   spread `**window` last — and a real caller's `window` (`SUBMITTED`) has
+   its own `name` key too, so the spread silently clobbered the explicit
+   ones. Every "blocking" event ended up named after the request itself
+   instead of "Blocking booking for ...", which TC-EVENTREQUESTS-102's own
+   final assertion caught. Fixed by pulling only the four date/time keys out
+   of `window` instead of spreading the whole dict.
+
+Also needed a local fix unrelated to test code: `.env.test` was missing
+`EVENT_REQUESTS_SERVICE_PORT`, so Docker published the container on a random
+host port instead of `8100` — every test hitting `BASE_URL` directly (not
+through Kong) got `ConnectionRefused` until that was added.
+
+Verified runnable twice in a row.
 
 ## TC-EVENTREQUESTS-101 — a free coordinator is assigned and visible on the event
 
@@ -59,10 +76,12 @@ re-run against the fix.
 - **Expected:** Step 2 returns `409`; step 3's list contains no event for
   this attempt — the request was never created.
 - **Actual:** First run: `201` — a coordinator account left over from earlier
-  manual testing was not blocked (the test only blocked its own fixture), so
-  it was still free and won the assignment. Fixed by blocking the whole pool,
-  not just the fixture. Not yet re-run.
-- **Status:** Fail (test bug, fixed — pending re-run)
+  manual testing was not blocked. Second run, after blocking the whole pool:
+  `409` correctly, but the final assertion still failed — the blocking
+  events were all misnamed after `SUBMITTED` itself by the `**window`
+  dict-merge bug (see the header). Third run, after fixing that: as
+  expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_fully_booked_coordinator_pool_rejects_the_submission`
 
 ## TC-EVENTREQUESTS-103 — every event-requests operation routes through Kong

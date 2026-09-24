@@ -164,10 +164,18 @@ def block_other_coordinators(
                     "assigned_coordinator_id": coordinator_id,
                     "name": f"Blocking booking for {coordinator_id}",
                     "purpose": "Keeps this coordinator out of the pool for this test",
+                    # Only the four date/time keys, deliberately -- spreading
+                    # the whole `window` dict here once clobbered the `name`,
+                    # `purpose`, etc. set above, because a real caller's
+                    # window (SUBMITTED) has its own `name` key too, and a
+                    # later key in a dict literal always wins.
+                    "start_date": window["start_date"],
+                    "start_time": window["start_time"],
+                    "end_date": window["end_date"],
+                    "end_time": window["end_time"],
                     "expected_attendance": 5,
                     "venue": "Room 2",
                     "submitted_at": "2026-09-24T00:00:00Z",
-                    **window,
                 }
             )
             .execute()
