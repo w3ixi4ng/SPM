@@ -38,7 +38,8 @@ services:
   - name: event-requests
     # Same pattern as events: keep /event-requests on the upstream URL so
     # /api/event-requests/{id}/submit reaches /event-requests/{id}/submit.
-    # This only fronts the two submit actions -- drafts stay on /api/events.
+    # Fronts submission and editing (both need a coordinator recheck);
+    # draft create/read/list stay on /api/events, which never needs one.
     url: http://event_requests:8100/event-requests
     routes:
       - name: event-requests
