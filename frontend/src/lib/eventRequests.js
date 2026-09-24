@@ -119,18 +119,36 @@ export function listEventRequests() {
   return requestJSON('/events')
 }
 
+// Coordinator-facing, read-only: events routed to the signed-in coordinator.
+export function listAssignedEventRequests() {
+  return requestJSON('/events/assigned')
+}
+
+export function getAssignedEventRequest(id) {
+  return requestJSON(`/events/assigned/${encodeURIComponent(id)}`)
+}
+
 export function createEventDraft(form) {
   return write('/events/drafts', 'POST', form, true)
 }
 
+// Routed through event_requests, not the events service directly: editing an
+// already-submitted event's date/time has to recheck the assigned
+// coordinator's availability, which needs the same cross-service logic as
+// submission. A draft, or an edit that leaves date/time alone, is a plain
+// passthrough on the composite's side -- see PATCH /event-requests/{id}.
 export function updateEventDraft(id, form) {
-  return write(`/events/${encodeURIComponent(id)}`, 'PATCH', form)
+  return write(`/event-requests/${encodeURIComponent(id)}`, 'PATCH', form)
 }
 
+// Submission goes through the event_requests composite too, for the same
+// reason: it is what assigns a free event coordinator as part of submitting.
+// Draft create/read/list above stay on the events service directly -- a
+// brand-new draft has no coordinator to check yet.
 export function createSubmittedEvent(form) {
-  return write('/events', 'POST', form)
+  return write('/event-requests', 'POST', form)
 }
 
 export function submitEventDraft(id, form) {
-  return write(`/events/${encodeURIComponent(id)}/submit`, 'POST', form)
+  return write(`/event-requests/${encodeURIComponent(id)}/submit`, 'POST', form)
 }

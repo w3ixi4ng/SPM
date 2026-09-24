@@ -114,8 +114,69 @@ class EventRead(BaseModel):
     equipment_requests: dict[str, int]
     accessibility_requirements: str | None
     special_requirements: str | None
+    # Null until the event_requests composite assigns one on submission --
+    # never set by the organiser's own request.
+    assigned_coordinator_id: UUID | None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+# --- Internal, composite-only schemas --------------------------------------
+#
+# Everything below this line is for the event_requests composite service,
+# never for a browser. None of it is reachable through Kong -- see
+# backend/kong/kong.yml and AGENTS.md's "A service with no browser-facing
+# routes needs no Kong entry."
+
+
+class CoordinatorLoadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_ids: list[UUID]
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+    # Set when rechecking availability for an event that already exists (an
+    # edit to a submitted request) -- that event's own row is excluded from
+    # the conflict check and the count, so it never conflicts with itself.
+    exclude_event_id: UUID | None = None
+
+
+class CoordinatorLoad(BaseModel):
+    coordinator_id: UUID
+    # Whether this coordinator has an assigned submitted event overlapping
+    # the requested window at all. Touching endpoints (one event's end_time
+    # equal to the request's start_time, or vice versa) do not count.
+    conflict: bool
+    # This coordinator's total assigned submitted-event count, independent of
+    # the requested window -- what "least busy" is measured against.
+    assigned_count: int
+
+
+# organiser_id and assigned_coordinator_id are never accepted from an
+# organiser's own request (see EventSubmittedCreate's extra="forbid"); these
+# two routes exist so the composite -- which has already verified both --
+# can supply them directly, the same way this service derives them from a
+# session on the public routes.
+class InternalEventCreate(EventSubmittedCreate):
+    organiser_id: UUID
+    assigned_coordinator_id: UUID
+
+
+class InternalEventSubmit(EventSubmittedCreate):
+    organiser_id: UUID
+    assigned_coordinator_id: UUID
+
+
+# Mirrors EventDraftUpdate (every field optional, same normalisation) plus
+# organiser_id and an optional reassignment -- the composite's edit-recheck
+# flow (backend/services/composite/event_requests) uses this to change a
+# submitted event's date/time and its assigned_coordinator_id in one write,
+# only when the current coordinator no longer fits the new window.
+class InternalEventUpdate(EventDraftUpdate):
+    organiser_id: UUID
+    assigned_coordinator_id: UUID | None = None

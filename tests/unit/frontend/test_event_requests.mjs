@@ -146,9 +146,13 @@ test('event API functions use Kong paths, methods, JSON, and credentials', async
 
   assert.deepEqual(calls.map(({ url, options }) => [url, options.method ?? 'GET']), [
     ['/api/events/drafts', 'POST'],
-    [`/api/events/${API_EVENT.id}`, 'PATCH'],
-    ['/api/events', 'POST'],
-    [`/api/events/${API_EVENT.id}/submit`, 'POST'],
+    // Update, submit, and submit-existing-draft all go through the
+    // event_requests composite: update rechecks an assigned coordinator when
+    // a submitted event's date/time changes, and the other two assign one
+    // for the first time. Only create/read/list stay directly on events.
+    [`/api/event-requests/${API_EVENT.id}`, 'PATCH'],
+    ['/api/event-requests', 'POST'],
+    [`/api/event-requests/${API_EVENT.id}/submit`, 'POST'],
     [`/api/events/${API_EVENT.id}`, 'GET'],
   ])
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)

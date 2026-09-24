@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-17, branch `S-07/T-01` |
+| Last run | 2026-09-24, branch `S-12/event-coordinator-assignment` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 48 passed |
+| Result | 66 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -329,10 +329,12 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-028 — other roles only receive dashboard access
 
-- **Scenario:** Known internal and attendee roles gain no unimplemented event powers.
+- **Scenario:** Roles with no defined workflow gain no unimplemented event
+  powers. `event_coordinator` moved to its own case (TC-EVENTS-057) once it
+  gained `events:view_assigned`.
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the permission set for every other known role.
-- **Test data:** `event_coordinator`, `venue_staff`, `technical_support`, `attendee`.
+- **Test data:** `venue_staff`, `technical_support`, `attendee`.
 - **Expected:** Each role has exactly `dashboard:view` and no `events:*` permission.
 - **Actual:** As expected.
 - **Status:** Pass
@@ -577,3 +579,278 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Actual:** `404`; update never called.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_cannot_submit_another_users_draft`
+
+---
+
+**S-12 additions.** The `event_requests` composite needs the events service
+to report, for a set of coordinators and a requested window, who is free and
+how busy they are, and needs a trusted way to create or submit an event with
+an already-decided `assigned_coordinator_id` — a field an organiser's own
+request can never set. Both new routes are internal: no Kong entry, called
+only by `event_requests` over the Docker network, never by a browser.
+
+## TC-EVENTS-049 — coordinator load reports no conflict with an empty schedule
+
+- **Scenario:** A coordinator with nothing assigned is free for any window.
+- **Pre-conditions:** The assignment-filtered select for that coordinator
+  returns no rows.
+- **Steps:** `POST /events/coordinator-load` with one coordinator id and a
+  window.
+- **Test data:** Coordinator id above; window `2026-10-20 18:00`–`21:00`.
+- **Expected:** `200`; that coordinator's entry has `conflict: false,
+  assigned_count: 0`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_load_reports_no_conflict_with_empty_schedule`
+
+## TC-EVENTS-050 — coordinator load reports a conflict on any overlap
+
+- **Scenario:** The requested window intersects an assigned event's window at
+  all, not only when the two match exactly.
+- **Pre-conditions:** The coordinator has one assigned submitted event
+  `18:00`–`21:00` on `2026-10-20`.
+- **Steps:** `POST /events/coordinator-load` with a request window that
+  overlaps only partially: `20:00`–`22:00` the same day.
+- **Test data:** As above.
+- **Expected:** `200`; `conflict: true`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_load_reports_a_conflict_on_any_overlap`
+
+## TC-EVENTS-051 — back-to-back events do not conflict
+
+- **Scenario:** A request starting exactly when an existing assigned event
+  ends (or ending exactly when one starts) does not count as an overlap.
+- **Pre-conditions:** The coordinator has one assigned submitted event
+  `18:00`–`21:00` on `2026-10-20`.
+- **Steps:** `POST /events/coordinator-load` with a request window
+  `21:00`–`22:00` the same day.
+- **Test data:** As above.
+- **Expected:** `200`; `conflict: false`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_load_back_to_back_events_do_not_conflict`
+
+## TC-EVENTS-052 — draft events never count toward load or conflict
+
+- **Scenario:** Only submitted events represent committed time on a
+  coordinator's schedule.
+- **Pre-conditions:** None beyond the shared fakes.
+- **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
+- **Test data:** One coordinator id, any window.
+- **Expected:** The query filters on `status = "submitted"` — drafts are
+  excluded at the query itself, not filtered out afterwards, so they can
+  never reach the conflict check or the count.
+- **Actual:** As expected; `.eq("status", "submitted")` called once.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_events`
+
+## TC-EVENTS-053 — internal create trusts the caller's organiser and coordinator ids
+
+- **Scenario:** Unlike the public `POST /events`, this route does not derive
+  `organiser_id` from a session — the caller (the composite) has already
+  verified it and supplies it directly, along with the assignment.
+- **Pre-conditions:** None.
+- **Steps:** `POST /events/internal` with a complete submitted payload plus
+  `organiser_id` and `assigned_coordinator_id`; inspect the insert.
+- **Test data:** The standard valid submitted payload, an organiser id, and a
+  coordinator id.
+- **Expected:** `201`; the inserted row's `organiser_id` and
+  `assigned_coordinator_id` are exactly the ones supplied; `status=submitted`
+  and `submitted_at` set, same as the public route.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_create_trusts_caller_organiser_and_coordinator_ids`
+
+## TC-EVENTS-054 — internal submit sets the assignment and enforces ownership
+
+- **Scenario:** The draft-to-submission internal route applies the same
+  ownership and draft-status filter as the public one, plus the assignment.
+- **Pre-conditions:** A draft owned by the given organiser id exists.
+- **Steps:** `POST /events/{event_id}/submit/internal` with the standard
+  submitted payload, that organiser id, and a coordinator id.
+- **Test data:** As above.
+- **Expected:** `200`; the update is filtered by both `id` and
+  `organiser_id`, sets `status=submitted`, `submitted_at`, and
+  `assigned_coordinator_id` to the supplied coordinator.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_submit_sets_the_assignment`
+
+## TC-EVENTS-055 — internal submit still enforces ownership
+
+- **Scenario:** Supplying a coordinator id does not bypass the ownership
+  check — the row must still belong to the given organiser and still be a
+  draft.
+- **Pre-conditions:** The owned-and-draft-filtered update matches no row.
+- **Steps:** `POST /events/{event_id}/submit/internal` with an organiser id
+  that does not own the draft.
+- **Test data:** As TC-EVENTS-054, different organiser id.
+- **Expected:** `404`; no assignment applied.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_submit_still_enforces_ownership`
+
+## TC-EVENTS-056 — assigned_coordinator_id is null until assigned
+
+- **Scenario:** A plain draft or an event created through the public routes
+  carries no coordinator until the internal route sets one.
+- **Pre-conditions:** A draft created through `POST /events/drafts`.
+- **Steps:** `GET /events/{id}` for that draft.
+- **Test data:** `{"name": "Planning draft"}`.
+- **Expected:** `201`; `assigned_coordinator_id` is `null`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_assigned_coordinator_id_is_null_until_assigned`
+
+---
+
+**Follow-up (same session).** Assignment alone was not the whole story: a
+coordinator had no way to see what was routed to them. `event_coordinator`
+gains a first, read-only permission — `events:view_assigned` — and two
+browser-facing routes.
+
+## TC-EVENTS-057 — event_coordinator has only the view-assigned permission
+
+- **Scenario:** The coordinator role's one defined workflow so far is
+  read-only viewing, not editing or claiming/declining.
+- **Pre-conditions:** The centralized role policy is loaded.
+- **Steps:** Read the `event_coordinator` permission set.
+- **Test data:** `event_coordinator`.
+- **Expected:** Exactly `dashboard:view` and `events:view_assigned`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_event_coordinator_has_only_the_view_assigned_permission`
+
+## TC-EVENTS-058 — coordinator lists only their assigned events
+
+- **Scenario:** `GET /events/assigned` is scoped to the authenticated
+  coordinator, the same shape as the organiser's `GET /events`.
+- **Pre-conditions:** A verified `event_coordinator` session; the
+  assignment-filtered query returns one submitted event assigned to them.
+- **Steps:** `GET /events/assigned`; inspect the query filter.
+- **Test data:** One event assigned to `COORDINATOR_A`.
+- **Expected:** `200`; one row, `assigned_coordinator_id` matches the caller;
+  the query filters `eq("assigned_coordinator_id", <caller id>)`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_lists_only_their_assigned_events`
+
+## TC-EVENTS-059 — a coordinator cannot view an event not assigned to them
+
+- **Scenario:** Knowing an event's id does not expose it to an uninvolved
+  coordinator — the same ownership principle as the organiser's routes.
+- **Pre-conditions:** A verified `event_coordinator` session; the
+  assignment-filtered lookup returns no rows.
+- **Steps:** `GET /events/assigned/{event_id}`.
+- **Test data:** An event id not assigned to the caller.
+- **Expected:** `404` `"Event not found"`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_cannot_view_an_event_not_assigned_to_them`
+
+## TC-EVENTS-060 — an organiser cannot list assigned events
+
+- **Scenario:** `events:view_assigned` is coordinator-only.
+- **Pre-conditions:** A verified `event_organiser` session.
+- **Steps:** `GET /events/assigned`.
+- **Test data:** None.
+- **Expected:** `403`; Supabase is never queried.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_organiser_cannot_list_assigned_events`
+
+## TC-EVENTS-061 — a coordinator can view one assigned event
+
+- **Scenario:** The single-event counterpart to TC-EVENTS-058.
+- **Pre-conditions:** A verified `event_coordinator` session; the
+  assignment-filtered lookup returns the event.
+- **Steps:** `GET /events/assigned/{event_id}`.
+- **Test data:** An event assigned to `COORDINATOR_A`.
+- **Expected:** `200`; `assigned_coordinator_id` matches the caller.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_views_one_assigned_event`
+
+---
+
+**Follow-up (same session).** Assignment was never rechecked on edit: a
+submitted event's date/time could be changed via the public `PATCH` without
+touching `assigned_coordinator_id` at all, even into a window the assigned
+coordinator no longer had free. `event_requests` needs two things from this
+service to fix that: a way to exclude an event's own row when checking
+conflicts, and a trusted way to write a date/time change and a reassignment
+in one update.
+
+## TC-EVENTS-062 — coordinator load excludes the given event from conflict and count
+
+- **Scenario:** Rechecking an event that already carries this exact window
+  and assignment must not have it conflict with itself.
+- **Pre-conditions:** The coordinator has one assigned submitted event —
+  the same one being rechecked — covering the requested window exactly.
+- **Steps:** `POST /events/coordinator-load` with `exclude_event_id` set to
+  that event's id.
+- **Test data:** One event, `id` equal to `exclude_event_id`.
+- **Expected:** `200`; `conflict: false, assigned_count: 0` — without
+  `exclude_event_id` this would conflict with itself.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_load_excludes_the_given_event_from_conflict_and_count`
+
+## TC-EVENTS-063 — internal update reassigns the coordinator
+
+- **Scenario:** The composite's edit-recheck flow writes the date/time
+  change and the new assignment together.
+- **Pre-conditions:** An owned submitted event assigned to one coordinator.
+- **Steps:** `PATCH /events/{event_id}/internal` with `organiser_id`, a
+  changed `start_time`, and a different `assigned_coordinator_id`.
+- **Test data:** `start_time` changed to `20:00`; a second coordinator's id.
+- **Expected:** `200`; the update sent to Supabase contains the new
+  `start_time`, the new `assigned_coordinator_id`, and no `organiser_id`
+  (that field only selects the row, it is never a column value).
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_update_reassigns_the_coordinator`
+
+## TC-EVENTS-064 — internal update without reassignment leaves the coordinator untouched
+
+- **Scenario:** When the composite does not include
+  `assigned_coordinator_id` (nothing needed rechecking), the update touches
+  only the fields actually supplied.
+- **Pre-conditions:** An owned submitted event.
+- **Steps:** `PATCH /events/{event_id}/internal` with `organiser_id` and
+  `venue` only.
+- **Test data:** `{"organiser_id": ..., "venue": "Room 9"}`.
+- **Expected:** `200`; the update sent to Supabase is exactly
+  `{"venue": "Room 9"}` — no `assigned_coordinator_id` key at all, not even
+  null.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_update_without_reassignment_leaves_coordinator_untouched`
+
+## TC-EVENTS-065 — internal update enforces ownership
+
+- **Scenario:** A caller-supplied `organiser_id` does not bypass ownership —
+  the same guarantee as every other internal route.
+- **Pre-conditions:** The owned lookup for the given organiser id returns
+  nothing.
+- **Steps:** `PATCH /events/{event_id}/internal` with an organiser id that
+  does not own the event.
+- **Test data:** A non-owning organiser id.
+- **Expected:** `404`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_update_enforces_ownership`
+
+## TC-EVENTS-066 — internal update validates the resulting submitted event
+
+- **Scenario:** The internal route is validated exactly as strictly as the
+  public one — a caller-supplied `organiser_id` is not a way to bypass the
+  submitted-required rules.
+- **Pre-conditions:** An owned submitted event.
+- **Steps:** `PATCH /events/{event_id}/internal` clearing `venue`.
+- **Test data:** `{"organiser_id": ..., "venue": ""}`.
+- **Expected:** `422`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_update_validates_the_resulting_submitted_event`

@@ -40,6 +40,14 @@ create table if not exists events.events (
   -- requirement names no structure, and inventing one would be guessing.
   special_requirements       text,
 
+  -- The event coordinator this request was routed to on submission -- null
+  -- until then, and never chosen by the organiser. No foreign key to
+  -- users.users: that would be a cross-schema reference, which the one
+  -- schema per service rule (see AGENTS.md) does not allow. Like
+  -- organiser_id, it is an opaque id the users service is the source of
+  -- truth for.
+  assigned_coordinator_id    uuid,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -113,6 +121,12 @@ create table if not exists events.events (
 create index if not exists events_events_organiser_id_idx
   on events.events (organiser_id);
 
+-- The coordinator-load lookup filters by assigned_coordinator_id and status
+-- together for every submitted request; this is that query's index.
+create index if not exists events_events_assigned_coordinator_id_idx
+  on events.events (assigned_coordinator_id)
+  where status = 'submitted';
+
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.
 create or replace function events.set_updated_at()
@@ -171,6 +185,18 @@ alter table events.events enable row level security;
 --       (status = 'submitted' and submitted_at is not null)
 --       or (status <> 'submitted' and submitted_at is null)
 --     );
+-- ---------------------------------------------------------------------------
+--
+-- S-12: already have the table without assigned_coordinator_id? Run this
+-- instead. Safe to run twice. No backfill needed -- every existing row is
+-- correctly null (unassigned).
+--
+--   alter table events.events
+--     add column if not exists assigned_coordinator_id uuid;
+--
+--   create index if not exists events_events_assigned_coordinator_id_idx
+--     on events.events (assigned_coordinator_id)
+--     where status = 'submitted';
 -- ---------------------------------------------------------------------------
 
 notify pgrst, 'reload schema';

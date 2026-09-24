@@ -8,9 +8,9 @@ authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-17, branch `S-07/T-01` |
+| Last run | 2026-09-24, branch `S-12/event-coordinator-assignment` |
 | Environment | Local Node.js; no network or Supabase |
-| Result | 8 passed |
+| Result | 9 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -27,12 +27,26 @@ authoritative.
 
 - **Scenario:** Only an Event Organiser sees organiser event capabilities.
 - **Pre-conditions:** The frontend access mapping is loaded.
-- **Steps:** Check every `events:*` permission for every supported role.
-- **Test data:** Five roles and five organiser event permissions.
+- **Steps:** Check every `events:*` permission the organiser role holds,
+  against every supported role.
+- **Test data:** Five roles and `event_organiser`'s five `events:*` permissions.
 - **Expected:** All are true for `event_organiser` and false for every other role.
 - **Actual:** All five event permissions were exclusive to `event_organiser`.
 - **Status:** Pass
-- **Evidence:** `test_access.mjs` — `only event organisers receive organiser event permissions`
+- **Evidence:** `test_access.mjs` — `only event organisers receive organiser-only event permissions`
+
+## TC-FRONTEND-008 — coordinator permissions are not exposed to other roles
+
+- **Scenario:** `events:view_assigned` (added so a coordinator can see routed
+  requests) is coordinator-only, the same guarantee as TC-FRONTEND-002.
+- **Pre-conditions:** The frontend access mapping is loaded.
+- **Steps:** Check every `events:*` permission the coordinator role holds,
+  against every supported role.
+- **Test data:** Five roles and `event_coordinator`'s one `events:*` permission.
+- **Expected:** True for `event_coordinator`, false for every other role.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only event coordinators receive coordinator-only event permissions`
 
 ## TC-FRONTEND-003 — missing and unknown roles fail closed
 
@@ -83,8 +97,13 @@ authoritative.
 - **Steps:** Create a draft, update it, create a submission, submit a draft,
   and load an event.
 - **Test data:** The complete shared event form and one UUID.
-- **Expected:** Correct `/api/events` paths and HTTP methods, JSON bodies omit
-  protected fields, and every request sets `credentials: include`.
+- **Expected:** Draft create and read use `/api/events`; update and both
+  submit actions (direct-submit and submit-existing-draft) use
+  `/api/event-requests` instead -- S-12 routes update through the
+  event_requests composite too, since an edit to a submitted event's
+  date/time has to recheck the assigned coordinator, which create/read never
+  need to. JSON bodies omit protected fields, and every request sets
+  `credentials: include`.
 - **Actual:** All five operations used the expected gateway path and method,
   carried credentials, and omitted protected fields.
 - **Status:** Pass

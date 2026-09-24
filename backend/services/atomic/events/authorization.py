@@ -16,15 +16,21 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
     }
 )
 
-# Every recognized role may enter its own role dashboard. Only the organiser
-# has additional permissions because those are the only role workflows backed
-# by current project requirements. Add internal-role permissions here when the
-# corresponding stories exist, even if their endpoint lands in another task.
+# The only coordinator workflow backed by a project requirement so far: view
+# what event_requests routed to them. Read-only -- no update or claim/decline
+# action exists yet.
+EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({"events:view_assigned"})
+
+# Every recognized role may enter its own role dashboard. Add internal-role
+# permissions here when the corresponding stories exist, even if their
+# endpoint lands in another task.
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "event_organiser": frozenset(
         {DASHBOARD_PERMISSION, *EVENT_ORGANISER_EVENT_PERMISSIONS}
     ),
-    "event_coordinator": frozenset({DASHBOARD_PERMISSION}),
+    "event_coordinator": frozenset(
+        {DASHBOARD_PERMISSION, *EVENT_COORDINATOR_EVENT_PERMISSIONS}
+    ),
     "venue_staff": frozenset({DASHBOARD_PERMISSION}),
     "technical_support": frozenset({DASHBOARD_PERMISSION}),
     "attendee": frozenset({DASHBOARD_PERMISSION}),

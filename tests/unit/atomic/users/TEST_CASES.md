@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-09-14, working tree of branch `events-schema` |
-| Environment | Python 3.12.5, pytest 9.1.1, fastapi 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
-| Result | 29 passed |
+| Last run | 2026-09-24, branch `S-12/event-coordinator-assignment` |
+| Environment | Python 3.14.4, pytest 9.1.1, fastapi 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
+| Result | 31 passed |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -381,3 +381,33 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** `200` with `role: null`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_me_returns_no_role_when_trusted_role_is_missing`
+
+## TC-USERS-027 — coordinator listing returns only that role
+
+- **Scenario:** The `event_requests` composite needs the id, name, and email
+  of every account whose trusted role is `event_coordinator`, to check their
+  schedules and pick one.
+- **Pre-conditions:** The Auth admin listing returns four users: two with
+  `app_metadata.role="event_coordinator"`, one `event_organiser`, one with no
+  role; the profile table holds a row for each.
+- **Steps:** `GET /users/coordinators`.
+- **Test data:** As above.
+- **Expected:** `200`; response contains exactly the two coordinators' `id`,
+  `name`, `email` — no password, role, or other field; the other two accounts
+  are absent.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_listing_returns_only_that_role`
+
+## TC-USERS-028 — coordinator listing is empty when no one holds the role
+
+- **Scenario:** A fresh deployment with no coordinators yet returns an empty
+  list, not an error — the composite treats this the same as everyone being
+  busy.
+- **Pre-conditions:** The Auth admin listing returns no user with that role.
+- **Steps:** `GET /users/coordinators`.
+- **Test data:** None.
+- **Expected:** `200`, `[]`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_listing_is_empty_when_no_one_holds_the_role`

@@ -1,8 +1,10 @@
 import { CalendarCheck, ListChecks, LogOut, MessagesSquare } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import { getRoleAccess } from '../lib/access.js'
+import { eventErrorMessage, listAssignedEventRequests } from '../lib/eventRequests.js'
 
 const C = {
   ink: '#10192B',
@@ -16,11 +18,6 @@ const C = {
 }
 
 const UPCOMING_AREAS = [
-  {
-    icon: CalendarCheck,
-    title: 'Assigned events',
-    description: "See the events you've been assigned to coordinate.",
-  },
   {
     icon: ListChecks,
     title: 'Timeline coordination',
@@ -37,6 +34,21 @@ export default function EventCoordinatorDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
+  const [assigned, setAssigned] = useState({ status: 'loading', events: [], error: null })
+
+  useEffect(() => {
+    let active = true
+    listAssignedEventRequests()
+      .then((events) => {
+        if (active) setAssigned({ status: 'ready', events, error: null })
+      })
+      .catch((error) => {
+        if (active) setAssigned({ status: 'error', events: [], error: eventErrorMessage(error) })
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   async function handleSignOut() {
     await signOut()
@@ -94,6 +106,61 @@ export default function EventCoordinatorDashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl mb-10" style={{ borderColor: C.line }}>
+          <h2 className="font-display text-2xl mb-6" style={{ color: C.ink }}>
+            Assigned requests
+          </h2>
+
+          {assigned.status === 'loading' && (
+            <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+              Loading your assigned requests…
+            </p>
+          )}
+
+          {assigned.status === 'error' && (
+            <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+              {assigned.error}
+            </p>
+          )}
+
+          {assigned.status === 'ready' && assigned.events.length === 0 && (
+            <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+              No event requests have been routed to you yet.
+            </p>
+          )}
+
+          {assigned.status === 'ready' && assigned.events.length > 0 && (
+            <ul className="divide-y" style={{ borderColor: C.line }}>
+              {assigned.events.map((event) => (
+                <li key={event.id} className="py-4 first:pt-0 last:pb-0">
+                  <Link
+                    to={`/coordinator/events/${event.id}`}
+                    className="flex items-start gap-4 group"
+                  >
+                    <CalendarCheck
+                      size={20}
+                      aria-hidden="true"
+                      className="mt-0.5 shrink-0"
+                      style={{ color: C.sky }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <h3
+                        className="font-ui text-base font-medium group-hover:underline"
+                        style={{ color: C.ink }}
+                      >
+                        {event.name || 'Untitled event request'}
+                      </h3>
+                      <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
+                        {event.start_date} at {event.start_time?.slice(0, 5)} · {event.venue}
+                      </p>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>
           <p className="font-ui text-xs uppercase tracking-widest mb-3" style={{ color: C.teal }}>

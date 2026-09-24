@@ -1,5 +1,7 @@
 """Real service/database round trip for the events atomic service."""
 
+import uuid
+
 import httpx
 import pytest
 
@@ -109,3 +111,85 @@ def test_kong_routes_every_event_operation(organiser_session):
         assert immediate.status_code == 201, immediate.text
         organiser_session["event_ids"].append(immediate.json()["id"])
         assert immediate.json()["status"] == "submitted"
+
+
+# --- TC-EVENTS-103 ---------------------------------------------------------
+def test_coordinator_load_and_internal_assignment_round_trip(admin):
+    """Seeds rows directly -- these two internal routes have no browser-facing
+    equivalent to drive them through, so there is no organiser session here.
+    """
+    coordinator_id = str(uuid.uuid4())
+    organiser_id = str(uuid.uuid4())
+    event_ids: list[str] = []
+
+    try:
+        submitted_row = (
+            admin.schema("events")
+            .table("events")
+            .insert(
+                {
+                    "organiser_id": organiser_id,
+                    "status": "submitted",
+                    "name": "Coordinator load check",
+                    "purpose": "Prove overlap detection against real rows",
+                    "start_date": "2026-11-05",
+                    "start_time": "09:00",
+                    "end_date": "2026-11-05",
+                    "end_time": "11:00",
+                    "expected_attendance": 10,
+                    "venue": "Room 1",
+                    "assigned_coordinator_id": coordinator_id,
+                    "submitted_at": "2026-09-24T00:00:00Z",
+                }
+            )
+            .execute()
+        )
+        event_ids.append(submitted_row.data[0]["id"])
+
+        # A draft can never legitimately carry an assignment through the API
+        # (POST /events/drafts accepts no such field) -- inserted directly to
+        # prove the query excludes one anyway, not just that the API never
+        # produces one.
+        draft_row = (
+            admin.schema("events")
+            .table("events")
+            .insert(
+                {
+                    "organiser_id": organiser_id,
+                    "status": "draft",
+                    "assigned_coordinator_id": coordinator_id,
+                    "start_date": "2026-11-05",
+                    "start_time": "13:00",
+                    "end_date": "2026-11-05",
+                    "end_time": "14:00",
+                }
+            )
+            .execute()
+        )
+        event_ids.append(draft_row.data[0]["id"])
+
+        with httpx.Client(base_url=BASE_URL, timeout=15.0) as api:
+            window = lambda start, end: {  # noqa: E731
+                "coordinator_ids": [coordinator_id],
+                "start_date": "2026-11-05",
+                "start_time": start,
+                "end_date": "2026-11-05",
+                "end_time": end,
+            }
+
+            overlapping = api.post("/events/coordinator-load", json=window("10:00", "12:00"))
+            assert overlapping.status_code == 200, overlapping.text
+            result = overlapping.json()[0]
+            assert result["conflict"] is True
+            assert result["assigned_count"] == 1  # the draft is never counted
+
+            back_to_back = api.post("/events/coordinator-load", json=window("11:00", "12:00"))
+            assert back_to_back.status_code == 200, back_to_back.text
+            assert back_to_back.json()[0]["conflict"] is False
+
+            over_the_draft = api.post("/events/coordinator-load", json=window("13:00", "14:00"))
+            assert over_the_draft.status_code == 200, over_the_draft.text
+            assert over_the_draft.json()[0]["conflict"] is False
+    finally:
+        for event_id in event_ids:
+            admin.schema("events").table("events").delete().eq("id", event_id).execute()

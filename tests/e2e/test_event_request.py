@@ -3,6 +3,10 @@
 The product's actual path: browser -> Kong -> events service -> the `events`
 schema, gated by the `events:create` permission, and back out through the
 dashboard's list. Nothing else in the suite crosses all of that.
+
+Since S-12, submission also crosses the event_requests composite and the
+users service, to assign a coordinator -- hence the seeded coordinator
+account below. Without at least one, submission now 409s.
 """
 
 import re
@@ -37,6 +41,11 @@ def _pick_time(page, trigger: str, label: str) -> None:
 def test_organiser_submits_an_event_request_and_sees_it_listed(
     page, make_user, sign_in
 ):
+    # A free event coordinator has to exist, or submission below 409s -- see
+    # S-12: it is a routing precondition, not something the organiser's own
+    # session can satisfy.
+    make_user("event_coordinator")
+
     user = make_user("event_organiser")
     sign_in(user)
     page.wait_for_url(re.compile(r"/dashboard/event-organiser$"), timeout=20000)

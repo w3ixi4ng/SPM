@@ -5,13 +5,15 @@ export const PERMISSIONS = Object.freeze({
   VIEW_OWN_EVENTS: 'events:view_own',
   UPDATE_OWN_EVENT_DRAFT: 'events:update_own_draft',
   SUBMIT_OWN_EVENT: 'events:submit_own',
+  VIEW_ASSIGNED_EVENTS: 'events:view_assigned',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
 
 // This mirrors the backend policy for presentation only. Backend dependencies
-// remain authoritative. Non-organiser workflows are not yet defined by the
-// project requirements, so those roles receive a dashboard and no controls.
+// remain authoritative. Event Coordinator can view its assigned requests;
+// the remaining non-organiser workflows are not yet defined by the project
+// requirements, so those roles receive a dashboard and no controls.
 export const ROLE_ACCESS = Object.freeze({
   event_organiser: Object.freeze({
     label: 'Event Organiser',
@@ -29,8 +31,8 @@ export const ROLE_ACCESS = Object.freeze({
   event_coordinator: Object.freeze({
     label: 'Event Coordinator',
     dashboardPath: '/dashboard/event-coordinator',
-    description: 'Your coordinator workspace is ready for assigned workflows.',
-    permissions: Object.freeze([...DASHBOARD_PERMISSION]),
+    description: 'Review the event requests routed to you.',
+    permissions: Object.freeze([...DASHBOARD_PERMISSION, PERMISSIONS.VIEW_ASSIGNED_EVENTS]),
   }),
   venue_staff: Object.freeze({
     label: 'Venue Staff',

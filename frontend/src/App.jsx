@@ -4,6 +4,7 @@ import ProtectedRoute, { DashboardRedirect } from './components/ProtectedRoute.j
 import { PERMISSIONS, ROLE_ACCESS } from './lib/access.js'
 import Dashboard from './pages/Dashboard.jsx'
 import EventCoordinatorDashboard from './pages/EventCoordinatorDashboard.jsx'
+import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Login from './pages/Login.jsx'
@@ -59,6 +60,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_OWN_EVENTS}>
               <EventRequestForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/coordinator/events/:id"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_ASSIGNED_EVENTS}>
+              <EventCoordinatorEventDetail />
             </ProtectedRoute>
           )}
         />
