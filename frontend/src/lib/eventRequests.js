@@ -93,6 +93,57 @@ export function eventFieldErrorsToForm(fieldErrors) {
   return mapped
 }
 
+// Shared status display across the organiser and coordinator views. Colors
+// are the project's fixed tokens (see AGENTS.md's design system), not
+// page-local -- draft and submitted are both "not decided yet" (inkFaint /
+// amber), approved is the one success color, rejected and returned both
+// need attention but are not errors in the same way, so returned reuses
+// amber ("needs the organiser's action") rather than rose ("closed, wrong").
+const STATUS_META = {
+  draft: { label: 'Draft', color: '#4C5A70' },
+  submitted: { label: 'Under Review', color: '#B5842B' },
+  approved: { label: 'Approved', color: '#3F8F5F' },
+  returned: { label: 'Action Required', color: '#B5842B' },
+  rejected: { label: 'Rejected', color: '#B25547' },
+}
+
+export function eventStatusMeta(status) {
+  return STATUS_META[status] ?? { label: status, color: '#4C5A70' }
+}
+
+// Organiser-only label and color treatment for the two statuses that
+// dashboard cares about most (see sortEventsForOrganiser). The
+// coordinator-facing shared meta above keeps its own wording and colors for
+// both -- from the organiser's side, a returned request needs *their*
+// action (rose, matching the same "needs attention" red used for rejected)
+// and a submitted one is simply under someone else's review, so this
+// reframes both without changing what a coordinator sees. draft/approved/
+// rejected are untouched -- they fall through to the shared meta unchanged.
+const ORGANISER_STATUS_OVERRIDES = {
+  returned: { label: 'Action required', color: '#B25547' },
+  submitted: { label: 'Under review' },
+}
+
+export function organiserStatusMeta(status) {
+  const shared = eventStatusMeta(status)
+  const override = ORGANISER_STATUS_OVERRIDES[status]
+  return override ? { ...shared, ...override } : shared
+}
+
+// Surfaces requests the organiser cares about most at the top of their own
+// request list: 'returned' (sent back for amendment -- the one status that
+// needs the organiser to act) first, then 'submitted' (awaiting the
+// coordinator's decision), then everything else. Stable within each group:
+// the backend already orders by updated_at desc (see GET /events), so this
+// only reorders across the three groups, never within one. Does not mutate
+// its argument.
+export function sortEventsForOrganiser(events) {
+  const returned = events.filter((event) => event.status === 'returned')
+  const submitted = events.filter((event) => event.status === 'submitted')
+  const rest = events.filter((event) => event.status !== 'submitted' && event.status !== 'returned')
+  return [...returned, ...submitted, ...rest]
+}
+
 export function eventErrorMessage(error) {
   if (error.status === 401) return 'Your session has expired. Please sign in again.'
   if (error.status === 403) return 'Your role is not permitted to access event requests.'
@@ -151,4 +202,18 @@ export function createSubmittedEvent(form) {
 
 export function submitEventDraft(id, form) {
   return write(`/event-requests/${encodeURIComponent(id)}/submit`, 'POST', form)
+}
+
+// Coordinator-facing: record a decision on an assigned, submitted request.
+// Straight to the events service -- unlike submit/update, a decision never
+// touches assignment, so there is nothing for the composite to orchestrate.
+export function decideEventRequest(id, { decision, reason, comment }) {
+  const body = { decision }
+  if (reason) body.reason = reason
+  if (comment) body.comment = comment
+  return requestJSON(`/events/${encodeURIComponent(id)}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }

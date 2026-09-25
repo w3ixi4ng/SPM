@@ -7,6 +7,8 @@ import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   eventErrorMessage,
   listEventRequests,
+  organiserStatusMeta,
+  sortEventsForOrganiser,
 } from '../lib/eventRequests.js'
 
 const C = {
@@ -40,7 +42,7 @@ function EventRequestList({ refreshAuth }) {
     let active = true
     listEventRequests()
       .then((events) => {
-        if (active) setState({ status: 'ready', events, error: null })
+        if (active) setState({ status: 'ready', events: sortEventsForOrganiser(events), error: null })
       })
       .catch((error) => {
         if (!active) return
@@ -98,8 +100,7 @@ function EventRequestList({ refreshAuth }) {
       {state.status === 'ready' && state.events.length > 0 && (
         <ul className="divide-y" style={{ borderColor: C.line }}>
           {state.events.map((event) => {
-            const isDraft = event.status === 'draft'
-            const statusColor = isDraft ? C.amber : C.green
+            const { label: statusLabel, color: statusColor } = organiserStatusMeta(event.status)
             return (
               <li key={event.id} className="py-4 first:pt-0 last:pb-0">
                 <Link
@@ -117,10 +118,12 @@ function EventRequestList({ refreshAuth }) {
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <span
-                      className="font-ui text-xs font-medium px-2.5 py-1 rounded-sm capitalize"
+                      className={`font-ui text-xs font-medium px-2.5 py-1 rounded-sm ${
+                        event.status === 'returned' ? 'csp-pulse-badge' : ''
+                      }`}
                       style={{ color: statusColor, backgroundColor: `${statusColor}1F` }}
                     >
-                      {event.status}
+                      {statusLabel}
                     </span>
                     <ArrowRight
                       size={16}
@@ -173,6 +176,17 @@ export default function Dashboard({ role }) {
         .csp-signout-btn:focus-visible {
           outline: 2px solid ${C.teal};
           outline-offset: 2px;
+        }
+
+        /* Draws the eye to a request a coordinator sent back for amendment
+           -- slow and subtle on purpose, not a hard flash. */
+        @keyframes cspPulseBadge {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.62; transform: scale(1.04); }
+        }
+        .csp-pulse-badge { animation: cspPulseBadge 2.2s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .csp-pulse-badge { animation: none; }
         }
       `}</style>
       <div className="rise-in w-full max-w-5xl mx-auto">

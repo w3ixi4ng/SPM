@@ -14,6 +14,7 @@ from .conftest import (
     events_post_coordinator_load_side_effect,
     events_post_raises_on_load,
     events_post_side_effect,
+    events_post_side_effect_with_loads,
     fake_response,
     load_response,
     load_row,
@@ -183,6 +184,7 @@ def test_submit_rejects_when_no_coordinator_accounts_exist(client, users, events
 # --- TC-EVENTREQUESTS-010 --------------------------------------------------
 def test_submitting_an_existing_draft_goes_through_the_same_assignment(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.get.return_value = event_response(status_code=200, status="draft", assigned_coordinator_id=None)
     events.post.side_effect = events_post_side_effect(
         loads=[load_row(COORDINATOR_A, conflict=False, assigned_count=0)],
         create_path=f"/events/{EVENT_ID}/submit/internal",
@@ -351,3 +353,108 @@ def test_editing_an_event_that_is_not_found_is_404(client, users, events):
     assert response.status_code == 404
     events.patch.assert_not_called()
     events.post.assert_not_called()
+
+
+# --- S-14: resubmitting a returned request ---------------------------------
+# TC-EVENTREQUESTS-021 through -025: POST /event-requests/{event_id}/submit
+# for a request that is currently `returned`, not `draft`.
+
+
+# --- TC-EVENTREQUESTS-021 --------------------------------------------------
+def test_resubmitting_a_returned_request_keeps_the_same_coordinator_if_still_free(client, users, events):
+    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
+    events.post.side_effect = events_post_side_effect_with_loads(
+        {COORDINATOR_A: {"conflict": False, "assigned_count": 1}},
+        extra_path=f"/events/{EVENT_ID}/submit/internal",
+        extra_response=fake_response(
+            200, event_response(status_code=200, assigned_coordinator_id=COORDINATOR_A).json()
+        ),
+    )
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 200
+    assert response.json()["assigned_coordinator_id"] == COORDINATOR_A
+    # Only the has-conflict check runs -- no full-pool pick, since the
+    # current coordinator is still free.
+    assert events.post.call_args_list[0][1]["json"]["coordinator_ids"] == [COORDINATOR_A]
+    sent = events.post.call_args_list[-1].kwargs["json"]
+    assert sent["assigned_coordinator_id"] == COORDINATOR_A
+
+
+# --- TC-EVENTREQUESTS-022 --------------------------------------------------
+def test_resubmitting_a_returned_request_reassigns_when_the_coordinator_now_conflicts(client, users, events):
+    users.get.side_effect = users_get_side_effect(
+        coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
+    )
+    events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
+    events.post.side_effect = events_post_side_effect_with_loads(
+        {
+            COORDINATOR_A: {"conflict": True, "assigned_count": 1},
+            COORDINATOR_B: {"conflict": False, "assigned_count": 0},
+        },
+        extra_path=f"/events/{EVENT_ID}/submit/internal",
+        extra_response=fake_response(
+            200, event_response(status_code=200, assigned_coordinator_id=COORDINATOR_B).json()
+        ),
+    )
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 200
+    assert response.json()["assigned_coordinator_id"] == COORDINATOR_B
+    sent = events.post.call_args_list[-1].kwargs["json"]
+    assert sent["assigned_coordinator_id"] == COORDINATOR_B
+
+
+# --- TC-EVENTREQUESTS-023 --------------------------------------------------
+def test_resubmitting_a_returned_request_rejects_when_no_one_is_free(client, users, events):
+    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
+    events.post.side_effect = events_post_coordinator_load_side_effect(
+        {COORDINATOR_A: {"conflict": True, "assigned_count": 1}}
+    )
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 409
+
+
+# --- TC-EVENTREQUESTS-024 --------------------------------------------------
+def test_resubmitting_an_event_that_is_not_found_is_404(client, users, events):
+    users.get.return_value = organiser_me_response()
+    events.get.return_value = fake_response(404, {"detail": "Event not found"})
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 404
+    users.get.assert_called_once()  # only /users/me -- no coordinator lookup
+    events.post.assert_not_called()
+
+
+# --- TC-EVENTREQUESTS-025 --------------------------------------------------
+def test_a_draft_submission_still_picks_fresh_with_no_prior_coordinator(client, users, events):
+    """Unaffected by the resubmit logic above: a draft has no assignment to
+    recheck, so this is the same fresh, whole-pool pick as before.
+    """
+    users.get.side_effect = users_get_side_effect(
+        coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
+    )
+    events.get.return_value = event_response(status_code=200, status="draft", assigned_coordinator_id=None)
+    events.post.side_effect = events_post_side_effect_with_loads(
+        {
+            COORDINATOR_A: {"conflict": False, "assigned_count": 3},
+            COORDINATOR_B: {"conflict": False, "assigned_count": 0},
+        },
+        extra_path=f"/events/{EVENT_ID}/submit/internal",
+        extra_response=fake_response(
+            200, event_response(status_code=200, assigned_coordinator_id=COORDINATOR_B).json()
+        ),
+    )
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 200
+    sent = events.post.call_args_list[-1].kwargs["json"]
+    assert sent["assigned_coordinator_id"] == COORDINATOR_B

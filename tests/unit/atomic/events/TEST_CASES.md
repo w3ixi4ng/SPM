@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-24, branch `S-12/event-coordinator-assignment` |
+| Last run | 2026-09-25, branch `S-14/auto-assign-ec` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 66 passed |
+| Result | 82 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -631,19 +631,22 @@ only by `event_requests` over the Docker network, never by a browser.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_load_back_to_back_events_do_not_conflict`
 
-## TC-EVENTS-052 — draft events never count toward load or conflict
+## TC-EVENTS-052 — only live commitments count toward load or conflict
 
-- **Scenario:** Only submitted events represent committed time on a
-  coordinator's schedule.
+- **Scenario:** Only submitted (awaiting decision) and approved (confirmed)
+  events represent committed time on a coordinator's schedule. Updated for
+  S-14: drafts never counted; returned and rejected now don't either, since
+  neither is a live commitment.
 - **Pre-conditions:** None beyond the shared fakes.
 - **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
 - **Test data:** One coordinator id, any window.
-- **Expected:** The query filters on `status = "submitted"` — drafts are
-  excluded at the query itself, not filtered out afterwards, so they can
-  never reach the conflict check or the count.
-- **Actual:** As expected; `.eq("status", "submitted")` called once.
+- **Expected:** The query filters on `status in ("submitted", "approved")` --
+  every other status is excluded at the query itself, not filtered out
+  afterwards, so it can never reach the conflict check or the count.
+- **Actual:** As expected; `.in_("status", ["submitted", "approved"])` called
+  once.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_events`
+- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_approved_events`
 
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and coordinator ids
 
@@ -710,17 +713,18 @@ coordinator had no way to see what was routed to them. `event_coordinator`
 gains a first, read-only permission — `events:view_assigned` — and two
 browser-facing routes.
 
-## TC-EVENTS-057 — event_coordinator has only the view-assigned permission
+## TC-EVENTS-057 — event_coordinator has the view and decide permissions
 
-- **Scenario:** The coordinator role's one defined workflow so far is
-  read-only viewing, not editing or claiming/declining.
+- **Scenario:** S-14 adds a second coordinator workflow: deciding a request,
+  on top of viewing it.
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the `event_coordinator` permission set.
 - **Test data:** `event_coordinator`.
-- **Expected:** Exactly `dashboard:view` and `events:view_assigned`.
+- **Expected:** Exactly `dashboard:view`, `events:view_assigned`, and
+  `events:decide`.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_event_coordinator_has_only_the_view_assigned_permission`
+- **Evidence:** `test_app.py::test_event_coordinator_has_the_view_and_decide_permissions`
 
 ## TC-EVENTS-058 — coordinator lists only their assigned events
 
@@ -854,3 +858,223 @@ in one update.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_update_validates_the_resulting_submitted_event`
+
+---
+
+**S-14 additions.** An Event Coordinator can now record one of three
+decisions — approve, reject, or return for amendment — on a request assigned
+to them. Reject and return both require a reason; return alone may also
+carry a clarification/amendment comment. A rejected request is closed
+permanently (no further edits, no resubmission); a returned one goes back to
+the organiser to edit and resubmit as the same record, which reuses the
+submit route rather than creating a new one.
+
+## TC-EVENTS-067 — coordinator approves a submitted request
+
+- **Scenario:** Approval needs no reason and closes the decision loop with
+  `status=approved`.
+- **Pre-conditions:** A verified `event_coordinator` session; the assigned,
+  submitted event exists.
+- **Steps:** `POST /events/{event_id}/decision` with `{"decision":
+  "approved"}`.
+- **Test data:** The standard submitted payload, assigned to the caller.
+- **Expected:** `200`; `status=approved`; the update sent to Supabase has
+  `decision=approved`, `decision_reason=null`, `decision_comment=null`, and a
+  non-null `decided_at`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_approves_a_submitted_request`
+
+## TC-EVENTS-068 — reject requires a reason
+
+- **Scenario:** The story is explicit: every reject needs a reason before it
+  can be saved.
+- **Pre-conditions:** A verified `event_coordinator` session.
+- **Steps:** `POST /events/{event_id}/decision` with `{"decision":
+  "rejected"}` and no `reason`.
+- **Test data:** As above.
+- **Expected:** `422`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_reject_requires_a_reason`
+
+## TC-EVENTS-069 — coordinator rejects with a reason
+
+- **Pre-conditions:** A verified `event_coordinator` session; the assigned,
+  submitted event exists.
+- **Steps:** `POST /events/{event_id}/decision` with `{"decision":
+  "rejected", "reason": "Venue unavailable"}`.
+- **Test data:** As above.
+- **Expected:** `200`; `status=rejected`; `decision_reason` echoes the given
+  reason.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_rejects_with_a_reason`
+
+## TC-EVENTS-070 — coordinator returns with a reason and comment
+
+- **Scenario:** Return is the one decision that may also carry a
+  clarification/amendment comment for the organiser.
+- **Pre-conditions:** A verified `event_coordinator` session; the assigned,
+  submitted event exists.
+- **Steps:** `POST /events/{event_id}/decision` with `decision=returned`,
+  a `reason`, and a `comment`.
+- **Test data:** `reason="Missing risk assessment"`,
+  `comment="Please attach the venue's fire safety form"`.
+- **Expected:** `200`; `status=returned`; both `decision_reason` and
+  `decision_comment` echo what was sent.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_returns_with_a_reason_and_comment`
+
+## TC-EVENTS-071 — return requires a reason
+
+- **Pre-conditions:** A verified `event_coordinator` session.
+- **Steps:** `POST /events/{event_id}/decision` with `decision=returned` and
+  a `comment` but no `reason`.
+- **Test data:** `comment="please fix the venue"`.
+- **Expected:** `422`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_return_requires_a_reason`
+
+## TC-EVENTS-072 — approve rejects a reason
+
+- **Scenario:** An approval is not a judgement call that needs defending —
+  a `reason` alongside `decision=approved` is a validation error, not a
+  silently-ignored extra field.
+- **Pre-conditions:** A verified `event_coordinator` session.
+- **Steps:** `POST /events/{event_id}/decision` with `decision=approved` and
+  a `reason`.
+- **Test data:** `reason="looks fine"`.
+- **Expected:** `422`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_approve_rejects_a_reason`
+
+## TC-EVENTS-073 — comment is rejected outside a return
+
+- **Scenario:** A comment only makes sense alongside a return — there is
+  nothing to amend after an approval or a closed rejection.
+- **Pre-conditions:** A verified `event_coordinator` session.
+- **Steps:** `POST /events/{event_id}/decision` with `decision=rejected`, a
+  `reason`, and a `comment`.
+- **Test data:** `reason="no venue"`, `comment="extra note"`.
+- **Expected:** `422`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_comment_is_rejected_outside_a_return`
+
+## TC-EVENTS-074 — a coordinator cannot decide an event not assigned to them
+
+- **Scenario:** Same ownership principle as an organiser's own routes,
+  applied to the coordinator side.
+- **Pre-conditions:** A verified `event_coordinator` session; the
+  assignment-filtered lookup returns no rows.
+- **Steps:** `POST /events/{event_id}/decision` with `{"decision":
+  "approved"}`.
+- **Test data:** An event id not assigned to the caller.
+- **Expected:** `404` `"Event not found"`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_coordinator_cannot_decide_an_event_not_assigned_to_them`
+
+## TC-EVENTS-075 — a decision already made cannot be decided again
+
+- **Pre-conditions:** A verified `event_coordinator` session; the assigned
+  event's status is already `approved`.
+- **Steps:** `POST /events/{event_id}/decision` with `{"decision":
+  "approved"}`.
+- **Test data:** As above.
+- **Expected:** `409`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_decision_already_made_cannot_be_decided_again`
+
+## TC-EVENTS-076 — an organiser cannot decide a request
+
+- **Pre-conditions:** A verified `event_organiser` session.
+- **Steps:** `POST /events/{event_id}/decision` with `{"decision":
+  "approved"}`.
+- **Test data:** None.
+- **Expected:** `403`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_organiser_cannot_decide_a_request`
+
+## TC-EVENTS-077 — a returned request can be resubmitted
+
+- **Scenario:** The story requires a returned request to go back to the
+  organiser to edit and resubmit as the same record — this proves the
+  transition and that the prior decision is cleared, not carried forward.
+- **Pre-conditions:** An owned event with `status=returned` and a recorded
+  reason.
+- **Steps:** `POST /events/{event_id}/submit` with the standard submitted
+  payload.
+- **Test data:** As above.
+- **Expected:** `200`; `status=submitted`; the update sent to Supabase has
+  `decision`, `decision_reason`, `decision_comment`, and `decided_at` all
+  `null`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_returned_request_can_be_resubmitted`
+
+## TC-EVENTS-078 — an approved request cannot be resubmitted
+
+- **Pre-conditions:** An owned event with `status=approved`.
+- **Steps:** `POST /events/{event_id}/submit` with the standard submitted
+  payload.
+- **Test data:** As above.
+- **Expected:** `409`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_approved_request_cannot_be_resubmitted`
+
+## TC-EVENTS-079 — a rejected request cannot be resubmitted
+
+- **Scenario:** The story is explicit: a rejected request is closed
+  permanently and cannot be resubmitted.
+- **Pre-conditions:** An owned event with `status=rejected`.
+- **Steps:** `POST /events/{event_id}/submit` with the standard submitted
+  payload.
+- **Test data:** As above.
+- **Expected:** `409`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_rejected_request_cannot_be_resubmitted`
+
+## TC-EVENTS-080 — a rejected event cannot be edited
+
+- **Pre-conditions:** An owned event with `status=rejected`.
+- **Steps:** `PATCH /events/{event_id}` with any field.
+- **Test data:** `{"venue": "New Venue"}`.
+- **Expected:** `409`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_rejected_event_cannot_be_edited`
+
+## TC-EVENTS-081 — the internal update route also blocks a rejected event
+
+- **Scenario:** The same permanence guarantee holds for the composite's
+  edit-recheck path, not only the public route.
+- **Pre-conditions:** An owned event with `status=rejected`.
+- **Steps:** `PATCH /events/{event_id}/internal` with any field.
+- **Test data:** `{"organiser_id": ..., "venue": "New Venue"}`.
+- **Expected:** `409`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_update_also_blocks_a_rejected_event`
+
+## TC-EVENTS-082 — editing a returned event still requires submitted fields
+
+- **Scenario:** A returned request is not treated as a permissive draft on
+  edit — the same strict validation as a submitted or approved event
+  applies, since every required field already exists and resubmission
+  expects them to stay that way.
+- **Pre-conditions:** An owned event with `status=returned`.
+- **Steps:** `PATCH /events/{event_id}` clearing `venue`.
+- **Test data:** `{"venue": ""}`.
+- **Expected:** `422`; no update issued.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_editing_a_returned_event_still_requires_submitted_fields`

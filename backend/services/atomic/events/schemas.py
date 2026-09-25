@@ -8,6 +8,18 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 class EventStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    # S-14: the three outcomes of a coordinator's decision on a submitted
+    # request. APPROVED and REJECTED are terminal; RETURNED goes back to the
+    # organiser to edit and resubmit as the same record.
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETURNED = "returned"
+
+
+class DecisionValue(str, Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETURNED = "returned"
 
 
 # Shared by EventDraftCreate and EventSubmittedCreate: end_date, if set, may
@@ -61,6 +73,43 @@ class EventDraftCreate(BaseModel):
 
 class EventDraftUpdate(EventDraftCreate):
     pass
+
+
+# S-14: the coordinator's decision on a submitted request. A separate schema
+# from the event schemas above -- this is not a shape the event ever takes,
+# it is an action taken on one.
+class DecisionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: DecisionValue
+    # Required (and non-blank) for reject/return, forbidden for approve --
+    # an approval is not a judgement call that needs defending in the
+    # record the way turning a request away does.
+    reason: str | None = None
+    # Only meaningful alongside a return: a clarification or amendment note
+    # for the organiser. Forbidden for approve and reject.
+    comment: str | None = None
+
+    @field_validator("reason", "comment", mode="before")
+    @classmethod
+    def normalise_optional_text(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_and_comment_match_the_decision(self):
+        if self.decision in (DecisionValue.REJECTED, DecisionValue.RETURNED):
+            if self.reason is None:
+                raise ValueError("reason is required to reject or return a request")
+        elif self.reason is not None:
+            raise ValueError("reason is not accepted when approving a request")
+
+        if self.comment is not None and self.decision != DecisionValue.RETURNED:
+            raise ValueError("comment is only accepted when returning a request")
+
+        return self
 
 
 class EventSubmittedCreate(BaseModel):
@@ -117,6 +166,13 @@ class EventRead(BaseModel):
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
+    # The coordinator's decision and its record -- all null until decided,
+    # and cleared again on resubmit after a return. See
+    # POST /events/{event_id}/decision.
+    decision: DecisionValue | None
+    decision_reason: str | None
+    decision_comment: str | None
+    decided_at: datetime | None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None

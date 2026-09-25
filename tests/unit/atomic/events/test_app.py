@@ -14,6 +14,7 @@ from .conftest import (
     event_row,
     fake_user,
     on_coordinator_rows,
+    on_decision_update,
     on_insert,
     on_owned_list,
     on_owned_select,
@@ -211,13 +212,20 @@ def test_submit_existing_draft(client, db, auth):
     assert response.json()["status"] == "submitted"
     sent = db.schema.return_value.table.return_value.update.call_args[0][0]
     assert sent["submitted_at"] is not None
-    assert {key: value for key, value in sent.items() if key != "submitted_at"} == {
+    excluded = {"submitted_at", "decision", "decision_reason", "decision_comment", "decided_at"}
+    assert {key: value for key, value in sent.items() if key not in excluded} == {
         **SUBMITTED,
         "special_requirements": None,
         "start_time": "18:00:00",
         "end_time": "21:00:00",
         "status": "submitted",
     }
+    # A resubmission clears whatever decision sent it back -- exercised more
+    # directly for the returned-status case in TC-EVENTS-070.
+    assert sent["decision"] is None
+    assert sent["decision_reason"] is None
+    assert sent["decision_comment"] is None
+    assert sent["decided_at"] is None
 
 
 # --- TC-EVENTS-023 --------------------------------------------------------
@@ -285,10 +293,11 @@ def test_other_known_roles_only_have_dashboard_permission():
 
 
 # --- TC-EVENTS-057 --------------------------------------------------------
-def test_event_coordinator_has_only_the_view_assigned_permission():
+def test_event_coordinator_has_the_view_and_decide_permissions():
     assert ROLE_PERMISSIONS["event_coordinator"] == {
         "dashboard:view",
         "events:view_assigned",
+        "events:decide",
     }
 
 
@@ -525,7 +534,7 @@ def test_coordinator_load_back_to_back_events_do_not_conflict(client, db):
 
 
 # --- TC-EVENTS-052 --------------------------------------------------------
-def test_coordinator_load_query_only_counts_submitted_events(client, db):
+def test_coordinator_load_query_only_counts_submitted_and_approved_events(client, db):
     on_coordinator_rows(db, [])
 
     client.post(
@@ -539,10 +548,11 @@ def test_coordinator_load_query_only_counts_submitted_events(client, db):
         },
     )
 
-    # Drafts are filtered out in the query itself, not after -- so they never
-    # reach the conflict or count logic at all.
-    db.schema.return_value.table.return_value.select.return_value.in_.return_value.eq.assert_called_once_with(
-        "status", "submitted"
+    # Drafts, returned, and rejected are filtered out in the query itself,
+    # not after -- so they never reach the conflict or count logic at all.
+    # S-14: approved counts alongside submitted -- both are live commitments.
+    db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.assert_called_once_with(
+        "status", ["submitted", "approved"]
     )
 
 
@@ -754,6 +764,264 @@ def test_internal_update_validates_the_resulting_submitted_event(client, db):
         f"/events/{EVENT_ID}/internal",
         json={"organiser_id": ORGANISER_ID, "venue": ""},
     )
+
+    assert response.status_code == 422
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- S-14: coordinator decisions (approve / reject / return) --------------
+
+
+# --- TC-EVENTS-067 --------------------------------------------------------
+def test_coordinator_approves_a_submitted_request(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+    on_owned_select(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
+    on_decision_update(
+        db,
+        [event_row(status="approved", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)],
+    )
+
+    response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+    sent = db.schema.return_value.table.return_value.update.call_args[0][0]
+    assert sent["status"] == "approved"
+    assert sent["decision"] == "approved"
+    assert sent["decision_reason"] is None
+    assert sent["decision_comment"] is None
+    assert sent["decided_at"] is not None
+
+
+# --- TC-EVENTS-068 --------------------------------------------------------
+def test_reject_requires_a_reason(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+
+    response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "rejected"})
+
+    assert response.status_code == 422
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-069 --------------------------------------------------------
+def test_coordinator_rejects_with_a_reason(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+    on_owned_select(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
+    on_decision_update(
+        db,
+        [
+            event_row(
+                status="rejected",
+                decision="rejected",
+                decision_reason="Venue unavailable",
+                assigned_coordinator_id=COORDINATOR_A,
+                **SUBMITTED,
+            )
+        ],
+    )
+
+    response = client.post(
+        f"/events/{EVENT_ID}/decision",
+        json={"decision": "rejected", "reason": "Venue unavailable"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+    assert response.json()["decision_reason"] == "Venue unavailable"
+
+
+# --- TC-EVENTS-070 --------------------------------------------------------
+def test_coordinator_returns_with_a_reason_and_comment(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+    on_owned_select(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
+    on_decision_update(
+        db,
+        [
+            event_row(
+                status="returned",
+                decision="returned",
+                decision_reason="Missing risk assessment",
+                decision_comment="Please attach the venue's fire safety form",
+                assigned_coordinator_id=COORDINATOR_A,
+                **SUBMITTED,
+            )
+        ],
+    )
+
+    response = client.post(
+        f"/events/{EVENT_ID}/decision",
+        json={
+            "decision": "returned",
+            "reason": "Missing risk assessment",
+            "comment": "Please attach the venue's fire safety form",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "returned"
+    assert response.json()["decision_comment"] == "Please attach the venue's fire safety form"
+
+
+# --- TC-EVENTS-071 --------------------------------------------------------
+def test_return_requires_a_reason(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+
+    response = client.post(
+        f"/events/{EVENT_ID}/decision",
+        json={"decision": "returned", "comment": "please fix the venue"},
+    )
+
+    assert response.status_code == 422
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-072 --------------------------------------------------------
+def test_approve_rejects_a_reason(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+
+    response = client.post(
+        f"/events/{EVENT_ID}/decision",
+        json={"decision": "approved", "reason": "looks fine"},
+    )
+
+    assert response.status_code == 422
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-073 --------------------------------------------------------
+def test_comment_is_rejected_outside_a_return(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+
+    response = client.post(
+        f"/events/{EVENT_ID}/decision",
+        json={"decision": "rejected", "reason": "no venue", "comment": "extra note"},
+    )
+
+    assert response.status_code == 422
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-074 --------------------------------------------------------
+def test_a_coordinator_cannot_decide_an_event_not_assigned_to_them(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+    on_owned_select(db, [])
+
+    response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
+
+    assert response.status_code == 404
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-075 --------------------------------------------------------
+def test_a_decision_already_made_cannot_be_decided_again(client, db, auth):
+    authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
+    on_owned_select(
+        db, [event_row(status="approved", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)]
+    )
+
+    response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-076 --------------------------------------------------------
+def test_an_organiser_cannot_decide_a_request(client, db, auth):
+    authenticate(client, auth)  # default role event_organiser
+
+    response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
+
+    assert response.status_code == 403
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- S-14: resubmitting after a return -------------------------------------
+
+
+# --- TC-EVENTS-077 --------------------------------------------------------
+def test_a_returned_request_can_be_resubmitted(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(
+        db,
+        [event_row(status="returned", decision="returned", decision_reason="Missing details", **SUBMITTED)],
+    )
+    on_update(db, [event_row(status="submitted", **SUBMITTED)])
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "submitted"
+    sent = db.schema.return_value.table.return_value.update.call_args[0][0]
+    assert sent["decision"] is None
+    assert sent["decision_reason"] is None
+    assert sent["decision_comment"] is None
+    assert sent["decided_at"] is None
+
+
+# --- TC-EVENTS-078 --------------------------------------------------------
+def test_an_approved_request_cannot_be_resubmitted(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(status="approved", decision="approved", **SUBMITTED)])
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-079 --------------------------------------------------------
+def test_a_rejected_request_cannot_be_resubmitted(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(
+        db, [event_row(status="rejected", decision="rejected", decision_reason="No venue", **SUBMITTED)]
+    )
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- S-14: a rejected request is permanently closed ------------------------
+
+
+# --- TC-EVENTS-080 --------------------------------------------------------
+def test_a_rejected_event_cannot_be_edited(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(
+        db, [event_row(status="rejected", decision="rejected", decision_reason="No venue", **SUBMITTED)]
+    )
+
+    response = client.patch(f"/events/{EVENT_ID}", json={"venue": "New Venue"})
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-081 --------------------------------------------------------
+def test_internal_update_also_blocks_a_rejected_event(client, db):
+    on_owned_select(
+        db, [event_row(status="rejected", decision="rejected", decision_reason="No venue", **SUBMITTED)]
+    )
+
+    response = client.patch(
+        f"/events/{EVENT_ID}/internal",
+        json={"organiser_id": ORGANISER_ID, "venue": "New Venue"},
+    )
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- TC-EVENTS-082 --------------------------------------------------------
+def test_editing_a_returned_event_still_requires_submitted_fields(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(
+        db,
+        [event_row(status="returned", decision="returned", decision_reason="Fix the venue", **SUBMITTED)],
+    )
+
+    response = client.patch(f"/events/{EVENT_ID}", json={"venue": ""})
 
     assert response.status_code == 422
     db.schema.return_value.table.return_value.update.assert_not_called()

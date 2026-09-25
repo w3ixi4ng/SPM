@@ -6,14 +6,16 @@ that spans the `events` and `users` entities: when an event organiser submits
 a request, this service routes it to an event coordinator who has no other
 assigned event overlapping the requested date and time.
 
-Story: S-12 — event coordinator assignment.
+Story: S-12 — event coordinator assignment. S-14 — coordinator decisions —
+extends this service to also handle resubmitting a request a coordinator
+returned for amendment.
 
 ## Endpoints
 
 | Method | Path | Does |
 | --- | --- | --- |
 | `POST` | `/event-requests` | Submits a brand-new request (equivalent to the events service's `POST /events`), assigning a coordinator as part of submission. |
-| `POST` | `/event-requests/{event_id}/submit` | Submits an existing draft the caller owns (equivalent to `POST /events/{event_id}/submit`), assigning a coordinator the same way. |
+| `POST` | `/event-requests/{event_id}/submit` | Submits a draft for the first time, *or* resubmits a `returned` request (equivalent to `POST /events/{event_id}/submit`) — see [Assignment logic](#assignment-logic). |
 | `PATCH` | `/event-requests/{event_id}` | Edits an owned event (equivalent to `PATCH /events/{event_id}`), rechecking the assigned coordinator when a submitted event's date/time actually changes. |
 | `GET` | `/event-requests/health` | Gateway-compatible liveness alias. |
 | `GET` | `/health` | Liveness check. |
@@ -71,15 +73,37 @@ it, `assigned_coordinator_id` included:
 
 ### Assignment logic
 
+`POST /event-requests/{event_id}/submit` picks a coordinator differently
+depending on what the event currently is:
+
+**A draft's first submission** — no prior assignment to consider:
+
 1. Fetch every account with role `event_coordinator` from the users service.
-2. Ask the events service which of them have no assigned **submitted** event
-   overlapping the requested window at all (a request starting exactly when
-   another ends is not a conflict).
+2. Ask the events service which of them have no assigned **submitted or
+   approved** event overlapping the requested window at all (a request
+   starting exactly when another ends is not a conflict).
 3. Among the conflict-free coordinators, pick whoever currently has the
-   fewest assigned submitted events. Ties are broken at random, so load
-   spreads out over many requests even when no one is busy yet.
+   fewest assigned submitted/approved events. Ties are broken at random, so
+   load spreads out over many requests even when no one is busy yet.
 4. If no coordinator is conflict-free — including when no coordinator
    accounts exist at all — the request is rejected. Nothing is created.
+
+**Resubmitting a `returned` request (S-14)** — it already has a
+coordinator, so continuity comes first:
+
+1. Ask the events service whether the *currently* assigned coordinator has a
+   conflict against the (possibly edited) window, excluding this event's own
+   row from the check.
+2. Still free → resubmitted to the same coordinator.
+3. Conflicts → run the fresh-pick logic above instead (excluding this
+   event's own row throughout).
+4. No coordinator is free even after that → the resubmission is rejected.
+   Nothing changes.
+
+A coordinator's own decision (`POST /events/{event_id}/decision`) is not
+part of this service at all — it never touches assignment, so it goes
+straight to the events service. See the events service's
+[Decisions](../../atomic/events/README.md#decisions-s-14).
 
 ### Recheck logic (`PATCH`)
 

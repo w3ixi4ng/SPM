@@ -6,6 +6,7 @@ export const PERMISSIONS = Object.freeze({
   UPDATE_OWN_EVENT_DRAFT: 'events:update_own_draft',
   SUBMIT_OWN_EVENT: 'events:submit_own',
   VIEW_ASSIGNED_EVENTS: 'events:view_assigned',
+  DECIDE_EVENT: 'events:decide',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -32,7 +33,11 @@ export const ROLE_ACCESS = Object.freeze({
     label: 'Event Coordinator',
     dashboardPath: '/dashboard/event-coordinator',
     description: 'Review the event requests routed to you.',
-    permissions: Object.freeze([...DASHBOARD_PERMISSION, PERMISSIONS.VIEW_ASSIGNED_EVENTS]),
+    permissions: Object.freeze([
+      ...DASHBOARD_PERMISSION,
+      PERMISSIONS.VIEW_ASSIGNED_EVENTS,
+      PERMISSIONS.DECIDE_EVENT,
+    ]),
   }),
   venue_staff: Object.freeze({
     label: 'Venue Staff',

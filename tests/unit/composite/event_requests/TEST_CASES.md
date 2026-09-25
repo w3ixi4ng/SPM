@@ -10,9 +10,9 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-09-24, branch `S-12/event-coordinator-assignment` |
+| Last run | 2026-09-25, branch `S-14/auto-assign-ec` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, httpx 0.28.1; no network, database, or Docker |
-| Result | 20 passed |
+| Result | 25 passed |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -316,3 +316,81 @@ value than it already had.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_editing_an_event_that_is_not_found_is_404`
+
+---
+
+**S-14 additions.** `POST /event-requests/{event_id}/submit` now also
+handles resubmitting a `returned` request, not only a first-time draft
+submission — S-14 requires the organiser to be able to edit and resubmit a
+returned request as the same record. The two cases pick a coordinator
+differently: a draft has no prior assignment, so it is a fresh pick across
+the whole pool (unchanged); a returned request already has one, so
+resubmitting keeps that coordinator if they are still free and only falls
+back to a fresh pick when they are not — the same recheck-then-reassign
+shape as editing a submitted event's date/time (TC-EVENTREQUESTS-017/018).
+
+## TC-EVENTREQUESTS-021 — resubmitting a returned request keeps the same coordinator if still free
+
+- **Pre-conditions:** `GET /events/{id}` (forwarded) reports `status:
+  returned`, assigned to coordinator A; the has-conflict check for A alone
+  reports `conflict: false`.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** As above.
+- **Expected:** `200`; response `assigned_coordinator_id` is still A; only
+  the has-conflict check runs, not a full-pool pick.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_resubmitting_a_returned_request_keeps_the_same_coordinator_if_still_free`
+
+## TC-EVENTREQUESTS-022 — resubmitting reassigns when the coordinator now conflicts
+
+- **Pre-conditions:** As above, but coordinator A's has-conflict check
+  reports `conflict: true`; a second coordinator B is conflict-free.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** As above.
+- **Expected:** `200`; response `assigned_coordinator_id` is B; the internal
+  submit call carries B, not A.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_resubmitting_a_returned_request_reassigns_when_the_coordinator_now_conflicts`
+
+## TC-EVENTREQUESTS-023 — resubmitting rejects when no one is free
+
+- **Pre-conditions:** As TC-EVENTREQUESTS-022, but the only coordinator, A,
+  conflicts and no one else exists.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** As above.
+- **Expected:** `409`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_resubmitting_a_returned_request_rejects_when_no_one_is_free`
+
+## TC-EVENTREQUESTS-024 — resubmitting an event that is not found is 404
+
+- **Pre-conditions:** `GET /events/{id}` (forwarded) returns `404`.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** None.
+- **Expected:** `404`; only `/users/me` is called -- no coordinator lookup,
+  no events.post call at all.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_resubmitting_an_event_that_is_not_found_is_404`
+
+## TC-EVENTREQUESTS-025 — a draft submission still picks fresh with no prior coordinator
+
+- **Scenario:** Confirms the resubmit logic above does not change the
+  original, unrelated case: a draft has nothing to recheck.
+- **Pre-conditions:** `GET /events/{id}` reports `status: draft`,
+  `assigned_coordinator_id: null`; two coordinators, unequal load.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** Coordinator A with load 3, coordinator B with load 0, both
+  conflict-free.
+- **Expected:** `200`; assigned to B, the least busy.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_draft_submission_still_picks_fresh_with_no_prior_coordinator`

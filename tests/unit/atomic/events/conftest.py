@@ -80,6 +80,10 @@ def event_row(**changes):
         "accessibility_requirements": None,
         "special_requirements": None,
         "assigned_coordinator_id": None,
+        "decision": None,
+        "decision_reason": None,
+        "decision_comment": None,
+        "decided_at": None,
         "submitted_at": None,
         "created_at": "2026-09-14T00:00:00Z",
         "updated_at": "2026-09-14T00:00:00Z",
@@ -114,9 +118,17 @@ def on_owned_list(db, rows=None, error=None):
 
 
 def on_update(db, rows):
-    # Three .eq() calls: id, organiser_id, and status='draft' -- this is the
-    # draft-to-submitted transition (POST /events/{id}/submit), which is
-    # still only allowed from a draft.
+    # .eq(id).eq(organiser_id).in_(status, [...]) -- the draft/returned ->
+    # submitted transition (POST /events/{id}/submit), S-14: a resubmission
+    # after a return lands here too, not only a first-time draft submit.
+    operation = (
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.in_.return_value
+    )
+    operation.execute.return_value = SimpleNamespace(data=rows)
+
+
+def on_decision_update(db, rows):
+    # POST /events/{id}/decision: .update().eq(id).eq(assigned_coordinator_id).eq(status, "submitted").
     operation = (
         db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value
     )
@@ -124,9 +136,9 @@ def on_update(db, rows):
 
 
 def on_coordinator_rows(db, rows):
-    # POST /events/coordinator-load: .select().in_().eq("status", "submitted").
+    # POST /events/coordinator-load: .select().in_(coordinator_ids).in_(status, [...]).
     operation = (
-        db.schema.return_value.table.return_value.select.return_value.in_.return_value.eq.return_value
+        db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=rows)
 

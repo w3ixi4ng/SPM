@@ -4,12 +4,16 @@ import test from 'node:test'
 import {
   createEventDraft,
   createSubmittedEvent,
+  decideEventRequest,
   eventErrorMessage,
   eventFieldErrorsToForm,
   eventFormToPayload,
   eventResponseToForm,
+  eventStatusMeta,
   getEventRequest,
   listEventRequests,
+  organiserStatusMeta,
+  sortEventsForOrganiser,
   submitEventDraft,
   updateEventDraft,
 } from '../../../frontend/src/lib/eventRequests.js'
@@ -183,4 +187,135 @@ test('event API errors map to safe status and field feedback', () => {
   assert.equal(eventErrorMessage({ status: 409, message: 'Already submitted' }), 'Already submitted')
   assert.match(eventErrorMessage({ status: 422 }), /highlighted/i)
   assert.match(eventErrorMessage({ status: 500 }), /not been saved/i)
+})
+
+// --- S-14: coordinator decisions -------------------------------------------
+
+test('eventStatusMeta covers every backend status with a distinct label', () => {
+  const statuses = ['draft', 'submitted', 'approved', 'returned', 'rejected']
+  const seen = new Set()
+  for (const status of statuses) {
+    const { label, color } = eventStatusMeta(status)
+    assert.equal(typeof label, 'string')
+    assert.match(color, /^#[0-9a-f]{6}$/i)
+    seen.add(label)
+  }
+  assert.equal(seen.size, statuses.length)
+})
+
+test('eventStatusMeta falls back safely for an unrecognised status', () => {
+  const { label, color } = eventStatusMeta('made_up_status')
+  assert.equal(label, 'made_up_status')
+  assert.match(color, /^#[0-9a-f]{6}$/i)
+})
+
+test('decideEventRequest posts to the events service, not event-requests', async () => {
+  let recorded
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    recorded = { url, options }
+    return new Response(JSON.stringify({ id: 'event-1', status: 'approved' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    await decideEventRequest('event-1', { decision: 'approved' })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(recorded.url, '/api/events/event-1/decision')
+  assert.equal(recorded.options.method, 'POST')
+  assert.equal(recorded.options.credentials, 'include')
+  assert.deepEqual(JSON.parse(recorded.options.body), { decision: 'approved' })
+})
+
+test('decideEventRequest omits reason and comment when not given', async () => {
+  let body
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    body = JSON.parse(options.body)
+    return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  try {
+    await decideEventRequest('event-1', { decision: 'approved', reason: '', comment: undefined })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.deepEqual(body, { decision: 'approved' })
+})
+
+test('decideEventRequest includes reason and comment when given', async () => {
+  let body
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    body = JSON.parse(options.body)
+    return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  try {
+    await decideEventRequest('event-1', {
+      decision: 'returned',
+      reason: 'Missing risk assessment',
+      comment: 'Please attach the fire safety form',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.deepEqual(body, {
+    decision: 'returned',
+    reason: 'Missing risk assessment',
+    comment: 'Please attach the fire safety form',
+  })
+})
+
+test('sortEventsForOrganiser sorts returned first, then submitted, then the rest, stable within each group', () => {
+  const events = [
+    { id: 'a', status: 'submitted' },
+    { id: 'b', status: 'returned' },
+    { id: 'c', status: 'draft' },
+    { id: 'd', status: 'returned' },
+    { id: 'e', status: 'approved' },
+    { id: 'f', status: 'submitted' },
+  ]
+
+  const sorted = sortEventsForOrganiser(events)
+
+  assert.deepEqual(sorted.map((event) => event.id), ['b', 'd', 'a', 'f', 'c', 'e'])
+})
+
+test('sortEventsForOrganiser is a no-op with neither priority status, and does not mutate its argument', () => {
+  const events = [
+    { id: 'a', status: 'draft' },
+    { id: 'b', status: 'approved' },
+    { id: 'c', status: 'draft' },
+  ]
+
+  const sorted = sortEventsForOrganiser(events)
+
+  assert.deepEqual(sorted.map((event) => event.id), ['a', 'b', 'c'])
+  assert.deepEqual(events.map((event) => event.id), ['a', 'b', 'c'])
+})
+
+test('organiserStatusMeta relabels returned as Action required, in rose', () => {
+  const { label, color } = organiserStatusMeta('returned')
+  assert.equal(label, 'Action required')
+  assert.equal(color, '#B25547')
+})
+
+test('organiserStatusMeta relabels submitted as Under review, keeping the shared color', () => {
+  const { label, color } = organiserStatusMeta('submitted')
+  assert.equal(label, 'Under review')
+  assert.equal(color, eventStatusMeta('submitted').color)
+})
+
+test('organiserStatusMeta falls through to the shared meta for every other status', () => {
+  for (const status of ['draft', 'approved', 'rejected']) {
+    assert.deepEqual(organiserStatusMeta(status), eventStatusMeta(status))
+  }
 })

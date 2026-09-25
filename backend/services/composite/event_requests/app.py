@@ -212,8 +212,36 @@ async def submit_existing_draft(
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
 ):
+    """Submits a draft for the first time, or resubmits a returned request
+    -- S-14. The two pick a coordinator differently: a draft has no prior
+    assignment, so it is a fresh pick across the whole pool, the same as
+    POST /event-requests. A returned request already has one; resubmitting
+    keeps that coordinator if they are still free for the (possibly edited)
+    window, and only falls back to a fresh pick -- excluding this event's
+    own row -- when they are not.
+    """
     user = await _authenticate_organiser(request, users)
-    coordinator_id = await _pick_coordinator(_window_from(payload), users, events)
+    window = _window_from(payload)
+
+    try:
+        current_response = await events.get(f"/events/{event_id}", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if current_response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if current_response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    current = current_response.json()
+
+    current_coordinator = current.get("assigned_coordinator_id")
+    if current.get("status") == "returned" and current_coordinator is not None:
+        if await _has_conflict(current_coordinator, window, str(event_id), events):
+            coordinator_id = await _pick_coordinator(window, users, events, exclude_event_id=str(event_id))
+        else:
+            coordinator_id = current_coordinator
+    else:
+        coordinator_id = await _pick_coordinator(window, users, events)
 
     body = payload.model_dump(mode="json")
     body["organiser_id"] = user["id"]

@@ -48,6 +48,25 @@ create table if not exists events.events (
   -- truth for.
   assigned_coordinator_id    uuid,
 
+  -- The assigned coordinator's decision on a submitted request. Null until
+  -- decided; then one of the three outcomes below. Holds only the *latest*
+  -- decision -- a return-then-resubmit cycle overwrites it, on purpose (see
+  -- S-14): this is a single current-state field, not an audit log.
+  decision                   text,
+
+  -- Required for reject and return, forbidden for approve -- see
+  -- events_decision_reason_required below.
+  decision_reason            text,
+
+  -- Optional, meaningful only for return: a clarification or amendment note
+  -- for the organiser. Never set for approve or reject.
+  decision_comment           text,
+
+  -- When the decision was made. Null until then, cleared again on resubmit
+  -- alongside decision/decision_reason/decision_comment, the same way
+  -- submitted_at is cleared-then-reset across a draft/submit cycle.
+  decided_at                 timestamptz,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -56,8 +75,11 @@ create table if not exists events.events (
   created_at                 timestamptz not null default now(),
   updated_at                 timestamptz not null default now(),
 
+  -- S-14: submitted now means "awaiting a coordinator decision", not a
+  -- terminal state. approved/rejected/returned are the three outcomes of
+  -- that decision -- see POST /events/{event_id}/decision.
   constraint events_status_allowed
-    check (status in ('draft', 'submitted')),
+    check (status in ('draft', 'submitted', 'approved', 'rejected', 'returned')),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -91,18 +113,19 @@ create table if not exists events.events (
   constraint events_equipment_requests_object
     check (jsonb_typeof(equipment_requests) = 'object'),
 
-  -- A submitted row always carries its submission time, and a draft never
-  -- does. Enforced here so the audit record cannot be lost to a code path
-  -- that forgets to set it.
+  -- Every status past draft has been submitted at least once -- including
+  -- approved/rejected/returned, which are outcomes of a decision made on a
+  -- submitted request, not a separate path around it. Only a draft has
+  -- never been submitted.
   constraint events_submitted_at_present
     check (
-      (status = 'submitted' and submitted_at is not null)
-      or (status <> 'submitted' and submitted_at is null)
+      (status = 'draft' and submitted_at is null)
+      or (status <> 'draft' and submitted_at is not null)
     ),
 
   constraint events_submitted_fields_required
     check (
-      status <> 'submitted'
+      status = 'draft'
       or (
         name is not null
         and purpose is not null
@@ -113,6 +136,45 @@ create table if not exists events.events (
         and expected_attendance is not null
         and venue is not null
       )
+    ),
+
+  -- decision is set exactly when a decision has been made -- draft and
+  -- submitted (awaiting one) never carry one; approved/rejected/returned
+  -- always do.
+  constraint events_decision_matches_status
+    check (
+      (status in ('draft', 'submitted') and decision is null)
+      or (status in ('approved', 'rejected', 'returned') and decision is not null)
+    ),
+
+  constraint events_decision_allowed
+    check (decision is null or decision in ('approved', 'rejected', 'returned')),
+
+  -- Reject and return both require a reason; approve never carries one --
+  -- an approval is not a judgement call that needs defending in the record
+  -- the way turning a request away does.
+  constraint events_decision_reason_required
+    check (
+      (decision in ('rejected', 'returned') and decision_reason is not null and btrim(decision_reason) <> '')
+      or (decision in ('approved') and decision_reason is null)
+      or decision is null
+    ),
+
+  -- The clarification/amendment comment only makes sense alongside a
+  -- return -- there is nothing to amend after an approval or a closed
+  -- rejection.
+  constraint events_decision_comment_scope
+    check (decision = 'returned' or decision_comment is null),
+
+  constraint events_decision_comment_not_blank
+    check (decision_comment is null or btrim(decision_comment) <> ''),
+
+  -- Mirrors events_submitted_at_present: decided_at is the record of when,
+  -- present exactly when a decision is.
+  constraint events_decided_at_present
+    check (
+      (decision is null and decided_at is null)
+      or (decision is not null and decided_at is not null)
     )
 );
 
@@ -122,10 +184,13 @@ create index if not exists events_events_organiser_id_idx
   on events.events (organiser_id);
 
 -- The coordinator-load lookup filters by assigned_coordinator_id and status
--- together for every submitted request; this is that query's index.
+-- together for every request that occupies the coordinator's time -- this is
+-- that query's index. S-14: that now means submitted (awaiting decision) or
+-- approved (confirmed), not just submitted -- returned and rejected are not
+-- live commitments and never block a new request.
 create index if not exists events_events_assigned_coordinator_id_idx
   on events.events (assigned_coordinator_id)
-  where status = 'submitted';
+  where status in ('submitted', 'approved');
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.
@@ -197,6 +262,82 @@ alter table events.events enable row level security;
 --   create index if not exists events_events_assigned_coordinator_id_idx
 --     on events.events (assigned_coordinator_id)
 --     where status = 'submitted';
+-- ---------------------------------------------------------------------------
+--
+-- S-14: already have the table without the coordinator decision? Run this
+-- instead. Safe to run twice. No backfill needed -- every existing row is
+-- either 'draft' or 'submitted', both still valid statuses, and decision
+-- defaults to null, which is exactly right for a row nothing has decided on
+-- yet.
+--
+--   alter table events.events
+--     add column if not exists decision        text,
+--     add column if not exists decision_reason  text,
+--     add column if not exists decision_comment text,
+--     add column if not exists decided_at       timestamptz;
+--
+--   alter table events.events drop constraint if exists events_status_allowed;
+--   alter table events.events add constraint events_status_allowed
+--     check (status in ('draft', 'submitted', 'approved', 'rejected', 'returned'));
+--
+--   alter table events.events drop constraint if exists events_submitted_at_present;
+--   alter table events.events add constraint events_submitted_at_present
+--     check (
+--       (status = 'draft' and submitted_at is null)
+--       or (status <> 'draft' and submitted_at is not null)
+--     );
+--
+--   alter table events.events drop constraint if exists events_submitted_fields_required;
+--   alter table events.events add constraint events_submitted_fields_required
+--     check (
+--       status = 'draft'
+--       or (
+--         name is not null and purpose is not null and start_date is not null
+--         and start_time is not null and end_date is not null
+--         and end_time is not null and expected_attendance is not null
+--         and venue is not null
+--       )
+--     );
+--
+--   alter table events.events add constraint events_decision_matches_status
+--     check (
+--       (status in ('draft', 'submitted') and decision is null)
+--       or (status in ('approved', 'rejected', 'returned') and decision is not null)
+--     );
+--   alter table events.events add constraint events_decision_allowed
+--     check (decision is null or decision in ('approved', 'rejected', 'returned'));
+--   alter table events.events add constraint events_decision_reason_required
+--     check (
+--       (decision in ('rejected', 'returned') and decision_reason is not null and btrim(decision_reason) <> '')
+--       or (decision in ('approved') and decision_reason is null)
+--       or decision is null
+--     );
+--   alter table events.events add constraint events_decision_comment_scope
+--     check (decision = 'returned' or decision_comment is null);
+--   alter table events.events add constraint events_decision_comment_not_blank
+--     check (decision_comment is null or btrim(decision_comment) <> '');
+--   alter table events.events add constraint events_decided_at_present
+--     check (
+--       (decision is null and decided_at is null)
+--       or (decision is not null and decided_at is not null)
+--     );
+--
+--   -- Safe to run even if the S-12 version of this index already exists:
+--   -- `if not exists` means it is a no-op then, not an error, at the cost of
+--   -- not updating that copy's WHERE clause on its own -- see below.
+--   create index if not exists events_events_assigned_coordinator_id_idx
+--     on events.events (assigned_coordinator_id)
+--     where status in ('submitted', 'approved');
+--
+--   -- Only needed if the index already existed from S-12 (WHERE status =
+--   -- 'submitted') -- `if not exists` above left that old definition alone.
+--   -- Harmless either way: an index only ever affects query speed, never
+--   -- correctness, so approved-event conflict checks were already correct
+--   -- without this, just not using the index for them.
+--   drop index if exists events_events_assigned_coordinator_id_idx;
+--   create index events_events_assigned_coordinator_id_idx
+--     on events.events (assigned_coordinator_id)
+--     where status in ('submitted', 'approved');
 -- ---------------------------------------------------------------------------
 
 notify pgrst, 'reload schema';

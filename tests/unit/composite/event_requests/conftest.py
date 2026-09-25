@@ -182,6 +182,24 @@ def events_post_coordinator_load_side_effect(all_loads: dict):
     return _post
 
 
+def events_post_side_effect_with_loads(all_loads: dict, extra_path: str, extra_response):
+    """Like `events_post_coordinator_load_side_effect`, plus one more exact
+    path (e.g. a resubmit's `/events/{id}/submit/internal`) that returns a
+    fixed response -- covers a resubmit's recheck-then-create in one fake.
+    """
+
+    async def _post(path, **kwargs):
+        if path == "/events/coordinator-load":
+            requested = kwargs["json"]["coordinator_ids"]
+            rows = [{"coordinator_id": cid, **all_loads[cid]} for cid in requested]
+            return load_response(rows)
+        if path == extra_path:
+            return extra_response
+        raise AssertionError(f"unexpected events.post({path!r})")
+
+    return _post
+
+
 def events_patch_side_effect(plain_response=None, internal_response=None):
     """A `.patch(path, **kwargs)` side_effect covering the plain forward-patch
     path and the reassignment-carrying internal one."""

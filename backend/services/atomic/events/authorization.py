@@ -16,10 +16,9 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
     }
 )
 
-# The only coordinator workflow backed by a project requirement so far: view
-# what event_requests routed to them. Read-only -- no update or claim/decline
-# action exists yet.
-EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({"events:view_assigned"})
+# S-14: a coordinator can now also decide (approve/reject/return) a request
+# routed to them, on top of viewing it.
+EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({"events:view_assigned", "events:decide"})
 
 # Every recognized role may enter its own role dashboard. Add internal-role
 # permissions here when the corresponding stories exist, even if their
