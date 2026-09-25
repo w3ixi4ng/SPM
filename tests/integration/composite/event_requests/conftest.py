@@ -6,9 +6,11 @@ real accounts and events.
 """
 
 import os
+import time
 import uuid
 from pathlib import Path
 
+import httpx
 import pytest
 from supabase import create_client
 
@@ -40,6 +42,28 @@ requires_env = pytest.mark.skipif(
     ),
     reason="needs .env.test with a test Supabase project",
 )
+
+
+@pytest.fixture(autouse=True)
+def _event_requests_reachable():
+    """Waits for `event_requests`'s own published port to accept connections
+    before each test.
+
+    On some CI runners the container reports healthy (checked from inside the
+    container) a moment before its host port mapping is actually wired, and
+    that gap has shown up again mid-run, not just at startup -- so this polls
+    before every test rather than once per session. Never observed locally;
+    a no-op there since the first request always succeeds.
+    """
+    last_error = None
+    for _ in range(10):
+        try:
+            httpx.get(f"{BASE_URL}/health", timeout=1.0)
+            return
+        except httpx.HTTPError as exc:
+            last_error = exc
+            time.sleep(0.5)
+    raise RuntimeError(f"{BASE_URL}/health never became reachable: {last_error}")
 
 
 @pytest.fixture(scope="session")
