@@ -40,6 +40,14 @@ create table if not exists events.events (
   -- requirement names no structure, and inventing one would be guessing.
   special_requirements       text,
 
+  -- S-36: the venue requirements, from the venue catalogue's fixed sets so a
+  -- venue can be checked against them. All optional. `venue` above is now
+  -- only the organiser's free-text preference; the Coordinator books the
+  -- actual venue.
+  room_layout                text,
+  required_facilities        text[] not null default '{}',
+  required_accessibility     text[] not null default '{}',
+
   -- The event coordinator this request was routed to on submission -- null
   -- until then, and never chosen by the organiser. No foreign key to
   -- users.users: that would be a cross-schema reference, which the one
@@ -115,6 +123,24 @@ create table if not exists events.events (
   constraint events_equipment_requests_object
     check (jsonb_typeof(equipment_requests) = 'object'),
 
+  constraint events_room_layout_allowed
+    check (room_layout is null or room_layout in (
+      'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
+    )),
+
+  constraint events_required_facilities_allowed
+    check (required_facilities <@ array[
+      'projector', 'screen', 'sound_system', 'microphones', 'wifi', 'stage',
+      'whiteboard', 'video_conferencing', 'catering_kitchen',
+      'air_conditioning', 'parking'
+    ]::text[]),
+
+  constraint events_required_accessibility_allowed
+    check (required_accessibility <@ array[
+      'wheelchair_access', 'step_free_entrance', 'accessible_toilets', 'lift',
+      'hearing_loop', 'accessible_parking'
+    ]::text[]),
+
   -- Every status past draft has been submitted at least once -- including
   -- planning/rejected/returned, which are outcomes of a decision made on a
   -- submitted request, not a separate path around it. Only a draft has
@@ -136,7 +162,6 @@ create table if not exists events.events (
         and end_date is not null
         and end_time is not null
         and expected_attendance is not null
-        and venue is not null
       )
     ),
 
@@ -364,6 +389,46 @@ alter table events.events enable row level security;
 --   create index events_events_assigned_coordinator_id_idx
 --     on events.events (assigned_coordinator_id)
 --     where status in ('submitted', 'planning');
+--
+-- S-36: venue requirements on the event. Already have the table? Run this
+-- instead. Safe to run twice. No backfill needed: existing rows get no
+-- requirements, which is valid.
+--
+--   alter table events.events
+--     add column if not exists room_layout            text,
+--     add column if not exists required_facilities    text[] not null default '{}',
+--     add column if not exists required_accessibility text[] not null default '{}';
+--
+--   alter table events.events drop constraint if exists events_room_layout_allowed;
+--   alter table events.events add constraint events_room_layout_allowed
+--     check (room_layout is null or room_layout in (
+--       'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
+--     ));
+--   alter table events.events drop constraint if exists events_required_facilities_allowed;
+--   alter table events.events add constraint events_required_facilities_allowed
+--     check (required_facilities <@ array[
+--       'projector', 'screen', 'sound_system', 'microphones', 'wifi', 'stage',
+--       'whiteboard', 'video_conferencing', 'catering_kitchen',
+--       'air_conditioning', 'parking'
+--     ]::text[]);
+--   alter table events.events drop constraint if exists events_required_accessibility_allowed;
+--   alter table events.events add constraint events_required_accessibility_allowed
+--     check (required_accessibility <@ array[
+--       'wheelchair_access', 'step_free_entrance', 'accessible_toilets', 'lift',
+--       'hearing_loop', 'accessible_parking'
+--     ]::text[]);
+--
+--   -- venue is only a preference now, so a submitted event no longer needs one.
+--   alter table events.events drop constraint if exists events_submitted_fields_required;
+--   alter table events.events add constraint events_submitted_fields_required
+--     check (
+--       status = 'draft'
+--       or (
+--         name is not null and purpose is not null and start_date is not null
+--         and start_time is not null and end_date is not null
+--         and end_time is not null and expected_attendance is not null
+--       )
+--     );
 -- ---------------------------------------------------------------------------
 
 notify pgrst, 'reload schema';

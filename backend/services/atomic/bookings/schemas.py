@@ -37,7 +37,6 @@ RoomLayout = Literal[
     "boardroom",
     "u_shape",
     "banquet",
-    "cabaret",
     "cocktail",
 ]
 

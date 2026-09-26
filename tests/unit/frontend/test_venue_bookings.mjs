@@ -8,6 +8,7 @@ import {
   listVenueBookingsForEvent,
   submitVenueBooking,
   venueBookingErrorMessages,
+  venueFit,
 } from '../../../frontend/src/lib/venueBookings.js'
 
 const FULL_FORM = {
@@ -16,17 +17,11 @@ const FULL_FORM = {
   bookingDate: '2026-11-12',
   startTime: '09:00',
   endTime: '12:00',
-  roomLayout: 'theatre',
-  requiredFacilities: ['projector'],
-  requiredAccessibility: ['wheelchair_access'],
   notes: '  Setup from 08:30 ',
 }
 
 const REQUIRED_ONLY_FORM = {
   ...FULL_FORM,
-  roomLayout: '',
-  requiredFacilities: [],
-  requiredAccessibility: [],
   notes: '',
 }
 
@@ -80,9 +75,6 @@ test('venue booking calls use the authenticated Kong contract', async () => {
     booking_date: '2026-11-12',
     start_time: '09:00',
     end_time: '12:00',
-    room_layout: 'theatre',
-    required_facilities: ['projector'],
-    required_accessibility: ['wheelchair_access'],
     notes: 'Setup from 08:30',
   })
   assert.deepEqual(JSON.parse(calls[1].options.body), {
@@ -91,8 +83,6 @@ test('venue booking calls use the authenticated Kong contract', async () => {
     booking_date: '2026-11-12',
     start_time: '09:00',
     end_time: '12:00',
-    required_facilities: [],
-    required_accessibility: [],
   })
 })
 
@@ -139,4 +129,34 @@ test("an event's venue requests load through Kong", async () => {
   assert.equal(calls[0].url, '/api/venue-bookings?event_id=e%201%2F2')
   assert.equal(calls[0].options.method ?? 'GET', 'GET')
   assert.equal(calls[0].options.credentials, 'include')
+})
+
+// --- TC-FRONTEND-035 -------------------------------------------------------
+test('each venue is marked against the event requirements', () => {
+  const event = {
+    expected_attendance: 100,
+    room_layout: 'banquet',
+    required_facilities: ['projector', 'stage'],
+    required_accessibility: ['hearing_loop'],
+  }
+  const fitting = {
+    capacity: 100,
+    room_layouts: ['banquet'],
+    facilities: ['projector', 'stage'],
+    accessibility: ['hearing_loop'],
+  }
+  const failing = {
+    capacity: 80,
+    room_layouts: ['theatre'],
+    facilities: ['projector'],
+    accessibility: [],
+  }
+
+  assert.deepEqual(venueFit(event, fitting), [])
+  assert.deepEqual(venueFit(event, failing), [
+    'Too small: holds 80, event expects 100',
+    'No Banquet layout',
+    'Missing: Stage',
+    'Missing: Hearing loop',
+  ])
 })

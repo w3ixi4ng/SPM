@@ -70,8 +70,7 @@ create table if not exists venues.venues (
     check (
       cardinality(room_layouts) > 0
       and room_layouts <@ array[
-        'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cabaret',
-        'cocktail'
+        'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
       ]::text[]
     ),
 
@@ -104,6 +103,29 @@ alter default privileges for role postgres in schema venues
 -- 5. Block direct browser access. The backend uses service_role, which bypasses
 --    RLS; no anon or authenticated policy is intentionally defined.
 alter table venues.venues enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- S-36: 'cabaret' is no longer a room layout. Already have the table? Run
+-- this instead. Safe to run twice.
+--
+--   -- A venue whose only layout was cabaret would be left with none, which
+--   -- venues_room_layouts_allowed refuses. This lists them; give each another
+--   -- layout before running the rest.
+--   select id, name from venues.venues where room_layouts = array['cabaret'];
+--
+--   update venues.venues
+--      set room_layouts = array_remove(room_layouts, 'cabaret')
+--    where 'cabaret' = any(room_layouts);
+--
+--   alter table venues.venues drop constraint if exists venues_room_layouts_allowed;
+--   alter table venues.venues add constraint venues_room_layouts_allowed
+--     check (
+--       cardinality(room_layouts) > 0
+--       and room_layouts <@ array[
+--         'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
+--       ]::text[]
+--     );
+-- ---------------------------------------------------------------------------
 
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.
 notify pgrst, 'reload schema';

@@ -20,9 +20,6 @@ def test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coo
             "booking_date": "2026-11-12",
             "start_time": "09:00",
             "end_time": "12:00",
-            "room_layout": "theatre",
-            "required_facilities": ["projector"],
-            "required_accessibility": ["wheelchair_access"],
         },
         timeout=15.0,
     )
@@ -38,6 +35,9 @@ def test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coo
     assert rows[0]["expected_attendance"] == 120
     assert rows[0]["venue_name"] == venue["name"]
     assert rows[0]["coordinator_email"] == world["coordinator"]["email"]
+    assert rows[0]["room_layout"] == "theatre"
+    assert rows[0]["required_facilities"] == ["projector"]
+    assert rows[0]["required_accessibility"] == ["wheelchair_access"]
 
     assert event["status"] == "planning"
 

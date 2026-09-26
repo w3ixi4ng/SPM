@@ -42,7 +42,10 @@ submitted-event routes:
 | `end_date` | `YYYY-MM-DD` | yes | On or after `start_date`. |
 | `end_time` | time | yes | After `start_time` when the event is single-day. |
 | `expected_attendance` | integer | yes | Greater than zero. |
-| `venue` | string | yes | Nonblank. |
+| `venue` | string or null | no | The organiser's venue preference. Blank becomes null. |
+| `room_layout` | string or null | no | From the venue layout set. |
+| `required_facilities` | array of string | no | From the venue facility set. Defaults to `[]`. |
+| `required_accessibility` | array of string | no | From the venue accessibility set. Defaults to `[]`. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
 | `accessibility_requirements` | string or null | no | Blank text becomes null. |
 | `special_requirements` | string or null | no | Free text. Blank becomes null. |

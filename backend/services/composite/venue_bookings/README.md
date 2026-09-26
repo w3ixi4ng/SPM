@@ -34,9 +34,6 @@ Reached through Kong at `/api/venue-bookings`.
 | `booking_date` | date `YYYY-MM-DD` | yes | One date. |
 | `start_time` | time `HH:MM` | yes | |
 | `end_time` | time `HH:MM` | yes | After `start_time`. |
-| `room_layout` | string or null | no | From the venue layout set. |
-| `required_facilities` | array of string | no | From the venue facility set. |
-| `required_accessibility` | array of string | no | From the venue accessibility set. |
 | `notes` | string or null | no | Blank becomes null. |
 
 ```json
@@ -46,15 +43,14 @@ Reached through Kong at `/api/venue-bookings`.
   "booking_date": "2026-11-12",
   "start_time": "09:00",
   "end_time": "12:00",
-  "room_layout": "theatre",
-  "required_facilities": ["projector"],
-  "required_accessibility": ["wheelchair_access"],
   "notes": "Access from 08:30 for setup"
 }
 ```
 
-Any other field is a `422`. Everything else on the stored request — the
-event's name, purpose, expected attendance and accessibility needs, the
+Any other field is a `422`, including `room_layout`, `required_facilities`
+and `required_accessibility`: those are the event's venue requirements, set
+by the organiser. Everything else on the stored request — the event's name,
+purpose, expected attendance, venue requirements and accessibility notes, the
 venue's name, the Coordinator's name and email — is looked up by this
 service and copied onto the request. It is a snapshot: later edits to the
 event do not change a request already sent.
@@ -68,9 +64,9 @@ failures are reported together, keyed by the field to change:
 | `booking_date` | The booking starts before the event or ends after it (equal is fine) | `The booking must fall within the event's date and time` |
 | `operating_hours` | The venue has no hours that weekday, or the booking runs outside them (equal is fine) | `Studio B is closed on Saturdays` / `Studio B is open 08:00–20:00 on Thursdays` |
 | `expected_attendance` | The event's attendance is more than the venue's capacity | `Studio B holds 150 people; this event expects 151` |
-| `required_facilities` | A chosen facility is not at the venue | `Studio B does not have: stage, whiteboard` |
-| `required_accessibility` | A chosen accessibility feature is not at the venue | `Studio B does not have: hearing_loop` |
-| `room_layout` | The venue does not offer the layout | `Studio B does not offer the banquet layout` |
+| `required_facilities` | One of the event's facilities is not at the venue | `Studio B does not have: stage, whiteboard` |
+| `required_accessibility` | One of the event's accessibility features is not at the venue | `Studio B does not have: hearing_loop` |
+| `room_layout` | The venue does not offer the event's layout | `Studio B does not offer the banquet layout` |
 
 Duplicate and overlapping requests are not checked here; they belong to the
 tentative-holds and conflict-detection stories.

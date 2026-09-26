@@ -78,6 +78,10 @@ EVENT = {
     "end_time": "18:00:00",
     "expected_attendance": 120,
     "accessibility_requirements": "Two guests use wheelchairs",
+    # S-36: the venue requirements are the event's.
+    "room_layout": "theatre",
+    "required_facilities": ["projector"],
+    "required_accessibility": ["wheelchair_access"],
 }
 
 # As the venues service returns it.
@@ -101,9 +105,6 @@ REQUEST = {
     "booking_date": "2026-11-12",
     "start_time": "09:00",
     "end_time": "12:00",
-    "room_layout": "theatre",
-    "required_facilities": ["projector"],
-    "required_accessibility": ["wheelchair_access"],
     "notes": "Access from 08:30 for setup",
 }
 

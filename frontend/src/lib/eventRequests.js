@@ -27,6 +27,9 @@ const API_TO_FORM_FIELD = {
   equipment_requests: 'equipmentRequests',
   accessibility_requirements: 'accessibility',
   special_requirements: 'specialRequirements',
+  room_layout: 'roomLayout',
+  required_facilities: 'requiredFacilities',
+  required_accessibility: 'requiredAccessibility',
 }
 
 function equipmentPayload(equipmentRequests = {}) {
@@ -58,6 +61,13 @@ export function eventFormToPayload(form, { omitEmpty = false } = {}) {
   }
 
   payload.equipment_requests = equipmentPayload(form.equipmentRequests)
+
+  // S-36: the venue requirements. The two lists are always sent, like
+  // equipment; a blank layout is null, or left out of a partial draft.
+  const layout = form.roomLayout || null
+  if (layout !== null || !omitEmpty) payload.room_layout = layout
+  payload.required_facilities = [...(form.requiredFacilities ?? [])]
+  payload.required_accessibility = [...(form.requiredAccessibility ?? [])]
   return payload
 }
 
@@ -75,6 +85,9 @@ export function eventResponseToForm(event) {
     equipmentRequests: event.equipment_requests ?? {},
     accessibility: event.accessibility_requirements ?? '',
     specialRequirements: event.special_requirements ?? '',
+    roomLayout: event.room_layout ?? '',
+    requiredFacilities: event.required_facilities ?? [],
+    requiredAccessibility: event.required_accessibility ?? [],
   }
 }
 
@@ -204,6 +217,12 @@ function write(path, method, form, omitEmpty = false) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(eventFormToPayload(form, { omitEmpty })),
   })
+}
+
+// S-36: the venue requirement option sets for the organiser's form. Served
+// by the events service -- organisers cannot view venues.
+export function getEventOptions() {
+  return requestJSON('/events/options')
 }
 
 export function getEventRequest(id) {

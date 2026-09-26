@@ -10,6 +10,7 @@ import {
   eventFormToPayload,
   eventResponseToForm,
   eventStatusMeta,
+  getEventOptions,
   getEventRequest,
   listEventRequests,
   organiserStatusMeta,
@@ -72,6 +73,9 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     end_time: '21:00',
     expected_attendance: 120,
     equipment_requests: { projector: 2 },
+    room_layout: null,
+    required_facilities: [],
+    required_accessibility: [],
   })
 
   assert.deepEqual(eventFormToPayload({
@@ -87,7 +91,11 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     accessibility: '',
     specialRequirements: '',
     equipmentRequests: {},
-  }, { omitEmpty: true }), { equipment_requests: {} })
+  }, { omitEmpty: true }), {
+    equipment_requests: {},
+    required_facilities: [],
+    required_accessibility: [],
+  })
 })
 
 test('API responses populate the existing React state shape', () => {
@@ -104,6 +112,9 @@ test('API responses populate the existing React state shape', () => {
     equipmentRequests: { projector: 2 },
     accessibility: 'Wheelchair access',
     specialRequirements: 'Registration closes a week before',
+    roomLayout: '',
+    requiredFacilities: [],
+    requiredAccessibility: [],
   })
 })
 
@@ -386,4 +397,63 @@ test('tab labels carry counts, and each tab has its own empty message', () => {
   const none = organiserTabs([])
   assert.deepEqual(none.map((tab) => tab.label), ['Active (0)', 'Rejected (0)'])
   assert.equal(none[0].emptyMessage, 'You have no saved event requests yet.')
+})
+
+// --- S-36: venue requirements on the event ----------------------------------
+
+// TC-FRONTEND-033
+test("the organiser's venue requirements map both ways", () => {
+  const withRequirements = {
+    ...FORM,
+    venue: '',
+    roomLayout: 'theatre',
+    requiredFacilities: ['projector'],
+    requiredAccessibility: ['lift'],
+  }
+  const payload = eventFormToPayload(withRequirements)
+  assert.equal(payload.room_layout, 'theatre')
+  assert.deepEqual(payload.required_facilities, ['projector'])
+  assert.deepEqual(payload.required_accessibility, ['lift'])
+  assert.equal(payload.venue, null)
+
+  assert.equal(eventFormToPayload({ ...withRequirements, roomLayout: '' }).room_layout, null)
+  assert.equal(
+    'room_layout' in eventFormToPayload({ ...withRequirements, roomLayout: '' }, { omitEmpty: true }),
+    false,
+  )
+
+  const form = eventResponseToForm({
+    ...API_EVENT,
+    room_layout: 'banquet',
+    required_facilities: ['stage'],
+    required_accessibility: [],
+    venue: null,
+  })
+  assert.equal(form.roomLayout, 'banquet')
+  assert.deepEqual(form.requiredFacilities, ['stage'])
+  assert.deepEqual(form.requiredAccessibility, [])
+  assert.equal(form.venue, '')
+})
+
+// TC-FRONTEND-034
+test('organisers load the option lists from the events service', async () => {
+  const calls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ room_layouts: [], facilities: [], accessibility: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    await getEventOptions()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, '/api/events/options')
+  assert.equal(calls[0].options.method ?? 'GET', 'GET')
+  assert.equal(calls[0].options.credentials, 'include')
 })

@@ -53,7 +53,7 @@ Referred to by name in the cases below.
 | --- | --- |
 | `facilities` | `projector`, `screen`, `sound_system`, `microphones`, `wifi`, `stage`, `whiteboard`, `video_conferencing`, `catering_kitchen`, `air_conditioning`, `parking` |
 | `accessibility` | `wheelchair_access`, `step_free_entrance`, `accessible_toilets`, `lift`, `hearing_loop`, `accessible_parking` |
-| `room_layouts` | `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cabaret`, `cocktail` |
+| `room_layouts` | `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cocktail` |
 | `operating_hours[].day` | `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` |
 
 **Roles** — the mocked Auth user's `app_metadata.role`. `venue_staff` may

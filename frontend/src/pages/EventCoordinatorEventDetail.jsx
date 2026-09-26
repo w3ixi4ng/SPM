@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
+import { optionLabel } from '../lib/venues.js'
 import {
   decideEventRequest,
   eventErrorMessage,
@@ -374,7 +375,10 @@ export default function EventCoordinatorEventDetail() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <Field label="Purpose" value={form.purpose} />
-                <Field label="Venue" value={form.venue} />
+                <Field label="Venue preference" value={form.venue} />
+                <Field label="Room layout" value={form.roomLayout && optionLabel(form.roomLayout)} />
+                <Field label="Facilities needed" value={form.requiredFacilities.map(optionLabel).join(', ')} />
+                <Field label="Accessibility needed" value={form.requiredAccessibility.map(optionLabel).join(', ')} />
                 <Field
                   label="Starts"
                   value={form.startDate && `${form.startDate} at ${form.startTime}`}
@@ -385,7 +389,7 @@ export default function EventCoordinatorEventDetail() {
                 />
                 <Field label="Expected attendance" value={form.attendance} />
                 <Field label="Equipment requested" value={equipmentSummary(form.equipmentRequests)} />
-                <Field label="Accessibility requirements" value={form.accessibility} />
+                <Field label="Other accessibility notes" value={form.accessibility} />
                 <Field label="Other requirements" value={form.specialRequirements} />
               </div>
             </section>

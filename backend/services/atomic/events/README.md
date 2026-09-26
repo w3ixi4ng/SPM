@@ -10,6 +10,7 @@ queries another service's tables.
 | `POST` | `/events/drafts` | `events:save_draft` | Create an incomplete draft. |
 | `POST` | `/events` | `events:create` | Create an immediately submitted request. |
 | `GET` | `/events` | `events:view_own` | List the authenticated organiser's event requests, most recently updated first. |
+| `GET` | `/events/options` | `events:create` | The venue requirement option sets for the organiser's form: `room_layouts`, `facilities`, `accessibility`. |
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
@@ -73,10 +74,20 @@ When supplied, values still have to be valid.
 | `end_date` | `YYYY-MM-DD` or null | Optional. If both dates exist, must be on or after `start_date`. |
 | `end_time` | time or null | If both times exist and the event is single-day, must be after `start_time`. |
 | `expected_attendance` | integer or null | Greater than zero when present. |
-| `venue` | string or null | Blank text becomes null. |
+| `venue` | string or null | The organiser's venue preference, free text. Blank text becomes null. |
 | `equipment_requests` | object | Optional; values must be positive integers. Defaults to `{}` on create. |
-| `accessibility_requirements` | string or null | Blank text becomes null. |
+| `accessibility_requirements` | string or null | Other accessibility notes. Blank text becomes null. |
 | `special_requirements` | string or null | Anything the fixed fields do not cover — registration arrangements, catering, security. Blank text becomes null. |
+| `room_layout` | string or null | From the venue layout set. |
+| `required_facilities` | array of string | From the venue facility set. Defaults to `[]`. |
+| `required_accessibility` | array of string | From the venue accessibility set. Defaults to `[]`. |
+
+**Venue requirements (S-36).** `room_layout`, `required_facilities` and
+`required_accessibility` say what a venue must offer. They use the venue
+catalogue's fixed sets — repeated in [`schemas.py`](schemas.py) and as check
+constraints in [`events.sql`](../../../sql/events.sql) — so the
+`venue_bookings` composite can check each venue against them. The Coordinator
+books the actual venue; `venue` is only the organiser's preference.
 
 An empty draft is valid:
 
@@ -109,10 +120,13 @@ failure, rather than reaching the database's own constraint as an opaque
 | `end_date` | `YYYY-MM-DD` | yes | On or after `start_date`. |
 | `end_time` | time | yes | After `start_time` when the event is single-day (`end_date == start_date`); unconstrained relative to `start_time` for a multi-day event. |
 | `expected_attendance` | integer | yes | Greater than zero. |
-| `venue` | string | yes | Nonblank. |
+| `venue` | string or null | no | The organiser's venue preference. Blank becomes null. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
-| `accessibility_requirements` | string or null | no | Blank text becomes null. |
+| `accessibility_requirements` | string or null | no | Other accessibility notes. Blank text becomes null. |
 | `special_requirements` | string or null | no | Free text. Blank becomes null. |
+| `room_layout` | string or null | no | One of `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cocktail`. |
+| `required_facilities` | array of string | no | From the venue facility set; repeats dropped. Defaults to `[]`. |
+| `required_accessibility` | array of string | no | From the venue accessibility set; repeats dropped. Defaults to `[]`. |
 
 ```json
 {
@@ -159,6 +173,9 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "venue": "Main auditorium",
   "equipment_requests": {"projector": 1, "microphone": 2},
   "accessibility_requirements": "Wheelchair access",
+  "room_layout": "theatre",
+  "required_facilities": ["projector"],
+  "required_accessibility": ["wheelchair_access"],
   "assigned_coordinator_id": null,
   "decision": null,
   "decision_reason": null,

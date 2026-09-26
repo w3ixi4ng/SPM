@@ -17,8 +17,12 @@ from schemas import (
     CoordinatorLoadRequest,
     DecisionCreate,
     DecisionValue,
+    ACCESSIBILITY_FEATURES,
+    FACILITIES,
+    ROOM_LAYOUTS,
     EventDraftCreate,
     EventDraftUpdate,
+    EventOptions,
     EventRead,
     EventSubmittedCreate,
     InternalEventCreate,
@@ -182,6 +186,19 @@ def list_events(
         .order("updated_at", desc=True)
     )
     return _execute(operation).data
+
+
+# S-36: the venue requirement option sets for the organiser's form --
+# organisers cannot view venues, so they cannot use GET /venues/options.
+# Registered before /events/{event_id}, which would otherwise read "options"
+# as an event id.
+@app.get("/events/options", response_model=EventOptions)
+def event_options(user=Depends(require_permission("events:create"))):
+    return EventOptions(
+        room_layouts=list(ROOM_LAYOUTS),
+        facilities=list(FACILITIES),
+        accessibility=list(ACCESSIBILITY_FEATURES),
+    )
 
 
 # Registered before /events/{event_id}: "assigned" would otherwise match that

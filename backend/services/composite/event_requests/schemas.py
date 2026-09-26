@@ -12,8 +12,33 @@ shaped the event it hands back, so this composite returns that JSON as-is.
 """
 
 from datetime import date, time
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, PositiveInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+
+# S-36: the venue catalogue's sets, as in the events service.
+RoomLayout = Literal["theatre", "classroom", "boardroom", "u_shape", "banquet", "cocktail"]
+Facility = Literal[
+    "projector",
+    "screen",
+    "sound_system",
+    "microphones",
+    "wifi",
+    "stage",
+    "whiteboard",
+    "video_conferencing",
+    "catering_kitchen",
+    "air_conditioning",
+    "parking",
+]
+AccessibilityFeature = Literal[
+    "wheelchair_access",
+    "step_free_entrance",
+    "accessible_toilets",
+    "lift",
+    "hearing_loop",
+    "accessible_parking",
+]
 
 
 def _check_end_after_start(start_date, start_time, end_date, end_time):
@@ -35,10 +60,14 @@ class EventRequestSubmit(BaseModel):
     end_date: date
     end_time: time
     expected_attendance: PositiveInt
-    venue: str
+    # S-36: only a preference -- the Coordinator books the actual venue.
+    venue: str | None = None
     equipment_requests: dict[str, PositiveInt] = {}
     accessibility_requirements: str | None = None
     special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] = Field(default_factory=list)
+    required_accessibility: list[AccessibilityFeature] = Field(default_factory=list)
 
     @field_validator(
         "name",
@@ -46,6 +75,7 @@ class EventRequestSubmit(BaseModel):
         "venue",
         "accessibility_requirements",
         "special_requirements",
+        "room_layout",
         mode="before",
     )
     @classmethod
@@ -80,6 +110,9 @@ class EventRequestUpdate(BaseModel):
     equipment_requests: dict[str, PositiveInt] = {}
     accessibility_requirements: str | None = None
     special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] | None = None
+    required_accessibility: list[AccessibilityFeature] | None = None
 
     @field_validator(
         "name",
@@ -87,6 +120,7 @@ class EventRequestUpdate(BaseModel):
         "venue",
         "accessibility_requirements",
         "special_requirements",
+        "room_layout",
         mode="before",
     )
     @classmethod

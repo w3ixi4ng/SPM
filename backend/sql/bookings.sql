@@ -96,8 +96,7 @@ create table if not exists bookings.bookings (
 
   constraint bookings_room_layout_allowed
     check (room_layout is null or room_layout in (
-      'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cabaret',
-      'cocktail'
+      'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
     ))
 );
 
@@ -121,6 +120,20 @@ alter default privileges for role postgres in schema bookings
 -- 5. Block direct browser access. The backend uses service_role, which bypasses
 --    RLS; no anon or authenticated policy is intentionally defined.
 alter table bookings.bookings enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- S-36: 'cabaret' is no longer a room layout. Already have the table? Run
+-- this instead. Safe to run twice. A request that asked for cabaret is
+-- cleared to no layout preference.
+--
+--   update bookings.bookings set room_layout = null where room_layout = 'cabaret';
+--
+--   alter table bookings.bookings drop constraint if exists bookings_room_layout_allowed;
+--   alter table bookings.bookings add constraint bookings_room_layout_allowed
+--     check (room_layout is null or room_layout in (
+--       'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
+--     ));
+-- ---------------------------------------------------------------------------
 
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.
 notify pgrst, 'reload schema';

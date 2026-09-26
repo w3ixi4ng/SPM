@@ -40,6 +40,7 @@ import {
   X,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { optionLabel } from '../lib/venues.js'
 import useAuth from '../auth/useAuth.js'
 import {
   createEventDraft,
@@ -48,6 +49,7 @@ import {
   resubmitErrorMessage,
   eventFieldErrorsToForm,
   eventResponseToForm,
+  getEventOptions,
   eventStatusMeta,
   getEventRequest,
   submitEventDraft,
@@ -119,6 +121,9 @@ const EMPTY_FORM = {
   equipmentRequests: EMPTY_EQUIPMENT_REQUESTS,
   accessibility: '',
   specialRequirements: '',
+  roomLayout: '',
+  requiredFacilities: [],
+  requiredAccessibility: [],
 }
 
 // Mirrors the backend's same-day rule (see events service schemas.py): once
@@ -182,7 +187,6 @@ function validateForSubmit(form) {
   if (!form.endDate) errors.endDate = 'Please choose an end date.'
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
   if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
-  if (!form.venue.trim()) errors.venue = 'Please enter a venue.'
 
   if (hasInvalidEquipment(form)) {
     errors.equipmentRequests = 'Fix the equipment quantities before submitting.'
@@ -974,6 +978,26 @@ export default function EventRequestForm() {
   // whether leaving would lose work. Updated on load and after every
   // successful save/submit, never on every keystroke.
   const [savedForm, setSavedForm] = useState(EMPTY_FORM)
+  // S-36: the venue requirement option sets, from the events service.
+  const [venueOptions, setVenueOptions] = useState({ status: 'loading', options: null })
+
+  useEffect(() => {
+    let active = true
+    getEventOptions()
+      .then((options) => { if (active) setVenueOptions({ status: 'ready', options }) })
+      .catch(() => { if (active) setVenueOptions({ status: 'error', options: null }) })
+    return () => { active = false }
+  }, [])
+
+  function toggleRequirement(field, code) {
+    setForm((prev) => ({
+      ...prev,
+      [field]: prev[field].includes(code)
+        ? prev[field].filter((item) => item !== code)
+        : [...prev[field], code],
+    }))
+    if (formError) setFormError(null)
+  }
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
 
   function applyEvent(event) {
@@ -1531,7 +1555,8 @@ export default function EventRequestForm() {
               </div>
               <div>
                 <label htmlFor="event-venue" className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
-                  Venue
+                  Venue preference
+                  <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
                 </label>
                 <input
                   ref={(el) => { fieldRefs.current.venue = el }}
@@ -1594,8 +1619,66 @@ export default function EventRequestForm() {
             </div>
 
             <div>
+              <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>
+                Venue requirements
+                <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
+              </p>
+              <p className="font-ui text-xs mb-3" style={{ color: C.inkFaint }}>
+                What the venue has to offer. Your Event Coordinator books a venue that has all of it.
+              </p>
+              {venueOptions.status === 'loading' && (
+                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading options…</p>
+              )}
+              {venueOptions.status === 'error' && (
+                <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>
+                  We couldn&apos;t load the venue requirement options. Reload the page to try again.
+                </p>
+              )}
+              {venueOptions.status === 'ready' && (
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="event-room-layout" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+                      Room layout
+                    </label>
+                    <select
+                      id="event-room-layout"
+                      value={form.roomLayout}
+                      onChange={(e) => updateField('roomLayout', e.target.value)}
+                      className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
+                    >
+                      <option value="">No preference</option>
+                      {venueOptions.options.room_layouts.map((code) => (
+                        <option key={code} value={code}>{optionLabel(code)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {[
+                    { field: 'requiredFacilities', legend: 'Facilities needed', codes: venueOptions.options.facilities },
+                    { field: 'requiredAccessibility', legend: 'Accessibility needed', codes: venueOptions.options.accessibility },
+                  ].map(({ field, legend, codes }) => (
+                    <fieldset key={field} className="border-0 p-0 m-0">
+                      <legend className="font-ui text-sm font-medium mb-2" style={{ color: C.ink }}>{legend}</legend>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+                        {codes.map((code) => (
+                          <label key={code} className="flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
+                            <input
+                              type="checkbox"
+                              checked={form[field].includes(code)}
+                              onChange={() => toggleRequirement(field, code)}
+                            />
+                            {optionLabel(code)}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
               <label htmlFor="event-accessibility" className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
-                Accessibility requirements
+                Other accessibility notes
                 <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
               </label>
               <textarea

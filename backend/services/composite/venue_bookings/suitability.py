@@ -75,15 +75,17 @@ def problems(booking, event: dict, venue: dict) -> dict[str, str]:
             f"{name} holds {venue['capacity']} people; this event expects {attendance}"
         )
 
-    missing_facilities = _missing(booking.required_facilities, venue["facilities"])
+    # The requirements are the event's (S-36), not the request's.
+    missing_facilities = _missing(event.get("required_facilities") or [], venue["facilities"])
     if missing_facilities:
         found["required_facilities"] = f"{name} does not have: {', '.join(missing_facilities)}"
 
-    missing_accessibility = _missing(booking.required_accessibility, venue["accessibility"])
+    missing_accessibility = _missing(event.get("required_accessibility") or [], venue["accessibility"])
     if missing_accessibility:
         found["required_accessibility"] = f"{name} does not have: {', '.join(missing_accessibility)}"
 
-    if booking.room_layout is not None and booking.room_layout not in venue["room_layouts"]:
-        found["room_layout"] = f"{name} does not offer the {booking.room_layout} layout"
+    layout = event.get("room_layout")
+    if layout is not None and layout not in venue["room_layouts"]:
+        found["room_layout"] = f"{name} does not offer the {layout} layout"
 
     return found

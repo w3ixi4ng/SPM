@@ -35,7 +35,6 @@ RoomLayout = Literal[
     "boardroom",
     "u_shape",
     "banquet",
-    "cabaret",
     "cocktail",
 ]
 Day = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]

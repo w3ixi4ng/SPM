@@ -51,6 +51,9 @@ def test_empty_draft_is_valid():
         "equipment_requests": {},
         "accessibility_requirements": None,
         "special_requirements": None,
+        "room_layout": None,
+        "required_facilities": [],
+        "required_accessibility": [],
     }
 
 
@@ -83,12 +86,12 @@ def test_valid_submitted_request_is_accepted():
 
 # --- TC-EVENTS-007 --------------------------------------------------------
 def test_submitted_request_rejects_missing_required_field():
-    payload = {key: value for key, value in SUBMITTED.items() if key != "venue"}
+    payload = {key: value for key, value in SUBMITTED.items() if key != "name"}
 
     with pytest.raises(ValidationError) as exc_info:
         EventSubmittedCreate(**payload)
 
-    assert ("venue",) in {error["loc"] for error in exc_info.value.errors()}
+    assert ("name",) in {error["loc"] for error in exc_info.value.errors()}
 
 
 # --- TC-EVENTS-008 --------------------------------------------------------
@@ -186,3 +189,41 @@ def test_special_requirements_is_optional_for_submission():
         EventSubmittedCreate(**SUBMITTED, special_requirements="   ").special_requirements
         is None
     )
+
+
+# --- S-36: venue requirements on the event ----------------------------------
+
+REQUIREMENTS = {
+    "room_layout": "theatre",
+    "required_facilities": ["projector", "stage", "projector"],
+    "required_accessibility": ["wheelchair_access"],
+}
+
+
+# --- TC-EVENTS-089 --------------------------------------------------------
+@pytest.mark.parametrize("venue", [None, "   "])
+def test_the_venue_preference_is_optional_on_submission(venue):
+    payload = {key: value for key, value in SUBMITTED.items() if key != "venue"}
+    if venue is not None:
+        payload["venue"] = venue
+
+    assert EventSubmittedCreate(**payload).venue is None
+
+
+# --- TC-EVENTS-090 --------------------------------------------------------
+@pytest.mark.parametrize("model", [EventDraftCreate, EventSubmittedCreate])
+def test_the_venue_requirements_are_accepted_and_tidied(model):
+    event = model(**SUBMITTED, **REQUIREMENTS)
+
+    assert event.room_layout == "theatre"
+    assert event.required_facilities == ["projector", "stage"]
+    assert event.required_accessibility == ["wheelchair_access"]
+
+
+# --- TC-EVENTS-091 --------------------------------------------------------
+def test_the_venue_requirements_default_to_none():
+    event = EventSubmittedCreate(**SUBMITTED)
+
+    assert event.room_layout is None
+    assert event.required_facilities == []
+    assert event.required_accessibility == []

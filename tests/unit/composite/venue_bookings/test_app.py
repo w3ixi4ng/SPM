@@ -76,8 +76,9 @@ def test_only_an_event_coordinator_can_submit(client, services, role):
         ({k: v for k, v in REQUEST.items() if k != "venue_id"}, "venue_id"),
         ({k: v for k, v in REQUEST.items() if k != "booking_date"}, "booking_date"),
         (requested(end_time="09:00"), "body"),
-        (requested(room_layout="ballroom"), "room_layout"),
-        (requested(required_facilities=["jacuzzi"]), "required_facilities.0"),
+        # The requirements are the event's; the request may not carry them.
+        (requested(room_layout="theatre"), "room_layout"),
+        (requested(required_facilities=["projector"]), "required_facilities"),
         (requested(status="approved"), "status"),
     ],
 )
@@ -228,10 +229,9 @@ def test_attendance_equal_to_capacity_is_accepted(client, services):
 
 # --- TC-VENUEBOOKINGS-013 --------------------------------------------------
 def test_every_required_facility_must_be_at_the_venue(client, services):
-    response = client.post(
-        "/venue-bookings",
-        json=requested(required_facilities=["projector", "stage", "whiteboard"]),
-    )
+    services.set_event(required_facilities=["projector", "stage", "whiteboard"])
+
+    response = client.post("/venue-bookings", json=REQUEST)
 
     assert_refused(response, services, "required_facilities")
     assert response.json()["errors"]["required_facilities"] == "Studio B does not have: stage, whiteboard"
@@ -239,10 +239,9 @@ def test_every_required_facility_must_be_at_the_venue(client, services):
 
 # --- TC-VENUEBOOKINGS-014 --------------------------------------------------
 def test_every_required_accessibility_feature_must_be_at_the_venue(client, services):
-    response = client.post(
-        "/venue-bookings",
-        json=requested(required_accessibility=["wheelchair_access", "hearing_loop"]),
-    )
+    services.set_event(required_accessibility=["wheelchair_access", "hearing_loop"])
+
+    response = client.post("/venue-bookings", json=REQUEST)
 
     assert_refused(response, services, "required_accessibility")
     assert response.json()["errors"]["required_accessibility"] == "Studio B does not have: hearing_loop"
@@ -250,7 +249,9 @@ def test_every_required_accessibility_feature_must_be_at_the_venue(client, servi
 
 # --- TC-VENUEBOOKINGS-015 --------------------------------------------------
 def test_the_room_layout_must_be_one_the_venue_offers(client, services):
-    response = client.post("/venue-bookings", json=requested(room_layout="banquet"))
+    services.set_event(room_layout="banquet")
+
+    response = client.post("/venue-bookings", json=REQUEST)
 
     assert_refused(response, services, "room_layout")
     assert response.json()["errors"]["room_layout"] == "Studio B does not offer the banquet layout"
@@ -258,12 +259,9 @@ def test_the_room_layout_must_be_one_the_venue_offers(client, services):
 
 # --- TC-VENUEBOOKINGS-016 --------------------------------------------------
 def test_every_problem_is_reported_at_once(client, services):
-    services.set_event(expected_attendance=200)
+    services.set_event(expected_attendance=200, room_layout="banquet", required_facilities=["stage"])
 
-    response = client.post(
-        "/venue-bookings",
-        json=requested(start_time="07:00", end_time="10:00", room_layout="banquet", required_facilities=["stage"]),
-    )
+    response = client.post("/venue-bookings", json=requested(start_time="07:00", end_time="10:00"))
 
     assert_refused(response, services)
     assert set(response.json()["errors"]) == {
@@ -276,7 +274,8 @@ def test_every_problem_is_reported_at_once(client, services):
 
 
 # --- TC-VENUEBOOKINGS-017 --------------------------------------------------
-def test_the_optional_choices_may_be_left_out(client, services):
+def test_an_event_with_no_venue_requirements_and_no_notes(client, services):
+    services.set_event(room_layout=None, required_facilities=[], required_accessibility=[])
     required_only = {
         key: REQUEST[key] for key in ("event_id", "venue_id", "booking_date", "start_time", "end_time")
     }

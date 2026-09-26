@@ -193,3 +193,30 @@ def test_coordinator_load_and_internal_assignment_round_trip(admin):
     finally:
         for event_id in event_ids:
             admin.schema("events").table("events").delete().eq("id", event_id).execute()
+
+
+# --- TC-EVENTS-104 --------------------------------------------------------
+def test_an_event_with_venue_requirements_and_no_venue_is_stored(admin, organiser_session):
+    headers = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
+    submitted = {
+        "name": f"spm-test requirements {uuid.uuid4().hex[:8]}",
+        "purpose": "Connect alumni with graduating students",
+        "start_date": "2026-10-20",
+        "start_time": "18:00",
+        "end_date": "2026-10-20",
+        "end_time": "21:00",
+        "expected_attendance": 120,
+        "room_layout": "theatre",
+        "required_facilities": ["projector"],
+        "required_accessibility": ["lift"],
+    }
+
+    created = httpx.post(f"{BASE_URL}/events", json=submitted, headers=headers, timeout=15.0)
+    assert created.status_code == 201, created.text
+    organiser_session["event_ids"].append(created.json()["id"])
+
+    row = admin.schema("events").table("events").select("*").eq("id", created.json()["id"]).execute().data[0]
+    assert row["venue"] is None
+    assert row["room_layout"] == "theatre"
+    assert row["required_facilities"] == ["projector"]
+    assert row["required_accessibility"] == ["lift"]

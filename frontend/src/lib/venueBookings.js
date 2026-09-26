@@ -1,10 +1,12 @@
 import { requestJSON } from './api.js'
+import { optionLabel } from './venues.js'
 
 // S-36: a Coordinator requests a venue for an event in planning; Venue Staff
-// see every pending request. The venue_bookings composite is authoritative
-// for every rule -- the event window, opening hours, capacity, facilities,
-// accessibility and layout. This file only decides what the browser shows
-// and sends.
+// see every pending request. The venue requirements belong to the event, so
+// the Coordinator chooses only the venue, the date and time, and notes. The
+// venue_bookings composite is authoritative for every rule -- the event
+// window, opening hours, capacity, facilities, accessibility and layout. This
+// file only decides what the browser shows and sends.
 
 export function canRequestVenue(status) {
   return status === 'planning'
@@ -17,9 +19,6 @@ export function emptyVenueBookingForm(eventId) {
     bookingDate: '',
     startTime: '',
     endTime: '',
-    roomLayout: '',
-    requiredFacilities: [],
-    requiredAccessibility: [],
     notes: '',
   }
 }
@@ -31,13 +30,32 @@ export function venueBookingFormToPayload(form) {
     booking_date: form.bookingDate,
     start_time: form.startTime,
     end_time: form.endTime,
-    required_facilities: [...form.requiredFacilities],
-    required_accessibility: [...form.requiredAccessibility],
   }
-  if (form.roomLayout) payload.room_layout = form.roomLayout
   const notes = form.notes.trim()
   if (notes) payload.notes = notes
   return payload
+}
+
+function missing(required, offered) {
+  return (required ?? []).filter((code) => !(offered ?? []).includes(code))
+}
+
+// Why `venue` would not suit `event`, before anything is sent -- an empty list
+// when it fits. Opening hours are left out: they depend on the date and time,
+// which the service checks on send.
+export function venueFit(event, venue) {
+  const problems = []
+  if (event.expected_attendance > venue.capacity) {
+    problems.push(`Too small: holds ${venue.capacity}, event expects ${event.expected_attendance}`)
+  }
+  if (event.room_layout && !venue.room_layouts.includes(event.room_layout)) {
+    problems.push(`No ${optionLabel(event.room_layout)} layout`)
+  }
+  const facilities = missing(event.required_facilities, venue.facilities)
+  if (facilities.length > 0) problems.push(`Missing: ${facilities.map(optionLabel).join(', ')}`)
+  const accessibility = missing(event.required_accessibility, venue.accessibility)
+  if (accessibility.length > 0) problems.push(`Missing: ${accessibility.map(optionLabel).join(', ')}`)
+  return problems
 }
 
 // Always a list: a refused request can fail several checks at once, and the

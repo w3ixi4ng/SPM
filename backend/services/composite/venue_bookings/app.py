@@ -106,6 +106,9 @@ def _booking_body(payload: VenueBookingRequest, user: dict, event: dict, venue: 
         "event_purpose": event["purpose"],
         "expected_attendance": event["expected_attendance"],
         "accessibility_requirements": event.get("accessibility_requirements"),
+        "room_layout": event.get("room_layout"),
+        "required_facilities": event.get("required_facilities") or [],
+        "required_accessibility": event.get("required_accessibility") or [],
         "venue_name": venue["name"],
     }
 

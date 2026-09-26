@@ -30,6 +30,7 @@ def test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_
             "location": "10 Anson Road",
             "capacity": 150,
             "room_layouts": ["theatre"],
+            "facilities": ["projector"],
             "operating_hours": [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
             "created_by": staff["id"],
         }
@@ -49,7 +50,8 @@ def test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_
                 "end_date": "2026-11-12",
                 "end_time": "18:00",
                 "expected_attendance": 120,
-                "venue": "Studio B",
+                "room_layout": "theatre",
+                "required_facilities": ["projector"],
                 "decision": "approved",
                 "decided_at": "2026-10-01T00:00:00+00:00",
                 "submitted_at": "2026-09-30T00:00:00+00:00",
@@ -66,11 +68,16 @@ def test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_
     page.get_by_role("link", name="Request venue").click()
     page.wait_for_url(re.compile(rf"/coordinator/events/{event['id']}/request-venue$"), timeout=20000)
     page.get_by_role("heading", name="Request a venue").wait_for(timeout=20000)
-    page.get_by_label("Venue", exact=True).select_option(label=f"{venue_name} — holds 150")
+    needs = page.get_by_role("region", name="What the event needs")
+    needs.get_by_text("Theatre").wait_for(timeout=20000)
+    needs.get_by_text("Projector").wait_for()
+    assert needs.locator("input, select, textarea").count() == 0
+    venue_row = page.get_by_role("list", name="Venues").get_by_role("listitem").filter(has_text=venue_name)
+    venue_row.get_by_text("Fits", exact=True).wait_for(timeout=20000)
+    venue_row.get_by_role("radio").check()
     page.get_by_label("Date", exact=True).fill("2026-11-12")
     page.get_by_label("From", exact=True).fill("09:00")
     page.get_by_label("To", exact=True).fill("12:00")
-    page.get_by_label("Room layout", exact=True).select_option(label="Theatre")
     page.get_by_role("button", name="Send request").click()
 
     page.wait_for_url(re.compile(rf"/coordinator/events/{event['id']}$"), timeout=20000)
