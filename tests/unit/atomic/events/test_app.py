@@ -1025,3 +1025,97 @@ def test_editing_a_returned_event_still_requires_submitted_fields(client, db, au
 
     assert response.status_code == 422
     db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+# --- S-13: the organiser responds to a return ------------------------------
+
+RETURNED = {
+    "status": "returned",
+    "decision": "returned",
+    "decision_reason": "Expected attendance exceeds the venue's capacity",
+    "decision_comment": "Reduce attendance to 80 or choose a larger venue",
+    "decided_at": "2026-09-20T10:00:00+00:00",
+    "assigned_coordinator_id": COORDINATOR_A,
+    "submitted_at": "2026-09-18T09:00:00+00:00",
+}
+
+
+# --- TC-EVENTS-083 --------------------------------------------------------
+def test_the_organiser_can_read_the_return_reason_and_comment(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(**RETURNED, **SUBMITTED)])
+
+    response = client.get(f"/events/{EVENT_ID}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "returned"
+    assert body["decision"] == "returned"
+    assert body["decision_reason"] == "Expected attendance exceeds the venue's capacity"
+    assert body["decision_comment"] == "Reduce attendance to 80 or choose a larger venue"
+    assert body["decided_at"].startswith("2026-09-20T10:00:00")
+
+
+# --- TC-EVENTS-084 --------------------------------------------------------
+def test_saving_an_amendment_to_a_returned_event_keeps_it_returned(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(**RETURNED, **SUBMITTED)])
+    on_update_owned(db, [event_row(**RETURNED, **{**SUBMITTED, "expected_attendance": 80})])
+
+    response = client.patch(f"/events/{EVENT_ID}", json={"expected_attendance": 80})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "returned"
+    db.schema.return_value.table.return_value.update.assert_called_once_with({"expected_attendance": 80})
+
+
+# --- TC-EVENTS-085 --------------------------------------------------------
+def test_resubmission_updates_the_original_record_and_never_inserts(client, db, auth):
+    authenticate(client, auth)
+    amended = {**SUBMITTED, "expected_attendance": 80}
+    on_owned_select(db, [event_row(**RETURNED, **SUBMITTED)])
+    on_update(db, [event_row(status="submitted", **amended)])
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=amended)
+
+    assert response.status_code == 200
+    assert response.json()["id"] == EVENT_ID
+    table = db.schema.return_value.table.return_value
+    table.insert.assert_not_called()
+    table.update.assert_called_once()
+    assert table.update.call_args[0][0]["expected_attendance"] == 80
+    update = table.update.return_value
+    update.eq.assert_called_once_with("id", EVENT_ID)
+    update.eq.return_value.eq.assert_called_once_with("organiser_id", ORGANISER_ID)
+    update.eq.return_value.eq.return_value.in_.assert_called_once_with("status", ("draft", "returned"))
+
+
+# --- TC-EVENTS-086 --------------------------------------------------------
+def test_a_resubmission_that_loses_a_race_changes_nothing_and_says_so(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(**RETURNED, **SUBMITTED)])
+    on_update(db, [])
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This request is no longer awaiting changes. Reload to see its current status."
+    )
+    db.schema.return_value.table.return_value.update.assert_called_once()
+
+
+# --- TC-EVENTS-087 --------------------------------------------------------
+def test_a_storage_failure_during_resubmission_is_reported(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(**RETURNED, **SUBMITTED)])
+    table = db.schema.return_value.table.return_value
+    table.update.return_value.eq.return_value.eq.return_value.in_.return_value.execute.side_effect = (
+        RuntimeError("connection reset")
+    )
+
+    response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Event storage unavailable"}
+    table.update.assert_called_once()

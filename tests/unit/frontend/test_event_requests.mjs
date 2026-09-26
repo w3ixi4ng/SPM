@@ -13,6 +13,7 @@ import {
   getEventRequest,
   listEventRequests,
   organiserStatusMeta,
+  resubmitErrorMessage,
   sortEventsForOrganiser,
   submitEventDraft,
   updateEventDraft,
@@ -318,4 +319,33 @@ test('organiserStatusMeta falls through to the shared meta for every other statu
   for (const status of ['draft', 'approved', 'rejected']) {
     assert.deepEqual(organiserStatusMeta(status), eventStatusMeta(status))
   }
+})
+
+// TC-FRONTEND-025
+test('a failed resubmission tells the organiser nothing was changed', () => {
+  const noCoordinator = 'No event coordinator is available for the requested date and time'
+  const statusChanged = 'This request is no longer awaiting changes. Reload to see its current status.'
+
+  assert.equal(
+    resubmitErrorMessage({ status: 409, message: noCoordinator }),
+    'No event coordinator is available for the requested date and time. Your request was not resubmitted. Try a different date or time.',
+  )
+  assert.equal(
+    resubmitErrorMessage({ status: 409, message: statusChanged }),
+    `${statusChanged} Nothing was resubmitted.`,
+  )
+  for (const status of [500, 502]) {
+    assert.equal(
+      resubmitErrorMessage({ status, message: 'Events service unavailable' }),
+      'The event service is unavailable. Your request was not resubmitted and nothing was changed.',
+    )
+  }
+  assert.equal(
+    resubmitErrorMessage({ status: 0, message: "We couldn't reach the server. Check your connection and try again." }),
+    "We couldn't reach the server. Your request was not resubmitted and nothing was changed.",
+  )
+  assert.equal(
+    resubmitErrorMessage({ status: 422, message: 'Please check the details you entered' }),
+    'Please check the highlighted event details.',
+  )
 })

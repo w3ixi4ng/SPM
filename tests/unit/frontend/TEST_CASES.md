@@ -385,3 +385,25 @@ RBAC, and validation remain authoritative.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta falls through to the shared meta for every other status`
+
+## TC-FRONTEND-025 — a failed resubmission tells the organiser nothing was changed
+
+- **Scenario:** Every way a resubmission can fail produces a message that says
+  it was not resubmitted and that the saved request is unchanged (S-13 AC6).
+  TC-FRONTEND-007 covers the general mapping; its `409` and network messages
+  say neither.
+- **Pre-conditions:** The event API error mapping is loaded.
+- **Steps:** Resolve the resubmission failure message for each error below.
+- **Test data / Expected:**
+
+  | Error | Message |
+  | --- | --- |
+  | `409`, detail `"No event coordinator is available for the requested date and time"` | `"No event coordinator is available for the requested date and time. Your request was not resubmitted. Try a different date or time."` |
+  | `409`, detail `"This request is no longer awaiting changes. Reload to see its current status."` | that detail, then `" Nothing was resubmitted."` |
+  | `500` / `502` | `"The event service is unavailable. Your request was not resubmitted and nothing was changed."` |
+  | status `0` (network) | `"We couldn't reach the server. Your request was not resubmitted and nothing was changed."` |
+  | `422` | `"Please check the highlighted event details."` (unchanged, fields highlighted as TC-FRONTEND-007) |
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

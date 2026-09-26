@@ -458,3 +458,63 @@ def test_a_draft_submission_still_picks_fresh_with_no_prior_coordinator(client, 
     assert response.status_code == 200
     sent = events.post.call_args_list[-1].kwargs["json"]
     assert sent["assigned_coordinator_id"] == COORDINATOR_B
+
+
+# --- S-13: failed resubmissions write nothing ------------------------------
+
+SUBMIT_INTERNAL = f"/events/{EVENT_ID}/submit/internal"
+NO_LONGER_AWAITING_CHANGES = "This request is no longer awaiting changes. Reload to see its current status."
+
+
+def _paths_posted(events):
+    return [call.args[0] for call in events.post.call_args_list]
+
+
+# --- TC-EVENTREQUESTS-026 --------------------------------------------------
+def test_no_free_coordinator_means_the_returned_event_is_never_written(client, users, events):
+    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
+    events.post.side_effect = events_post_coordinator_load_side_effect(
+        {COORDINATOR_A: {"conflict": True, "assigned_count": 1}}
+    )
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "No event coordinator is available for the requested date and time"
+    assert SUBMIT_INTERNAL not in _paths_posted(events)
+
+
+# --- TC-EVENTREQUESTS-027 --------------------------------------------------
+def test_an_unreachable_events_service_on_resubmit_is_502(client, users, events):
+    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
+    check_load = events_post_coordinator_load_side_effect({COORDINATOR_A: {"conflict": False, "assigned_count": 1}})
+
+    async def _post(path, **kwargs):
+        if path == SUBMIT_INTERNAL:
+            raise httpx.ConnectError("events unreachable")
+        return await check_load(path, **kwargs)
+
+    events.post.side_effect = _post
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Events service unavailable"
+
+
+# --- TC-EVENTREQUESTS-028 --------------------------------------------------
+def test_a_status_change_underneath_the_resubmission_is_passed_back_as_409(client, users, events):
+    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
+    events.post.side_effect = events_post_side_effect_with_loads(
+        {COORDINATOR_A: {"conflict": False, "assigned_count": 1}},
+        extra_path=SUBMIT_INTERNAL,
+        extra_response=fake_response(409, {"detail": NO_LONGER_AWAITING_CHANGES}),
+    )
+
+    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == NO_LONGER_AWAITING_CHANGES
