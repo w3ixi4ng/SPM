@@ -9,9 +9,9 @@ Story: S-27 Add Venue with Capacity and Facilities.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test down -v`, `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/venues` |
-| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` |
+| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` at `155bd39` |
 | Environment | `.env.test` test Supabase project; `venues` schema applied, granted and exposed; users, venues and Kong healthy in Docker |
-| Result | Blocked — schema not yet applied |
+| Result | 2 passed (twice consecutively) |
 
 ## TC-VENUES-101 — venue staff save a venue and a coordinator reads it back
 
@@ -43,8 +43,8 @@ Story: S-27 Add Venue with Capacity and Facilities.
   finds exactly one row with that name, in `venues.venues` (not `public`),
   with `created_by` set to the venue staff user. Cleanup leaves no rows; the
   suite passes twice in a row.
-- **Actual:** Not run: `backend/sql/venues.sql` has not yet been applied to the test project and `venues` is not yet exposed, and no local `.env.test` exists.
-- **Status:** Blocked
+- **Actual:** Created `201` with `created_by` equal to the staff user; read back identically by staff and coordinator; coordinator POST `403`; upper-case duplicate `409`; exactly one row in `venues.venues`. Cleanup left no rows across two consecutive runs.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_venue_round_trip`
 
 ## TC-VENUES-102 — every venues operation routes through Kong
@@ -63,6 +63,6 @@ Story: S-27 Add Venue with Capacity and Facilities.
 - **Expected:** Health `200`; options `200` with the four option sets;
   create `201`; list `200` containing the venue; read `200`. Cleanup removes
   every created record.
-- **Actual:** Not run: `backend/sql/venues.sql` has not yet been applied to the test project and `venues` is not yet exposed, and no local `.env.test` exists.
-- **Status:** Blocked
+- **Actual:** Health, options, create, list and read all answered as expected through `/api/venues`.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_kong_routes_every_venue_operation`

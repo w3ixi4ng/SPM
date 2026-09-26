@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-17, branch `S-07/T-01` at `ea7cab7` |
-| Environment | `.env.test` → test Supabase project, `users` and `events` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
-| Result | 4 passed (twice consecutively) |
+| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` at `155bd39` |
+| Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
+| Result | 6 passed (twice consecutively) |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -122,8 +122,8 @@ surviving a page load.
 - **Expected:** The panel closes and a "Venue saved." confirmation appears.
   After the reload the venue appears in the venue list with capacity `250` —
   so it was stored and read back through Kong, not just echoed.
-- **Actual:** Not run: `backend/sql/venues.sql` has not yet been applied to the test project and `venues` is not yet exposed, and no local `.env.test` exists.
-- **Status:** Blocked
+- **Actual:** "Venue saved." appeared, the panel closed, and after a reload the venue was listed with Capacity 250.
+- **Status:** Pass
 - **Evidence:** `test_add_venue.py::test_venue_staff_add_a_venue_and_see_it_listed`
 
 ## TC-E2E-206 — an event coordinator can view venues but not add one
@@ -140,6 +140,6 @@ surviving a page load.
 - **Test data:** The seeded coordinator; a venue named `spm-e2e Venue <random>`.
 - **Expected:** The venue appears in the coordinator's venue list; there is no
   **Add venue** button.
-- **Actual:** Not run: `backend/sql/venues.sql` has not yet been applied to the test project and `venues` is not yet exposed, and no local `.env.test` exists.
-- **Status:** Blocked
+- **Actual:** The venue appeared in the coordinator's list and no **Add venue** button was rendered.
+- **Status:** Pass
 - **Evidence:** `test_add_venue.py::test_event_coordinator_can_view_but_not_add_venues`
