@@ -103,26 +103,29 @@ surviving a page load.
 
 ## TC-E2E-205 — venue staff add a venue and see it listed
 
-- **Scenario:** The S-27 main path — open the add-venue panel, fill it, save,
+- **Scenario:** The S-27 main path — open the new-venue page, fill it, save,
   and find the venue on the dashboard after a reload.
 - **Pre-conditions:** Stack running from `.env.test`. A seeded `venue_staff`
   account, signed in. The `venues` schema applied, exposed and granted.
 - **Steps:**
   1. Open `/dashboard/venue-staff`.
-  2. Click **Add venue**; the slide-over opens.
+  2. Click **Add venue**; the browser goes to `/venues/new`.
   3. Enter name, location, capacity and description.
   4. Tick facilities, accessibility and room layouts.
-  5. Enable Monday and set its hours.
+  5. Tick Monday and set its hours.
   6. Click **Save venue**.
-  7. Reload the page.
+  7. Reload the dashboard.
 - **Test data:** name `spm-e2e Venue <random>`, location `1 Harbourfront
   Walk, Singapore 098585`, capacity `250`, description `Waterfront hall`,
   facilities Projector and Wi-Fi, accessibility Wheelchair access, layouts
   Theatre and Banquet, Monday `09:00`–`18:00`.
-- **Expected:** The panel closes and a "Venue saved." confirmation appears.
-  After the reload the venue appears in the venue list with capacity `250` —
-  so it was stored and read back through Kong, not just echoed.
-- **Actual:** "Venue saved." appeared, the panel closed, and after a reload the venue was listed with Capacity 250.
+- **Expected:** Saving returns the browser to `/dashboard/venue-staff` with a
+  "Venue saved." confirmation. After the reload the venue appears in the venue
+  list with capacity `250` — so it was stored and read back through Kong, not
+  just echoed.
+- **Actual:** **Add venue** opened `/venues/new`; saving returned to the
+  dashboard with "Venue saved.", and after a reload the venue was listed with
+  Capacity 250.
 - **Status:** Pass
 - **Evidence:** `test_add_venue.py::test_venue_staff_add_a_venue_and_see_it_listed`
 
@@ -137,9 +140,11 @@ surviving a page load.
 - **Steps:**
   1. Sign in as the coordinator.
   2. Open `/dashboard/event-coordinator`.
+  3. Navigate directly to `/venues/new`.
 - **Test data:** The seeded coordinator; a venue named `spm-e2e Venue <random>`.
 - **Expected:** The venue appears in the coordinator's venue list; there is no
-  **Add venue** button.
-- **Actual:** The venue appeared in the coordinator's list and no **Add venue** button was rendered.
+  **Add venue** link; step 3 returns to `/dashboard/event-coordinator`.
+- **Actual:** The venue appeared in the coordinator's list, no **Add venue**
+  link was rendered, and `/venues/new` redirected to the coordinator dashboard.
 - **Status:** Pass
 - **Evidence:** `test_add_venue.py::test_event_coordinator_can_view_but_not_add_venues`

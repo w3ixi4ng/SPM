@@ -21,26 +21,27 @@ def test_venue_staff_add_a_venue_and_see_it_listed(page, make_user, sign_in):
 
     name = f"spm-e2e Venue {uuid.uuid4().hex[:6]}"
 
-    page.get_by_role("button", name="Add venue").click()
-    panel = page.get_by_role("dialog", name="Add a venue")
-    panel.wait_for(timeout=20000)
+    page.get_by_role("link", name="Add venue").click()
+    page.wait_for_url(re.compile(r"/venues/new$"), timeout=20000)
+    form = page.get_by_role("form", name="New venue")
+    form.wait_for(timeout=20000)
 
-    panel.locator("#name").fill(name)
-    panel.locator("#location").fill("1 Harbourfront Walk, Singapore 098585")
-    panel.locator("#capacity").fill("250")
-    panel.locator("#description").fill("Waterfront hall")
+    form.locator("#name").fill(name)
+    form.locator("#location").fill("1 Harbourfront Walk, Singapore 098585")
+    form.locator("#capacity").fill("250")
+    form.locator("#description").fill("Waterfront hall")
 
     for label in ("Projector", "Wi-Fi", "Wheelchair access", "Theatre", "Banquet"):
-        panel.get_by_label(label, exact=True).check()
+        form.get_by_label(label, exact=True).check()
 
-    panel.get_by_label("Monday", exact=True).check()
-    panel.get_by_label("Monday opening time").fill("09:00")
-    panel.get_by_label("Monday closing time").fill("18:00")
+    form.get_by_label("Monday", exact=True).check()
+    form.get_by_label("Monday opening time").fill("09:00")
+    form.get_by_label("Monday closing time").fill("18:00")
 
-    panel.get_by_role("button", name="Save venue").click()
+    form.get_by_role("button", name="Save venue").click()
 
-    page.get_by_text("Venue saved.").wait_for(timeout=30000)
-    panel.wait_for(state="detached", timeout=20000)
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=30000)
+    page.get_by_text("Venue saved.").wait_for(timeout=20000)
 
     # Really stored, not just echoed: a fresh load reads it back through Kong.
     page.reload()
@@ -70,4 +71,8 @@ def test_event_coordinator_can_view_but_not_add_venues(admin, page, make_user, s
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
 
     page.get_by_role("list", name="Venues").get_by_text(name).wait_for(timeout=20000)
-    assert page.get_by_role("button", name="Add venue").count() == 0
+    assert page.get_by_role("link", name="Add venue").count() == 0
+
+    # Typed straight into the address bar: the add page is refused too.
+    page.goto("/venues/new")
+    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
