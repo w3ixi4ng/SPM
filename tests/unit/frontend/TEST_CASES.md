@@ -146,8 +146,9 @@ RBAC, and validation remain authoritative.
   venue from `tests/unit/atomic/venues/TEST_CASES.md` in form shape.
 - **Expected:** Empty form: errors for `name`, `location`, `capacity`,
   `room_layouts`, `operating_hours`. Second form: errors for `name`,
-  `location`, `capacity`, `room_layouts`, and `operating_hours` saying closing
-  time must be after opening time. Complete form: no errors.
+  `location`, `capacity`, `room_layouts`; `hours.mon` saying closing time must
+  be after opening time (this outlines Monday's row); and `operating_hours`
+  naming Monday. Complete form: no errors.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_venues.mjs` — `venue form reports every missing required field`

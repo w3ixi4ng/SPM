@@ -50,7 +50,7 @@ function openDays(form) {
   return WEEK.filter((day) => form.hours?.[day])
 }
 
-// Mirrors the venues service's required-field rules so the panel can say
+// Mirrors the venues service's required-field rules so the form can say
 // what is missing before anything is sent. The service still validates.
 // Keys are the API field names.
 export function validateVenueForm(form) {
@@ -73,16 +73,21 @@ export function validateVenueForm(form) {
   if (!days.length) {
     errors.operating_hours = 'Set opening hours for at least one day.'
   } else {
+    // Each bad day gets its own `hours.<day>` key, which outlines that row.
+    // operating_hours sums them up, added after them so the first bad row is
+    // what a failed save focuses.
     for (const day of days) {
       const { open, close } = form.hours[day]
       if (!open || !close) {
-        errors.operating_hours = `Set both opening and closing times for ${DAY_LABELS[day]}.`
-        break
+        errors[`hours.${day}`] = 'Set both opening and closing times.'
+      } else if (close <= open) {
+        errors[`hours.${day}`] = 'Closing time must be after opening time.'
       }
-      if (close <= open) {
-        errors.operating_hours = `Closing time must be after opening time on ${DAY_LABELS[day]}.`
-        break
-      }
+    }
+    const badDays = days.filter((day) => errors[`hours.${day}`])
+    if (badDays.length) {
+      const names = badDays.map((day) => DAY_LABELS[day]).join(', ')
+      errors.operating_hours = `Check the opening hours for ${names}.`
     }
   }
 

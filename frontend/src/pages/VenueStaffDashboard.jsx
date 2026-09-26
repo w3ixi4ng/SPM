@@ -150,9 +150,13 @@ export default function VenueStaffDashboard({ role }) {
           <h2 className="font-display text-2xl mb-6" style={{ color: C.ink }}>
             More venue tools, on the way
           </h2>
-          <ul className="divide-y" style={{ borderColor: C.line }}>
+          <ul className="divide-y">
             {UPCOMING_AREAS.map(({ icon: Icon, title, description }) => (
-              <li key={title} className="py-4 first:pt-0 last:pb-0 flex items-start gap-4">
+              <li
+                key={title}
+                className="py-4 first:pt-0 last:pb-0 flex items-start gap-4"
+                style={{ borderColor: C.line }}
+              >
                 <Icon size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
                 <div className="min-w-0 flex-1">
                   <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{title}</h3>

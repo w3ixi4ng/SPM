@@ -69,9 +69,10 @@ test('venue form reports every missing required field', () => {
   })
   assert.deepEqual(
     Object.keys(invalid).sort(),
-    ['capacity', 'location', 'name', 'operating_hours', 'room_layouts'],
+    ['capacity', 'hours.mon', 'location', 'name', 'operating_hours', 'room_layouts'],
   )
-  assert.match(invalid.operating_hours, /Closing time must be after opening time/)
+  assert.match(invalid['hours.mon'], /Closing time must be after opening time/)
+  assert.match(invalid.operating_hours, /Monday/)
 
   assert.deepEqual(validateVenueForm(COMPLETE_FORM), {})
 })
