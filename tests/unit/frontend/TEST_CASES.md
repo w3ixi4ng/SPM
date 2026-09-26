@@ -8,9 +8,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-26, branch `S-12/event-coordinator-assignment` (merged with `S-14/auto-assign-ec`) |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
 | Environment | Local Node.js; no network or Supabase |
-| Result | 23 passed |
+| Result | 24 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -404,6 +404,6 @@ RBAC, and validation remain authoritative.
   | status `0` (network) | `"We couldn't reach the server. Your request was not resubmitted and nothing was changed."` |
   | `422` | `"Please check the highlighted event details."` (unchanged, fields highlighted as TC-FRONTEND-007) |
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `a failed resubmission tells the organiser nothing was changed`

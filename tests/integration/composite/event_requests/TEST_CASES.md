@@ -8,9 +8,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-09-24, developer's local stack |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
 | Environment | `.env.test` test Supabase project; `events` and `users` schemas applied, granted, and exposed; full stack up via docker compose |
-| Result | 12 passed |
+| Result | 16 passed across `tests/integration` (6 in this suite), twice consecutively; stack recreated with `--env-file .env.test` immediately before |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:

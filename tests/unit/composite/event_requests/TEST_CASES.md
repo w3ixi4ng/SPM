@@ -10,9 +10,9 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-09-25, branch `S-14/auto-assign-ec` |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, httpx 0.28.1; no network, database, or Docker |
-| Result | 25 passed |
+| Result | 28 passed |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -414,9 +414,9 @@ either never writes or passes the failure straight back.
 - **Expected:** `409`; `detail` is
   `"No event coordinator is available for the requested date and time"`;
   `events.post` is never called with `/events/{event_id}/submit/internal`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_no_free_coordinator_means_the_returned_event_is_never_written`
 
 ## TC-EVENTREQUESTS-027 — an unreachable events service on resubmit is 502
 
@@ -427,9 +427,9 @@ either never writes or passes the failure straight back.
   submitted payload.
 - **Test data:** As above.
 - **Expected:** `502`; `detail` is `"Events service unavailable"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_unreachable_events_service_on_resubmit_is_502`
 
 ## TC-EVENTREQUESTS-028 — a status change underneath the resubmission is passed back as 409
 
@@ -441,6 +441,6 @@ either never writes or passes the failure straight back.
 - **Expected:** `409`; `detail` is
   `"This request is no longer awaiting changes. Reload to see its current status."`,
   the same wording as TC-EVENTS-086.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_status_change_underneath_the_resubmission_is_passed_back_as_409`

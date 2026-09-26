@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-25, branch `S-14/auto-assign-ec` |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 82 passed |
+| Result | 87 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -1100,9 +1100,9 @@ lands on the same record, and a failed resubmission leaves the record alone.
   `decided_at="2026-09-20T10:00:00+00:00"`.
 - **Expected:** `200`; the body has `status="returned"`, `decision="returned"`,
   and those exact `decision_reason`, `decision_comment` and `decided_at` values.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_organiser_can_read_the_return_reason_and_comment`
 
 ## TC-EVENTS-084 — saving an amendment to a returned event keeps it returned
 
@@ -1116,9 +1116,9 @@ lands on the same record, and a failed resubmission leaves the record alone.
   `{"expected_attendance": 80}`: it sets no `status`, `decision`,
   `decision_reason`, `decision_comment` or `decided_at`; the response still
   has `status="returned"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_saving_an_amendment_to_a_returned_event_keeps_it_returned`
 
 ## TC-EVENTS-085 — resubmission updates the original record, never inserts one
 
@@ -1133,9 +1133,9 @@ lands on the same record, and a failed resubmission leaves the record alone.
   `update(...)` is issued, filtered by `id=EVENT_ID`, the organiser's id, and
   `status in (draft, returned)`; the update carries `expected_attendance=80`;
   `insert` is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_resubmission_updates_the_original_record_and_never_inserts`
 
 ## TC-EVENTS-086 — a resubmission that loses a race changes nothing and says so
 
@@ -1150,9 +1150,9 @@ lands on the same record, and a failed resubmission leaves the record alone.
 - **Expected:** `409`; `detail` is
   `"This request is no longer awaiting changes. Reload to see its current status."`;
   no second write is attempted.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_resubmission_that_loses_a_race_changes_nothing_and_says_so`
 
 ## TC-EVENTS-087 — a storage failure during resubmission is reported, not swallowed
 
@@ -1165,6 +1165,6 @@ lands on the same record, and a failed resubmission leaves the record alone.
 - **Test data:** As above.
 - **Expected:** `500` with the service's generic storage-failure detail; the
   response contains no event body; no second write is attempted.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_storage_failure_during_resubmission_is_reported`

@@ -1,7 +1,7 @@
 # Test cases — end-to-end journeys
 
-Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py` and
-`test_add_venue.py`. A real browser drives the built frontend through Kong,
+Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
+`test_add_venue.py` and `test_respond_to_return.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-26, branch `S-12/event-coordinator-assignment` (merged with `S-14/auto-assign-ec`) |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
 | Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
-| Result | 5 passed (twice consecutively) |
+| Result | 6 passed (twice consecutively) |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -139,7 +139,9 @@ contract without a browser.
   coordinator are created with `make_user`. The admin client inserts one event
   for that organiser, assigned to the coordinator, with every submitted field
   filled in, `status=returned`, `decision=returned`, a reason, a comment and
-  `decided_at`. Every other coordinator is blocked at its window.
+  `decided_at`. The coordinator has no other bookings, so resubmitting at
+  the same time keeps them (TC-EVENTREQUESTS-021) and no other coordinator
+  needs blocking.
 - **Steps:** 1. Sign in as the organiser. 2. On the dashboard, open the
   request marked **Action required**. 3. Read the banner. 4. Change
   **Expected attendance** to `80`. 5. Click **Resubmit request**.
@@ -152,6 +154,6 @@ contract without a browser.
   a larger venue". After step 5, a "Request submitted." toast appears, the URL
   is still `/events/{id}`, the banner is gone, and the dashboard shows the
   request once, as **Under review**.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_respond_to_return.py::test_an_organiser_responds_to_a_returned_request_and_resubmits`
