@@ -41,11 +41,11 @@ frontend, Kong, both services and a real test Supabase project — the way a
 person would: sign up, log in, add a venue, check a role is kept out of a
 route it should not reach.
 
-Four journeys, and that is meant to stay small. They are the slowest tests here
-and the most fragile, so one belongs there only if nothing cheaper can prove
-it: the gateway's routing, nginx's SPA fallback, an httpOnly cookie surviving a
-page load, and whether the frontend's permission mirror still matches the
-backend's policy.
+Four journeys, and that is meant to stay small. They are the slowest tests
+here and the most fragile, so one belongs there only if nothing cheaper can
+prove it: the gateway's routing, nginx's SPA fallback, an httpOnly cookie
+surviving a page load, and whether the frontend's permission mirror still
+matches the backend's policy.
 
 Needs the whole stack up, Chromium installed, and email confirmation off in the
 test project. See [`e2e/README.md`](e2e/README.md).

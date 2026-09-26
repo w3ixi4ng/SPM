@@ -11,7 +11,7 @@ surviving a page load.
 | Suite | `pytest tests/e2e` |
 | Last run | 2026-09-26, branch `S-12/event-coordinator-assignment` (merged with `S-14/auto-assign-ec`) |
 | Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
-| Result | 5 passed |
+| Result | 5 passed (twice consecutively) |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 

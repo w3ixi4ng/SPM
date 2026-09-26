@@ -44,6 +44,25 @@ requires_env = pytest.mark.skipif(
 )
 
 
+def request_with_retry(client: httpx.Client, method: str, url: str, *, retries: int = 6, delay: float = 0.5, **kwargs):
+    """Retries a request when the connection itself is refused, not when it
+    gets back an answer -- a 409 or 500 is a real result and must not be
+    retried away, only a `ConnectError` is.
+
+    `_event_requests_reachable` below only guards the moment before a test
+    starts; the port has been observed to drop mid-test too, which surfaces
+    here as the request itself failing rather than the fixture.
+    """
+    last_error = None
+    for _ in range(retries):
+        try:
+            return client.request(method, url, **kwargs)
+        except httpx.ConnectError as exc:
+            last_error = exc
+            time.sleep(delay)
+    raise last_error
+
+
 @pytest.fixture(autouse=True)
 def _event_requests_reachable():
     """Waits for `event_requests`'s own published port to accept connections
