@@ -8,9 +8,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `f2c2c1e` |
 | Environment | Local Node.js; no network or Supabase |
-| Result | 24 passed |
+| Result | 26 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -425,9 +425,9 @@ list into two tabs: **Active** (returned, under review, draft, approved) and
 - **Expected:** Active holds `f, d, a, c`: returned, then submitted, then the
   rest in backend order. Rejected holds `b, e` in backend order. No event
   appears in both tabs. The input array is unchanged.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `rejected requests go to the Rejected tab, everything else stays Active`
 
 ## TC-FRONTEND-027 — tab labels carry counts, and each tab has its own empty message
 
@@ -443,6 +443,6 @@ list into two tabs: **Active** (returned, under review, draft, approved) and
     message is `"No rejected requests."`
   - Empty list: `"Active (0)"` and `"Rejected (0)"`. The Active tab's empty
     message is `"You have no saved event requests yet."`
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `tab labels carry counts, and each tab has its own empty message`

@@ -1,7 +1,7 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py` and `test_respond_to_return.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py` and `test_rejected_tab.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `f2c2c1e` |
 | Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
-| Result | 6 passed (twice consecutively) |
+| Result | 7 passed (twice consecutively) |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -178,6 +178,6 @@ contract without a browser.
   - Step 4: `/events/{id}` opens with "This request has been rejected and is
     closed." and "Reason: The venue is closed for renovation that week". Its
     form fields are disabled.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_rejected_tab.py::test_rejected_requests_sit_in_their_own_tab_and_open_read_only`
