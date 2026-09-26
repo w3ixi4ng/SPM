@@ -45,6 +45,7 @@ import {
   createEventDraft,
   createSubmittedEvent,
   eventErrorMessage,
+  resubmitErrorMessage,
   eventFieldErrorsToForm,
   eventResponseToForm,
   eventStatusMeta,
@@ -1009,10 +1010,10 @@ export default function EventRequestForm() {
     else fieldRefs.current[firstInvalid]?.focus()
   }
 
-  function handleApiFailure(error) {
+  function handleApiFailure(error, message = eventErrorMessage(error)) {
     const fieldErrors = eventFieldErrorsToForm(error.fieldErrors)
     setErrors(fieldErrors)
-    setFormError(eventErrorMessage(error))
+    setFormError(message)
     focusFirstError(fieldErrors)
     if (error.status === 401) refresh().catch(() => {})
   }
@@ -1233,9 +1234,10 @@ export default function EventRequestForm() {
       showToast('success', 'Request submitted.')
       if (!routeId) navigate(`/events/${event.id}`, { replace: true })
     } catch (error) {
-      handleApiFailure(error)
+      const message = isReturned ? resubmitErrorMessage(error) : eventErrorMessage(error)
+      handleApiFailure(error, message)
       setSubmitState('idle')
-      showToast('error', eventErrorMessage(error))
+      showToast('error', message)
     }
   }
 

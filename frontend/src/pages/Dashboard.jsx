@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Loader2, LogOut } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
@@ -8,7 +8,7 @@ import {
   eventErrorMessage,
   listEventRequests,
   organiserStatusMeta,
-  sortEventsForOrganiser,
+  organiserTabs,
 } from '../lib/eventRequests.js'
 
 const C = {
@@ -42,7 +42,7 @@ function EventRequestList({ refreshAuth }) {
     let active = true
     listEventRequests()
       .then((events) => {
-        if (active) setState({ status: 'ready', events: sortEventsForOrganiser(events), error: null })
+        if (active) setState({ status: 'ready', events, error: null })
       })
       .catch((error) => {
         if (!active) return
@@ -57,6 +57,26 @@ function EventRequestList({ refreshAuth }) {
   function retry() {
     setState({ status: 'loading', events: [], error: null })
     setLoadAttempt((attempt) => attempt + 1)
+  }
+
+  const [selectedTab, setSelectedTab] = useState('active')
+  const tabRefs = useRef({})
+  const tabs = organiserTabs(state.events)
+  const currentTab = tabs.find((tab) => tab.id === selectedTab) ?? tabs[0]
+
+  // WAI-ARIA tabs: arrow keys move between tabs and select them, so only
+  // the selected tab sits in the Tab order.
+  function handleTabKeyDown(e) {
+    const index = tabs.findIndex((tab) => tab.id === currentTab.id)
+    let next
+    if (e.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length]
+    else if (e.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length]
+    else if (e.key === 'Home') next = tabs[0]
+    else if (e.key === 'End') next = tabs[tabs.length - 1]
+    if (!next) return
+    e.preventDefault()
+    setSelectedTab(next.id)
+    tabRefs.current[next.id]?.focus()
   }
 
   return (
@@ -91,15 +111,56 @@ function EventRequestList({ refreshAuth }) {
         </div>
       )}
 
-      {state.status === 'ready' && state.events.length === 0 && (
+      {state.status === 'ready' && (
+        <div
+          role="tablist"
+          aria-label="Event requests"
+          className="flex gap-6 border-b mb-5"
+          style={{ borderColor: C.line }}
+        >
+          {tabs.map((tab) => {
+            const selected = tab.id === currentTab.id
+            return (
+              <button
+                key={tab.id}
+                ref={(node) => { tabRefs.current[tab.id] = node }}
+                type="button"
+                role="tab"
+                id={`requests-tab-${tab.id}`}
+                aria-selected={selected}
+                aria-controls={`requests-panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setSelectedTab(tab.id)}
+                onKeyDown={handleTabKeyDown}
+                className="font-ui text-sm font-medium pb-3 -mb-px border-b-2 transition-colors duration-200 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+                style={{
+                  color: selected ? C.teal : C.inkFaint,
+                  borderColor: selected ? C.teal : 'transparent',
+                  outlineColor: C.teal,
+                }}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {state.status === 'ready' && (
+        <div
+          role="tabpanel"
+          id={`requests-panel-${currentTab.id}`}
+          aria-labelledby={`requests-tab-${currentTab.id}`}
+        >
+      {currentTab.events.length === 0 && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-          You have no saved event requests yet.
+          {currentTab.emptyMessage}
         </p>
       )}
 
-      {state.status === 'ready' && state.events.length > 0 && (
+      {currentTab.events.length > 0 && (
         <ul className="divide-y" style={{ borderColor: C.line }}>
-          {state.events.map((event) => {
+          {currentTab.events.map((event) => {
             const { label: statusLabel, color: statusColor } = organiserStatusMeta(event.status)
             return (
               <li key={event.id} className="py-4 first:pt-0 last:pb-0">
@@ -137,6 +198,8 @@ function EventRequestList({ refreshAuth }) {
             )
           })}
         </ul>
+      )}
+        </div>
       )}
     </section>
   )

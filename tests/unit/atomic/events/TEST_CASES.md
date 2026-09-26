@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-25, branch `S-14/auto-assign-ec` |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
 | Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 82 passed |
+| Result | 87 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -1078,3 +1078,93 @@ submit route rather than creating a new one.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_editing_a_returned_event_still_requires_submitted_fields`
+
+## S-13 — the organiser responds to a return
+
+TC-EVENTS-077 and TC-EVENTS-082 already prove a returned request can be
+resubmitted and that editing one keeps the submitted-field rules. The cases
+below cover what S-13's acceptance criteria add: the organiser can read what
+was asked, can save an amendment without losing that request, the response
+lands on the same record, and a failed resubmission leaves the record alone.
+
+## TC-EVENTS-083 — the organiser can read the coordinator's return reason and comment
+
+- **Scenario:** The organiser's own read of a returned event carries what the
+  coordinator asked for (S-13 AC1).
+- **Pre-conditions:** The fake returns one event owned by the signed-in
+  organiser with `status=returned`, `decision=returned`, a reason, a comment
+  and `decided_at` set.
+- **Steps:** `GET /events/{event_id}` as that organiser.
+- **Test data:** `decision_reason="Expected attendance exceeds the venue's capacity"`,
+  `decision_comment="Reduce attendance to 80 or choose a larger venue"`,
+  `decided_at="2026-09-20T10:00:00+00:00"`.
+- **Expected:** `200`; the body has `status="returned"`, `decision="returned"`,
+  and those exact `decision_reason`, `decision_comment` and `decided_at` values.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_organiser_can_read_the_return_reason_and_comment`
+
+## TC-EVENTS-084 — saving an amendment to a returned event keeps it returned
+
+- **Scenario:** The organiser can save an edit before resubmitting without the
+  edit clearing the return or its reason (S-13 AC2).
+- **Pre-conditions:** An owned event with `status=returned`, a reason and a
+  comment; the fake's update echoes the merged row.
+- **Steps:** `PATCH /events/{event_id}` with a valid change.
+- **Test data:** `{"expected_attendance": 80}` (was `120`).
+- **Expected:** `200`; the update sent to Supabase is exactly
+  `{"expected_attendance": 80}`: it sets no `status`, `decision`,
+  `decision_reason`, `decision_comment` or `decided_at`; the response still
+  has `status="returned"`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_saving_an_amendment_to_a_returned_event_keeps_it_returned`
+
+## TC-EVENTS-085 — resubmission updates the original record, never inserts one
+
+- **Scenario:** The response stays attached to the original event request
+  (S-13 AC4).
+- **Pre-conditions:** An owned event with `status=returned` and id
+  `EVENT_ID`.
+- **Steps:** `POST /events/{EVENT_ID}/submit` with the standard submitted
+  payload, amended.
+- **Test data:** Standard submitted payload with `expected_attendance=80`.
+- **Expected:** `200`; the response `id` equals `EVENT_ID`; exactly one
+  `update(...)` is issued, filtered by `id=EVENT_ID`, the organiser's id, and
+  `status in (draft, returned)`; the update carries `expected_attendance=80`;
+  `insert` is never called.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_resubmission_updates_the_original_record_and_never_inserts`
+
+## TC-EVENTS-086 — a resubmission that loses a race changes nothing and says so
+
+- **Scenario:** If the event stops being `returned` between the read and the
+  write (for example, resubmitted from another tab), the status-guarded write
+  matches nothing and the organiser is told (S-13 AC6).
+- **Pre-conditions:** The first read returns an owned event with
+  `status=returned`; the guarded update returns no rows.
+- **Steps:** `POST /events/{event_id}/submit` with the standard submitted
+  payload.
+- **Test data:** As above.
+- **Expected:** `409`; `detail` is
+  `"This request is no longer awaiting changes. Reload to see its current status."`;
+  no second write is attempted.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_resubmission_that_loses_a_race_changes_nothing_and_says_so`
+
+## TC-EVENTS-087 — a storage failure during resubmission is reported, not swallowed
+
+- **Scenario:** A Supabase error on the resubmission write reaches the
+  organiser as a failure rather than a false success (S-13 AC6).
+- **Pre-conditions:** An owned event with `status=returned`; the fake's
+  update `.execute()` raises.
+- **Steps:** `POST /events/{event_id}/submit` with the standard submitted
+  payload.
+- **Test data:** As above.
+- **Expected:** `500` with the service's generic storage-failure detail; the
+  response contains no event body; no second write is attempted.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_storage_failure_during_resubmission_is_reported`

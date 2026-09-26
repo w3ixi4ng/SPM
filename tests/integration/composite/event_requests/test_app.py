@@ -161,3 +161,107 @@ def test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflic
         assert edited.status_code == 200, edited.text
         assert edited.json()["assigned_coordinator_id"] == second_coordinator
         assert edited.json()["start_time"] == "13:00:00"
+
+
+# --- S-13: the organiser responds to a return -------------------------------
+
+RETURN_WINDOW = {**SUBMITTED, "start_date": "2026-11-12", "end_date": "2026-11-12", "expected_attendance": 120}
+RETURN_DECISION = {
+    "status": "returned",
+    "decision": "returned",
+    "decision_reason": "Expected attendance exceeds the venue's capacity",
+    "decision_comment": "Reduce attendance to 80 or choose a larger venue",
+    "decided_at": "2026-09-20T10:00:00+00:00",
+}
+
+
+def _submit_and_return(api, admin, organiser_session, coordinator_id):
+    """Submits RETURN_WINDOW so it lands on `coordinator_id`, then has the
+    admin client record a return on it -- the coordinator's decision is
+    S-14's to prove; S-13 starts from a request that has already come back.
+    """
+    organiser_session["event_ids"].extend(
+        block_other_coordinators(admin, organiser_session["user_id"], {coordinator_id}, RETURN_WINDOW)
+    )
+    response = request_with_retry(api, "POST", "/event-requests", json=RETURN_WINDOW)
+    assert response.status_code == 201, response.text
+    event = response.json()
+    organiser_session["event_ids"].append(event["id"])
+    assert event["assigned_coordinator_id"] == coordinator_id
+    admin.schema("events").table("events").update(RETURN_DECISION).eq("id", event["id"]).execute()
+    return event["id"]
+
+
+# --- TC-EVENTREQUESTS-105 ---------------------------------------------------
+def test_a_returned_request_is_amended_resubmitted_and_back_with_its_coordinator(
+    organiser_session, coordinator_session, admin
+):
+    coordinator_id = coordinator_session["user_id"]
+    organiser = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
+    as_coordinator = {"Cookie": f"sb_access_token={coordinator_session['access_token']}"}
+
+    with (
+        httpx.Client(base_url=BASE_URL, timeout=15.0, headers=organiser) as api,
+        httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=organiser) as events_api,
+    ):
+        event_id = _submit_and_return(api, admin, organiser_session, coordinator_id)
+        before = request_with_retry(events_api, "GET", "/events")
+        assert before.status_code == 200, before.text
+
+        amended = {**RETURN_WINDOW, "expected_attendance": 80}
+        resubmitted = request_with_retry(api, "POST", f"/event-requests/{event_id}/submit", json=amended)
+        assert resubmitted.status_code == 200, resubmitted.text
+        assert resubmitted.json()["id"] == event_id
+
+        fetched = request_with_retry(events_api, "GET", f"/events/{event_id}")
+        assert fetched.status_code == 200, fetched.text
+        event = fetched.json()
+        assert event["status"] == "submitted"
+        assert event["expected_attendance"] == 80
+        assert event["assigned_coordinator_id"] == coordinator_id
+        for field in ("decision", "decision_reason", "decision_comment", "decided_at"):
+            assert event[field] is None, field
+
+        after = request_with_retry(events_api, "GET", "/events")
+        assert len(after.json()) == len(before.json())
+
+    with httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=as_coordinator) as queue_api:
+        queue = request_with_retry(queue_api, "GET", "/events/assigned")
+        assert queue.status_code == 200, queue.text
+        matching = [row for row in queue.json() if row["id"] == event_id]
+        assert len(matching) == 1
+        assert matching[0]["status"] == "submitted"
+        assert matching[0]["expected_attendance"] == 80
+
+
+# --- TC-EVENTREQUESTS-106 ---------------------------------------------------
+def test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was(
+    organiser_session, coordinator_session, admin
+):
+    coordinator_id = coordinator_session["user_id"]
+    organiser = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
+    blocked_window = {**RETURN_WINDOW, "start_time": "13:00", "end_time": "15:00", "expected_attendance": 80}
+
+    with (
+        httpx.Client(base_url=BASE_URL, timeout=15.0, headers=organiser) as api,
+        httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=organiser) as events_api,
+    ):
+        event_id = _submit_and_return(api, admin, organiser_session, coordinator_id)
+        # Nobody exempt: the event's own coordinator is busy at the new window too.
+        organiser_session["event_ids"].extend(
+            block_other_coordinators(admin, organiser_session["user_id"], set(), blocked_window)
+        )
+
+        before = request_with_retry(events_api, "GET", f"/events/{event_id}")
+        assert before.status_code == 200, before.text
+
+        refused = request_with_retry(api, "POST", f"/event-requests/{event_id}/submit", json=blocked_window)
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"] == "No event coordinator is available for the requested date and time"
+
+        after = request_with_retry(events_api, "GET", f"/events/{event_id}")
+        assert after.status_code == 200, after.text
+        assert after.json() == before.json()
+        assert after.json()["status"] == "returned"
+        assert after.json()["start_time"] == "09:00:00"
+        assert after.json()["expected_attendance"] == 120

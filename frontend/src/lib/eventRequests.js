@@ -154,6 +154,49 @@ export function eventErrorMessage(error) {
   return error.message || "We couldn't reach the event service. Your changes have not been saved."
 }
 
+// The organiser dashboard's two tabs. A rejected request is closed for good
+// and can never be edited or resubmitted, so it moves out of the working
+// list into its own tab; everything else -- including approved, which is
+// still a live event -- stays Active, in sortEventsForOrganiser's order.
+export function organiserTabs(events) {
+  const active = sortEventsForOrganiser(events.filter((event) => event.status !== 'rejected'))
+  const rejected = events.filter((event) => event.status === 'rejected')
+  return [
+    {
+      id: 'active',
+      label: `Active (${active.length})`,
+      events: active,
+      emptyMessage: 'You have no saved event requests yet.',
+    },
+    {
+      id: 'rejected',
+      label: `Rejected (${rejected.length})`,
+      events: rejected,
+      emptyMessage: 'No rejected requests.',
+    },
+  ]
+}
+
+const NO_COORDINATOR_AVAILABLE = 'No event coordinator is available for the requested date and time'
+
+// S-13: a returned request the organiser is responding to. Every way the
+// resubmission can fail has to say it was not resubmitted, so the organiser
+// knows the request is still waiting on them and nothing they saved before
+// was changed -- the backend guarantees that; this is what tells them.
+export function resubmitErrorMessage(error) {
+  if (error.status === 409 && error.message === NO_COORDINATOR_AVAILABLE) {
+    return `${NO_COORDINATOR_AVAILABLE}. Your request was not resubmitted. Try a different date or time.`
+  }
+  if (error.status === 409 && error.message) return `${error.message} Nothing was resubmitted.`
+  if (error.status >= 500) {
+    return 'The event service is unavailable. Your request was not resubmitted and nothing was changed.'
+  }
+  if (error.status === 0) {
+    return "We couldn't reach the server. Your request was not resubmitted and nothing was changed."
+  }
+  return eventErrorMessage(error)
+}
+
 function write(path, method, form, omitEmpty = false) {
   return requestJSON(path, {
     method,

@@ -1,7 +1,7 @@
 # Test cases — end-to-end journeys
 
-Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py` and
-`test_add_venue.py`. A real browser drives the built frontend through Kong,
+Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
+`test_add_venue.py`, `test_respond_to_return.py` and `test_rejected_tab.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-26, branch `S-12/event-coordinator-assignment` (merged with `S-14/auto-assign-ec`) |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `f2c2c1e` |
 | Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
-| Result | 5 passed (twice consecutively) |
+| Result | 7 passed (twice consecutively) |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -129,3 +129,55 @@ contract without a browser.
   link was rendered, and `/venues/new` redirected to the coordinator dashboard.
 - **Status:** Pass
 - **Evidence:** `test_add_venue.py::test_event_coordinator_can_view_but_not_add_venues`
+
+## TC-E2E-207 — an organiser responds to a returned request and resubmits it
+
+- **Scenario:** Only a browser can prove the organiser sees the coordinator's
+  request on the page, amends it and resubmits (S-13 AC1 to AC3). The data
+  guarantees are TC-EVENTREQUESTS-105/106's job, not this test's.
+- **Pre-conditions:** Stack and project as the header. An organiser and a
+  coordinator are created with `make_user`. The admin client inserts one event
+  for that organiser, assigned to the coordinator, with every submitted field
+  filled in, `status=returned`, `decision=returned`, a reason, a comment and
+  `decided_at`. The coordinator has no other bookings, so resubmitting at
+  the same time keeps them (TC-EVENTREQUESTS-021) and no other coordinator
+  needs blocking.
+- **Steps:** 1. Sign in as the organiser. 2. On the dashboard, open the
+  request marked **Action required**. 3. Read the banner. 4. Change
+  **Expected attendance** to `80`. 5. Click **Resubmit request**.
+- **Test data:** Attendance `120` → `80`; reason
+  `"Expected attendance exceeds the venue's capacity"`; comment
+  `"Reduce attendance to 80 or choose a larger venue"`.
+- **Expected:** Step 2 opens `/events/{id}`. Step 3 shows "This request was
+  returned for amendment", "Reason: Expected attendance exceeds the venue's
+  capacity" and "Note from the coordinator: Reduce attendance to 80 or choose
+  a larger venue". After step 5, a "Request submitted." toast appears, the URL
+  is still `/events/{id}`, the banner is gone, and the dashboard shows the
+  request once, as **Under review**.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_respond_to_return.py::test_an_organiser_responds_to_a_returned_request_and_resubmits`
+
+## TC-E2E-208 — rejected requests sit in their own tab and still open read-only
+
+- **Scenario:** Only a browser can show the organiser dashboard's tabs
+  rendering and switching, and a rejected row still opening the locked form.
+  TC-FRONTEND-026/027 cover the grouping and labels.
+- **Pre-conditions:** Stack and project as the header. An organiser is
+  created with `make_user`. The admin client inserts two of their events:
+  one `submitted`, and one `rejected` with reason
+  `"The venue is closed for renovation that week"`.
+- **Steps:** 1. Sign in as the organiser. 2. Look at the dashboard. 3. Select
+  the **Rejected (1)** tab. 4. Open the rejected request.
+- **Test data:** Submitted event `"spm-e2e Active <hex>"`; rejected event
+  `"spm-e2e Rejected <hex>"`.
+- **Expected:**
+  - Step 2: **Active (1)** is the selected tab. It lists the submitted
+    request as **Under review** and does not list the rejected one.
+  - Step 3: the list shows only the rejected request, labelled **Rejected**.
+  - Step 4: `/events/{id}` opens with "This request has been rejected and is
+    closed." and "Reason: The venue is closed for renovation that week". Its
+    form fields are disabled.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_rejected_tab.py::test_rejected_requests_sit_in_their_own_tab_and_open_read_only`

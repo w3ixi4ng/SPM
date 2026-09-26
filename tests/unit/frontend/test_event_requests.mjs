@@ -13,6 +13,8 @@ import {
   getEventRequest,
   listEventRequests,
   organiserStatusMeta,
+  organiserTabs,
+  resubmitErrorMessage,
   sortEventsForOrganiser,
   submitEventDraft,
   updateEventDraft,
@@ -318,4 +320,68 @@ test('organiserStatusMeta falls through to the shared meta for every other statu
   for (const status of ['draft', 'approved', 'rejected']) {
     assert.deepEqual(organiserStatusMeta(status), eventStatusMeta(status))
   }
+})
+
+// TC-FRONTEND-025
+test('a failed resubmission tells the organiser nothing was changed', () => {
+  const noCoordinator = 'No event coordinator is available for the requested date and time'
+  const statusChanged = 'This request is no longer awaiting changes. Reload to see its current status.'
+
+  assert.equal(
+    resubmitErrorMessage({ status: 409, message: noCoordinator }),
+    'No event coordinator is available for the requested date and time. Your request was not resubmitted. Try a different date or time.',
+  )
+  assert.equal(
+    resubmitErrorMessage({ status: 409, message: statusChanged }),
+    `${statusChanged} Nothing was resubmitted.`,
+  )
+  for (const status of [500, 502]) {
+    assert.equal(
+      resubmitErrorMessage({ status, message: 'Events service unavailable' }),
+      'The event service is unavailable. Your request was not resubmitted and nothing was changed.',
+    )
+  }
+  assert.equal(
+    resubmitErrorMessage({ status: 0, message: "We couldn't reach the server. Check your connection and try again." }),
+    "We couldn't reach the server. Your request was not resubmitted and nothing was changed.",
+  )
+  assert.equal(
+    resubmitErrorMessage({ status: 422, message: 'Please check the details you entered' }),
+    'Please check the highlighted event details.',
+  )
+})
+
+const TAB_EVENTS = [
+  { id: 'a', status: 'draft' },
+  { id: 'b', status: 'rejected' },
+  { id: 'c', status: 'approved' },
+  { id: 'd', status: 'submitted' },
+  { id: 'e', status: 'rejected' },
+  { id: 'f', status: 'returned' },
+]
+
+// TC-FRONTEND-026
+test('rejected requests go to the Rejected tab, everything else stays Active', () => {
+  const input = TAB_EVENTS.map((event) => ({ ...event }))
+  const [active, rejected] = organiserTabs(input)
+
+  assert.deepEqual(active.events.map((event) => event.id), ['f', 'd', 'a', 'c'])
+  assert.deepEqual(rejected.events.map((event) => event.id), ['b', 'e'])
+  assert.deepEqual(input, TAB_EVENTS)
+})
+
+// TC-FRONTEND-027
+test('tab labels carry counts, and each tab has its own empty message', () => {
+  assert.deepEqual(
+    organiserTabs(TAB_EVENTS).map((tab) => [tab.id, tab.label]),
+    [['active', 'Active (4)'], ['rejected', 'Rejected (2)']],
+  )
+
+  const draftOnly = organiserTabs([{ id: 'a', status: 'draft' }])
+  assert.deepEqual(draftOnly.map((tab) => tab.label), ['Active (1)', 'Rejected (0)'])
+  assert.equal(draftOnly[1].emptyMessage, 'No rejected requests.')
+
+  const none = organiserTabs([])
+  assert.deepEqual(none.map((tab) => tab.label), ['Active (0)', 'Rejected (0)'])
+  assert.equal(none[0].emptyMessage, 'You have no saved event requests yet.')
 })

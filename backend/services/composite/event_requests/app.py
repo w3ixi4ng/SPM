@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 ORGANISER_ROLE = "event_organiser"
 NO_COORDINATOR_AVAILABLE = "No event coordinator is available for the requested date and time"
+# The events service's status-guarded submit write matched nothing -- the
+# request stopped being a draft or returned one underneath this call. Same
+# wording as the events service, which cannot be imported across services.
+NO_LONGER_AWAITING_CHANGES = "This request is no longer awaiting changes. Reload to see its current status."
 DATETIME_FIELDS = ("start_date", "start_time", "end_date", "end_time")
 
 
@@ -255,7 +259,7 @@ async def submit_existing_draft(
     if response.status_code == status.HTTP_404_NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
     if response.status_code == status.HTTP_409_CONFLICT:
-        raise HTTPException(status_code=409, detail="Event is no longer an editable draft")
+        raise HTTPException(status_code=409, detail=NO_LONGER_AWAITING_CHANGES)
     if response.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail="Events service unavailable")
     return response.json()

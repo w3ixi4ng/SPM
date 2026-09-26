@@ -276,6 +276,12 @@ def update_event(
 # are "this record has no pending submission yet and now does."
 _SUBMITTABLE_STATUSES = ("draft", "returned")
 
+# The status-guarded submit write matched nothing: the record left draft or
+# returned between the read and the write -- resubmitted from another tab,
+# say. S-13: says what happened and what to do, since for a returned request
+# "editable draft" was simply wrong.
+_NO_LONGER_AWAITING_CHANGES = "This request is no longer awaiting changes. Reload to see its current status."
+
 
 @app.post("/events/{event_id}/submit", response_model=EventRead)
 def submit_draft(
@@ -309,7 +315,7 @@ def submit_draft(
     )
     result = _execute(operation)
     if not result.data:
-        raise HTTPException(status_code=409, detail="Event is no longer an editable draft")
+        raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
     return result.data[0]
 
 
@@ -480,7 +486,7 @@ def submit_draft_internal(
     )
     result = _execute(operation)
     if not result.data:
-        raise HTTPException(status_code=409, detail="Event is no longer an editable draft")
+        raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
     return result.data[0]
 
 

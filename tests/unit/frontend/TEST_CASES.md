@@ -8,9 +8,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-26, branch `S-12/event-coordinator-assignment` (merged with `S-14/auto-assign-ec`) |
+| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `f2c2c1e` |
 | Environment | Local Node.js; no network or Supabase |
-| Result | 23 passed |
+| Result | 26 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -385,3 +385,64 @@ RBAC, and validation remain authoritative.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta falls through to the shared meta for every other status`
+
+## TC-FRONTEND-025 — a failed resubmission tells the organiser nothing was changed
+
+- **Scenario:** Every way a resubmission can fail produces a message that says
+  it was not resubmitted and that the saved request is unchanged (S-13 AC6).
+  TC-FRONTEND-007 covers the general mapping; its `409` and network messages
+  say neither.
+- **Pre-conditions:** The event API error mapping is loaded.
+- **Steps:** Resolve the resubmission failure message for each error below.
+- **Test data / Expected:**
+
+  | Error | Message |
+  | --- | --- |
+  | `409`, detail `"No event coordinator is available for the requested date and time"` | `"No event coordinator is available for the requested date and time. Your request was not resubmitted. Try a different date or time."` |
+  | `409`, detail `"This request is no longer awaiting changes. Reload to see its current status."` | that detail, then `" Nothing was resubmitted."` |
+  | `500` / `502` | `"The event service is unavailable. Your request was not resubmitted and nothing was changed."` |
+  | status `0` (network) | `"We couldn't reach the server. Your request was not resubmitted and nothing was changed."` |
+  | `422` | `"Please check the highlighted event details."` (unchanged, fields highlighted as TC-FRONTEND-007) |
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `a failed resubmission tells the organiser nothing was changed`
+
+## S-13 — rejected requests in their own tab
+
+A rejected request is closed for good, so the organiser dashboard splits its
+list into two tabs: **Active** (returned, under review, draft, approved) and
+**Rejected**. Rejected rows still open the read-only form.
+
+## TC-FRONTEND-026 — rejected requests go to the Rejected tab, everything else stays Active
+
+- **Scenario:** The organiser's list is split by status, and the Active tab
+  keeps the existing priority order (TC-FRONTEND-019).
+- **Pre-conditions:** The event request helpers are loaded.
+- **Steps:** Split the test list into the organiser's two tabs.
+- **Test data:** Six events in backend order: `a` draft, `b` rejected, `c`
+  approved, `d` submitted, `e` rejected, `f` returned.
+- **Expected:** Active holds `f, d, a, c`: returned, then submitted, then the
+  rest in backend order. Rejected holds `b, e` in backend order. No event
+  appears in both tabs. The input array is unchanged.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `rejected requests go to the Rejected tab, everything else stays Active`
+
+## TC-FRONTEND-027 — tab labels carry counts, and each tab has its own empty message
+
+- **Scenario:** Each tab says how many requests it holds and what an empty
+  tab means.
+- **Pre-conditions:** As TC-FRONTEND-026.
+- **Steps:** Build the tabs for the TC-FRONTEND-026 list, then for a list
+  holding only a draft, then for an empty list.
+- **Test data:** As above; `[{status: "draft"}]`; `[]`.
+- **Expected:** The tabs are in the order Active, then Rejected.
+  - TC-FRONTEND-026 list: labels `"Active (4)"` and `"Rejected (2)"`.
+  - Draft only: `"Active (1)"` and `"Rejected (0)"`. The Rejected tab's empty
+    message is `"No rejected requests."`
+  - Empty list: `"Active (0)"` and `"Rejected (0)"`. The Active tab's empty
+    message is `"You have no saved event requests yet."`
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `tab labels carry counts, and each tab has its own empty message`
