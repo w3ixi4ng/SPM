@@ -157,3 +157,27 @@ contract without a browser.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_respond_to_return.py::test_an_organiser_responds_to_a_returned_request_and_resubmits`
+
+## TC-E2E-208 — rejected requests sit in their own tab and still open read-only
+
+- **Scenario:** Only a browser can show the organiser dashboard's tabs
+  rendering and switching, and a rejected row still opening the locked form.
+  TC-FRONTEND-026/027 cover the grouping and labels.
+- **Pre-conditions:** Stack and project as the header. An organiser is
+  created with `make_user`. The admin client inserts two of their events:
+  one `submitted`, and one `rejected` with reason
+  `"The venue is closed for renovation that week"`.
+- **Steps:** 1. Sign in as the organiser. 2. Look at the dashboard. 3. Select
+  the **Rejected (1)** tab. 4. Open the rejected request.
+- **Test data:** Submitted event `"spm-e2e Active <hex>"`; rejected event
+  `"spm-e2e Rejected <hex>"`.
+- **Expected:**
+  - Step 2: **Active (1)** is the selected tab. It lists the submitted
+    request as **Under review** and does not list the rejected one.
+  - Step 3: the list shows only the rejected request, labelled **Rejected**.
+  - Step 4: `/events/{id}` opens with "This request has been rejected and is
+    closed." and "Reason: The venue is closed for renovation that week". Its
+    form fields are disabled.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

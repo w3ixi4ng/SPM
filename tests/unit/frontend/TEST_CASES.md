@@ -407,3 +407,42 @@ RBAC, and validation remain authoritative.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `a failed resubmission tells the organiser nothing was changed`
+
+## S-13 — rejected requests in their own tab
+
+A rejected request is closed for good, so the organiser dashboard splits its
+list into two tabs: **Active** (returned, under review, draft, approved) and
+**Rejected**. Rejected rows still open the read-only form.
+
+## TC-FRONTEND-026 — rejected requests go to the Rejected tab, everything else stays Active
+
+- **Scenario:** The organiser's list is split by status, and the Active tab
+  keeps the existing priority order (TC-FRONTEND-019).
+- **Pre-conditions:** The event request helpers are loaded.
+- **Steps:** Split the test list into the organiser's two tabs.
+- **Test data:** Six events in backend order: `a` draft, `b` rejected, `c`
+  approved, `d` submitted, `e` rejected, `f` returned.
+- **Expected:** Active holds `f, d, a, c`: returned, then submitted, then the
+  rest in backend order. Rejected holds `b, e` in backend order. No event
+  appears in both tabs. The input array is unchanged.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-027 — tab labels carry counts, and each tab has its own empty message
+
+- **Scenario:** Each tab says how many requests it holds and what an empty
+  tab means.
+- **Pre-conditions:** As TC-FRONTEND-026.
+- **Steps:** Build the tabs for the TC-FRONTEND-026 list, then for a list
+  holding only a draft, then for an empty list.
+- **Test data:** As above; `[{status: "draft"}]`; `[]`.
+- **Expected:** The tabs are in the order Active, then Rejected.
+  - TC-FRONTEND-026 list: labels `"Active (4)"` and `"Rejected (2)"`.
+  - Draft only: `"Active (1)"` and `"Rejected (0)"`. The Rejected tab's empty
+    message is `"No rejected requests."`
+  - Empty list: `"Active (0)"` and `"Rejected (0)"`. The Active tab's empty
+    message is `"You have no saved event requests yet."`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
