@@ -698,6 +698,17 @@ instead of a centered modal dialog:
 - Closes on `Escape`, always has a visible `X` close button top-right, traps
   focus while open, returns focus to the trigger on close.
 
+**Exception — a flow that needs room gets its own screen.** When the flow is
+the main task of that step and the user has to compare or scan a list to
+complete it, a `max-w-md` panel is too narrow; give it its own route with a
+"Back to …" link in the header instead. The venue booking request
+(`/coordinator/events/:id/request-venue`, S-36) is the reference: it lists
+every venue with its capacity, layouts, facilities and hours to choose from.
+On success, navigate back and pass a one-off confirmation in router state
+(read once, then cleared with `navigate(pathname, { replace: true })`), so a
+reload does not repeat it. Quick, single-field or read-only flows stay in the
+slide-over.
+
 **Status indicators** — small filled or dashed dots: `green` = done/
 operational, `amber` = partial/warning, `inkFaint` outline = not started,
 `rose` = urgent/error. Always pair the color with a text label, never color
