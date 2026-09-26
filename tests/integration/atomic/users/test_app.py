@@ -144,3 +144,34 @@ def test_public_signup_cannot_choose_another_role(api, cleanup):
 
     assert response.status_code == 422
     assert "role" in response.json()["errors"]
+
+
+# --- TC-USERS-105 ---------------------------------------------------------
+def test_coordinator_listing_against_real_supabase(api, cleanup, admin):
+    def seed(role: str) -> str:
+        email = unique_email()
+        created = admin.auth.admin.create_user(
+            {
+                "email": email,
+                "password": PASSWORD,
+                "email_confirm": True,
+                "app_metadata": {"role": role},
+            }
+        )
+        user_id = str(created.user.id)
+        cleanup.append(user_id)
+        admin.schema("users").table("users").insert(
+            {"id": user_id, "name": role, "email": email}
+        ).execute()
+        return user_id
+
+    coordinator_id = seed("event_coordinator")
+    organiser_id = seed("event_organiser")
+
+    response = api.get("/users/coordinators")
+
+    assert response.status_code == 200, response.text
+    ids = [row["id"] for row in response.json()]
+    assert coordinator_id in ids
+    assert organiser_id not in ids
+    assert len(ids) == len(set(ids))  # no duplicates from pagination

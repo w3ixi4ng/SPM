@@ -12,28 +12,47 @@ queries another service's tables.
 | `GET` | `/events` | `events:view_own` | List the authenticated organiser's event requests, most recently updated first. |
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
-| `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft with a complete submission and submit it. |
+| `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
+| `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
+| `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
+| `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
+
+Internal, composite-only routes — no Kong route, unauthenticated at this
+layer because they are unreachable from a browser; only the `event_requests`
+composite calls them. See [Internal routes](#internal-routes-composite-only).
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/events/coordinator-load` | Conflict and current load for a set of coordinators against a requested window. Takes an optional `exclude_event_id` so rechecking an existing event never conflicts with itself. |
+| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
+| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
+| `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
 
 All event endpoints except health authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
 trusted `app_metadata.role` against the permission shown above.
 
 The centralized policy recognizes every project role. All may view their own
-frontend dashboard; only Event Organiser workflows are currently defined:
+frontend dashboard; Event Organiser and Event Coordinator workflows are
+currently defined:
 
 | Role | Permissions |
 | --- | --- |
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own` |
-| `event_coordinator` | `dashboard:view` |
+| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
 | `venue_staff` | `dashboard:view` |
 | `technical_support` | `dashboard:view` |
 | `attendee` | `dashboard:view` |
 
-The internal and attendee roles intentionally receive no speculative event
-permissions. Their permissions can expand when a corresponding project story
-defines a workflow.
+`events:view_assigned` is read-only. `events:decide` (S-14) is the one write
+a coordinator can make: approve, reject, or return a request assigned to
+them — never edit its fields directly.
+
+The remaining internal and attendee roles intentionally receive no
+speculative event permissions. Their permissions can expand when a
+corresponding project story defines a workflow.
 
 The service derives `organiser_id` from the verified Supabase user. A request
 cannot set `id`, `organiser_id`, `status`, `created_at`, or `updated_at`.
@@ -77,7 +96,9 @@ failure, rather than reaching the database's own constraint as an opaque
 
 ### Submitted fields
 
-`POST /events` and `POST /events/{event_id}/submit` take the same body:
+`POST /events` and `POST /events/{event_id}/submit` take the same body.
+`/submit` covers both a draft's first submission and resubmitting a
+`returned` request — see [Status model](#status-model-s-14).
 
 | Field | Type | Required | Rules |
 | --- | --- | --- | --- |
@@ -138,10 +159,23 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "venue": "Main auditorium",
   "equipment_requests": {"projector": 1, "microphone": 2},
   "accessibility_requirements": "Wheelchair access",
+  "assigned_coordinator_id": null,
+  "decision": null,
+  "decision_reason": null,
+  "decision_comment": null,
+  "decided_at": null,
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
 ```
+
+`assigned_coordinator_id` is null until the `event_requests` composite
+assigns a coordinator on submission; an organiser's own request can never set
+it. See [Internal routes](#internal-routes-composite-only).
+
+`decision`, `decision_reason`, `decision_comment`, and `decided_at` are all
+null until the assigned coordinator decides (S-14) — see
+[Decisions](#decisions-s-14).
 
 `GET /events` returns an array containing only rows whose `organiser_id`
 matches the verified user. An organiser with no requests receives `[]`.
@@ -152,14 +186,130 @@ matches the verified user. An organiser with no requests receives `[]`.
 {"status": "ok"}
 ```
 
+## Status model (S-14)
+
+```
+draft ──submit──> submitted ──decide──> approved   (terminal)
+  ^                   │                 returned ──edit + resubmit──┐
+  │                   └─────────────────rejected   (terminal)       │
+  └──────────────────────────────────────────────────────────────┘ │
+  returned <───────────────────────────────────────────────────────┘
+```
+
+- **draft** — incomplete, editable, never assigned a coordinator.
+- **submitted** — complete, assigned a coordinator, awaiting their decision.
+  Still editable; editing does not change the status.
+- **approved** — the coordinator's positive decision. No further submit
+  action; edits still go through the same `PATCH`.
+- **rejected** — the coordinator's negative decision. **Closed
+  permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
+  `409` for a rejected event, with no exception.
+- **returned** — the coordinator asked for changes. The organiser edits it
+  with the same `PATCH` (still held to the submitted-required fields, same
+  as `submitted`) and resubmits it with the same
+  `POST /events/{event_id}/submit` used for a draft's first submission —
+  it is the same record throughout, never a new one. Resubmitting clears
+  `decision`/`decision_reason`/`decision_comment`/`decided_at` back to null
+  and sets a fresh `submitted_at`.
+
+A coordinator's assigned submitted **or approved** events both occupy their
+calendar for the purposes of routing a new request (see
+[`POST /events/coordinator-load`](#post-eventscoordinator-load)); returned
+and rejected do not, since neither is a live commitment.
+
+## Decisions (S-14)
+
+**`POST /events/{event_id}/decision`** — only the coordinator this request
+is assigned to may call it, and only while it is `submitted`.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `decision` | `"approved"` \| `"rejected"` \| `"returned"` | yes | |
+| `reason` | string | required for `rejected`/`returned`, forbidden for `approved` | Nonblank. |
+| `comment` | string | optional, only accepted for `returned` | A clarification/amendment note for the organiser. |
+
+```json
+{"decision": "returned", "reason": "Missing risk assessment", "comment": "Please attach the venue's fire safety form"}
+```
+
+Returns `200` with the updated event (`status` now matches `decision`,
+`decided_at` set). `409` if the request is not currently `submitted` —
+including a decision already made, since a decision cannot be changed once
+recorded. `404` if the caller is not the assigned coordinator.
+
+## Internal routes (composite-only)
+
+These four exist for the `event_requests` composite service
+([`backend/services/composite/event_requests`](../../composite/event_requests/README.md)),
+which is the only caller — there is no Kong route for any of them, and they
+carry no session-derived authorization of their own. A browser cannot reach
+them from outside the Docker network.
+
+### `POST /events/coordinator-load`
+
+```json
+{
+  "coordinator_ids": ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+  "start_date": "2026-10-20",
+  "start_time": "18:00",
+  "end_date": "2026-10-20",
+  "end_time": "21:00"
+}
+```
+
+For each id in `coordinator_ids`, reports whether that coordinator has an
+assigned **submitted or approved** event overlapping the given window at all
+(touching endpoints do not count as overlapping), and how many such events
+are currently assigned to them in total, independent of the window:
+
+```json
+[
+  {
+    "coordinator_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "conflict": false,
+    "assigned_count": 2
+  }
+]
+```
+
+Draft, returned, and rejected events are never live commitments, so they
+never appear in either figure — see [Status model](#status-model-s-14).
+
+`exclude_event_id` matters when rechecking an event that already has this
+window and this assignment stored: without it, the event would always
+conflict with its own row.
+
+### `POST /events/internal` and `POST /events/{event_id}/submit/internal`
+
+Same body as the public `POST /events` / `POST /events/{event_id}/submit`,
+plus two fields the public routes forbid because the organiser's own request
+must never set them:
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `organiser_id` | uuid | The organiser the composite already authenticated — not derived from a session here. |
+| `assigned_coordinator_id` | uuid | The coordinator the composite already chose. |
+
+Same responses and status codes as the public routes they mirror
+(`201`/`200`, `404` for another organiser's draft, `409` for an event that is
+not currently `draft` or `returned`).
+
+### `PATCH /events/{event_id}/internal`
+
+Same body as the public `PATCH /events/{event_id}` (every field optional),
+plus `organiser_id` (required, same reason as above) and
+`assigned_coordinator_id` (optional — included only when the composite is
+changing it). Same responses as the public route: `200` with the updated
+event, `404` for another organiser's event.
+
 ## Errors
 
 | Status | When |
 | --- | --- |
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
-| `404` | The event does not exist or belongs to another user. |
-| `409` | A submitted event was submitted again (`POST /events/{event_id}/submit`). Editing a submitted event via `PATCH` is allowed and does not 409. |
+| `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`. Editing a `submitted`/`returned`/`approved` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

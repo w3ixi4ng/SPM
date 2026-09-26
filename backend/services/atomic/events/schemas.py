@@ -8,6 +8,18 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 class EventStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    # S-14: the three outcomes of a coordinator's decision on a submitted
+    # request. APPROVED and REJECTED are terminal; RETURNED goes back to the
+    # organiser to edit and resubmit as the same record.
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETURNED = "returned"
+
+
+class DecisionValue(str, Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETURNED = "returned"
 
 
 # Shared by EventDraftCreate and EventSubmittedCreate: end_date, if set, may
@@ -63,6 +75,43 @@ class EventDraftUpdate(EventDraftCreate):
     pass
 
 
+# S-14: the coordinator's decision on a submitted request. A separate schema
+# from the event schemas above -- this is not a shape the event ever takes,
+# it is an action taken on one.
+class DecisionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: DecisionValue
+    # Required (and non-blank) for reject/return, forbidden for approve --
+    # an approval is not a judgement call that needs defending in the
+    # record the way turning a request away does.
+    reason: str | None = None
+    # Only meaningful alongside a return: a clarification or amendment note
+    # for the organiser. Forbidden for approve and reject.
+    comment: str | None = None
+
+    @field_validator("reason", "comment", mode="before")
+    @classmethod
+    def normalise_optional_text(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_and_comment_match_the_decision(self):
+        if self.decision in (DecisionValue.REJECTED, DecisionValue.RETURNED):
+            if self.reason is None:
+                raise ValueError("reason is required to reject or return a request")
+        elif self.reason is not None:
+            raise ValueError("reason is not accepted when approving a request")
+
+        if self.comment is not None and self.decision != DecisionValue.RETURNED:
+            raise ValueError("comment is only accepted when returning a request")
+
+        return self
+
+
 class EventSubmittedCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -114,8 +163,76 @@ class EventRead(BaseModel):
     equipment_requests: dict[str, int]
     accessibility_requirements: str | None
     special_requirements: str | None
+    # Null until the event_requests composite assigns one on submission --
+    # never set by the organiser's own request.
+    assigned_coordinator_id: UUID | None
+    # The coordinator's decision and its record -- all null until decided,
+    # and cleared again on resubmit after a return. See
+    # POST /events/{event_id}/decision.
+    decision: DecisionValue | None
+    decision_reason: str | None
+    decision_comment: str | None
+    decided_at: datetime | None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+# --- Internal, composite-only schemas --------------------------------------
+#
+# Everything below this line is for the event_requests composite service,
+# never for a browser. None of it is reachable through Kong -- see
+# backend/kong/kong.yml and AGENTS.md's "A service with no browser-facing
+# routes needs no Kong entry."
+
+
+class CoordinatorLoadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_ids: list[UUID]
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+    # Set when rechecking availability for an event that already exists (an
+    # edit to a submitted request) -- that event's own row is excluded from
+    # the conflict check and the count, so it never conflicts with itself.
+    exclude_event_id: UUID | None = None
+
+
+class CoordinatorLoad(BaseModel):
+    coordinator_id: UUID
+    # Whether this coordinator has an assigned submitted event overlapping
+    # the requested window at all. Touching endpoints (one event's end_time
+    # equal to the request's start_time, or vice versa) do not count.
+    conflict: bool
+    # This coordinator's total assigned submitted-event count, independent of
+    # the requested window -- what "least busy" is measured against.
+    assigned_count: int
+
+
+# organiser_id and assigned_coordinator_id are never accepted from an
+# organiser's own request (see EventSubmittedCreate's extra="forbid"); these
+# two routes exist so the composite -- which has already verified both --
+# can supply them directly, the same way this service derives them from a
+# session on the public routes.
+class InternalEventCreate(EventSubmittedCreate):
+    organiser_id: UUID
+    assigned_coordinator_id: UUID
+
+
+class InternalEventSubmit(EventSubmittedCreate):
+    organiser_id: UUID
+    assigned_coordinator_id: UUID
+
+
+# Mirrors EventDraftUpdate (every field optional, same normalisation) plus
+# organiser_id and an optional reassignment -- the composite's edit-recheck
+# flow (backend/services/composite/event_requests) uses this to change a
+# submitted event's date/time and its assigned_coordinator_id in one write,
+# only when the current coordinator no longer fits the new window.
+class InternalEventUpdate(EventDraftUpdate):
+    organiser_id: UUID
+    assigned_coordinator_id: UUID | None = None

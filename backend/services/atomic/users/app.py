@@ -27,6 +27,7 @@ app = FastAPI(title="Users Service")
 SCHEMA = "users"
 TABLE = "users"
 PUBLIC_SIGNUP_ROLE = "event_organiser"
+COORDINATOR_ROLE = "event_coordinator"
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -103,6 +104,26 @@ def _discard_auth_user(db: Client, user_id: str) -> None:
         db.auth.admin.delete_user(user_id)
     except Exception:
         pass
+
+
+def _list_user_ids_with_role(db: Client, role: str) -> list[str]:
+    """Every Auth user id whose trusted app_metadata.role matches, across pages."""
+    page_size = 200
+    ids: list[str] = []
+    page = 1
+    while True:
+        batch = db.auth.admin.list_users(page=page, per_page=page_size)
+        if not batch:
+            break
+        ids.extend(
+            user.id
+            for user in batch
+            if (getattr(user, "app_metadata", None) or {}).get("role") == role
+        )
+        if len(batch) < page_size:
+            break
+        page += 1
+    return ids
 
 
 @app.get("/health")
@@ -233,3 +254,18 @@ def me(user=Depends(get_current_user), db: Client = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User profile not found")
     app_metadata = getattr(user, "app_metadata", None) or {}
     return {**res.data[0], "role": app_metadata.get("role")}
+
+
+# --- Internal, composite-only route -----------------------------------------
+#
+# No Kong route exists for this -- see the events service README's "Internal
+# routes" section. Only the event_requests composite calls it, to find who it
+# can assign an event request to.
+@app.get("/users/coordinators", response_model=list[UserRead])
+def list_coordinators(db: Client = Depends(get_db)):
+    coordinator_ids = _list_user_ids_with_role(db, COORDINATOR_ROLE)
+    if not coordinator_ids:
+        return []
+
+    res = db.schema(SCHEMA).table(TABLE).select("*").in_("id", coordinator_ids).execute()
+    return res.data

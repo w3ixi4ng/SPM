@@ -57,3 +57,28 @@ project.
   in both Supabase projects has not been rebuilt with `start_date`/`end_date`.
 - **Status:** Blocked
 - **Evidence:** `test_app.py::test_kong_routes_every_event_operation`
+
+## TC-EVENTS-103 — coordinator load and internal assignment round trip
+
+- **Scenario:** Prove `POST /events/coordinator-load` and the internal
+  create/submit-with-assignment routes against real Supabase rows, including
+  that only submitted events count.
+- **Pre-conditions:** `.env.test` targets the throwaway project; `events.sql`
+  including `assigned_coordinator_id` is applied and `events` exposed; the
+  events service is running on port 8002.
+- **Steps:** 1. Create a coordinator id (no Auth account needed -- the events
+  service does not validate it against `users`). 2. `POST /events/internal`
+  twice for that coordinator: one submitted event `2026-11-05 09:00`–`11:00`,
+  one draft `2026-11-05 13:00`–`14:00`. 3. `POST /events/coordinator-load`
+  for that coordinator with an overlapping window (`10:00`–`12:00`), a
+  back-to-back window (`11:00`–`12:00`), and the draft's window. 4. Delete
+  both created events.
+- **Test data:** As above.
+- **Expected:** The overlapping window reports `conflict: true`; the
+  back-to-back window reports `conflict: false`; the draft's window reports
+  `conflict: false`; `assigned_count` is `1` throughout (the draft is never
+  counted).
+- **Actual:** Not yet run.
+- **Status:** Blocked — needs `events.sql` migrated with
+  `assigned_coordinator_id` and the new internal routes built.
+- **Evidence:** —
