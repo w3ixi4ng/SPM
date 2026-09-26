@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 31 passed |
+| Result | 34 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -60,8 +60,8 @@ RBAC, and validation remain authoritative.
   `required_facilities: []` and `required_accessibility: []`.
 - **Note:** covers `special_requirements` as well, including trimming and the
   blank-to-null rule.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `form mapping uses the backend contract and omits server-owned fields`
 
 ## TC-FRONTEND-005 — event responses map to React state
@@ -499,8 +499,8 @@ says.
     `"Setup from 08:30"`. No layout, facilities or accessibility: those come
     from the event.
   - The required-only body leaves out `notes`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `venue booking calls use the authenticated Kong contract`
 
 ## TC-FRONTEND-031 — venue booking errors say what happened and what to do
@@ -558,9 +558,9 @@ says.
   when `omitEmpty` is set). The response maps to `roomLayout: "banquet"`,
   `requiredFacilities: ["stage"]`, `requiredAccessibility: []`, `venue: ""`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `the organiser's venue requirements map both ways`
 
 ## TC-FRONTEND-034 — organisers load the option lists from the events service
 
@@ -569,9 +569,9 @@ says.
 - **Test data:** None.
 - **Expected:** One `GET /api/events/options` with `credentials: include`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `organisers load the option lists from the events service`
 
 ## TC-FRONTEND-035 — each venue is marked against the event's requirements
 
@@ -591,6 +591,6 @@ says.
   `"Too small: holds 80, event expects 100"`,
   `"No Banquet layout"`, `"Missing: Stage"`, `"Missing: Hearing loop"`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `each venue is marked against the event requirements`

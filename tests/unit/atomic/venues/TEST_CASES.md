@@ -9,9 +9,9 @@ Story: S-27 Add Venue with Capacity and Facilities.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/venues` |
-| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` |
-| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 58 passed (30 cases, several parametrised) |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 58 passed (30 cases, several parametrised); `cabaret` removed from the layout set |
 
 ## Shared test data
 

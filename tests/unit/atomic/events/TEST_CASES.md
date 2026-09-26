@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 88 passed |
+| Result | 102 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -90,8 +90,8 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Steps:** Remove `name` and instantiate `EventSubmittedCreate`.
 - **Test data:** Valid submitted payload without `name`.
 - **Expected:** `ValidationError` identifies `name`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_schemas.py::test_submitted_request_rejects_missing_required_field`
 
 ## TC-EVENTS-008 — blank submitted-required text
@@ -488,8 +488,8 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Steps:** `PATCH` the event, clearing `name`.
 - **Test data:** `{"name": ""}`.
 - **Expected:** `422` identifying `name`; update is never called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_updating_submitted_event_still_requires_submitted_fields`
 
 ## TC-EVENTS-041 — a draft accepts other requirements
@@ -855,8 +855,8 @@ in one update.
 - **Steps:** `PATCH /events/{event_id}/internal` clearing `name`.
 - **Test data:** `{"organiser_id": ..., "name": ""}`.
 - **Expected:** `422`; no update issued.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_update_validates_the_resulting_submitted_event`
 
 ---
@@ -1079,8 +1079,8 @@ submit route rather than creating a new one.
 - **Steps:** `PATCH /events/{event_id}` clearing `name`.
 - **Test data:** `{"name": ""}`.
 - **Expected:** `422`; no update issued.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_editing_a_returned_event_still_requires_submitted_fields`
 
 ## S-13 — the organiser responds to a return
@@ -1216,9 +1216,9 @@ Shared test data for these cases: the standard submitted payload, plus
 - **Test data:** The standard submitted payload.
 - **Expected:** Both are valid; `venue` is `None` both times.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_the_venue_preference_is_optional_on_submission`
 
 ## TC-EVENTS-090 — the venue requirements are accepted and tidied
 
@@ -1230,9 +1230,9 @@ Shared test data for these cases: the standard submitted payload, plus
   `required_facilities` is `["projector", "stage"]`,
   `required_accessibility` is `["wheelchair_access"]`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_the_venue_requirements_are_accepted_and_tidied`
 
 ## TC-EVENTS-091 — the venue requirements default to none
 
@@ -1243,9 +1243,9 @@ Shared test data for these cases: the standard submitted payload, plus
 - **Expected:** Valid; `room_layout` is `None`, `required_facilities` and
   `required_accessibility` are `[]`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_the_venue_requirements_default_to_none`
 
 ## TC-EVENTS-092 — only values from the venue catalogue are accepted
 
@@ -1258,9 +1258,9 @@ Shared test data for these cases: the standard submitted payload, plus
   ["jacuzzi"]`; `required_accessibility: ["ramp"]`.
 - **Expected:** `422` each time, naming the field; nothing inserted.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_values_from_the_venue_catalogue_are_accepted`
 
 ## TC-EVENTS-093 — the venue requirements are stored and read back
 
@@ -1273,9 +1273,9 @@ Shared test data for these cases: the standard submitted payload, plus
   `required_facilities` and `required_accessibility` as given and
   `venue=null`; the response includes all four.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_venue_requirements_are_stored_and_read_back`
 
 ## TC-EVENTS-094 — organisers get the option lists from the events service
 
@@ -1289,6 +1289,6 @@ Shared test data for these cases: the standard submitted payload, plus
   `accessibility`, each exactly the venue catalogue's set in its order. Every
   other role: `403`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_organisers_get_the_option_lists`, `test_app.py::test_other_roles_cannot_get_the_option_lists`

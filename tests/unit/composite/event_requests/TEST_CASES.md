@@ -10,9 +10,9 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
-| Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, httpx 0.28.1; no network, database, or Docker |
-| Result | 28 passed |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 30 passed |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -80,8 +80,8 @@ submitted body  name, purpose, start/end date+time, expected_attendance,
 - **Steps:** `POST /event-requests` with `name` omitted.
 - **Test data:** Shared submitted body minus `name`.
 - **Expected:** `422` identifying `name`; neither client called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_submit_validates_before_any_downstream_call`
 
 ## TC-EVENTREQUESTS-005 — the sole eligible coordinator is assigned
@@ -461,9 +461,9 @@ event's venue requirements and no venue.
 - **Expected:** `201`. The body sent to `POST /events/internal` carries the
   three fields as given and `venue: null`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_venue_requirements_pass_through_to_the_events_service`
 
 ## TC-EVENTREQUESTS-030 — venue requirements outside the catalogue are refused first
 
@@ -472,6 +472,6 @@ event's venue requirements and no venue.
 - **Test data:** As above.
 - **Expected:** `422` naming `required_facilities`; neither client called.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_venue_requirements_outside_the_catalogue_are_refused_first`

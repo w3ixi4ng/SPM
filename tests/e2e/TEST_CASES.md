@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 8 passed on the second of two consecutive runs. The first run failed TC-E2E-202 (`test_session.py`, untouched by S-36): the **Sign out** button was detached from the page while Playwright clicked it, a re-render race; likely the same uncaptured flake seen once on `dc7454a`. TC-E2E-209 passed on both runs |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with both S-36 migrations), `venues` and `bookings` (with the cabaret removal) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
+| Result | 8 passed, twice consecutively |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -223,6 +223,6 @@ contract without a browser.
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
     `120 expected`, `Theatre`, and the coordinator's name. The row is
     labelled **Pending**.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** The request screen showed Theatre and Projector as text with no inputs; the venue's row was marked Fits and chosen by its radio; the send returned to the event page with the confirmation; after a reload Venue requests listed the venue, 12 Nov 2026, 09:00–12:00, Pending; Venue Staff's pending list showed the full row.
+- **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`

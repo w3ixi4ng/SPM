@@ -11,7 +11,7 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/venue_bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 65 passed |
 
@@ -144,8 +144,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** `422` with the offending field in `errors` for each one.
   No downstream service is called, not even users: FastAPI checks the body
   before the route runs, the same as TC-EVENTREQUESTS-004.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_the_body_is_checked_before_any_downstream_call`, `test_app.py::test_an_end_time_before_the_start_names_the_problem`
 
 ## TC-VENUEBOOKINGS-005 — a Coordinator cannot book for an event not assigned to them
@@ -264,8 +264,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `whiteboard`.
 - **Expected:** Refused at submission with `errors.required_facilities`
   = `"Studio B does not have: stage, whiteboard"`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_every_required_facility_must_be_at_the_venue`
 
 ## TC-VENUEBOOKINGS-014 — every required accessibility feature must be at the venue
@@ -277,8 +277,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** As above. The venue lacks `hearing_loop`.
 - **Expected:** Refused at submission with `errors.required_accessibility`
   = `"Studio B does not have: hearing_loop"`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_every_required_accessibility_feature_must_be_at_the_venue`
 
 ## TC-VENUEBOOKINGS-015 — the room layout must be one the venue offers
@@ -290,8 +290,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** As above. The venue offers `theatre` and `classroom` only.
 - **Expected:** Refused at submission with `errors.room_layout`
   = `"Studio B does not offer the banquet layout"`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_the_room_layout_must_be_one_the_venue_offers`
 
 ## TC-VENUEBOOKINGS-016 — every problem is reported at once
@@ -305,8 +305,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** One `422` whose `errors` holds exactly these keys:
   `booking_date`, `operating_hours`, `expected_attendance`,
   `required_facilities`, `room_layout`. Bookings is never called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_every_problem_is_reported_at_once`
 
 ## TC-VENUEBOOKINGS-017 — an event with no venue requirements, and no notes
@@ -320,9 +320,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** `201`. The body sent to `POST /bookings` has
   `room_layout=null`, `required_facilities=[]`,
   `required_accessibility=[]` and `notes=null`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_app.py::test_the_optional_choices_may_be_left_out`
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_event_with_no_venue_requirements_and_no_notes`
 
 ## TC-VENUEBOOKINGS-018 — the request carries the event's requirements for Venue Staff
 
@@ -357,8 +357,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
   The response is `201` with the bookings service's body, including
   `status: "pending"`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_the_request_carries_the_events_requirements_for_venue_staff`
 
 ## TC-VENUEBOOKINGS-019 — submitting a request writes nothing to the event

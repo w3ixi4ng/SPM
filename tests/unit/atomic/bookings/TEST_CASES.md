@@ -16,7 +16,7 @@ session or role check here, and none is tested.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 32 passed |
 

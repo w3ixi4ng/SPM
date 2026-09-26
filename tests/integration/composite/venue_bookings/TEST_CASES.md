@@ -11,9 +11,9 @@ and the gateway route.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/venue_bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
-| Result | 2 passed (19 across `tests/integration`), twice consecutively |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with both S-36 migrations), `venues` and `bookings` (with the cabaret removal) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
+| Result | 2 passed (20 across `tests/integration`), twice consecutively |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -60,8 +60,8 @@ and the gateway route.
   - Step 5: `200`, exactly one booking: the id from step 2, `status:
     "pending"`.
   - Step 7: `200`, and the list contains the booking id from step 2.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** `201` pending through Kong; the stored row carried the seeded event, venue and coordinator details and the event's layout, facilities and accessibility; the event stayed `planning`; the coordinator's list for the event held exactly that booking, `pending`; it was in Venue Staff's pending list.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coordinator`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved
@@ -80,6 +80,6 @@ and the gateway route.
   - Step 2: `422`, with `booking_date`, `operating_hours` and
     `expected_attendance` in `errors`.
   - Step 3: `0`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** `422` with `booking_date`, `operating_hours` and `expected_attendance` in `errors`; no row saved.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_an_unsuitable_venue_is_refused_against_real_venue_data`

@@ -8,9 +8,9 @@ the table, the grants, the schema exposure and the connection all at once.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
-| Result | 1 passed (19 across `tests/integration`), twice consecutively |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with both S-36 migrations), `venues` and `bookings` (with the cabaret removal) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
+| Result | 1 passed (20 across `tests/integration`), twice consecutively |
 
 **Story:** S-36 Submit venue booking request.
 
