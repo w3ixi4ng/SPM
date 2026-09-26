@@ -87,6 +87,7 @@ Supabase addresses tables as `schema.table`, so the users service's table is
 | `atomic/users` | `users` | `users` | `users.users` |
 | `atomic/events` | `events` | `events` | `events.events` |
 | `atomic/venues` | `venues` | `venues` | `venues.venues` |
+| `atomic/bookings` | `bookings` | `bookings` | `bookings.bookings` |
 
 Rules:
 
@@ -442,8 +443,10 @@ Every service gets its own port. 8000 is the gateway's.
 | `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
 | `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
 | `atomic/venues` | 8003 | `http://venues:8003` / `http://localhost:8003` |
+| `atomic/bookings` | 8004 | `http://bookings:8004` / `http://localhost:8004` — composites only, no Kong route |
 | `frontend` | — | `http://frontend:80` — through Kong only, see below |
-| first composite | 8100 | reserved |
+| `composite/event_requests` | 8100 | `http://event_requests:8100` / `http://localhost:8100` |
+| `composite/venue_bookings` | 8101 | `http://venue_bookings:8101` / `http://localhost:8101` |
 
 Services stay published on their own ports as well, so you can bypass the
 gateway to test a service on its own — which is what the integration tests do.

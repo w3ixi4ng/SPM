@@ -33,7 +33,7 @@ jobs:
           # they live under — keep in step with docker-compose.yml and the
           # port table in AGENTS.md.
           matrix='[]'
-          for entry in "users:8001:atomic" "events:8002:atomic" "venues:8003:atomic" "event_requests:8100:composite"; do
+          for entry in "users:8001:atomic" "events:8002:atomic" "venues:8003:atomic" "bookings:8004:atomic" "event_requests:8100:composite" "venue_bookings:8101:composite"; do
             name="${entry%%:*}"
             rest="${entry#*:}"
             port="${rest%%:*}"
@@ -133,8 +133,12 @@ jobs:
           EVENTS_SERVICE_PORT=8002
           VENUES_SERVICE_PORT=8003
           EVENT_REQUESTS_SERVICE_PORT=8100
+          BOOKINGS_SERVICE_PORT=8004
+          VENUE_BOOKINGS_SERVICE_PORT=8101
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002
+          VENUES_SERVICE_URL=http://venues:8003
+          BOOKINGS_SERVICE_URL=http://bookings:8004
           ENV
 
       # Only this matrix entry's service — compose would otherwise try to build

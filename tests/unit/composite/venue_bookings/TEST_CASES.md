@@ -137,7 +137,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   - `required_facilities: ["jacuzzi"]`
   - an extra field `"status": "approved"`
 - **Expected:** `422` with the offending field in `errors` for each one.
-  Only `GET /users/me` is called, never events, venues or bookings.
+  No downstream service is called, not even users: FastAPI checks the body
+  before the route runs, the same as TC-EVENTREQUESTS-004.
 - **Actual:**
 - **Status:** Not Executed
 - **Evidence:**

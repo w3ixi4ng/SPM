@@ -57,6 +57,18 @@ services:
           - /api/event-requests
         strip_path: true
 
+  - name: venue-bookings
+    # Keep /venue-bookings on the upstream URL, as for the others:
+    # /api/venue-bookings/pending reaches /venue-bookings/pending. The
+    # bookings atomic service behind it has no route here -- only this
+    # composite calls it.
+    url: http://venue_bookings:8101/venue-bookings
+    routes:
+      - name: venue-bookings
+        paths:
+          - /api/venue-bookings
+        strip_path: true
+
   # The frontend, last and least specific. Kong matches the longest path
   # prefix first, so the `/api/...` routes above still win over `/` and
   # this only catches what they did not.
