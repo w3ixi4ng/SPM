@@ -15,9 +15,11 @@ from .conftest import (
     NAME,
     PROFILE,
     USER_ID,
+    auth_admin_user,
     auth_error,
     fake_session,
     fake_user,
+    on_in,
     on_insert,
     on_select,
 )
@@ -390,3 +392,42 @@ def test_signup_removes_account_when_trusted_role_assignment_fails(client, db, a
     assert response.json()["detail"] == "Could not configure user account"
     db.auth.admin.delete_user.assert_called_once_with(USER_ID)
     db.schema.return_value.table.return_value.insert.assert_not_called()
+
+
+# --- TC-USERS-027 ---------------------------------------------------------
+def test_coordinator_listing_returns_only_that_role(client, db):
+    coordinator_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    coordinator_2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    db.auth.admin.list_users.return_value = [
+        auth_admin_user(coordinator_1, "event_coordinator"),
+        auth_admin_user(coordinator_2, "event_coordinator"),
+        auth_admin_user("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "event_organiser"),
+        auth_admin_user("dddddddd-dddd-4ddd-8ddd-dddddddddddd", None),
+    ]
+    coordinator_profiles = [
+        {"id": coordinator_1, "name": "Grace Hopper", "email": "grace@example.com"},
+        {"id": coordinator_2, "name": "Ada Lovelace", "email": "ada2@example.com"},
+    ]
+    on_in(db, coordinator_profiles)
+
+    response = client.get("/users/coordinators")
+
+    assert response.status_code == 200
+    assert response.json() == coordinator_profiles
+    queried_ids = set(
+        db.schema.return_value.table.return_value.select.return_value.in_.call_args[0][1]
+    )
+    assert queried_ids == {coordinator_1, coordinator_2}
+
+
+# --- TC-USERS-028 ---------------------------------------------------------
+def test_coordinator_listing_is_empty_when_no_one_holds_the_role(client, db):
+    db.auth.admin.list_users.return_value = [
+        auth_admin_user("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "event_organiser"),
+    ]
+
+    response = client.get("/users/coordinators")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    db.schema.return_value.table.return_value.select.assert_not_called()

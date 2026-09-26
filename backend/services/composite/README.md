@@ -12,5 +12,9 @@ case.
 
 ## Services
 
-_None yet._ Add one folder per use case, following the service structure in
+| Service | Spans | Use case |
+| --- | --- | --- |
+| [`event_requests/`](event_requests/README.md) | `events`, `users` | Route a submitted event request to a free event coordinator. |
+
+Add one folder per use case, following the service structure in
 [`AGENTS.md`](../../../AGENTS.md).

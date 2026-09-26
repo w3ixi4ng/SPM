@@ -1,11 +1,12 @@
 import { CalendarCheck, ListChecks, LogOut, MessagesSquare } from 'lucide-react'
-import { useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess } from '../lib/access.js'
+import { eventErrorMessage, eventStatusMeta, listAssignedEventRequests } from '../lib/eventRequests.js'
 
 const C = {
   ink: '#10192B',
@@ -19,11 +20,6 @@ const C = {
 }
 
 const UPCOMING_AREAS = [
-  {
-    icon: CalendarCheck,
-    title: 'Assigned events',
-    description: "See the events you've been assigned to coordinate.",
-  },
   {
     icon: ListChecks,
     title: 'Timeline coordination',
@@ -94,50 +90,12 @@ function Tabs({ active, onSelect }) {
   )
 }
 
-function EventsPlaceholder() {
-  return (
-    <div className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
-      <h2 className="font-display text-2xl mb-2" style={{ color: C.ink }}>
-        Coordination tools, on the way
-      </h2>
-      <p className="font-ui text-sm mb-6 max-w-md" style={{ color: C.inkFaint }}>
-        Events you coordinate will appear here once assignment is built.
-      </p>
-      <ul className="divide-y">
-        {UPCOMING_AREAS.map(({ icon: Icon, title, description }) => (
-          <li
-            key={title}
-            className="py-4 first:pt-0 last:pb-0 flex items-start gap-4"
-            style={{ borderColor: C.line }}
-          >
-            <Icon size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
-            <div className="min-w-0 flex-1">
-              <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{title}</h3>
-              <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>{description}</p>
-            </div>
-            <span
-              className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1"
-              style={{ color: C.inkFaint }}
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full border"
-                style={{ borderColor: C.inkFaint }}
-                aria-hidden="true"
-              />
-              Not started
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 export default function EventCoordinatorDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
   const { venues, loading, error, reload } = useVenueList()
+  const [assigned, setAssigned] = useState({ status: 'loading', events: [], error: null })
   // Kept in the URL so a reload or a shared link opens the same tab.
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = TABS.some((tab) => tab.id === searchParams.get('tab'))
@@ -147,6 +105,20 @@ export default function EventCoordinatorDashboard({ role }) {
   function selectTab(id) {
     setSearchParams(id === TABS[0].id ? {} : { tab: id }, { replace: true })
   }
+
+  useEffect(() => {
+    let active = true
+    listAssignedEventRequests()
+      .then((events) => {
+        if (active) setAssigned({ status: 'ready', events, error: null })
+      })
+      .catch((error) => {
+        if (active) setAssigned({ status: 'error', events: [], error: eventErrorMessage(error) })
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   async function handleSignOut() {
     await signOut()
@@ -232,7 +204,100 @@ export default function EventCoordinatorDashboard({ role }) {
             aria-labelledby="tab-events"
             hidden={activeTab !== 'events'}
           >
-            <EventsPlaceholder />
+            <section className="border rounded-sm p-7 sm:p-8 mb-10" style={{ borderColor: C.line }}>
+              <h2 className="font-display text-2xl mb-6" style={{ color: C.ink }}>
+                Assigned requests
+              </h2>
+
+              {assigned.status === 'loading' && (
+                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                  Loading your assigned requests…
+                </p>
+              )}
+
+              {assigned.status === 'error' && (
+                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                  {assigned.error}
+                </p>
+              )}
+
+              {assigned.status === 'ready' && assigned.events.length === 0 && (
+                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                  No event requests have been routed to you yet.
+                </p>
+              )}
+
+              {assigned.status === 'ready' && assigned.events.length > 0 && (
+                <ul className="divide-y" style={{ borderColor: C.line }}>
+                  {assigned.events.map((event) => {
+                    const { label: statusLabel, color: statusColor } = eventStatusMeta(event.status)
+                    return (
+                      <li key={event.id} className="py-4 first:pt-0 last:pb-0">
+                        <Link
+                          to={`/coordinator/events/${event.id}`}
+                          className="flex items-start gap-4 group"
+                        >
+                          <CalendarCheck
+                            size={20}
+                            aria-hidden="true"
+                            className="mt-0.5 shrink-0"
+                            style={{ color: C.sky }}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <h3
+                              className="font-ui text-base font-medium group-hover:underline"
+                              style={{ color: C.ink }}
+                            >
+                              {event.name || 'Untitled event request'}
+                            </h3>
+                            <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
+                              {event.start_date} at {event.start_time?.slice(0, 5)} · {event.venue}
+                            </p>
+                          </div>
+                          <span
+                            className="font-ui text-xs font-medium px-2.5 py-1 rounded-sm shrink-0"
+                            style={{ color: statusColor, backgroundColor: `${statusColor}1F` }}
+                          >
+                            {statusLabel}
+                          </span>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
+              <p className="font-ui text-xs uppercase tracking-widest mb-3" style={{ color: C.teal }}>
+                Coming to this workspace
+              </p>
+              <h2 className="font-display text-2xl mb-6" style={{ color: C.ink }}>
+                Coordination tools, on the way
+              </h2>
+              <ul className="divide-y" style={{ borderColor: C.line }}>
+                {UPCOMING_AREAS.map(({ icon: Icon, title, description }) => (
+                  <li key={title} className="py-4 first:pt-0 last:pb-0 flex items-start gap-4">
+                    <Icon size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{title}</h3>
+                      <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>{description}</p>
+                    </div>
+                    <span
+                      className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1"
+                      style={{ color: C.inkFaint }}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full border"
+                        style={{ borderColor: C.inkFaint }}
+                        aria-hidden="true"
+                      />
+                      Not started
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
         </div>
       </div>

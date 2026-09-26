@@ -8,9 +8,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` |
+| Last run | 2026-09-26, branch `S-12/event-coordinator-assignment` (merged with `S-14/auto-assign-ec`) |
 | Environment | Local Node.js; no network or Supabase |
-| Result | 12 passed |
+| Result | 23 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -27,12 +27,13 @@ RBAC, and validation remain authoritative.
 
 - **Scenario:** Only an Event Organiser sees organiser event capabilities.
 - **Pre-conditions:** The frontend access mapping is loaded.
-- **Steps:** Check every `events:*` permission for every supported role.
-- **Test data:** Five roles and five organiser event permissions.
+- **Steps:** Check every `events:*` permission the organiser role holds,
+  against every supported role.
+- **Test data:** Five roles and `event_organiser`'s five `events:*` permissions.
 - **Expected:** All are true for `event_organiser` and false for every other role.
 - **Actual:** All five event permissions were exclusive to `event_organiser`.
 - **Status:** Pass
-- **Evidence:** `test_access.mjs` — `only event organisers receive organiser event permissions`
+- **Evidence:** `test_access.mjs` — `only event organisers receive organiser-only event permissions`
 
 ## TC-FRONTEND-003 — missing and unknown roles fail closed
 
@@ -83,8 +84,13 @@ RBAC, and validation remain authoritative.
 - **Steps:** Create a draft, update it, create a submission, submit a draft,
   and load an event.
 - **Test data:** The complete shared event form and one UUID.
-- **Expected:** Correct `/api/events` paths and HTTP methods, JSON bodies omit
-  protected fields, and every request sets `credentials: include`.
+- **Expected:** Draft create and read use `/api/events`; update and both
+  submit actions (direct-submit and submit-existing-draft) use
+  `/api/event-requests` instead -- S-12 routes update through the
+  event_requests composite too, since an edit to a submitted event's
+  date/time has to recheck the assigned coordinator, which create/read never
+  need to. JSON bodies omit protected fields, and every request sets
+  `credentials: include`.
 - **Actual:** All five operations used the expected gateway path and method,
   carried credentials, and omitted protected fields.
 - **Status:** Pass
@@ -183,3 +189,199 @@ RBAC, and validation remain authoritative.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_venues.mjs` — `venue API errors map to safe status and field feedback`
+
+## TC-FRONTEND-013 — coordinator permissions are not exposed to other roles
+
+- **Scenario:** `events:view_assigned`/`events:decide` (a coordinator's two
+  permissions) are coordinator-only, the same guarantee as TC-FRONTEND-002.
+- **Pre-conditions:** The frontend access mapping is loaded.
+- **Steps:** Check every `events:*` permission the coordinator role holds,
+  against every supported role.
+- **Test data:** Five roles and `event_coordinator`'s `events:*` permissions.
+- **Expected:** True for `event_coordinator`, false for every other role.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only event coordinators receive coordinator-only event permissions`
+
+---
+
+**S-14 additions.**
+
+## TC-FRONTEND-014 — every backend status has a distinct display
+
+- **Scenario:** The organiser and coordinator dashboards both derive a
+  status badge's label and color from one shared source, so the two never
+  drift apart.
+- **Pre-conditions:** None.
+- **Steps:** Call `eventStatusMeta` for each of `draft`, `submitted`,
+  `approved`, `returned`, `rejected`.
+- **Test data:** The five statuses above.
+- **Expected:** Each returns a string label and a `#rrggbb` color; the five
+  labels are all distinct.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `eventStatusMeta covers every backend status with a distinct label`
+
+## TC-FRONTEND-015 — an unrecognised status still renders safely
+
+- **Pre-conditions:** None.
+- **Steps:** Call `eventStatusMeta('made_up_status')`.
+- **Test data:** `'made_up_status'`.
+- **Expected:** No throw; the status string itself is used as the label, and
+  a valid fallback color is returned.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `eventStatusMeta falls back safely for an unrecognised status`
+
+## TC-FRONTEND-016 — a decision posts to the events service, not event-requests
+
+- **Scenario:** Unlike submit/update, deciding never touches assignment, so
+  there is nothing for the composite to orchestrate — this goes straight to
+  the events service.
+- **Pre-conditions:** `fetch` records the request and returns a stub event.
+- **Steps:** Call `decideEventRequest('event-1', {decision: 'approved'})`.
+- **Test data:** As above.
+- **Expected:** `POST /api/events/event-1/decision`, `credentials: include`,
+  body exactly `{"decision": "approved"}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `decideEventRequest posts to the events service, not event-requests`
+
+## TC-FRONTEND-017 — reason and comment are omitted when not given
+
+- **Scenario:** An approval sends neither field — the backend rejects a
+  reason on approve, so the client must not send an empty string for one.
+- **Pre-conditions:** As above.
+- **Steps:** Call `decideEventRequest('event-1', {decision: 'approved',
+  reason: '', comment: undefined})`.
+- **Test data:** As above.
+- **Expected:** Body is exactly `{"decision": "approved"}` — no `reason` or
+  `comment` key at all.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `decideEventRequest omits reason and comment when not given`
+
+## TC-FRONTEND-018 — reason and comment are included when given
+
+- **Pre-conditions:** As above.
+- **Steps:** Call `decideEventRequest('event-1', {decision: 'returned',
+  reason: 'Missing risk assessment', comment: 'Please attach the fire safety
+  form'})`.
+- **Test data:** As above.
+- **Expected:** Body includes `decision`, `reason`, and `comment` exactly as
+  given.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `decideEventRequest includes reason and comment when given`
+
+## TC-FRONTEND-019 — returned and awaiting-decision requests sort to the front, in that order
+
+- **Scenario:** On the organiser dashboard, `returned` (sent back for
+  amendment -- the one status that needs the organiser to act) and
+  `submitted` (awaiting the coordinator's decision) are the two statuses the
+  organiser cares about most, so both surface before draft/approved/rejected
+  -- `returned` first, then `submitted`.
+- **Pre-conditions:** `sortEventsForOrganiser` is loaded.
+- **Steps:** Call `sortEventsForOrganiser(events)` with a mixed list of
+  statuses in a non-sorted order.
+- **Test data:** `[{id:'a',status:'submitted'}, {id:'b',status:'returned'},
+  {id:'c',status:'draft'}, {id:'d',status:'returned'},
+  {id:'e',status:'approved'}, {id:'f',status:'submitted'}]`.
+- **Expected:** `['b','d','a','f','c','e']` — all `returned` events first
+  (original relative order), then all `submitted` events (original relative
+  order), then the rest (original relative order). `draft`, `approved`, and
+  `rejected` are never moved ahead of each other.
+- **Actual:** Returned events led, followed by submitted, followed by the
+  rest, each group in original relative order.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `sortEventsForOrganiser sorts returned first, then submitted, then the rest, stable within each group`
+
+## TC-FRONTEND-020 — sorting is a no-op with none of the two priority statuses, and does not mutate the input
+
+- **Scenario:** A list with neither `submitted` nor `returned` requests is
+  left in its existing (backend-provided) order, and the function does not
+  mutate its argument.
+- **Pre-conditions:** As above.
+- **Steps:** Call `sortEventsForOrganiser(events)` on a list containing only
+  `draft` and `approved` events, then compare the result to the input order,
+  and separately assert the original array's element order is unchanged
+  after the call.
+- **Test data:** `[{id:'a',status:'draft'}, {id:'b',status:'approved'},
+  {id:'c',status:'draft'}]`.
+- **Expected:** Result order is `['a','b','c']`, identical to the input, and
+  the input array itself still reads `['a','b','c']` afterward.
+- **Actual:** Result order was unchanged and the input array's own order was
+  unchanged after the call.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `sortEventsForOrganiser is a no-op with neither priority status, and does not mutate its argument`
+
+## TC-FRONTEND-021 — only the returned-for-amendment badge pulses, and only for the organiser
+
+- **Scenario:** Per confirmed design, only `returned` gets the attention-
+  drawing pulse animation on the organiser dashboard — `submitted` keeps a
+  static badge, distinguished only by sort position and label/color, not
+  motion.
+- **Pre-conditions:** None.
+- **Steps:** This case documents the status-to-animation-class mapping the
+  `Dashboard.jsx` badge depends on (`event.status === 'returned'` ?
+  `csp-pulse-badge` : none) — the animation class itself is applied in JSX,
+  which these Node tests do not render. See the note below for what is and
+  isn't covered.
+- **Test data:** N/A — see note.
+- **Expected:** N/A — see note.
+- **Actual:** N/A — see note.
+- **Status:** Blocked
+- **Evidence:** —
+- **Note:** The pulse animation, its 2.2s cadence, and the
+  `prefers-reduced-motion` fallback are a rendered/CSS concern `node --test`
+  cannot exercise without a DOM. Which status gets which *label and color*
+  is covered by `organiserStatusMeta`, below (TC-FRONTEND-022/023/024) —
+  this case is Blocked pending a browser/E2E check for the animation class
+  itself, not claimed as covered here.
+
+## TC-FRONTEND-022 — the organiser dashboard relabels a returned request as "Action required", in rose
+
+- **Scenario:** From the organiser's point of view, `returned` is the status
+  that needs *their* action (edit + resubmit), so the organiser dashboard
+  renames the coordinator-facing "Returned for amendment" to "Action
+  required" and colors it rose — the same "needs attention" red already
+  used for `rejected` — instead of the shared amber. The coordinator's own
+  views (`eventStatusMeta` directly) are unaffected.
+- **Pre-conditions:** `organiserStatusMeta` is loaded.
+- **Steps:** Call `organiserStatusMeta('returned')`.
+- **Test data:** `'returned'`.
+- **Expected:** `{ label: 'Action required', color: '#B25547' }`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta relabels returned as Action required, in rose`
+
+## TC-FRONTEND-023 — the organiser dashboard relabels a submitted request as "Under review", keeping the shared color
+
+- **Scenario:** `submitted` is awaiting the coordinator, not the organiser,
+  so only the wording changes ("Awaiting decision" → "Under review") —
+  the color stays whatever `eventStatusMeta` already assigns it (shared
+  amber), since this status doesn't get the rose "needs attention" treatment.
+- **Pre-conditions:** As above.
+- **Steps:** Call `organiserStatusMeta('submitted')` and compare its color
+  to `eventStatusMeta('submitted').color`.
+- **Test data:** `'submitted'`.
+- **Expected:** `label` is `'Under review'`; `color` equals
+  `eventStatusMeta('submitted').color` exactly.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta relabels submitted as Under review, keeping the shared color`
+
+## TC-FRONTEND-024 — every other status falls through to the shared meta unchanged
+
+- **Scenario:** `draft`, `approved`, and `rejected` are not part of this
+  organiser-only reframing — they must render identically to the
+  coordinator-facing `eventStatusMeta`, label and color both.
+- **Pre-conditions:** As above.
+- **Steps:** Call `organiserStatusMeta(status)` for `'draft'`, `'approved'`,
+  and `'rejected'`, and compare each to `eventStatusMeta(status)`.
+- **Test data:** `'draft'`, `'approved'`, `'rejected'`.
+- **Expected:** `organiserStatusMeta(status)` deep-equals
+  `eventStatusMeta(status)` for all three.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta falls through to the shared meta for every other status`

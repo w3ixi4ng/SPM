@@ -25,14 +25,27 @@ test('every supported role has its own dashboard', () => {
   )
 })
 
-test('only event organisers receive organiser event permissions', () => {
-  const eventPermissions = Object.values(PERMISSIONS).filter((permission) =>
-    permission.startsWith('events:'),
+test('only event organisers receive organiser-only event permissions', () => {
+  const organiserEventPermissions = ROLE_ACCESS.event_organiser.permissions.filter(
+    (permission) => permission.startsWith('events:'),
   )
 
-  for (const permission of eventPermissions) {
+  for (const permission of organiserEventPermissions) {
     assert.equal(hasPermission('event_organiser', permission), true)
     for (const role of Object.keys(ROLE_ACCESS).filter((name) => name !== 'event_organiser')) {
+      assert.equal(hasPermission(role, permission), false)
+    }
+  }
+})
+
+test('only event coordinators receive coordinator-only event permissions', () => {
+  const coordinatorEventPermissions = ROLE_ACCESS.event_coordinator.permissions.filter(
+    (permission) => permission.startsWith('events:'),
+  )
+
+  for (const permission of coordinatorEventPermissions) {
+    assert.equal(hasPermission('event_coordinator', permission), true)
+    for (const role of Object.keys(ROLE_ACCESS).filter((name) => name !== 'event_coordinator')) {
       assert.equal(hasPermission(role, permission), false)
     }
   }

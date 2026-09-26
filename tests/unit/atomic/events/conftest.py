@@ -49,6 +49,8 @@ ROLE_PERMISSIONS = authorization_module.ROLE_PERMISSIONS
 ORGANISER_ID = "11111111-1111-4111-8111-111111111111"
 OTHER_USER_ID = "22222222-2222-4222-8222-222222222222"
 EVENT_ID = "33333333-3333-4333-8333-333333333333"
+COORDINATOR_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+COORDINATOR_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 
 def fake_user(user_id=ORGANISER_ID, role="event_organiser"):
@@ -77,6 +79,11 @@ def event_row(**changes):
         "equipment_requests": {},
         "accessibility_requirements": None,
         "special_requirements": None,
+        "assigned_coordinator_id": None,
+        "decision": None,
+        "decision_reason": None,
+        "decision_comment": None,
+        "decided_at": None,
         "submitted_at": None,
         "created_at": "2026-09-14T00:00:00Z",
         "updated_at": "2026-09-14T00:00:00Z",
@@ -111,13 +118,42 @@ def on_owned_list(db, rows=None, error=None):
 
 
 def on_update(db, rows):
-    # Three .eq() calls: id, organiser_id, and status='draft' -- this is the
-    # draft-to-submitted transition (POST /events/{id}/submit), which is
-    # still only allowed from a draft.
+    # .eq(id).eq(organiser_id).in_(status, [...]) -- the draft/returned ->
+    # submitted transition (POST /events/{id}/submit), S-14: a resubmission
+    # after a return lands here too, not only a first-time draft submit.
+    operation = (
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.in_.return_value
+    )
+    operation.execute.return_value = SimpleNamespace(data=rows)
+
+
+def on_decision_update(db, rows):
+    # POST /events/{id}/decision: .update().eq(id).eq(assigned_coordinator_id).eq(status, "submitted").
     operation = (
         db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=rows)
+
+
+def on_coordinator_rows(db, rows):
+    # POST /events/coordinator-load: .select().in_(coordinator_ids).in_(status, [...]).
+    operation = (
+        db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value
+    )
+    operation.execute.return_value = SimpleNamespace(data=rows)
+
+
+def coordinator_event_row(coordinator_id, **changes):
+    row = {
+        "id": EVENT_ID,
+        "assigned_coordinator_id": coordinator_id,
+        "start_date": "2026-10-20",
+        "start_time": "18:00:00",
+        "end_date": "2026-10-20",
+        "end_time": "21:00:00",
+    }
+    row.update(changes)
+    return row
 
 
 def on_update_owned(db, rows):

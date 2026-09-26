@@ -34,6 +34,20 @@ Paths are bare, the way every service in this repo mounts its routes. The
 `/api/users/...` the frontend calls is the gateway's prefix, not this service's
 — Kong (or the Vite dev proxy) strips it.
 
+**`GET /users/coordinators`** is internal, composite-only — no Kong route, and
+no session required at this layer, because a browser cannot reach it from
+outside the Docker network. The `event_requests` composite
+([`backend/services/composite/event_requests`](../../composite/event_requests/README.md))
+is the only caller, to find who it can route a new event request to. Returns
+every account whose trusted `app_metadata.role` is `event_coordinator`:
+
+```json
+// 200
+[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com"}]
+```
+
+`[]` when no account currently holds that role.
+
 ### Request and response
 
 Every endpoint takes and returns JSON. The session travels in cookies, never in

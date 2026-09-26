@@ -45,6 +45,18 @@ services:
           - /api/venues
         strip_path: true
 
+  - name: event-requests
+    # Same pattern as events: keep /event-requests on the upstream URL so
+    # /api/event-requests/{id}/submit reaches /event-requests/{id}/submit.
+    # Fronts submission and editing (both need a coordinator recheck);
+    # draft create/read/list stay on /api/events, which never needs one.
+    url: http://event_requests:8100/event-requests
+    routes:
+      - name: event-requests
+        paths:
+          - /api/event-requests
+        strip_path: true
+
   # The frontend, last and least specific. Kong matches the longest path
   # prefix first, so the `/api/...` routes above still win over `/` and
   # this only catches what they did not.

@@ -61,8 +61,10 @@ surviving a page load.
 
 - **Scenario:** The product's main path — fill the event request form, submit
   it, and find it on the dashboard afterwards.
-- **Pre-conditions:** Stack running. A seeded `event_organiser`, signed in.
-  The `events` schema applied, exposed and granted.
+- **Pre-conditions:** Stack running, including the `event_requests` composite.
+  A seeded `event_coordinator` (S-12: submission now assigns one, and 409s
+  with none free) and a seeded `event_organiser`, signed in. The `events`
+  schema, including `assigned_coordinator_id`, applied, exposed and granted.
 - **Steps:**
   1. Open `/events/new`.
   2. Enter the event name and purpose.
@@ -77,10 +79,11 @@ surviving a page load.
   redirects to `/events/<uuid>`, and the event's name appears in **Your
   requests** on a freshly loaded dashboard, marked submitted — so it was
   stored and read back, not just echoed.
-- **Actual:** The "Request submitted." confirmation appeared, the browser landed
-  on `/events/<uuid>`, and the event showed in **Your requests** marked
-  submitted.
-- **Status:** Pass
+- **Actual:** Passed before S-12 changed the submission path. Not re-run this
+  pass — needs `events.sql` migrated with `assigned_coordinator_id`, the
+  `event_requests` composite built and running, and the test now seeds a
+  coordinator first (see the test file).
+- **Status:** Blocked
 - **Evidence:** `test_event_request.py::test_organiser_submits_an_event_request_and_sees_it_listed`
 
 ## TC-E2E-204 — a non-organiser cannot reach organiser routes

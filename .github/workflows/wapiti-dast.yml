@@ -29,13 +29,16 @@ jobs:
 
       - id: check
         run: |
-          # Declared services and their ports — keep in step with
-          # docker-compose.yml and the port table in AGENTS.md.
+          # Declared services, their ports, and which half of backend/services
+          # they live under — keep in step with docker-compose.yml and the
+          # port table in AGENTS.md.
           matrix='[]'
-          for entry in "users:8001" "events:8002" "venues:8003"; do
+          for entry in "users:8001:atomic" "events:8002:atomic" "venues:8003:atomic" "event_requests:8100:composite"; do
             name="${entry%%:*}"
-            port="${entry##*:}"
-            if [ -f "backend/services/atomic/$name/Dockerfile" ]; then
+            rest="${entry#*:}"
+            port="${rest%%:*}"
+            kind="${rest#*:}"
+            if [ -f "backend/services/$kind/$name/Dockerfile" ]; then
               matrix=$(printf '%s' "$matrix" \
                 | jq -c --arg s "$name" --argjson p "$port" \
                     '. + [{service: $s, port: $p}]')
@@ -129,6 +132,7 @@ jobs:
           KONG_PROXY_PORT=8000
           EVENTS_SERVICE_PORT=8002
           VENUES_SERVICE_PORT=8003
+          EVENT_REQUESTS_SERVICE_PORT=8100
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002
           ENV

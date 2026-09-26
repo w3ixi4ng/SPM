@@ -58,6 +58,17 @@ def on_insert(db, rows=None, error=None):
         chain.execute.return_value = SimpleNamespace(data=rows)
 
 
+def on_in(db, rows):
+    """Point .schema().table().select().in_().execute() at a result."""
+    chain = db.schema.return_value.table.return_value.select.return_value.in_.return_value
+    chain.execute.return_value = SimpleNamespace(data=rows)
+
+
+def auth_admin_user(uid, role):
+    """A Supabase Auth admin-listing user -- only the fields the route reads."""
+    return SimpleNamespace(id=uid, app_metadata={} if role is None else {"role": role})
+
+
 @pytest.fixture
 def db():
     """Stands in for the service_role client -- the profile table."""

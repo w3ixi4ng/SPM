@@ -47,6 +47,7 @@ import {
   eventErrorMessage,
   eventFieldErrorsToForm,
   eventResponseToForm,
+  eventStatusMeta,
   getEventRequest,
   submitEventDraft,
   updateEventDraft,
@@ -783,11 +784,14 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
 }
 
 function StatusBadge({ status }) {
-  const presentation = {
-    draft: { color: C.amber, label: 'Draft' },
-    submitted: { color: C.green, label: 'Submitted' },
-    unsaved: { color: C.sky, label: 'Not saved' },
-  }[status] ?? { color: C.inkFaint, label: 'Not loaded' }
+  // 'unsaved' and null/undefined are local UI states, not backend statuses --
+  // everything else defers to the same status meta the dashboards use.
+  const presentation =
+    status === 'unsaved'
+      ? { color: C.sky, label: 'Not saved' }
+      : status
+        ? eventStatusMeta(status)
+        : { color: C.inkFaint, label: 'Not loaded' }
 
   return (
     <span
@@ -941,6 +945,7 @@ export default function EventRequestForm() {
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [status, setStatus] = useState(routeId ? null : 'unsaved')
+  const [decision, setDecision] = useState(null)
   const [errors, setErrors] = useState({})
   const [formError, setFormError] = useState(null)
   const [loadState, setLoadState] = useState(routeId ? 'loading' : 'ready')
@@ -983,6 +988,16 @@ export default function EventRequestForm() {
     setForm(merged)
     setSavedForm(merged)
     setStatus(event.status)
+    setDecision(
+      event.decision
+        ? {
+            decision: event.decision,
+            reason: event.decision_reason,
+            comment: event.decision_comment,
+            decidedAt: event.decided_at,
+          }
+        : null,
+    )
     setErrors({})
     setFormError(null)
   }
@@ -1028,6 +1043,22 @@ export default function EventRequestForm() {
   }, [loadAttempt, refresh, routeId])
 
   const isSubmitted = status === 'submitted'
+  const isApproved = status === 'approved'
+  const isRejected = status === 'rejected'
+  const isReturned = status === 'returned'
+  // Approved and rejected are both decided -- neither is meant to be edited
+  // further from here (rejected is enforced server-side too; approved is a
+  // product choice, since re-editing a confirmed event without a fresh
+  // review would undercut the point of deciding on it at all).
+  const isLocked = isApproved || isRejected
+  // A returned request still has to satisfy every submitted-required field
+  // once resubmitted -- the same stricter check as an already-submitted or
+  // approved one, not the permissive draft rules.
+  const requiresStrictValidation = isSubmitted || isApproved || isReturned
+  // Submitted and approved have no further "submit" step of their own; the
+  // form's one submit button at that point is "Save changes". Draft and
+  // returned both still need a real submit/resubmit action.
+  const routesSubmitToSave = isSubmitted || isApproved
   const isBusy = loadState === 'loading' || saveState === 'saving' || submitState === 'submitting'
   const canShowForm = !routeId || loadState === 'ready'
   // Submitting no longer freezes the record, so it can be dirty too -- the
@@ -1122,8 +1153,8 @@ export default function EventRequestForm() {
   async function handleSave({ redirectTo } = {}) {
     if (isBusy) return
 
-    const validationErrors = isSubmitted ? validateForSubmit(form) : validateDraft(form)
-    if (!isSubmitted && hasInvalidEquipment(form)) {
+    const validationErrors = requiresStrictValidation ? validateForSubmit(form) : validateDraft(form)
+    if (!requiresStrictValidation && hasInvalidEquipment(form)) {
       validationErrors.equipmentRequests = 'Fix the equipment quantities before saving.'
     }
     setErrors(validationErrors)
@@ -1176,9 +1207,9 @@ export default function EventRequestForm() {
     e.preventDefault()
     if (isBusy) return
 
-    // A submitted event has no further "submit" step -- the form's one
-    // submit button at that point is "Save changes", so route it there.
-    if (isSubmitted) {
+    // Submitted and approved have no further "submit" step -- the form's
+    // one submit button at that point is "Save changes", so route it there.
+    if (routesSubmitToSave) {
       handleSave()
       return
     }
@@ -1349,13 +1380,42 @@ export default function EventRequestForm() {
               className="font-ui text-sm rounded-sm px-4 py-3 mb-6"
               style={{ backgroundColor: withAlpha(C.green, 0.1), color: C.green }}
             >
-              This request has been submitted. You can still make changes —
-              save them below.
+              This request has been submitted and is awaiting a coordinator's
+              decision. You can still make changes — save them below.
             </p>
+          )}
+
+          {decision && (
+            <div
+              className="rounded-sm px-4 py-3 mb-6"
+              style={{
+                backgroundColor: withAlpha(eventStatusMeta(status).color, 0.1),
+                color: eventStatusMeta(status).color,
+              }}
+            >
+              <p className="font-ui text-sm font-medium">
+                {isApproved && 'This request has been approved.'}
+                {isRejected && 'This request has been rejected and is closed.'}
+                {isReturned && 'This request was returned for amendment. Fix the issue below, then resubmit.'}
+              </p>
+              {decision.reason && (
+                <p className="font-ui text-sm mt-1">
+                  <span className="font-medium">Reason: </span>
+                  {decision.reason}
+                </p>
+              )}
+              {decision.comment && (
+                <p className="font-ui text-sm mt-1">
+                  <span className="font-medium">Note from the coordinator: </span>
+                  {decision.comment}
+                </p>
+              )}
+            </div>
           )}
 
           {canShowForm && (
           <form noValidate onSubmit={handleSubmit} className="space-y-6">
+          <fieldset disabled={isLocked} className="space-y-6 border-0 p-0 m-0">
             <div>
               <label htmlFor="event-name" className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
                 Event name
@@ -1557,12 +1617,11 @@ export default function EventRequestForm() {
                 placeholder="Registration or sign-up arrangements, catering, security, anything else..."
                 value={form.specialRequirements}
                 onChange={(e) => updateField('specialRequirements', e.target.value)}
-                disabled={isSubmitted}
                 className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm resize-none"
               />
             </div>
 
-            {isSubmitted ? (
+            {routesSubmitToSave ? (
               <div className="flex sm:items-center gap-3 pt-2">
                 <button
                   type="submit"
@@ -1594,7 +1653,9 @@ export default function EventRequestForm() {
                     ? 'Saving…'
                     : saveState === 'saved'
                       ? 'Saved'
-                      : 'Save draft'}
+                      : isReturned
+                        ? 'Save changes'
+                        : 'Save draft'}
                 </button>
                 <button
                   type="submit"
@@ -1607,17 +1668,18 @@ export default function EventRequestForm() {
                   {submitState === 'submitting' ? (
                     <>
                       <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-                      Submitting...
+                      {isReturned ? 'Resubmitting...' : 'Submitting...'}
                     </>
                   ) : (
                     <>
                       <Send size={16} aria-hidden="true" />
-                      Submit request
+                      {isReturned ? 'Resubmit request' : 'Submit request'}
                     </>
                   )}
                 </button>
               </div>
             )}
+          </fieldset>
           </form>
           )}
         </div>

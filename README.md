@@ -30,6 +30,7 @@ docker compose up --build
 | users | 8001 |
 | events | 8002 |
 | venues | 8003 |
+| event_requests | 8100 |
 
 - [`AGENTS.md`](AGENTS.md) — service structure and conventions
 - [`tests/README.md`](tests/README.md) — how tests are organised
