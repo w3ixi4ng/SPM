@@ -44,3 +44,20 @@ test('missing and unknown roles fail closed', () => {
   assert.equal(hasPermission(undefined, PERMISSIONS.VIEW_DASHBOARD), false)
   assert.equal(hasPermission('not_a_role', PERMISSIONS.CREATE_EVENT), false)
 })
+
+// --- TC-FRONTEND-009 -------------------------------------------------------
+test('only venue staff create venues and only venue staff and coordinators view them', () => {
+  const expected = {
+    venue_staff: [true, true],
+    event_coordinator: [false, true],
+    event_organiser: [false, false],
+    technical_support: [false, false],
+    attendee: [false, false],
+  }
+
+  assert.deepEqual(Object.keys(expected).sort(), Object.keys(ROLE_ACCESS).sort())
+  for (const [role, [create, view]] of Object.entries(expected)) {
+    assert.equal(hasPermission(role, PERMISSIONS.CREATE_VENUE), create, role)
+    assert.equal(hasPermission(role, PERMISSIONS.VIEW_VENUES), view, role)
+  }
+})

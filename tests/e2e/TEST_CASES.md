@@ -1,8 +1,8 @@
 # Test cases — end-to-end journeys
 
-Covers `test_sign_up.py`, `test_session.py`, `test_event_request.py` and
-`test_role_access.py`. A real browser drives the built frontend through Kong,
-against both services and a real (test) Supabase project. These are the only
+Covers `test_sign_up.py`, `test_session.py`, `test_event_request.py`,
+`test_role_access.py` and `test_add_venue.py`. A real browser drives the built
+frontend through Kong, against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
 
@@ -100,3 +100,46 @@ surviving a page load.
 - **Actual:** All three ended on `/dashboard/venue-staff`.
 - **Status:** Pass
 - **Evidence:** `test_role_access.py::test_venue_staff_cannot_reach_the_organiser_dashboard`
+
+## TC-E2E-205 — venue staff add a venue and see it listed
+
+- **Scenario:** The S-27 main path — open the add-venue panel, fill it, save,
+  and find the venue on the dashboard after a reload.
+- **Pre-conditions:** Stack running from `.env.test`. A seeded `venue_staff`
+  account, signed in. The `venues` schema applied, exposed and granted.
+- **Steps:**
+  1. Open `/dashboard/venue-staff`.
+  2. Click **Add venue**; the slide-over opens.
+  3. Enter name, location, capacity and description.
+  4. Tick facilities, accessibility and room layouts.
+  5. Enable Monday and set its hours.
+  6. Click **Save venue**.
+  7. Reload the page.
+- **Test data:** name `spm-e2e Venue <random>`, location `1 Harbourfront
+  Walk, Singapore 098585`, capacity `250`, description `Waterfront hall`,
+  facilities Projector and Wi-Fi, accessibility Wheelchair access, layouts
+  Theatre and Banquet, Monday `09:00`–`18:00`.
+- **Expected:** The panel closes and a "Venue saved." confirmation appears.
+  After the reload the venue appears in the venue list with capacity `250` —
+  so it was stored and read back through Kong, not just echoed.
+- **Actual:** Not run: `backend/sql/venues.sql` has not yet been applied to the test project and `venues` is not yet exposed, and no local `.env.test` exists.
+- **Status:** Blocked
+- **Evidence:** `test_add_venue.py::test_venue_staff_add_a_venue_and_see_it_listed`
+
+## TC-E2E-206 — an event coordinator can view venues but not add one
+
+- **Scenario:** The frontend mirror in `access.js` and the backend policy in
+  the venues service agree on who may add and who may only view.
+- **Pre-conditions:** Stack running from `.env.test`. A seeded
+  `event_coordinator` account. At least one venue exists, inserted into
+  `venues.venues` by the test with the admin client and attributed to a seeded
+  venue staff user.
+- **Steps:**
+  1. Sign in as the coordinator.
+  2. Open `/dashboard/event-coordinator`.
+- **Test data:** The seeded coordinator; a venue named `spm-e2e Venue <random>`.
+- **Expected:** The venue appears in the coordinator's venue list; there is no
+  **Add venue** button.
+- **Actual:** Not run: `backend/sql/venues.sql` has not yet been applied to the test project and `venues` is not yet exposed, and no local `.env.test` exists.
+- **Status:** Blocked
+- **Evidence:** `test_add_venue.py::test_event_coordinator_can_view_but_not_add_venues`

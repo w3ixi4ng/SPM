@@ -107,10 +107,13 @@ def make_user(admin):
     yield _make
 
     for user_id in created:
-        # Events first: they are in another schema with no cascade back to the
-        # account, so deleting the user would strand them.
+        # Events and venues first: they are in other schemas with no cascade
+        # back to the account, so deleting the user would strand them.
         admin.schema("events").table("events").delete().eq(
             "organiser_id", user_id
+        ).execute()
+        admin.schema("venues").table("venues").delete().eq(
+            "created_by", user_id
         ).execute()
         # users.users cascades from auth.users, so the profile goes with this.
         admin.auth.admin.delete_user(user_id)

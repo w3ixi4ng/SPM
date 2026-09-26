@@ -36,6 +36,8 @@ services:
         condition: service_healthy
       events:
         condition: service_healthy
+      venues:
+        condition: service_healthy
       frontend:
         condition: service_healthy
     healthcheck:
@@ -107,6 +109,28 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8002/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  venues:
+    build: ./backend/services/atomic/venues
+    ports:
+      - "${VENUES_SERVICE_PORT}:8003"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8003/health').read()",
         ]
       interval: 10s
       timeout: 5s

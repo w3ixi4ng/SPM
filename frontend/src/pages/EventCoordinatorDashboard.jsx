@@ -2,6 +2,8 @@ import { CalendarCheck, ListChecks, LogOut, MessagesSquare } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import useVenueList from '../components/useVenueList.js'
+import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess } from '../lib/access.js'
 
 const C = {
@@ -37,6 +39,7 @@ export default function EventCoordinatorDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
+  const { venues, loading, error, reload } = useVenueList()
 
   async function handleSignOut() {
     await signOut()
@@ -94,6 +97,19 @@ export default function EventCoordinatorDashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        <section className="max-w-3xl mb-12" aria-labelledby="venues-heading">
+          <h2 id="venues-heading" className="font-display text-3xl mb-6" style={{ color: C.ink }}>
+            Venues
+          </h2>
+          <VenueList
+            venues={venues}
+            loading={loading}
+            error={error}
+            onRetry={reload}
+            emptyMessage="No venues have been added yet. Venue staff add them from their workspace."
+          />
+        </section>
 
         <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>
           <p className="font-ui text-xs uppercase tracking-widest mb-3" style={{ color: C.teal }}>

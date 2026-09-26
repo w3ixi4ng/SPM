@@ -1,16 +1,16 @@
 # Test cases — frontend role access (unit)
 
-Covers `test_access.mjs` and `test_event_requests.mjs`. These tests exercise
-the shared frontend presentation policy and event API contract without a
-browser or network. Backend authentication, RBAC, and validation remain
-authoritative.
+Covers `test_access.mjs`, `test_event_requests.mjs` and `test_venues.mjs`.
+These tests exercise the shared frontend presentation policy and the events and
+venues API contracts without a browser or network. Backend authentication,
+RBAC, and validation remain authoritative.
 
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-17, branch `S-07/T-01` |
+| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` |
 | Environment | Local Node.js; no network or Supabase |
-| Result | 8 passed |
+| Result | 12 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -117,3 +117,68 @@ authoritative.
   saved draft.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `event list loads the authenticated organisers saved requests`
+
+## TC-FRONTEND-009 — venue permissions match the venues service policy
+
+- **Scenario:** The dashboard shows venue actions only to the roles the
+  venues service allows (S-27).
+- **Pre-conditions:** The frontend access mapping is loaded.
+- **Steps:** Check `venues:create` and `venues:view` for every supported role.
+- **Test data:** All five supported role names.
+- **Expected:** `venue_staff` has both; `event_coordinator` has
+  `venues:view` only; `event_organiser`, `technical_support` and `attendee`
+  have neither.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only venue staff create venues and only venue staff and coordinators view them`
+
+## TC-FRONTEND-010 — the venue form reports every missing required field
+
+- **Scenario:** The form refuses to save until required fields are complete,
+  and says which ones are missing (S-27 AC 2).
+- **Pre-conditions:** The venue form validation in `frontend/src/lib/venues.js`
+  is loaded.
+- **Steps:** Call `validateVenueForm()` on an empty form; on a form with
+  whitespace-only name and location, capacity `0`, and a day whose close is
+  before its open; then on a complete form.
+- **Test data:** Empty form; `{name: "  ", location: "  ", capacity: "0",
+  roomLayouts: [], hours: {mon: {open: "18:00", close: "09:00"}}}`; the valid
+  venue from `tests/unit/atomic/venues/TEST_CASES.md` in form shape.
+- **Expected:** Empty form: errors for `name`, `location`, `capacity`,
+  `room_layouts`, `operating_hours`. Second form: errors for `name`,
+  `location`, `capacity`, `room_layouts`, and `operating_hours` saying closing
+  time must be after opening time. Complete form: no errors.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venues.mjs` — `venue form reports every missing required field`
+
+## TC-FRONTEND-011 — venue operations use the authenticated Kong contract
+
+- **Scenario:** The dashboard calls the intended gateway paths and sends only
+  the fields the service accepts.
+- **Pre-conditions:** `fetch` records requests and returns a valid venue.
+- **Steps:** Call `listVenues()`, `getVenueOptions()`, and `createVenue()` with
+  the complete form.
+- **Test data:** The complete form from TC-FRONTEND-010.
+- **Expected:** `GET /api/venues`, `GET /api/venues/options`,
+  `POST /api/venues`; every request sets `credentials: include`; the POST
+  body has `capacity` as a number, `operating_hours` as a list of
+  `{day, open, close}` for enabled days only, and no `created_by`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venues.mjs` — `venue API functions use Kong paths, methods, JSON, and credentials`
+
+## TC-FRONTEND-012 — venue errors are safe and actionable
+
+- **Scenario:** A rejected save tells the user what to fix.
+- **Pre-conditions:** The venue API error mapping is loaded.
+- **Steps:** Resolve messages for `401`, `403`, `409`, `422` and `500`; map a
+  `422` body's `errors` keys to form fields.
+- **Test data:** `422` body `{"detail": "Please check the details you
+  entered", "errors": {"capacity": "...", "operating_hours.0": "..."}}`.
+- **Expected:** `409` says a venue with that name already exists and to choose
+  another name; `500` says the venue was not saved; `capacity` and
+  `operating_hours.0` map to the capacity input and the Monday hours row.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venues.mjs` — `venue API errors map to safe status and field feedback`
