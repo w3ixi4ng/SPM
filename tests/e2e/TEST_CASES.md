@@ -129,3 +129,29 @@ contract without a browser.
   link was rendered, and `/venues/new` redirected to the coordinator dashboard.
 - **Status:** Pass
 - **Evidence:** `test_add_venue.py::test_event_coordinator_can_view_but_not_add_venues`
+
+## TC-E2E-207 — an organiser responds to a returned request and resubmits it
+
+- **Scenario:** Only a browser can prove the organiser sees the coordinator's
+  request on the page, amends it and resubmits (S-13 AC1 to AC3). The data
+  guarantees are TC-EVENTREQUESTS-105/106's job, not this test's.
+- **Pre-conditions:** Stack and project as the header. An organiser and a
+  coordinator are created with `make_user`. The admin client inserts one event
+  for that organiser, assigned to the coordinator, with every submitted field
+  filled in, `status=returned`, `decision=returned`, a reason, a comment and
+  `decided_at`. Every other coordinator is blocked at its window.
+- **Steps:** 1. Sign in as the organiser. 2. On the dashboard, open the
+  request marked **Action required**. 3. Read the banner. 4. Change
+  **Expected attendance** to `80`. 5. Click **Resubmit request**.
+- **Test data:** Attendance `120` → `80`; reason
+  `"Expected attendance exceeds the venue's capacity"`; comment
+  `"Reduce attendance to 80 or choose a larger venue"`.
+- **Expected:** Step 2 opens `/events/{id}`. Step 3 shows "This request was
+  returned for amendment", "Reason: Expected attendance exceeds the venue's
+  capacity" and "Note from the coordinator: Reduce attendance to 80 or choose
+  a larger venue". After step 5, a "Request submitted." toast appears, the URL
+  is still `/events/{id}`, the banner is gone, and the dashboard shows the
+  request once, as **Under review**.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

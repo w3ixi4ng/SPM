@@ -123,3 +123,50 @@ Verified runnable twice in a row.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflicts`
+
+## TC-EVENTREQUESTS-105 — a returned request is amended, resubmitted, and back with its coordinator
+
+- **Scenario:** Against the real database, this proves S-13 AC2 to AC5 in one
+  round trip: the amendment is saved, the same record is resubmitted, and it
+  is back in the coordinator's queue.
+- **Pre-conditions:** As TC-EVENTREQUESTS-101. The organiser has a submitted
+  request assigned to coordinator A. The admin client then sets it to
+  `status=returned`, `decision=returned`, with a reason, a comment and
+  `decided_at`. Every other coordinator is blocked at the window, so A is the
+  only candidate. A new fixture signs in as coordinator A.
+- **Steps:** 1. As the organiser, count `GET /events`. 2. `POST
+  /event-requests/{id}/submit` with the payload amended. 3. As the organiser,
+  `GET /events/{id}` and count `GET /events` again. 4. As coordinator A,
+  `GET /events/assigned`.
+- **Test data:** Window `2026-11-12 09:00`–`11:00`; `expected_attendance`
+  `120` → `80`; reason `"Expected attendance exceeds the venue's capacity"`;
+  comment `"Reduce attendance to 80 or choose a larger venue"`.
+- **Expected:** Step 2 returns `200` with the original `id`. Step 3 shows
+  `status=submitted`, `expected_attendance=80`, `assigned_coordinator_id=A`,
+  `decision`/`decision_reason`/`decision_comment`/`decided_at` all `null`, and
+  the same count as step 1. Step 4 lists the event once, with
+  `status=submitted` and `expected_attendance=80`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTREQUESTS-106 — a failed resubmission leaves the returned request exactly as it was
+
+- **Scenario:** Against the real database, this proves S-13 AC6: a refused
+  resubmission changes no stored field.
+- **Pre-conditions:** As TC-EVENTREQUESTS-105 up to the return. Then
+  coordinator A and every other coordinator get a covering booking at the
+  amended window, so nobody is free there.
+- **Steps:** 1. As the organiser, `GET /events/{id}` and keep the body. 2.
+  `POST /event-requests/{id}/submit` moving the window to the blocked one and
+  amending attendance. 3. `GET /events/{id}` again.
+- **Test data:** Original window `2026-11-12 09:00`–`11:00`, attendance `120`;
+  amended window `2026-11-12 13:00`–`15:00`, attendance `80`.
+- **Expected:** Step 2 returns `409` with
+  `"No event coordinator is available for the requested date and time"`.
+  Step 3 equals step 1 field for field, including `updated_at`: still
+  `returned`, `start_time=09:00:00`, attendance `120`, same coordinator, and
+  the same reason, comment and `decided_at`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

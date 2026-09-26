@@ -394,3 +394,53 @@ shape as editing a submitted event's date/time (TC-EVENTREQUESTS-017/018).
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_draft_submission_still_picks_fresh_with_no_prior_coordinator`
+
+## S-13 — failed resubmissions write nothing
+
+TC-EVENTREQUESTS-021 to -024 cover how a resubmission picks its coordinator.
+The cases below cover S-13 AC6: when a resubmission fails, the composite
+either never writes or passes the failure straight back.
+
+## TC-EVENTREQUESTS-026 — no free coordinator means the returned event is never written
+
+- **Scenario:** Extends TC-EVENTREQUESTS-023. The refusal happens before any
+  write, so the stored event keeps its previous details.
+- **Pre-conditions:** `GET /events/{id}` reports `status: returned`, assigned
+  to coordinator A; A conflicts at the amended window; no other coordinator
+  exists.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** As above.
+- **Expected:** `409`; `detail` is
+  `"No event coordinator is available for the requested date and time"`;
+  `events.post` is never called with `/events/{event_id}/submit/internal`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTREQUESTS-027 — an unreachable events service on resubmit is 502
+
+- **Pre-conditions:** `GET /events/{id}` reports `status: returned`, assigned
+  to A; A is free; `events.post` to `/submit/internal` raises
+  `httpx.ConnectError`.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** As above.
+- **Expected:** `502`; `detail` is `"Events service unavailable"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTREQUESTS-028 — a status change underneath the resubmission is passed back as 409
+
+- **Pre-conditions:** `GET /events/{id}` reports `status: returned`, assigned
+  to A; A is free; `/submit/internal` answers `409`.
+- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
+  submitted payload.
+- **Test data:** As above.
+- **Expected:** `409`; `detail` is
+  `"This request is no longer awaiting changes. Reload to see its current status."`,
+  the same wording as TC-EVENTS-086.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
