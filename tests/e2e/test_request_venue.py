@@ -1,7 +1,7 @@
 """TC-E2E-209 -- a Coordinator's venue request shows up on Venue Staff's dashboard (S-36).
 
 The suitability rules are TC-VENUEBOOKINGS-008..016's job and are not
-restaged here. This proves the slide-over posts through Kong, and that Venue
+restaged here. This proves the request screen posts through Kong, and that Venue
 Staff's dashboard renders the pending list after a fresh sign-in.
 """
 
@@ -63,18 +63,18 @@ def test_a_coordinators_venue_request_shows_up_for_venue_staff(admin, page, make
     page.wait_for_url(re.compile(r"/dashboard"), timeout=20000)
     page.goto(f"/coordinator/events/{event['id']}")
 
-    page.get_by_role("button", name="Request venue").click()
-    panel = page.get_by_role("dialog", name="Request a venue")
-    panel.wait_for(timeout=20000)
-    panel.get_by_label("Venue", exact=True).select_option(label=f"{venue_name} — holds 150")
-    panel.get_by_label("Date").fill("2026-11-12")
-    panel.get_by_label("From").fill("09:00")
-    panel.get_by_label("To").fill("12:00")
-    panel.get_by_label("Room layout").select_option(label="Theatre")
-    panel.get_by_role("button", name="Send request").click()
+    page.get_by_role("link", name="Request venue").click()
+    page.wait_for_url(re.compile(rf"/coordinator/events/{event['id']}/request-venue$"), timeout=20000)
+    page.get_by_role("heading", name="Request a venue").wait_for(timeout=20000)
+    page.get_by_label("Venue", exact=True).select_option(label=f"{venue_name} — holds 150")
+    page.get_by_label("Date").fill("2026-11-12")
+    page.get_by_label("From").fill("09:00")
+    page.get_by_label("To").fill("12:00")
+    page.get_by_label("Room layout").select_option(label="Theatre")
+    page.get_by_role("button", name="Send request").click()
 
+    page.wait_for_url(re.compile(rf"/coordinator/events/{event['id']}$"), timeout=20000)
     page.get_by_text("Venue request sent to Venue Staff.").wait_for(timeout=20000)
-    assert panel.count() == 0
 
     page.goto("/dashboard/event-coordinator")
     page.get_by_role("button", name="Sign out").click()

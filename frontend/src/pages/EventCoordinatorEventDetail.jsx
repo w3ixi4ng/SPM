@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Building2, Check, RotateCcw, X } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
@@ -11,14 +11,7 @@ import {
   eventStatusMeta,
   getAssignedEventRequest,
 } from '../lib/eventRequests.js'
-import {
-  canRequestVenue,
-  emptyVenueBookingForm,
-  shortTime,
-  submitVenueBooking,
-  venueBookingErrorMessages,
-} from '../lib/venueBookings.js'
-import { getVenueOptions, listVenues, optionLabel } from '../lib/venues.js'
+import { canRequestVenue } from '../lib/venueBookings.js'
 
 const C = {
   ink: '#10192B',
@@ -211,357 +204,21 @@ function DecisionForm({ eventId, onDecided }) {
   )
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-function OptionChecklist({ legend, options, offered, selected, onToggle }) {
-  return (
-    <fieldset className="mb-5">
-      <legend className="font-ui text-sm font-medium mb-2" style={{ color: C.ink }}>
-        {legend}
-      </legend>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
-        {options.map((code) => {
-          const missing = offered && !offered.includes(code)
-          return (
-            <label key={code} className="flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
-              <input
-                type="checkbox"
-                checked={selected.includes(code)}
-                onChange={() => onToggle(code)}
-              />
-              <span>
-                {optionLabel(code)}
-                {missing && (
-                  <span className="text-xs" style={{ color: C.inkFaint }}> · not at this venue</span>
-                )}
-              </span>
-            </label>
-          )
-        })}
-      </div>
-    </fieldset>
-  )
-}
-
-// The house slide-over (see AGENTS.md): right-anchored, traps focus, closes
-// on Escape, the backdrop or X. The venue_bookings service makes every
-// suitability call; this panel only collects the request and shows what
-// came back, so a Coordinator sees every problem at once.
-function VenueRequestPanel({ event, onClose, onSent }) {
-  const panelRef = useRef(null)
-  const [form, setForm] = useState(() => ({
-    ...emptyVenueBookingForm(event.id),
-    bookingDate: event.start_date ?? '',
-    startTime: shortTime(event.start_time),
-    endTime: shortTime(event.end_time),
-  }))
-  const [catalogue, setCatalogue] = useState({ status: 'loading', venues: [], options: null })
-  const [sendState, setSendState] = useState({ status: 'idle', errors: [] })
-
-  useEffect(() => {
-    let active = true
-    Promise.all([listVenues(), getVenueOptions()])
-      .then(([venues, options]) => {
-        if (active) setCatalogue({ status: 'ready', venues, options })
-      })
-      .catch(() => {
-        if (active) setCatalogue({ status: 'error', venues: [], options: null })
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      panelRef.current?.querySelector(FOCUSABLE)?.focus()
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [])
-
-  useEffect(() => {
-    function handleKeyDown(e) {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-        return
-      }
-      if (e.key !== 'Tab' || !panelRef.current) return
-      const items = Array.from(panelRef.current.querySelectorAll(FOCUSABLE))
-      if (items.length === 0) return
-      const first = items[0]
-      const last = items[items.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
-  const venue = catalogue.venues.find((item) => item.id === form.venueId) ?? null
-
-  function update(field, value) {
-    setForm((current) => ({ ...current, [field]: value }))
-  }
-
-  function toggle(field, code) {
-    setForm((current) => ({
-      ...current,
-      [field]: current[field].includes(code)
-        ? current[field].filter((item) => item !== code)
-        : [...current[field], code],
-    }))
-  }
-
-  function chooseVenue(venueId) {
-    // A layout belongs to a venue; keep it only if the new venue offers it.
-    const next = catalogue.venues.find((item) => item.id === venueId)
-    setForm((current) => ({
-      ...current,
-      venueId,
-      roomLayout: next?.room_layouts.includes(current.roomLayout) ? current.roomLayout : '',
-    }))
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault()
-    const missing = [
-      !form.venueId && 'Choose a venue.',
-      !form.bookingDate && 'Choose a date.',
-      (!form.startTime || !form.endTime) && 'Enter a start and end time.',
-    ].filter(Boolean)
-    if (missing.length > 0) {
-      setSendState({ status: 'idle', errors: missing })
-      return
-    }
-    setSendState({ status: 'sending', errors: [] })
-    try {
-      await submitVenueBooking(form)
-      onSent()
-    } catch (error) {
-      setSendState({ status: 'idle', errors: venueBookingErrorMessages(error) })
-    }
-  }
-
-  const inputClass = 'w-full rounded-sm border px-3 py-2 font-ui text-sm'
-  const inputStyle = { borderColor: C.line, color: C.ink, backgroundColor: C.paper }
-
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-40"
-        style={{ backgroundColor: 'rgba(16,25,43,0.5)' }}
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="venue-request-title"
-        className="csp-slide-in fixed top-0 right-0 bottom-0 z-50 w-full max-w-md flex flex-col border-l"
-        style={{ backgroundColor: C.paper, borderColor: C.line }}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: C.line }}>
-          <h2 id="venue-request-title" className="font-display text-xl" style={{ color: C.ink }}>
-            Request a venue
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close venue request panel"
-            className="rounded-sm p-2"
-            style={{ color: C.inkFaint }}
-          >
-            <X size={20} aria-hidden="true" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-6" noValidate>
-          <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
-            {event.expected_attendance} expected, {event.start_date} {shortTime(event.start_time)} to{' '}
-            {event.end_date} {shortTime(event.end_time)}. The booking has to fit inside that window and
-            the venue&apos;s opening hours.
-          </p>
-
-          {catalogue.status === 'loading' && (
-            <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>Loading venues…</p>
-          )}
-          {catalogue.status === 'error' && (
-            <p role="alert" className="font-ui text-sm mb-5" style={{ color: C.rose }}>
-              We couldn&apos;t load the venue list. Close this panel and try again.
-            </p>
-          )}
-
-          <div className="mb-5">
-            <label htmlFor="venue-request-venue" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
-              Venue
-            </label>
-            <select
-              id="venue-request-venue"
-              value={form.venueId}
-              onChange={(e) => chooseVenue(e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-              disabled={catalogue.status !== 'ready'}
-            >
-              <option value="">Choose a venue</option>
-              {catalogue.venues.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — holds {item.capacity}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-            <div>
-              <label htmlFor="venue-request-date" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
-                Date
-              </label>
-              <input
-                id="venue-request-date"
-                type="date"
-                value={form.bookingDate}
-                min={event.start_date}
-                max={event.end_date}
-                onChange={(e) => update('bookingDate', e.target.value)}
-                className={inputClass}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label htmlFor="venue-request-start" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
-                From
-              </label>
-              <input
-                id="venue-request-start"
-                type="time"
-                value={form.startTime}
-                onChange={(e) => update('startTime', e.target.value)}
-                className={inputClass}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label htmlFor="venue-request-end" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
-                To
-              </label>
-              <input
-                id="venue-request-end"
-                type="time"
-                value={form.endTime}
-                onChange={(e) => update('endTime', e.target.value)}
-                className={inputClass}
-                style={inputStyle}
-              />
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <label htmlFor="venue-request-layout" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
-              Room layout
-            </label>
-            <select
-              id="venue-request-layout"
-              value={form.roomLayout}
-              onChange={(e) => update('roomLayout', e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-              disabled={!venue}
-            >
-              <option value="">No preference</option>
-              {(venue?.room_layouts ?? []).map((code) => (
-                <option key={code} value={code}>{optionLabel(code)}</option>
-              ))}
-            </select>
-          </div>
-
-          {catalogue.options && (
-            <>
-              <OptionChecklist
-                legend="Facilities needed"
-                options={catalogue.options.facilities}
-                offered={venue?.facilities}
-                selected={form.requiredFacilities}
-                onToggle={(code) => toggle('requiredFacilities', code)}
-              />
-              {event.accessibility_requirements && (
-                <p className="font-ui text-sm mb-2" style={{ color: C.inkFaint }}>
-                  The organiser asked for: {event.accessibility_requirements}
-                </p>
-              )}
-              <OptionChecklist
-                legend="Accessibility needed"
-                options={catalogue.options.accessibility}
-                offered={venue?.accessibility}
-                selected={form.requiredAccessibility}
-                onToggle={(code) => toggle('requiredAccessibility', code)}
-              />
-            </>
-          )}
-
-          <div className="mb-6">
-            <label htmlFor="venue-request-notes" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
-              Notes for Venue Staff (optional)
-            </label>
-            <textarea
-              id="venue-request-notes"
-              rows={3}
-              value={form.notes}
-              onChange={(e) => update('notes', e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-              placeholder="Setup times, access, anything else they should know"
-            />
-          </div>
-
-          {sendState.errors.length > 0 && (
-            <div role="alert" className="font-ui text-sm mb-5" style={{ color: C.rose }}>
-              <p className="font-medium mb-1">This request wasn&apos;t sent:</p>
-              <ul className="list-disc pl-5 space-y-0.5">
-                {sendState.errors.map((message) => <li key={message}>{message}</li>)}
-              </ul>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={sendState.status === 'sending'}
-            className="px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
-            style={{ backgroundColor: C.teal, color: C.paper }}
-          >
-            {sendState.status === 'sending' ? 'Sending…' : 'Send request'}
-          </button>
-        </form>
-      </div>
-    </>
-  )
-}
-
 export default function EventCoordinatorEventDetail() {
   const { id } = useParams()
   const { user } = useAuth()
   const [state, setState] = useState({ status: 'loading', event: null, error: null })
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [notice, setNotice] = useState(null)
-  const requestTriggerRef = useRef(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+  // Set by the venue request screen after a send. Read once, then cleared
+  // from history so a reload or Back does not announce the same send again.
+  const [notice] = useState(location.state?.notice ?? null)
 
-  const closePanel = useCallback(() => {
-    setPanelOpen(false)
-    requestTriggerRef.current?.focus()
-  }, [])
-
-  const handleSent = useCallback(() => {
-    setNotice('Venue request sent to Venue Staff.')
-    closePanel()
-  }, [closePanel])
+  useEffect(() => {
+    if (location.state?.notice) {
+      navigate(location.pathname, { replace: true, state: null })
+    }
+  }, [location, navigate])
 
   useEffect(() => {
     let active = true
@@ -587,13 +244,6 @@ export default function EventCoordinatorEventDetail() {
 
   return (
     <div className="min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
-      <style>{`
-        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-        .csp-slide-in { animation: slideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
-        @media (prefers-reduced-motion: reduce) {
-          .csp-slide-in { animation: none; }
-        }
-      `}</style>
       <div className="w-full max-w-3xl mx-auto">
         <header className="flex items-center justify-between gap-6 mb-10">
           <Logo />
@@ -632,19 +282,14 @@ export default function EventCoordinatorEventDetail() {
 
             {showVenueRequest && (
               <div className="flex flex-wrap items-center gap-4 mb-8">
-                <button
-                  ref={requestTriggerRef}
-                  type="button"
-                  onClick={() => {
-                    setNotice(null)
-                    setPanelOpen(true)
-                  }}
+                <Link
+                  to={`/coordinator/events/${state.event.id}/request-venue`}
                   className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
                   style={{ backgroundColor: C.teal, color: C.paper }}
                 >
                   <Building2 size={16} aria-hidden="true" />
                   Request venue
-                </button>
+                </Link>
                 <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
                   {notice}
                 </p>
@@ -676,10 +321,6 @@ export default function EventCoordinatorEventDetail() {
           </>
         )}
       </div>
-
-      {panelOpen && state.event && (
-        <VenueRequestPanel event={state.event} onClose={closePanel} onSent={handleSent} />
-      )}
     </div>
   )
 }

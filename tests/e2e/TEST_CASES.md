@@ -185,7 +185,7 @@ contract without a browser.
 ## TC-E2E-209 — a Coordinator's venue request shows up on Venue Staff's dashboard
 
 - **Scenario:** S-36, AC1 and AC3 in a real browser. Only this suite sees
-  the Coordinator's slide-over panel posting through Kong and the Venue Staff
+  the Coordinator's request screen posting through Kong and the Venue Staff
   dashboard rendering the pending list after a fresh sign-in. The unit and
   integration suites cover the suitability rules; they are not restaged
   here.
@@ -201,14 +201,15 @@ contract without a browser.
 - **Steps:**
   1. Sign in as the coordinator and open `/coordinator/events/{id}`.
   2. Click **Request venue**.
-  3. In the panel, choose the venue, date `2026-11-12`, `09:00`–`12:00`,
-     layout **Theatre**.
+  3. On the request screen, choose the venue, date `2026-11-12`,
+     `09:00`–`12:00`, layout **Theatre**.
   4. Click **Send request**.
   5. Sign out, then sign in as the venue staff account.
   6. Look at **Pending booking requests** on `/dashboard/venue-staff`.
 - **Test data:** As above.
 - **Expected:**
-  - Step 4: the panel closes and the page says
+  - Step 2: the browser is on `/coordinator/events/{id}/request-venue`.
+  - Step 4: the browser returns to `/coordinator/events/{id}`, which says
     `"Venue request sent to Venue Staff."`
   - Step 6: the list has a row for `"spm-e2e Event <hex>"` at
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
