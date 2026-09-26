@@ -154,6 +154,29 @@ export function eventErrorMessage(error) {
   return error.message || "We couldn't reach the event service. Your changes have not been saved."
 }
 
+// The organiser dashboard's two tabs. A rejected request is closed for good
+// and can never be edited or resubmitted, so it moves out of the working
+// list into its own tab; everything else -- including approved, which is
+// still a live event -- stays Active, in sortEventsForOrganiser's order.
+export function organiserTabs(events) {
+  const active = sortEventsForOrganiser(events.filter((event) => event.status !== 'rejected'))
+  const rejected = events.filter((event) => event.status === 'rejected')
+  return [
+    {
+      id: 'active',
+      label: `Active (${active.length})`,
+      events: active,
+      emptyMessage: 'You have no saved event requests yet.',
+    },
+    {
+      id: 'rejected',
+      label: `Rejected (${rejected.length})`,
+      events: rejected,
+      emptyMessage: 'No rejected requests.',
+    },
+  ]
+}
+
 const NO_COORDINATOR_AVAILABLE = 'No event coordinator is available for the requested date and time'
 
 // S-13: a returned request the organiser is responding to. Every way the
