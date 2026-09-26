@@ -10,6 +10,7 @@ work. No Kong route reaches this service; like the events service's
 import logging
 from datetime import datetime, timezone
 from typing import Literal
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -82,15 +83,19 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
 
 @app.get("/bookings", response_model=list[BookingRead])
 def list_bookings(
-    booking_status: Literal["pending"] = Query(alias="status"),
+    booking_status: Literal["pending"] | None = Query(default=None, alias="status"),
+    event_id: UUID | None = None,
     db: Client = Depends(get_db),
 ):
-    # Oldest first: Venue Staff work through requests in the order they came.
-    operation = (
-        db.schema(SCHEMA)
-        .table(TABLE)
-        .select("*")
-        .eq("status", booking_status)
-        .order("submitted_at")
-    )
-    return _execute(operation).data
+    # Always filtered: Venue Staff ask by status, a Coordinator by event.
+    # Nothing hands out every booking at once.
+    if booking_status is None and event_id is None:
+        raise HTTPException(status_code=422, detail="Filter by status or event_id")
+
+    operation = db.schema(SCHEMA).table(TABLE).select("*")
+    if booking_status is not None:
+        operation = operation.eq("status", booking_status)
+    if event_id is not None:
+        operation = operation.eq("event_id", str(event_id))
+    # Oldest first: the order requests came in.
+    return _execute(operation.order("submitted_at")).data

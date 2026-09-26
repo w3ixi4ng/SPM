@@ -10,7 +10,7 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `users` — `GET /users/me` | Who is asking, and their role |
 | `events` — `GET /events/assigned/{id}` | The event, with the caller's own session, so only an event assigned to this Coordinator is found |
 | `venues` — `GET /venues/{id}` | The venue, with the caller's own session |
-| `bookings` — `POST /bookings`, `GET /bookings?status=pending` | Store and list requests |
+| `bookings` — `POST /bookings`, `GET /bookings?status=pending`, `GET /bookings?event_id={id}` | Store and list requests |
 
 Reached through Kong at `/api/venue-bookings`.
 
@@ -19,6 +19,7 @@ Reached through Kong at `/api/venue-bookings`.
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. |
+| `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every pending request, oldest first. Not filtered by who added the venue. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
@@ -80,7 +81,8 @@ Submitting a request writes nothing to the event — it is already in
 ## Responses
 
 `POST /venue-bookings` returns `201` with the stored request, and
-`GET /venue-bookings/pending` returns `200` with a list of them — both
+`GET /venue-bookings?event_id={id}` and `GET /venue-bookings/pending` return
+`200` with a list of them — both
 exactly as the bookings service returns them (see
 [`bookings/README.md`](../../atomic/bookings/README.md#responses)):
 

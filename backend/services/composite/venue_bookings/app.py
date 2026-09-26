@@ -7,6 +7,7 @@ write ends up in ``bookings.bookings`` by way of the bookings service.
 """
 
 import logging
+from uuid import UUID
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -137,6 +138,26 @@ async def submit_venue_booking(
     body = _booking_body(payload, user, event, venue)
     response = await _call("Bookings", bookings.post("/bookings", json=body))
     if response.status_code != status.HTTP_201_CREATED:
+        raise _unavailable("Bookings")
+    return response.json()
+
+
+@app.get("/venue-bookings")
+async def list_venue_bookings_for_event(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """The requests sent for one event, every status, oldest first. The
+    events lookup is what limits this to the Coordinator the event is
+    assigned to -- the same check as submitting one."""
+    await _authenticate(request, users, COORDINATOR_ROLE)
+    await _fetch("Events", events, f"/events/assigned/{event_id}", request.cookies, "Event not found")
+
+    response = await _call("Bookings", bookings.get("/bookings", params={"event_id": str(event_id)}))
+    if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
     return response.json()
 

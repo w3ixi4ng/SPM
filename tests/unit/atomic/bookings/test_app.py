@@ -208,3 +208,40 @@ def test_a_storage_failure_is_reported_not_swallowed(client, db):
     for response in (created, listed):
         assert response.status_code == 500
         assert response.json() == {"detail": "Booking storage unavailable"}
+
+
+# --- S-36 AC4: a coordinator lists one event's requests --------------------
+
+
+# --- TC-BOOKINGS-014 ------------------------------------------------------
+def test_the_list_can_be_filtered_to_one_event(client, db):
+    rows = [
+        booking_row(id="55555555-5555-4555-8555-555555555555"),
+        booking_row(id="66666666-6666-4666-8666-666666666666"),
+    ]
+    on_pending_list(db, rows)  # same select().eq().order() chain
+
+    response = client.get("/bookings", params={"event_id": BOOKING["event_id"]})
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [row["id"] for row in rows]
+    table(db).select.return_value.eq.assert_called_once_with("event_id", BOOKING["event_id"])
+    table(db).select.return_value.eq.return_value.order.assert_called_once_with("submitted_at")
+
+
+# --- TC-BOOKINGS-015 ------------------------------------------------------
+def test_the_list_needs_a_filter(client, db):
+    response = client.get("/bookings")
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Filter by status or event_id"
+    db.schema.assert_not_called()
+
+
+# --- TC-BOOKINGS-016 ------------------------------------------------------
+def test_a_malformed_event_id_is_refused(client, db):
+    response = client.get("/bookings", params={"event_id": "not-a-uuid"})
+
+    assert response.status_code == 422
+    assert "event_id" in response.json()["errors"]
+    db.schema.assert_not_called()

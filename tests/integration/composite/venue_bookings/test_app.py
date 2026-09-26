@@ -8,7 +8,7 @@ pytestmark = requires_env
 
 
 # --- TC-VENUEBOOKINGS-101 --------------------------------------------------
-def test_a_coordinators_request_reaches_venue_staff_through_the_gateway(admin, auth_client, world):
+def test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coordinator(admin, auth_client, world):
     as_coordinator = cookie_for(auth_client, world["coordinator"])
 
     created = httpx.post(
@@ -40,6 +40,15 @@ def test_a_coordinators_request_reaches_venue_staff_through_the_gateway(admin, a
     assert rows[0]["coordinator_email"] == world["coordinator"]["email"]
 
     assert event["status"] == "planning"
+
+    sent = httpx.get(
+        f"{GATEWAY_BASE_URL}/venue-bookings",
+        params={"event_id": world["event_id"]},
+        headers=as_coordinator,
+        timeout=15.0,
+    )
+    assert sent.status_code == 200, sent.text
+    assert [(row["id"], row["status"]) for row in sent.json()] == [(booking["id"], "pending")]
 
     as_staff = cookie_for(auth_client, world["staff"])
     pending = httpx.get(f"{GATEWAY_BASE_URL}/venue-bookings/pending", headers=as_staff, timeout=15.0)

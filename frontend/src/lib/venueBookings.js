@@ -71,6 +71,20 @@ export function listPendingVenueBookings() {
   return requestJSON('/venue-bookings/pending')
 }
 
+// The requests sent for one event, every status, oldest first.
+export function listVenueBookingsForEvent(eventId) {
+  return requestJSON(`/venue-bookings?event_id=${encodeURIComponent(eventId)}`)
+}
+
+// Only pending exists until Venue Staff can approve or reject.
+const BOOKING_STATUS_META = {
+  pending: { label: 'Pending', color: '#B5842B' },
+}
+
+export function bookingStatusMeta(status) {
+  return BOOKING_STATUS_META[status] ?? { label: status, color: '#4C5A70' }
+}
+
 // "09:00:00" -> "09:00"
 export function shortTime(value) {
   return value ? value.slice(0, 5) : ''

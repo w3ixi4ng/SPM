@@ -221,4 +221,4 @@ contract without a browser.
     labelled **Pending**.
 - **Actual:**
 - **Status:** Not Executed
-- **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_shows_up_for_venue_staff`
+- **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`

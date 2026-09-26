@@ -61,7 +61,7 @@ and the gateway route.
   - Step 7: `200`, and the list contains the booking id from step 2.
 - **Actual:**
 - **Status:** Not Executed
-- **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_through_the_gateway`
+- **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coordinator`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved
 

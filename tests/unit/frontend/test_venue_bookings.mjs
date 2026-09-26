@@ -5,6 +5,7 @@ import { ApiError } from '../../../frontend/src/lib/api.js'
 import {
   canRequestVenue,
   listPendingVenueBookings,
+  listVenueBookingsForEvent,
   submitVenueBooking,
   venueBookingErrorMessages,
 } from '../../../frontend/src/lib/venueBookings.js'
@@ -126,4 +127,16 @@ test('venue booking errors say what happened and what to do', () => {
     venueBookingErrorMessages(new ApiError("We couldn't reach the server.", 0)),
     unreachable,
   )
+})
+
+// --- TC-FRONTEND-032 -------------------------------------------------------
+test("an event's venue requests load through Kong", async () => {
+  const calls = await recordingFetch(async () => {
+    await listVenueBookingsForEvent('e 1/2')
+  })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, '/api/venue-bookings?event_id=e%201%2F2')
+  assert.equal(calls[0].options.method ?? 'GET', 'GET')
+  assert.equal(calls[0].options.credentials, 'include')
 })

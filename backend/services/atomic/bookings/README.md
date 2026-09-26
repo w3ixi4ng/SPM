@@ -17,6 +17,7 @@ same arrangement as the events service's internal routes.
 | --- | --- | --- |
 | `POST` | `/bookings` | Store a checked booking request as `pending`. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. |
+| `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -56,7 +57,11 @@ The option sets are the venue catalogue's (see
 
 | Query | Required | Values |
 | --- | --- | --- |
-| `status` | yes | `pending` |
+| `status` | one of the two | `pending` |
+| `event_id` | one of the two | UUID |
+
+Both may be given together. With neither, the answer is `422`
+`{"detail": "Filter by status or event_id"}` — nothing lists every booking.
 
 ## Responses
 

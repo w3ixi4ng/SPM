@@ -426,3 +426,92 @@ def test_the_pending_list_fails_loudly_when_bookings_is_down(client, services, h
 
     assert response.status_code == 502
     assert response.json() == {"detail": "Bookings service unavailable"}
+
+
+# --- S-36 AC4: a coordinator lists the requests sent for an event ----------
+
+EVENT_LIST = f"/venue-bookings?event_id={EVENT_ID}"
+
+
+# --- TC-VENUEBOOKINGS-025 --------------------------------------------------
+def test_listing_an_events_requests_needs_a_session(client, services):
+    services.user = fake_response(401, {"detail": "Not authenticated"})
+
+    response = client.get(EVENT_LIST)
+
+    assert response.status_code == 401
+    services.events.get.assert_not_called()
+    services.bookings.get.assert_not_called()
+
+
+# --- TC-VENUEBOOKINGS-026 --------------------------------------------------
+@pytest.mark.parametrize("role", ["event_organiser", "venue_staff", "technical_support", "attendee"])
+def test_only_an_event_coordinator_can_list_an_events_requests(client, services, role):
+    services.user = me(role=role)
+
+    response = client.get(EVENT_LIST)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Permission denied"}
+    services.events.get.assert_not_called()
+    services.bookings.get.assert_not_called()
+
+
+# --- TC-VENUEBOOKINGS-027 --------------------------------------------------
+@pytest.mark.parametrize("path", ["/venue-bookings", "/venue-bookings?event_id=not-a-uuid"])
+def test_the_event_id_is_required_and_must_be_a_uuid(client, services, path):
+    response = client.get(path)
+
+    assert response.status_code == 422
+    assert "query.event_id" in response.json()["errors"]
+    assert_nothing_downstream(services)
+
+
+# --- TC-VENUEBOOKINGS-028 --------------------------------------------------
+def test_a_coordinator_cannot_list_requests_for_an_event_not_assigned_to_them(client, services):
+    services.event = fake_response(404, {"detail": "Event not found"})
+    client.cookies.set("sb_access_token", "coordinator-token")
+
+    response = client.get(EVENT_LIST)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Event not found"}
+    assert services.events.get.call_args.kwargs["cookies"]["sb_access_token"] == "coordinator-token"
+    services.bookings.get.assert_not_called()
+
+
+# --- TC-VENUEBOOKINGS-029 --------------------------------------------------
+def test_the_events_requests_come_back_with_their_status(client, services):
+    sent = [
+        {"id": "55555555-5555-4555-8555-555555555555", "event_id": EVENT_ID, "status": "pending"},
+        {"id": "66666666-6666-4666-8666-666666666666", "event_id": EVENT_ID, "status": "pending"},
+    ]
+    services.pending = fake_response(200, sent)
+
+    response = client.get(EVENT_LIST)
+
+    assert response.status_code == 200
+    assert response.json() == sent
+    services.bookings.get.assert_called_once()
+    assert services.bookings.get.call_args.args[0] == "/bookings"
+    assert services.bookings.get.call_args.kwargs["params"] == {"event_id": EVENT_ID}
+
+
+# --- TC-VENUEBOOKINGS-030 --------------------------------------------------
+@pytest.mark.parametrize("how", ["raise", "500"])
+@pytest.mark.parametrize(
+    ("which", "detail"),
+    [("events", "Events service unavailable"), ("bookings", "Bookings service unavailable")],
+)
+def test_listing_an_events_requests_is_a_502_when_a_service_is_down(client, services, which, detail, how):
+    async def broken(*args, **kwargs):
+        if how == "raise":
+            raise httpx.ConnectError("connection refused")
+        return fake_response(500, {"detail": "Internal server error"})
+
+    {"events": services.events.get, "bookings": services.bookings.get}[which].side_effect = broken
+
+    response = client.get(EVENT_LIST)
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": detail}
