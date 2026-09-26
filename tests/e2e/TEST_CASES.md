@@ -9,7 +9,7 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` at `155bd39` |
+| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` at `b693360` |
 | Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
 | Result | 6 passed (twice consecutively) |
 

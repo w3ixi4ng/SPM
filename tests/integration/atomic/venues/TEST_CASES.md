@@ -9,7 +9,7 @@ Story: S-27 Add Venue with Capacity and Facilities.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test down -v`, `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/venues` |
-| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` at `155bd39` |
+| Last run | 2026-09-26, branch `S-27/add-venue-with-capacity-and-facilities` at `b693360` |
 | Environment | `.env.test` test Supabase project; `venues` schema applied, granted and exposed; users, venues and Kong healthy in Docker |
 | Result | 2 passed (twice consecutively) |
 
