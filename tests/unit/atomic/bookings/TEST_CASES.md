@@ -230,3 +230,49 @@ version-4 UUIDs.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_storage_failure_is_reported_not_swallowed`
+
+---
+
+**S-36 AC4 additions.** A Coordinator sees the requests sent for one event,
+so the list can also be filtered by `event_id`.
+
+## TC-BOOKINGS-014 — the list can be filtered to one event
+
+- **Scenario:** The requests sent for one event, in the order they were
+  sent, whatever their status.
+- **Pre-conditions:** The fake's select returns two rows for the event.
+- **Steps:** `GET /bookings?event_id={event}`.
+- **Test data:** The shared `event_id`.
+- **Expected:** `200`, both rows. The query sent is
+  `.select("*").eq("event_id", <event>).order("submitted_at")`, with no
+  status filter.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-BOOKINGS-015 — the list needs a filter
+
+- **Scenario:** No route hands out every booking at once.
+- **Pre-conditions:** Shared.
+- **Steps:** `GET /bookings` with no query parameters.
+- **Test data:** None.
+- **Expected:** `422`,
+  `{"detail": "Filter by status or event_id", ...}`; the database is not
+  queried.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-BOOKINGS-016 — a malformed event id is refused
+
+- **Pre-conditions:** Shared.
+- **Steps:** `GET /bookings?event_id=not-a-uuid`.
+- **Test data:** `not-a-uuid`.
+- **Expected:** `422` with `event_id` in `errors`; the database is not
+  queried.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

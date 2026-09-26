@@ -24,6 +24,7 @@ Docker.
 | AC1: A Coordinator can submit a booking request for a specific venue, date and time against an event | 002–011, 017, 019, 020 |
 | AC2: The request includes the event's relevant requirements needed for Venue Staff to assess it | 012–016, 018 |
 | AC3: A submitted request appears in Venue Staff's pending-requests view | 021–024 |
+| AC4: A Coordinator can see the booking requests they have sent for an event, with each one's status | 025–030 |
 
 The conditions agreed with the developer behind AC1 and AC2:
 
@@ -425,3 +426,87 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_the_pending_list_fails_loudly_when_bookings_is_down`
+
+---
+
+**S-36 AC4 additions.** `GET /venue-bookings?event_id={event}` lists the
+requests sent for one event. Only a Coordinator the event is assigned to can
+list them, checked the same way as submitting: through the events service
+with the Coordinator's own session.
+
+## TC-VENUEBOOKINGS-025 — listing an event's requests needs a session
+
+- **Pre-conditions:** `GET /users/me` answers `401`.
+- **Steps:** `GET /venue-bookings?event_id={event}` with no cookies.
+- **Test data:** The shared event id.
+- **Expected:** `401`; events and bookings are never called.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-026 — only an Event Coordinator can list an event's requests
+
+- **Pre-conditions:** `GET /users/me` resolves to each other role in turn.
+- **Steps:** `GET /venue-bookings?event_id={event}`, once per role.
+- **Test data:** `event_organiser`, `venue_staff`, `technical_support`,
+  `attendee`.
+- **Expected:** `403`, `{"detail": "Permission denied"}` for every one;
+  events and bookings are never called.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-027 — the event id is required and must be a UUID
+
+- **Pre-conditions:** Shared.
+- **Steps:** `GET /venue-bookings` with no query, then with
+  `event_id=not-a-uuid`.
+- **Test data:** As above.
+- **Expected:** `422` with `event_id` in `errors` both times; no downstream
+  service is called.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-028 — a Coordinator cannot list requests for an event not assigned to them
+
+- **Pre-conditions:** `GET /events/assigned/{event_id}` answers `404`.
+- **Steps:** `GET /venue-bookings?event_id={event}`.
+- **Test data:** The shared event id.
+- **Expected:** `404`, `{"detail": "Event not found"}`. The events call
+  carried the request's cookies. Bookings is never called.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-029 — the event's requests come back with their status
+
+- **Scenario:** AC4. Whatever the bookings service holds for the event is
+  returned as-is, `status` included.
+- **Pre-conditions:** Shared. `GET /bookings?event_id={event}` returns two
+  bookings, both `pending`.
+- **Steps:** `GET /venue-bookings?event_id={event}`.
+- **Test data:** As above.
+- **Expected:** `200` with both bookings, in the order returned. Bookings
+  was called once, `GET /bookings` with `params={"event_id": <event>}`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-030 — a service that can't be reached is a 502, not an empty list
+
+- **Pre-conditions:** A Coordinator session. Events, then bookings, each
+  raise `httpx.ConnectError` once and answer `500` once.
+- **Steps:** `GET /venue-bookings?event_id={event}`, once per failure.
+- **Test data:** As above.
+- **Expected:** `502` with `"Events service unavailable"` or
+  `"Bookings service unavailable"` respectively.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

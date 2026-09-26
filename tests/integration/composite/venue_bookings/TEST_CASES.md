@@ -33,9 +33,9 @@ and the gateway route.
     `expected_attendance` `120`.
 - Teardown deletes all of these, and any booking made, pass or fail.
 
-## TC-VENUEBOOKINGS-101 — a Coordinator's request reaches Venue Staff's pending list through the gateway
+## TC-VENUEBOOKINGS-101 — a Coordinator's request reaches Venue Staff's pending list and stays visible to the Coordinator
 
-- **Scenario:** AC1, AC2 and AC3 together, across every real service.
+- **Scenario:** AC1 to AC4 together, across every real service.
 - **Pre-conditions:** Shared.
 - **Steps:**
   1. Sign in as the coordinator.
@@ -45,8 +45,10 @@ and the gateway route.
      `required_accessibility: ["wheelchair_access"]`.
   3. Read `bookings.bookings` by the returned id with the admin client.
   4. Read the event with the admin client.
-  5. Sign in as the venue staff user.
-  6. `GET http://localhost:8000/api/venue-bookings/pending`.
+  5. As the coordinator,
+     `GET http://localhost:8000/api/venue-bookings?event_id={event}`.
+  6. Sign in as the venue staff user.
+  7. `GET http://localhost:8000/api/venue-bookings/pending`.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: `201`, `status: "pending"`.
@@ -54,9 +56,11 @@ and the gateway route.
     `venue_name` match the seeded rows, and `coordinator_email` is the
     coordinator's.
   - Step 4: still `status=planning`.
-  - Step 6: `200`, and the list contains the booking id from step 2.
-- **Actual:** `201` pending through Kong; the stored row carried the seeded event, venue and coordinator details; the event stayed `planning`; the booking was in Venue Staff's pending list through Kong.
-- **Status:** Pass
+  - Step 5: `200`, exactly one booking: the id from step 2, `status:
+    "pending"`.
+  - Step 7: `200`, and the list contains the booking id from step 2.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_through_the_gateway`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved

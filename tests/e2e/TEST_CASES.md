@@ -182,9 +182,9 @@ contract without a browser.
 - **Status:** Pass
 - **Evidence:** `test_rejected_tab.py::test_rejected_requests_sit_in_their_own_tab_and_open_read_only`
 
-## TC-E2E-209 — a Coordinator's venue request shows up on Venue Staff's dashboard
+## TC-E2E-209 — a Coordinator's venue request stays on the event and shows up for Venue Staff
 
-- **Scenario:** S-36, AC1 and AC3 in a real browser. Only this suite sees
+- **Scenario:** S-36, AC1, AC3 and AC4 in a real browser. Only this suite sees
   the Coordinator's request screen posting through Kong and the Venue Staff
   dashboard rendering the pending list after a fresh sign-in. The unit and
   integration suites cover the suitability rules; they are not restaged
@@ -204,17 +204,21 @@ contract without a browser.
   3. On the request screen, choose the venue, date `2026-11-12`,
      `09:00`–`12:00`, layout **Theatre**.
   4. Click **Send request**.
-  5. Sign out, then sign in as the venue staff account.
-  6. Look at **Pending booking requests** on `/dashboard/venue-staff`.
+  5. Reload the event page.
+  6. Sign out, then sign in as the venue staff account.
+  7. Look at **Pending booking requests** on `/dashboard/venue-staff`.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: the browser is on `/coordinator/events/{id}/request-venue`.
   - Step 4: the browser returns to `/coordinator/events/{id}`, which says
     `"Venue request sent to Venue Staff."`
-  - Step 6: the list has a row for `"spm-e2e Event <hex>"` at
+  - Step 5: the confirmation is gone, and **Venue requests** on the event
+    page lists `"spm-e2e Venue <hex>"`, `12 Nov 2026`, `09:00–12:00`,
+    labelled **Pending**.
+  - Step 7: the list has a row for `"spm-e2e Event <hex>"` at
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
     `120 expected`, `Theatre`, and the coordinator's name. The row is
     labelled **Pending**.
-- **Actual:** Request venue opened the request screen; the send returned to the event page with "Venue request sent to Venue Staff."; Venue Staff's pending list showed the row with venue, 12 Nov 2026, 09:00–12:00, 120 expected, Theatre, the coordinator's name and Pending. First attempt failed on a test selector (`get_by_label("To")` matched two checkboxes), fixed in `dc7454a`.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_shows_up_for_venue_staff`

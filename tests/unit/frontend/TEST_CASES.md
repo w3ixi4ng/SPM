@@ -528,3 +528,17 @@ says.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `venue booking errors say what happened and what to do`
+
+## TC-FRONTEND-032 — an event's venue requests load through Kong
+
+- **Scenario:** AC4. The event page asks for the requests sent for that
+  event only.
+- **Pre-conditions:** `fetch` records requests and returns `[]`.
+- **Steps:** Call `listVenueBookingsForEvent('e 1/2')`.
+- **Test data:** An id that needs encoding, `e 1/2`.
+- **Expected:** One `GET /api/venue-bookings?event_id=e%201%2F2` with
+  `credentials: include`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
