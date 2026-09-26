@@ -11,7 +11,7 @@ and the gateway route.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/venue_bookings` |
-| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dc7454a` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
 | Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
 | Result | 2 passed (19 across `tests/integration`), twice consecutively |
 
@@ -59,8 +59,8 @@ and the gateway route.
   - Step 5: `200`, exactly one booking: the id from step 2, `status:
     "pending"`.
   - Step 7: `200`, and the list contains the booking id from step 2.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** `201` pending through Kong; the stored row carried the seeded event, venue and coordinator details; the event stayed `planning`; the coordinator's list for the event held exactly that booking, `pending`; the booking was in Venue Staff's pending list through Kong.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coordinator`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved

@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dc7454a` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
 | Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 8 passed on 8 of 9 full runs. Run 1 had 1 failure that was not captured and did not recur in the next 8 runs; the failing test is unknown, so treat it as a possible flake and capture `test-results/` if it appears again |
+| Result | 8 passed on the second of two consecutive runs. The first run failed TC-E2E-202 (`test_session.py`, untouched by S-36): the **Sign out** button was detached from the page while Playwright clicked it, a re-render race; likely the same uncaptured flake seen once on `dc7454a`. TC-E2E-209 passed on both runs |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -219,6 +219,6 @@ contract without a browser.
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
     `120 expected`, `Theatre`, and the coordinator's name. The row is
     labelled **Pending**.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Request venue opened the request screen; the send returned to the event page with the confirmation; after a reload the confirmation was gone and **Venue requests** listed the venue, 12 Nov 2026, 09:00–12:00, Pending; Venue Staff's pending list showed the full row.
+- **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`

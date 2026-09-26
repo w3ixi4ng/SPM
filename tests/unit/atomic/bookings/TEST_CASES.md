@@ -16,9 +16,9 @@ session or role check here, and none is tested.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/bookings` |
-| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 29 passed |
+| Result | 32 passed |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -247,9 +247,9 @@ so the list can also be filtered by `event_id`.
   `.select("*").eq("event_id", <event>).order("submitted_at")`, with no
   status filter.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_list_can_be_filtered_to_one_event`
 
 ## TC-BOOKINGS-015 — the list needs a filter
 
@@ -261,9 +261,9 @@ so the list can also be filtered by `event_id`.
   `{"detail": "Filter by status or event_id", ...}`; the database is not
   queried.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_list_needs_a_filter`
 
 ## TC-BOOKINGS-016 — a malformed event id is refused
 
@@ -273,6 +273,6 @@ so the list can also be filtered by `event_id`.
 - **Expected:** `422` with `event_id` in `errors`; the database is not
   queried.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_malformed_event_id_is_refused`

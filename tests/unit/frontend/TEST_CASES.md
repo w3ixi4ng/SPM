@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 30 passed |
+| Result | 31 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -539,6 +539,6 @@ says.
 - **Expected:** One `GET /api/venue-bookings?event_id=e%201%2F2` with
   `credentials: include`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `an event's venue requests load through Kong`

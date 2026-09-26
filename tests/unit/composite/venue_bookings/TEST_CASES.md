@@ -11,9 +11,9 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/venue_bookings` |
-| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `8312712` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 52 passed |
+| Result | 65 passed |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -441,9 +441,9 @@ with the Coordinator's own session.
 - **Test data:** The shared event id.
 - **Expected:** `401`; events and bookings are never called.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_listing_an_events_requests_needs_a_session`
 
 ## TC-VENUEBOOKINGS-026 — only an Event Coordinator can list an event's requests
 
@@ -454,9 +454,9 @@ with the Coordinator's own session.
 - **Expected:** `403`, `{"detail": "Permission denied"}` for every one;
   events and bookings are never called.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_an_event_coordinator_can_list_an_events_requests`
 
 ## TC-VENUEBOOKINGS-027 — the event id is required and must be a UUID
 
@@ -467,9 +467,9 @@ with the Coordinator's own session.
 - **Expected:** `422` with `event_id` in `errors` both times; no downstream
   service is called.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_event_id_is_required_and_must_be_a_uuid`
 
 ## TC-VENUEBOOKINGS-028 — a Coordinator cannot list requests for an event not assigned to them
 
@@ -479,9 +479,9 @@ with the Coordinator's own session.
 - **Expected:** `404`, `{"detail": "Event not found"}`. The events call
   carried the request's cookies. Bookings is never called.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_coordinator_cannot_list_requests_for_an_event_not_assigned_to_them`
 
 ## TC-VENUEBOOKINGS-029 — the event's requests come back with their status
 
@@ -494,9 +494,9 @@ with the Coordinator's own session.
 - **Expected:** `200` with both bookings, in the order returned. Bookings
   was called once, `GET /bookings` with `params={"event_id": <event>}`.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_events_requests_come_back_with_their_status`
 
 ## TC-VENUEBOOKINGS-030 — a service that can't be reached is a 502, not an empty list
 
@@ -507,6 +507,6 @@ with the Coordinator's own session.
 - **Expected:** `502` with `"Events service unavailable"` or
   `"Bookings service unavailable"` respectively.
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_listing_an_events_requests_is_a_502_when_a_service_is_down`
