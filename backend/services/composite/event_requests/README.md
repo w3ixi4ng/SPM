@@ -80,10 +80,10 @@ depending on what the event currently is:
 
 1. Fetch every account with role `event_coordinator` from the users service.
 2. Ask the events service which of them have no assigned **submitted or
-   approved** event overlapping the requested window at all (a request
+   planning** event overlapping the requested window at all (a request
    starting exactly when another ends is not a conflict).
 3. Among the conflict-free coordinators, pick whoever currently has the
-   fewest assigned submitted/approved events. Ties are broken at random, so
+   fewest assigned submitted/planning events. Ties are broken at random, so
    load spreads out over many requests even when no one is busy yet.
 4. If no coordinator is conflict-free — including when no coordinator
    accounts exist at all — the request is rejected. Nothing is created.

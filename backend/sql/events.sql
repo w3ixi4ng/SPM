@@ -75,11 +75,13 @@ create table if not exists events.events (
   created_at                 timestamptz not null default now(),
   updated_at                 timestamptz not null default now(),
 
-  -- S-14: submitted now means "awaiting a coordinator decision", not a
-  -- terminal state. approved/rejected/returned are the three outcomes of
-  -- that decision -- see POST /events/{event_id}/decision.
+  -- S-14: submitted means "awaiting a coordinator decision". The decision
+  -- leads to rejected, returned, or -- S-36 -- planning: an approved request
+  -- has passed the coordinator's check and venue/equipment planning is
+  -- underway. There is no 'approved' status; approved is only ever the
+  -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'approved', 'rejected', 'returned')),
+    check (status in ('draft', 'submitted', 'planning', 'rejected', 'returned')),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -114,7 +116,7 @@ create table if not exists events.events (
     check (jsonb_typeof(equipment_requests) = 'object'),
 
   -- Every status past draft has been submitted at least once -- including
-  -- approved/rejected/returned, which are outcomes of a decision made on a
+  -- planning/rejected/returned, which are outcomes of a decision made on a
   -- submitted request, not a separate path around it. Only a draft has
   -- never been submitted.
   constraint events_submitted_at_present
@@ -139,12 +141,12 @@ create table if not exists events.events (
     ),
 
   -- decision is set exactly when a decision has been made -- draft and
-  -- submitted (awaiting one) never carry one; approved/rejected/returned
+  -- submitted (awaiting one) never carry one; planning/rejected/returned
   -- always do.
   constraint events_decision_matches_status
     check (
       (status in ('draft', 'submitted') and decision is null)
-      or (status in ('approved', 'rejected', 'returned') and decision is not null)
+      or (status in ('planning', 'rejected', 'returned') and decision is not null)
     ),
 
   constraint events_decision_allowed
@@ -185,12 +187,12 @@ create index if not exists events_events_organiser_id_idx
 
 -- The coordinator-load lookup filters by assigned_coordinator_id and status
 -- together for every request that occupies the coordinator's time -- this is
--- that query's index. S-14: that now means submitted (awaiting decision) or
--- approved (confirmed), not just submitted -- returned and rejected are not
--- live commitments and never block a new request.
+-- that query's index. That means submitted (awaiting decision) or planning
+-- (accepted, arrangements underway) -- returned and rejected are not live
+-- commitments and never block a new request.
 create index if not exists events_events_assigned_coordinator_id_idx
   on events.events (assigned_coordinator_id)
-  where status in ('submitted', 'approved');
+  where status in ('submitted', 'planning');
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.
@@ -338,6 +340,30 @@ alter table events.events enable row level security;
 --   create index events_events_assigned_coordinator_id_idx
 --     on events.events (assigned_coordinator_id)
 --     where status in ('submitted', 'approved');
+-- ---------------------------------------------------------------------------
+--
+-- S-36: already have the table with the S-14 'approved' status? Run this
+-- instead. Safe to run twice. An approval now moves an event to 'planning';
+-- 'approved' stays only as the recorded decision, so existing approved rows
+-- are moved across before the constraints stop allowing them.
+--
+--   alter table events.events drop constraint if exists events_status_allowed;
+--   alter table events.events drop constraint if exists events_decision_matches_status;
+--
+--   update events.events set status = 'planning' where status = 'approved';
+--
+--   alter table events.events add constraint events_status_allowed
+--     check (status in ('draft', 'submitted', 'planning', 'rejected', 'returned'));
+--   alter table events.events add constraint events_decision_matches_status
+--     check (
+--       (status in ('draft', 'submitted') and decision is null)
+--       or (status in ('planning', 'rejected', 'returned') and decision is not null)
+--     );
+--
+--   drop index if exists events.events_events_assigned_coordinator_id_idx;
+--   create index events_events_assigned_coordinator_id_idx
+--     on events.events (assigned_coordinator_id)
+--     where status in ('submitted', 'planning');
 -- ---------------------------------------------------------------------------
 
 notify pgrst, 'reload schema';

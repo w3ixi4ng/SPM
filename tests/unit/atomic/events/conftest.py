@@ -42,6 +42,7 @@ get_auth = database_module.get_auth
 get_db = database_module.get_db
 EventDraftCreate = schemas_module.EventDraftCreate
 EventDraftUpdate = schemas_module.EventDraftUpdate
+EventRead = schemas_module.EventRead
 EventSubmittedCreate = schemas_module.EventSubmittedCreate
 EVENT_ORGANISER_PERMISSIONS = authorization_module.EVENT_ORGANISER_PERMISSIONS
 ROLE_PERMISSIONS = authorization_module.ROLE_PERMISSIONS

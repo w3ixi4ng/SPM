@@ -8,10 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 class EventStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
-    # S-14: the three outcomes of a coordinator's decision on a submitted
-    # request. APPROVED and REJECTED are terminal; RETURNED goes back to the
-    # organiser to edit and resubmit as the same record.
-    APPROVED = "approved"
+    # S-14: the outcomes of a coordinator's decision on a submitted request.
+    # REJECTED is terminal; RETURNED goes back to the organiser to edit and
+    # resubmit as the same record. S-36: an approval moves the event to
+    # PLANNING -- it passed the coordinator's check and venue/equipment
+    # planning is underway. There is no "approved" status; "approved" is only
+    # ever the recorded *decision* (DecisionValue), which stays put while the
+    # status moves on.
+    PLANNING = "planning"
     REJECTED = "rejected"
     RETURNED = "returned"
 

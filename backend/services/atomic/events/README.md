@@ -186,21 +186,26 @@ matches the verified user. An organiser with no requests receives `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14)
+## Status model (S-14, S-36)
 
 ```
-draft ──submit──> submitted ──decide──> approved   (terminal)
-  ^                   │                 returned ──edit + resubmit──┐
-  │                   └─────────────────rejected   (terminal)       │
-  └──────────────────────────────────────────────────────────────┘ │
-  returned <───────────────────────────────────────────────────────┘
+draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
+                    ▲   │ ────reject───> rejected   (terminal)
+                    │   └─────return───> returned
+                    └──edit + resubmit──────┘
 ```
+
+`confirmed`, `completed` and `cancelled` follow `planning` in the agreed
+flow; they arrive with the stories that move an event into them.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
   Still editable; editing does not change the status.
-- **approved** — the coordinator's positive decision. No further submit
-  action; edits still go through the same `PATCH`.
+- **planning** — the coordinator approved the request (S-36: an approval
+  moves the event here; there is no `approved` status, only the recorded
+  `decision=approved`). Venue booking requests are made against events in
+  this status. No further submit action; edits still go through the same
+  `PATCH`.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.
@@ -212,7 +217,7 @@ draft ──submit──> submitted ──decide──> approved   (terminal)
   `decision`/`decision_reason`/`decision_comment`/`decided_at` back to null
   and sets a fresh `submitted_at`.
 
-A coordinator's assigned submitted **or approved** events both occupy their
+A coordinator's assigned submitted **or planning** events both occupy their
 calendar for the purposes of routing a new request (see
 [`POST /events/coordinator-load`](#post-eventscoordinator-load)); returned
 and rejected do not, since neither is a live commitment.
@@ -232,8 +237,9 @@ is assigned to may call it, and only while it is `submitted`.
 {"decision": "returned", "reason": "Missing risk assessment", "comment": "Please attach the venue's fire safety form"}
 ```
 
-Returns `200` with the updated event (`status` now matches `decision`,
-`decided_at` set). `409` if the request is not currently `submitted` —
+Returns `200` with the updated event, `decided_at` set. `status` becomes
+`planning` for `approved`, and matches the decision for `rejected` and
+`returned`. `409` if the request is not currently `submitted` —
 including a decision already made, since a decision cannot be changed once
 recorded. `404` if the caller is not the assigned coordinator.
 
@@ -258,7 +264,7 @@ them from outside the Docker network.
 ```
 
 For each id in `coordinator_ids`, reports whether that coordinator has an
-assigned **submitted or approved** event overlapping the given window at all
+assigned **submitted or planning** event overlapping the given window at all
 (touching endpoints do not count as overlapping), and how many such events
 are currently assigned to them in total, independent of the window:
 
@@ -309,7 +315,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`. Editing a `submitted`/`returned`/`approved` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

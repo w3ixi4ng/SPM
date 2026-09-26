@@ -2,10 +2,14 @@
 
 from unittest.mock import call
 
+import pytest
+from pydantic import ValidationError
+
 from .conftest import (
     COORDINATOR_A,
     EVENT_ORGANISER_PERMISSIONS,
     EVENT_ID,
+    EventRead,
     ORGANISER_ID,
     OTHER_USER_ID,
     ROLE_PERMISSIONS,
@@ -534,7 +538,7 @@ def test_coordinator_load_back_to_back_events_do_not_conflict(client, db):
 
 
 # --- TC-EVENTS-052 --------------------------------------------------------
-def test_coordinator_load_query_only_counts_submitted_and_approved_events(client, db):
+def test_coordinator_load_query_only_counts_submitted_and_planning_events(client, db):
     on_coordinator_rows(db, [])
 
     client.post(
@@ -550,9 +554,9 @@ def test_coordinator_load_query_only_counts_submitted_and_approved_events(client
 
     # Drafts, returned, and rejected are filtered out in the query itself,
     # not after -- so they never reach the conflict or count logic at all.
-    # S-14: approved counts alongside submitted -- both are live commitments.
+    # Planning counts alongside submitted -- both are live commitments.
     db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.assert_called_once_with(
-        "status", ["submitted", "approved"]
+        "status", ["submitted", "planning"]
     )
 
 
@@ -778,15 +782,15 @@ def test_coordinator_approves_a_submitted_request(client, db, auth):
     on_owned_select(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
     on_decision_update(
         db,
-        [event_row(status="approved", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)],
+        [event_row(status="planning", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)],
     )
 
     response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
 
     assert response.status_code == 200
-    assert response.json()["status"] == "approved"
+    assert response.json()["status"] == "planning"
     sent = db.schema.return_value.table.return_value.update.call_args[0][0]
-    assert sent["status"] == "approved"
+    assert sent["status"] == "planning"
     assert sent["decision"] == "approved"
     assert sent["decision_reason"] is None
     assert sent["decision_comment"] is None
@@ -916,7 +920,7 @@ def test_a_coordinator_cannot_decide_an_event_not_assigned_to_them(client, db, a
 def test_a_decision_already_made_cannot_be_decided_again(client, db, auth):
     authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
     on_owned_select(
-        db, [event_row(status="approved", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)]
+        db, [event_row(status="planning", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)]
     )
 
     response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
@@ -959,9 +963,9 @@ def test_a_returned_request_can_be_resubmitted(client, db, auth):
 
 
 # --- TC-EVENTS-078 --------------------------------------------------------
-def test_an_approved_request_cannot_be_resubmitted(client, db, auth):
+def test_a_planning_request_cannot_be_resubmitted(client, db, auth):
     authenticate(client, auth)
-    on_owned_select(db, [event_row(status="approved", decision="approved", **SUBMITTED)])
+    on_owned_select(db, [event_row(status="planning", decision="approved", **SUBMITTED)])
 
     response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
 
@@ -1119,3 +1123,22 @@ def test_a_storage_failure_during_resubmission_is_reported(client, db, auth):
     assert response.status_code == 500
     assert response.json() == {"detail": "Event storage unavailable"}
     table.update.assert_called_once()
+
+
+# --- S-36: approved is a decision, never a status ---------------------------
+
+
+# --- TC-EVENTS-088 --------------------------------------------------------
+def test_approved_is_no_longer_a_status_an_event_can_be_read_in(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(status="planning", decision="approved", **SUBMITTED)])
+
+    response = client.get(f"/events/{EVENT_ID}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "planning"
+    assert response.json()["decision"] == "approved"
+
+    with pytest.raises(ValidationError) as excinfo:
+        EventRead.model_validate(event_row(status="approved", decision="approved", **SUBMITTED))
+    assert any(error["loc"] == ("status",) for error in excinfo.value.errors())
