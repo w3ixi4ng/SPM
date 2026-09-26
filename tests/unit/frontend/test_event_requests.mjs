@@ -194,7 +194,7 @@ test('event API errors map to safe status and field feedback', () => {
 // --- S-14: coordinator decisions -------------------------------------------
 
 test('eventStatusMeta covers every backend status with a distinct label', () => {
-  const statuses = ['draft', 'submitted', 'approved', 'returned', 'rejected']
+  const statuses = ['draft', 'submitted', 'planning', 'returned', 'rejected']
   const seen = new Set()
   for (const status of statuses) {
     const { label, color } = eventStatusMeta(status)
@@ -203,6 +203,8 @@ test('eventStatusMeta covers every backend status with a distinct label', () => 
     seen.add(label)
   }
   assert.equal(seen.size, statuses.length)
+  // S-36: planning takes over the success color approved used.
+  assert.deepEqual(eventStatusMeta('planning'), { label: 'Planning', color: '#3F8F5F' })
 })
 
 test('eventStatusMeta falls back safely for an unrecognised status', () => {
@@ -282,7 +284,7 @@ test('sortEventsForOrganiser sorts returned first, then submitted, then the rest
     { id: 'b', status: 'returned' },
     { id: 'c', status: 'draft' },
     { id: 'd', status: 'returned' },
-    { id: 'e', status: 'approved' },
+    { id: 'e', status: 'planning' },
     { id: 'f', status: 'submitted' },
   ]
 
@@ -294,7 +296,7 @@ test('sortEventsForOrganiser sorts returned first, then submitted, then the rest
 test('sortEventsForOrganiser is a no-op with neither priority status, and does not mutate its argument', () => {
   const events = [
     { id: 'a', status: 'draft' },
-    { id: 'b', status: 'approved' },
+    { id: 'b', status: 'planning' },
     { id: 'c', status: 'draft' },
   ]
 
@@ -317,7 +319,7 @@ test('organiserStatusMeta relabels submitted as Under review, keeping the shared
 })
 
 test('organiserStatusMeta falls through to the shared meta for every other status', () => {
-  for (const status of ['draft', 'approved', 'rejected']) {
+  for (const status of ['draft', 'planning', 'rejected']) {
     assert.deepEqual(organiserStatusMeta(status), eventStatusMeta(status))
   }
 })
@@ -354,7 +356,7 @@ test('a failed resubmission tells the organiser nothing was changed', () => {
 const TAB_EVENTS = [
   { id: 'a', status: 'draft' },
   { id: 'b', status: 'rejected' },
-  { id: 'c', status: 'approved' },
+  { id: 'c', status: 'planning' },
   { id: 'd', status: 'submitted' },
   { id: 'e', status: 'rejected' },
   { id: 'f', status: 'returned' },

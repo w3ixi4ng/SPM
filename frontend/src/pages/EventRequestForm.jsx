@@ -1044,22 +1044,24 @@ export default function EventRequestForm() {
   }, [loadAttempt, refresh, routeId])
 
   const isSubmitted = status === 'submitted'
-  const isApproved = status === 'approved'
+  // S-36: an approved request moves to planning -- there is no separate
+  // "approved" status any more, only the recorded decision.
+  const isPlanning = status === 'planning'
   const isRejected = status === 'rejected'
   const isReturned = status === 'returned'
-  // Approved and rejected are both decided -- neither is meant to be edited
-  // further from here (rejected is enforced server-side too; approved is a
-  // product choice, since re-editing a confirmed event without a fresh
+  // Planning and rejected are both decided -- neither is meant to be edited
+  // further from here (rejected is enforced server-side too; planning is a
+  // product choice, since re-editing an approved event without a fresh
   // review would undercut the point of deciding on it at all).
-  const isLocked = isApproved || isRejected
+  const isLocked = isPlanning || isRejected
   // A returned request still has to satisfy every submitted-required field
   // once resubmitted -- the same stricter check as an already-submitted or
-  // approved one, not the permissive draft rules.
-  const requiresStrictValidation = isSubmitted || isApproved || isReturned
-  // Submitted and approved have no further "submit" step of their own; the
+  // planning one, not the permissive draft rules.
+  const requiresStrictValidation = isSubmitted || isPlanning || isReturned
+  // Submitted and planning have no further "submit" step of their own; the
   // form's one submit button at that point is "Save changes". Draft and
   // returned both still need a real submit/resubmit action.
-  const routesSubmitToSave = isSubmitted || isApproved
+  const routesSubmitToSave = isSubmitted || isPlanning
   const isBusy = loadState === 'loading' || saveState === 'saving' || submitState === 'submitting'
   const canShowForm = !routeId || loadState === 'ready'
   // Submitting no longer freezes the record, so it can be dirty too -- the
@@ -1396,7 +1398,7 @@ export default function EventRequestForm() {
               }}
             >
               <p className="font-ui text-sm font-medium">
-                {isApproved && 'This request has been approved.'}
+                {isPlanning && 'This request has been approved and is in planning.'}
                 {isRejected && 'This request has been rejected and is closed.'}
                 {isReturned && 'This request was returned for amendment. Fix the issue below, then resubmit.'}
               </p>

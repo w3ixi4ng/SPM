@@ -96,13 +96,14 @@ export function eventFieldErrorsToForm(fieldErrors) {
 // Shared status display across the organiser and coordinator views. Colors
 // are the project's fixed tokens (see AGENTS.md's design system), not
 // page-local -- draft and submitted are both "not decided yet" (inkFaint /
-// amber), approved is the one success color, rejected and returned both
-// need attention but are not errors in the same way, so returned reuses
+// amber), planning (approved, arrangements underway) is the one success
+// color, rejected and returned both need attention but are not errors in
+// the same way, so returned reuses
 // amber ("needs the organiser's action") rather than rose ("closed, wrong").
 const STATUS_META = {
   draft: { label: 'Draft', color: '#4C5A70' },
   submitted: { label: 'Under Review', color: '#B5842B' },
-  approved: { label: 'Approved', color: '#3F8F5F' },
+  planning: { label: 'Planning', color: '#3F8F5F' },
   returned: { label: 'Action Required', color: '#B5842B' },
   rejected: { label: 'Rejected', color: '#B25547' },
 }
@@ -117,7 +118,7 @@ export function eventStatusMeta(status) {
 // both -- from the organiser's side, a returned request needs *their*
 // action (rose, matching the same "needs attention" red used for rejected)
 // and a submitted one is simply under someone else's review, so this
-// reframes both without changing what a coordinator sees. draft/approved/
+// reframes both without changing what a coordinator sees. draft/planning/
 // rejected are untouched -- they fall through to the shared meta unchanged.
 const ORGANISER_STATUS_OVERRIDES = {
   returned: { label: 'Action required', color: '#B25547' },
@@ -156,7 +157,7 @@ export function eventErrorMessage(error) {
 
 // The organiser dashboard's two tabs. A rejected request is closed for good
 // and can never be edited or resubmitted, so it moves out of the working
-// list into its own tab; everything else -- including approved, which is
+// list into its own tab; everything else -- including planning, which is
 // still a live event -- stays Active, in sortEventsForOrganiser's order.
 export function organiserTabs(events) {
   const active = sortEventsForOrganiser(events.filter((event) => event.status !== 'rejected'))

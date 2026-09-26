@@ -74,3 +74,20 @@ test('only venue staff create venues and only venue staff and coordinators view 
     assert.equal(hasPermission(role, PERMISSIONS.VIEW_VENUES), view, role)
   }
 })
+
+// --- TC-FRONTEND-028 -------------------------------------------------------
+test('only coordinators request venues and only venue staff see pending requests', () => {
+  const expected = {
+    event_coordinator: [true, false],
+    venue_staff: [false, true],
+    event_organiser: [false, false],
+    technical_support: [false, false],
+    attendee: [false, false],
+  }
+
+  assert.deepEqual(Object.keys(expected).sort(), Object.keys(ROLE_ACCESS).sort())
+  for (const [role, [request, viewPending]] of Object.entries(expected)) {
+    assert.equal(hasPermission(role, PERMISSIONS.REQUEST_VENUE_BOOKING), request, role)
+    assert.equal(hasPermission(role, PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS), viewPending, role)
+  }
+})

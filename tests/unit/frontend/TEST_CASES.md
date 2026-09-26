@@ -1,6 +1,7 @@
 # Test cases — frontend role access (unit)
 
-Covers `test_access.mjs`, `test_event_requests.mjs` and `test_venues.mjs`.
+Covers `test_access.mjs`, `test_event_requests.mjs`, `test_venues.mjs` and
+`test_venue_bookings.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.

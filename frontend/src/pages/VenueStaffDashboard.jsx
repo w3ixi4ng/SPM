@@ -1,11 +1,18 @@
-import { CalendarDays, ListChecks, LogOut, MapPin, Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { CalendarDays, ListChecks, LogOut, Plus } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
+import {
+  bookingDateLabel,
+  listPendingVenueBookings,
+  pendingListErrorMessage,
+  shortTime,
+} from '../lib/venueBookings.js'
+import { optionLabel } from '../lib/venues.js'
 
 const C = {
   ink: '#10192B',
@@ -15,6 +22,8 @@ const C = {
   line: '#E3DFD3',
   teal: '#0E7C74',
   sky: '#3C6E96',
+  amber: '#B5842B',
+  rose: '#B25547',
   green: '#3F8F5F',
 }
 
@@ -29,18 +38,113 @@ const UPCOMING_AREAS = [
     title: 'Setup & teardown checklists',
     description: 'Confirm a space is ready before an event and reset after.',
   },
-  {
-    icon: MapPin,
-    title: 'Space assignment requests',
-    description: 'Review incoming requests for a specific venue or room.',
-  },
 ]
+
+function usePendingBookings(enabled) {
+  const [state, setState] = useState({ bookings: [], loading: enabled, error: null })
+
+  const load = useCallback(() => {
+    setState((current) => ({ ...current, loading: true, error: null }))
+    return listPendingVenueBookings().then(
+      (bookings) => ({ bookings, loading: false, error: null }),
+      (error) => ({ bookings: [], loading: false, error: pendingListErrorMessage(error) }),
+    )
+  }, [])
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    let active = true
+    load().then((next) => { if (active) setState(next) })
+    return () => { active = false }
+  }, [enabled, load])
+
+  const reload = useCallback(() => { load().then(setState) }, [load])
+  return { ...state, reload }
+}
+
+function Detail({ label, value }) {
+  if (!value) return null
+  return (
+    <p className="font-ui text-sm" style={{ color: C.ink }}>
+      <span style={{ color: C.inkFaint }}>{label}: </span>
+      {value}
+    </p>
+  )
+}
+
+function listLabel(codes) {
+  return codes.length > 0 ? codes.map(optionLabel).join(', ') : null
+}
+
+function PendingBooking({ booking }) {
+  return (
+    <li className="py-5 first:pt-0 last:pb-0" style={{ borderColor: C.line }}>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>
+          {booking.event_name}
+          <span style={{ color: C.inkFaint }}> at </span>
+          {booking.venue_name}
+        </h3>
+        <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1" style={{ color: C.amber }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+          Pending
+        </span>
+      </div>
+      <p className="font-ui text-sm mb-2" style={{ color: C.ink }}>
+        {bookingDateLabel(booking.booking_date)} · {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
+        {' · '}
+        {booking.expected_attendance} expected
+        {booking.room_layout && ` · ${optionLabel(booking.room_layout)}`}
+      </p>
+      <div className="space-y-0.5">
+        <Detail label="Purpose" value={booking.event_purpose} />
+        <Detail label="Facilities" value={listLabel(booking.required_facilities)} />
+        <Detail label="Accessibility" value={listLabel(booking.required_accessibility)} />
+        <Detail label="Organiser's accessibility notes" value={booking.accessibility_requirements} />
+        <Detail label="Notes" value={booking.notes} />
+      </div>
+      <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>
+        Requested by {booking.coordinator_name} ({booking.coordinator_email})
+      </p>
+    </li>
+  )
+}
+
+function PendingBookings({ bookings, loading, error, onRetry }) {
+  if (loading) {
+    return <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading booking requests…</p>
+  }
+  if (error) {
+    return (
+      <div className="font-ui text-sm" style={{ color: C.rose }}>
+        <p role="alert">{error}</p>
+        <button type="button" onClick={onRetry} className="underline mt-1" style={{ color: C.teal }}>
+          Try again
+        </button>
+      </div>
+    )
+  }
+  if (bookings.length === 0) {
+    return (
+      <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+        No pending booking requests. Requests from Event Coordinators appear here.
+      </p>
+    )
+  }
+  return (
+    <ul className="divide-y" aria-label="Pending booking requests">
+      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} />)}
+    </ul>
+  )
+}
 
 export default function VenueStaffDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
   const canAdd = hasPermission(role, PERMISSIONS.CREATE_VENUE)
+  const canSeePending = hasPermission(role, PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS)
+  const pending = usePendingBookings(canSeePending)
   const { venues, loading, error, reload } = useVenueList()
   const location = useLocation()
   // Set by the venue form after a save. Read once, then cleared from history
@@ -117,6 +221,20 @@ export default function VenueStaffDashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        {canSeePending && (
+          <section className="max-w-3xl mb-12" aria-labelledby="pending-heading">
+            <h2 id="pending-heading" className="font-display text-3xl mb-6" style={{ color: C.ink }}>
+              Pending booking requests
+            </h2>
+            <PendingBookings
+              bookings={pending.bookings}
+              loading={pending.loading}
+              error={pending.error}
+              onRetry={pending.reload}
+            />
+          </section>
+        )}
 
         <section className="max-w-3xl mb-12" aria-labelledby="venues-heading">
           <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
