@@ -154,3 +154,74 @@ def second_coordinator(admin):
         yield user["id"]
     finally:
         admin.auth.admin.delete_user(user["id"])
+
+
+def all_coordinator_ids(admin) -> set[str]:
+    """Every event_coordinator account that currently exists in the project.
+
+    `GET /users/coordinators` (and so the assignment logic) sees the whole
+    pool, not just the accounts a given test created -- a leftover account
+    from manual testing or an earlier run is just as eligible as a fixture's.
+    Tests that need a *specific, deterministic* outcome (rather than merely
+    "some coordinator") have to know about every candidate, not only their
+    own. Paginates the same way the users service's own listing does, so a
+    growing test project can't silently hide an account from this check.
+    """
+    page_size = 200
+    ids: set[str] = set()
+    page = 1
+    while True:
+        batch = admin.auth.admin.list_users(page=page, per_page=page_size)
+        if not batch:
+            break
+        ids.update(
+            user.id for user in batch if (user.app_metadata or {}).get("role") == "event_coordinator"
+        )
+        if len(batch) < page_size:
+            break
+        page += 1
+    return ids
+
+
+def block_other_coordinators(
+    admin,
+    organiser_id: str,
+    exempt_ids: set[str],
+    window: dict,
+) -> list[str]:
+    """Give every coordinator not in `exempt_ids` a submitted event covering
+    `window`, so only the exempted ones can be picked for it. Returns the
+    created event ids, for the caller to register for cleanup.
+
+    `window` has start_date/start_time/end_date/end_time.
+    """
+    created_ids = []
+    for coordinator_id in all_coordinator_ids(admin) - exempt_ids:
+        row = (
+            admin.schema("events")
+            .table("events")
+            .insert(
+                {
+                    "organiser_id": organiser_id,
+                    "status": "submitted",
+                    "assigned_coordinator_id": coordinator_id,
+                    "name": f"Blocking booking for {coordinator_id}",
+                    "purpose": "Keeps this coordinator out of the pool for this test",
+                    # Only the four date/time keys, deliberately -- spreading
+                    # the whole `window` dict here once clobbered the `name`,
+                    # `purpose`, etc. set above, because a real caller's
+                    # window (SUBMITTED) has its own `name` key too, and a
+                    # later key in a dict literal always wins.
+                    "start_date": window["start_date"],
+                    "start_time": window["start_time"],
+                    "end_date": window["end_date"],
+                    "end_time": window["end_time"],
+                    "expected_attendance": 5,
+                    "venue": "Room 2",
+                    "submitted_at": "2026-09-24T00:00:00Z",
+                }
+            )
+            .execute()
+        )
+        created_ids.append(row.data[0]["id"])
+    return created_ids
