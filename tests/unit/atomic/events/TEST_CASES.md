@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
-| Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 87 passed |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 102 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -85,11 +85,11 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-007 — missing submitted-required field
 
-- **Scenario:** A submitted request cannot omit a required field.
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. A submitted request cannot omit a required field.
 - **Pre-conditions:** The otherwise-valid submitted payload from TC-EVENTS-006.
-- **Steps:** Remove `venue` and instantiate `EventSubmittedCreate`.
-- **Test data:** Valid submitted payload without `venue`.
-- **Expected:** `ValidationError` identifies `venue`.
+- **Steps:** Remove `name` and instantiate `EventSubmittedCreate`.
+- **Test data:** Valid submitted payload without `name`.
+- **Expected:** `ValidationError` identifies `name`.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_schemas.py::test_submitted_request_rejects_missing_required_field`
@@ -480,14 +480,14 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-040 — editing a submitted event still enforces submitted-required fields
 
-- **Scenario:** PATCH on a submitted event is validated against the
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. PATCH on a submitted event is validated against the
   submitted-required rules, not the draft's permissive ones, so it cannot
   null out a field the database's own constraint requires.
 - **Pre-conditions:** The owned lookup returns the submitted payload from
   TC-EVENTS-014.
-- **Steps:** `PATCH` the event, clearing `venue`.
-- **Test data:** `{"venue": ""}`.
-- **Expected:** `422` identifying `venue`; update is never called.
+- **Steps:** `PATCH` the event, clearing `name`.
+- **Test data:** `{"name": ""}`.
+- **Expected:** `422` identifying `name`; update is never called.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_updating_submitted_event_still_requires_submitted_fields`
@@ -633,20 +633,20 @@ only by `event_requests` over the Docker network, never by a browser.
 
 ## TC-EVENTS-052 — only live commitments count toward load or conflict
 
-- **Scenario:** Only submitted (awaiting decision) and approved (confirmed)
-  events represent committed time on a coordinator's schedule. Updated for
-  S-14: drafts never counted; returned and rejected now don't either, since
-  neither is a live commitment.
+- **Scenario:** Only submitted (awaiting decision) and planning (accepted,
+  arrangements underway) events are committed time on a coordinator's
+  schedule. Drafts never counted. Returned and rejected don't either, since
+  neither is a live commitment. Revised for S-36: `planning` replaces
+  `approved`, which no longer exists.
 - **Pre-conditions:** None beyond the shared fakes.
 - **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
 - **Test data:** One coordinator id, any window.
-- **Expected:** The query filters on `status in ("submitted", "approved")` --
-  every other status is excluded at the query itself, not filtered out
+- **Expected:** The query filters on `status in ("submitted", "planning")`.
+  Every other status is excluded in the query itself, not filtered out
   afterwards, so it can never reach the conflict check or the count.
-- **Actual:** As expected; `.in_("status", ["submitted", "approved"])` called
-  once.
+- **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_approved_events`
+- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
 
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and coordinator ids
 
@@ -848,12 +848,12 @@ in one update.
 
 ## TC-EVENTS-066 — internal update validates the resulting submitted event
 
-- **Scenario:** The internal route is validated exactly as strictly as the
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. The internal route is validated exactly as strictly as the
   public one — a caller-supplied `organiser_id` is not a way to bypass the
   submitted-required rules.
 - **Pre-conditions:** An owned submitted event.
-- **Steps:** `PATCH /events/{event_id}/internal` clearing `venue`.
-- **Test data:** `{"organiser_id": ..., "venue": ""}`.
+- **Steps:** `PATCH /events/{event_id}/internal` clearing `name`.
+- **Test data:** `{"organiser_id": ..., "name": ""}`.
 - **Expected:** `422`; no update issued.
 - **Actual:** As expected.
 - **Status:** Pass
@@ -869,18 +869,20 @@ permanently (no further edits, no resubmission); a returned one goes back to
 the organiser to edit and resubmit as the same record, which reuses the
 submit route rather than creating a new one.
 
-## TC-EVENTS-067 — coordinator approves a submitted request
+## TC-EVENTS-067 — a coordinator accepting a request moves it into planning
 
-- **Scenario:** Approval needs no reason and closes the decision loop with
-  `status=approved`.
+- **Scenario:** Approval needs no reason. The decision is recorded as
+  `approved`, and the event moves to `planning`: it has passed the
+  coordinator's check and venue and equipment planning can start. Revised
+  for S-36, where the status was previously `approved`.
 - **Pre-conditions:** A verified `event_coordinator` session; the assigned,
   submitted event exists.
 - **Steps:** `POST /events/{event_id}/decision` with `{"decision":
   "approved"}`.
 - **Test data:** The standard submitted payload, assigned to the caller.
-- **Expected:** `200`; `status=approved`; the update sent to Supabase has
-  `decision=approved`, `decision_reason=null`, `decision_comment=null`, and a
-  non-null `decided_at`.
+- **Expected:** `200`; `status=planning`. The update sent to Supabase has
+  `status=planning`, `decision=approved`, `decision_reason=null`,
+  `decision_comment=null`, and a non-null `decided_at`.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_approves_a_submitted_request`
@@ -982,7 +984,7 @@ submit route rather than creating a new one.
 ## TC-EVENTS-075 — a decision already made cannot be decided again
 
 - **Pre-conditions:** A verified `event_coordinator` session; the assigned
-  event's status is already `approved`.
+  event is already `status=planning`, `decision=approved`. Revised for S-36.
 - **Steps:** `POST /events/{event_id}/decision` with `{"decision":
   "approved"}`.
 - **Test data:** As above.
@@ -1019,16 +1021,18 @@ submit route rather than creating a new one.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_returned_request_can_be_resubmitted`
 
-## TC-EVENTS-078 — an approved request cannot be resubmitted
+## TC-EVENTS-078 — a request in planning cannot be resubmitted
 
-- **Pre-conditions:** An owned event with `status=approved`.
+- **Pre-conditions:** An owned event with `status=planning`,
+  `decision=approved`. Revised for S-36, where the status was previously
+  `approved`.
 - **Steps:** `POST /events/{event_id}/submit` with the standard submitted
   payload.
 - **Test data:** As above.
 - **Expected:** `409`; no update issued.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_an_approved_request_cannot_be_resubmitted`
+- **Evidence:** `test_app.py::test_a_planning_request_cannot_be_resubmitted`
 
 ## TC-EVENTS-079 — a rejected request cannot be resubmitted
 
@@ -1067,13 +1071,13 @@ submit route rather than creating a new one.
 
 ## TC-EVENTS-082 — editing a returned event still requires submitted fields
 
-- **Scenario:** A returned request is not treated as a permissive draft on
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. A returned request is not treated as a permissive draft on
   edit — the same strict validation as a submitted or approved event
   applies, since every required field already exists and resubmission
   expects them to stay that way.
 - **Pre-conditions:** An owned event with `status=returned`.
-- **Steps:** `PATCH /events/{event_id}` clearing `venue`.
-- **Test data:** `{"venue": ""}`.
+- **Steps:** `PATCH /events/{event_id}` clearing `name`.
+- **Test data:** `{"name": ""}`.
 - **Expected:** `422`; no update issued.
 - **Actual:** As expected.
 - **Status:** Pass
@@ -1168,3 +1172,123 @@ lands on the same record, and a failed resubmission leaves the record alone.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_storage_failure_during_resubmission_is_reported`
+
+---
+
+**S-36 additions.** `approved` is no longer an event status. A
+coordinator's approval moves an event to `planning` (TC-EVENTS-067), which is
+where venue booking requests are made.
+
+## TC-EVENTS-088 — approved is no longer a status an event can be read in
+
+- **Scenario:** The status set matches the agreed flow: `draft`,
+  `submitted`, `returned`, `rejected`, `planning`. A leftover `approved`
+  status is a failure, not something silently shown.
+- **Pre-conditions:** A verified `event_organiser` session.
+- **Steps:** 1. `GET /events/{event_id}` where the owned row has
+  `status=planning`, `decision=approved`. 2. Validate
+  `EventRead` against a row with `status=approved`.
+- **Test data:** The standard submitted payload.
+- **Expected:** Step 1 returns `200` with `status=planning` and
+  `decision=approved`. Step 2 raises a validation error on `status`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_approved_is_no_longer_a_status_an_event_can_be_read_in`
+
+---
+
+**S-36 venue requirements.** The organiser no longer names a venue; the
+Coordinator books one. What the organiser gives instead is what the venue
+has to offer: a room layout, facilities and accessibility features, chosen
+from the venue catalogue's fixed sets so each venue can be checked against
+them. All three are optional. The old free-text `venue` stays as an optional
+preference.
+
+Shared test data for these cases: the standard submitted payload, plus
+`room_layout: "theatre"`, `required_facilities: ["projector", "stage"]`,
+`required_accessibility: ["wheelchair_access"]`.
+
+## TC-EVENTS-089 — the venue preference is optional on submission
+
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` without `venue`, then with
+  `venue: "   "`.
+- **Test data:** The standard submitted payload.
+- **Expected:** Both are valid; `venue` is `None` both times.
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_the_venue_preference_is_optional_on_submission`
+
+## TC-EVENTS-090 — the venue requirements are accepted and tidied
+
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventDraftCreate` and `EventSubmittedCreate` with
+  the shared requirements, with `projector` listed twice.
+- **Test data:** `required_facilities: ["projector", "stage", "projector"]`.
+- **Expected:** Both valid. `room_layout` is `"theatre"`,
+  `required_facilities` is `["projector", "stage"]`,
+  `required_accessibility` is `["wheelchair_access"]`.
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_the_venue_requirements_are_accepted_and_tidied`
+
+## TC-EVENTS-091 — the venue requirements default to none
+
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` from the standard payload,
+  which has none of the three fields.
+- **Test data:** As above.
+- **Expected:** Valid; `room_layout` is `None`, `required_facilities` and
+  `required_accessibility` are `[]`.
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_the_venue_requirements_default_to_none`
+
+## TC-EVENTS-092 — only values from the venue catalogue are accepted
+
+- **Scenario:** The same fixed sets as the venues service, so an event can be
+  compared with a venue.
+- **Pre-conditions:** A verified `event_organiser` session.
+- **Steps:** `POST /events/drafts` three times, each with one value outside
+  its set.
+- **Test data:** `room_layout: "ballroom"`; `required_facilities:
+  ["jacuzzi"]`; `required_accessibility: ["ramp"]`.
+- **Expected:** `422` each time, naming the field; nothing inserted.
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_values_from_the_venue_catalogue_are_accepted`
+
+## TC-EVENTS-093 — the venue requirements are stored and read back
+
+- **Pre-conditions:** A verified `event_organiser` session; the fake's insert
+  returns the inserted row.
+- **Steps:** `POST /events` with the standard payload plus the shared
+  requirements and no `venue`.
+- **Test data:** As above.
+- **Expected:** `201`. The insert sent to Supabase carries `room_layout`,
+  `required_facilities` and `required_accessibility` as given and
+  `venue=null`; the response includes all four.
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_venue_requirements_are_stored_and_read_back`
+
+## TC-EVENTS-094 — organisers get the option lists from the events service
+
+- **Scenario:** Organisers cannot view venues, so the events service serves
+  the three option sets for their form.
+- **Pre-conditions:** A verified session for each role in turn.
+- **Steps:** `GET /events/options`.
+- **Test data:** Roles `event_organiser`, then `event_coordinator`,
+  `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** `event_organiser`: `200` with `room_layouts`, `facilities` and
+  `accessibility`, each exactly the venue catalogue's set in its order. Every
+  other role: `403`.
+
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_organisers_get_the_option_lists`, `test_app.py::test_other_roles_cannot_get_the_option_lists`

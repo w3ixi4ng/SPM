@@ -251,7 +251,7 @@ export default function EventCoordinatorDashboard({ role }) {
                               {event.name || 'Untitled event request'}
                             </h3>
                             <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
-                              {event.start_date} at {event.start_time?.slice(0, 5)} · {event.venue}
+                              {event.start_date} at {event.start_time?.slice(0, 5)}{event.venue && ` · ${event.venue}`}
                             </p>
                           </div>
                           <span

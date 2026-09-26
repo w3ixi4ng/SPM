@@ -40,6 +40,8 @@ services:
         condition: service_healthy
       event_requests:
         condition: service_healthy
+      venue_bookings:
+        condition: service_healthy
       frontend:
         condition: service_healthy
     healthcheck:
@@ -158,6 +160,59 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8100/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  bookings:
+    build: ./backend/services/atomic/bookings
+    ports:
+      - "${BOOKINGS_SERVICE_PORT}:8004"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8004/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  # Checks a Coordinator's venue request against the event and the venue,
+  # then writes it through bookings; serves Venue Staff's pending list.
+  venue_bookings:
+    build: ./backend/services/composite/venue_bookings
+    ports:
+      - "${VENUE_BOOKINGS_SERVICE_PORT}:8101"
+    environment:
+      USERS_SERVICE_URL: ${USERS_SERVICE_URL}
+      EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
+      VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
+      BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
+    depends_on:
+      users:
+        condition: service_healthy
+      events:
+        condition: service_healthy
+      venues:
+        condition: service_healthy
+      bookings:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8101/health').read()",
         ]
       interval: 10s
       timeout: 5s

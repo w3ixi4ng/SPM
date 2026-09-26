@@ -15,6 +15,7 @@ case.
 | Service | Spans | Use case |
 | --- | --- | --- |
 | [`event_requests/`](event_requests/README.md) | `events`, `users` | Route a submitted event request to a free event coordinator. |
+| [`venue_bookings/`](venue_bookings/README.md) | `users`, `events`, `venues`, `bookings` | Check and submit a Coordinator's venue booking request; list pending ones for Venue Staff. |
 
 Add one folder per use case, following the service structure in
 [`AGENTS.md`](../../../AGENTS.md).

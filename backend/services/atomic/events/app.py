@@ -16,8 +16,13 @@ from schemas import (
     CoordinatorLoad,
     CoordinatorLoadRequest,
     DecisionCreate,
+    DecisionValue,
+    ACCESSIBILITY_FEATURES,
+    FACILITIES,
+    ROOM_LAYOUTS,
     EventDraftCreate,
     EventDraftUpdate,
+    EventOptions,
     EventRead,
     EventSubmittedCreate,
     InternalEventCreate,
@@ -183,6 +188,19 @@ def list_events(
     return _execute(operation).data
 
 
+# S-36: the venue requirement option sets for the organiser's form --
+# organisers cannot view venues, so they cannot use GET /venues/options.
+# Registered before /events/{event_id}, which would otherwise read "options"
+# as an event id.
+@app.get("/events/options", response_model=EventOptions)
+def event_options(user=Depends(require_permission("events:create"))):
+    return EventOptions(
+        room_layouts=list(ROOM_LAYOUTS),
+        facilities=list(FACILITIES),
+        accessibility=list(ACCESSIBILITY_FEATURES),
+    )
+
+
 # Registered before /events/{event_id}: "assigned" would otherwise match that
 # route's {event_id} path parameter and fail as an invalid UUID instead of
 # reaching this one. Route order is match order.
@@ -243,7 +261,7 @@ def update_event(
     # record. Validate the resulting record, not only the partial request, so
     # a cross-field conflict is still a 422 instead of reaching the SQL CHECK.
     #
-    # Everything past a draft -- submitted, approved, returned -- still has
+    # Everything past a draft -- submitted, planning, returned -- still has
     # to satisfy every submitted-required rule after the edit; the draft
     # schema would happily accept a PATCH that nulls out a required field,
     # which the database's own constraint would then reject as an opaque
@@ -319,6 +337,17 @@ def submit_draft(
     return result.data[0]
 
 
+# S-36: the decision and the status it leads to are separate things. An
+# approval is recorded as decision=approved and moves the event on to
+# planning; reject and return are both a decision and a status of the same
+# name.
+_STATUS_AFTER_DECISION = {
+    DecisionValue.APPROVED: "planning",
+    DecisionValue.REJECTED: "rejected",
+    DecisionValue.RETURNED: "returned",
+}
+
+
 @app.post("/events/{event_id}/decision", response_model=EventRead)
 def decide_event(
     event_id: UUID,
@@ -338,7 +367,7 @@ def decide_event(
         raise HTTPException(status_code=409, detail="This request is not awaiting a decision")
 
     changes = {
-        "status": payload.decision.value,
+        "status": _STATUS_AFTER_DECISION[payload.decision],
         "decision": payload.decision.value,
         "decision_reason": payload.reason,
         "decision_comment": payload.comment,
@@ -386,10 +415,10 @@ def coordinator_load(payload: CoordinatorLoadRequest, db: Client = Depends(get_d
         .table(TABLE)
         .select("id,assigned_coordinator_id,start_date,start_time,end_date,end_time")
         .in_("assigned_coordinator_id", ids)
-        # S-14: submitted (awaiting decision) and approved (confirmed) both
-        # occupy the coordinator's time. Returned and rejected do not --
-        # neither is a live commitment.
-        .in_("status", ["submitted", "approved"])
+        # Submitted (awaiting decision) and planning (accepted, arrangements
+        # underway) both occupy the coordinator's time. Returned and rejected
+        # do not -- neither is a live commitment.
+        .in_("status", ["submitted", "planning"])
     )
     rows = _execute(operation).data
 

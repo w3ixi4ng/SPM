@@ -40,6 +40,14 @@ create table if not exists events.events (
   -- requirement names no structure, and inventing one would be guessing.
   special_requirements       text,
 
+  -- S-36: the venue requirements, from the venue catalogue's fixed sets so a
+  -- venue can be checked against them. All optional. `venue` above is now
+  -- only the organiser's free-text preference; the Coordinator books the
+  -- actual venue.
+  room_layout                text,
+  required_facilities        text[] not null default '{}',
+  required_accessibility     text[] not null default '{}',
+
   -- The event coordinator this request was routed to on submission -- null
   -- until then, and never chosen by the organiser. No foreign key to
   -- users.users: that would be a cross-schema reference, which the one
@@ -75,11 +83,13 @@ create table if not exists events.events (
   created_at                 timestamptz not null default now(),
   updated_at                 timestamptz not null default now(),
 
-  -- S-14: submitted now means "awaiting a coordinator decision", not a
-  -- terminal state. approved/rejected/returned are the three outcomes of
-  -- that decision -- see POST /events/{event_id}/decision.
+  -- S-14: submitted means "awaiting a coordinator decision". The decision
+  -- leads to rejected, returned, or -- S-36 -- planning: an approved request
+  -- has passed the coordinator's check and venue/equipment planning is
+  -- underway. There is no 'approved' status; approved is only ever the
+  -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'approved', 'rejected', 'returned')),
+    check (status in ('draft', 'submitted', 'planning', 'rejected', 'returned')),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -113,8 +123,26 @@ create table if not exists events.events (
   constraint events_equipment_requests_object
     check (jsonb_typeof(equipment_requests) = 'object'),
 
+  constraint events_room_layout_allowed
+    check (room_layout is null or room_layout in (
+      'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
+    )),
+
+  constraint events_required_facilities_allowed
+    check (required_facilities <@ array[
+      'projector', 'screen', 'sound_system', 'microphones', 'wifi', 'stage',
+      'whiteboard', 'video_conferencing', 'catering_kitchen',
+      'air_conditioning', 'parking'
+    ]::text[]),
+
+  constraint events_required_accessibility_allowed
+    check (required_accessibility <@ array[
+      'wheelchair_access', 'step_free_entrance', 'accessible_toilets', 'lift',
+      'hearing_loop', 'accessible_parking'
+    ]::text[]),
+
   -- Every status past draft has been submitted at least once -- including
-  -- approved/rejected/returned, which are outcomes of a decision made on a
+  -- planning/rejected/returned, which are outcomes of a decision made on a
   -- submitted request, not a separate path around it. Only a draft has
   -- never been submitted.
   constraint events_submitted_at_present
@@ -134,17 +162,16 @@ create table if not exists events.events (
         and end_date is not null
         and end_time is not null
         and expected_attendance is not null
-        and venue is not null
       )
     ),
 
   -- decision is set exactly when a decision has been made -- draft and
-  -- submitted (awaiting one) never carry one; approved/rejected/returned
+  -- submitted (awaiting one) never carry one; planning/rejected/returned
   -- always do.
   constraint events_decision_matches_status
     check (
       (status in ('draft', 'submitted') and decision is null)
-      or (status in ('approved', 'rejected', 'returned') and decision is not null)
+      or (status in ('planning', 'rejected', 'returned') and decision is not null)
     ),
 
   constraint events_decision_allowed
@@ -185,12 +212,12 @@ create index if not exists events_events_organiser_id_idx
 
 -- The coordinator-load lookup filters by assigned_coordinator_id and status
 -- together for every request that occupies the coordinator's time -- this is
--- that query's index. S-14: that now means submitted (awaiting decision) or
--- approved (confirmed), not just submitted -- returned and rejected are not
--- live commitments and never block a new request.
+-- that query's index. That means submitted (awaiting decision) or planning
+-- (accepted, arrangements underway) -- returned and rejected are not live
+-- commitments and never block a new request.
 create index if not exists events_events_assigned_coordinator_id_idx
   on events.events (assigned_coordinator_id)
-  where status in ('submitted', 'approved');
+  where status in ('submitted', 'planning');
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.
@@ -338,6 +365,70 @@ alter table events.events enable row level security;
 --   create index events_events_assigned_coordinator_id_idx
 --     on events.events (assigned_coordinator_id)
 --     where status in ('submitted', 'approved');
+-- ---------------------------------------------------------------------------
+--
+-- S-36: already have the table with the S-14 'approved' status? Run this
+-- instead. Safe to run twice. An approval now moves an event to 'planning';
+-- 'approved' stays only as the recorded decision, so existing approved rows
+-- are moved across before the constraints stop allowing them.
+--
+--   alter table events.events drop constraint if exists events_status_allowed;
+--   alter table events.events drop constraint if exists events_decision_matches_status;
+--
+--   update events.events set status = 'planning' where status = 'approved';
+--
+--   alter table events.events add constraint events_status_allowed
+--     check (status in ('draft', 'submitted', 'planning', 'rejected', 'returned'));
+--   alter table events.events add constraint events_decision_matches_status
+--     check (
+--       (status in ('draft', 'submitted') and decision is null)
+--       or (status in ('planning', 'rejected', 'returned') and decision is not null)
+--     );
+--
+--   drop index if exists events.events_events_assigned_coordinator_id_idx;
+--   create index events_events_assigned_coordinator_id_idx
+--     on events.events (assigned_coordinator_id)
+--     where status in ('submitted', 'planning');
+--
+-- S-36: venue requirements on the event. Already have the table? Run this
+-- instead. Safe to run twice. No backfill needed: existing rows get no
+-- requirements, which is valid.
+--
+--   alter table events.events
+--     add column if not exists room_layout            text,
+--     add column if not exists required_facilities    text[] not null default '{}',
+--     add column if not exists required_accessibility text[] not null default '{}';
+--
+--   alter table events.events drop constraint if exists events_room_layout_allowed;
+--   alter table events.events add constraint events_room_layout_allowed
+--     check (room_layout is null or room_layout in (
+--       'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
+--     ));
+--   alter table events.events drop constraint if exists events_required_facilities_allowed;
+--   alter table events.events add constraint events_required_facilities_allowed
+--     check (required_facilities <@ array[
+--       'projector', 'screen', 'sound_system', 'microphones', 'wifi', 'stage',
+--       'whiteboard', 'video_conferencing', 'catering_kitchen',
+--       'air_conditioning', 'parking'
+--     ]::text[]);
+--   alter table events.events drop constraint if exists events_required_accessibility_allowed;
+--   alter table events.events add constraint events_required_accessibility_allowed
+--     check (required_accessibility <@ array[
+--       'wheelchair_access', 'step_free_entrance', 'accessible_toilets', 'lift',
+--       'hearing_loop', 'accessible_parking'
+--     ]::text[]);
+--
+--   -- venue is only a preference now, so a submitted event no longer needs one.
+--   alter table events.events drop constraint if exists events_submitted_fields_required;
+--   alter table events.events add constraint events_submitted_fields_required
+--     check (
+--       status = 'draft'
+--       or (
+--         name is not null and purpose is not null and start_date is not null
+--         and start_time is not null and end_date is not null
+--         and end_time is not null and expected_attendance is not null
+--       )
+--     );
 -- ---------------------------------------------------------------------------
 
 notify pgrst, 'reload schema';

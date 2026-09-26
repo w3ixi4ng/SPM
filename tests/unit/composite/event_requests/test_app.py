@@ -66,12 +66,12 @@ def test_submit_requires_organiser_role(client, users, events):
 
 # --- TC-EVENTREQUESTS-004 --------------------------------------------------
 def test_submit_validates_before_any_downstream_call(client, users, events):
-    incomplete = {key: value for key, value in SUBMITTED.items() if key != "venue"}
+    incomplete = {key: value for key, value in SUBMITTED.items() if key != "name"}
 
     response = client.post("/event-requests", json=incomplete)
 
     assert response.status_code == 422
-    assert "venue" in response.json()["errors"]
+    assert "name" in response.json()["errors"]
     users.get.assert_not_called()
     events.post.assert_not_called()
 
@@ -518,3 +518,41 @@ def test_a_status_change_underneath_the_resubmission_is_passed_back_as_409(clien
 
     assert response.status_code == 409
     assert response.json()["detail"] == NO_LONGER_AWAITING_CHANGES
+
+
+# --- S-36: venue requirements on the event ----------------------------------
+
+
+# --- TC-EVENTREQUESTS-029 --------------------------------------------------
+def test_venue_requirements_pass_through_to_the_events_service(client, users, events):
+    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+    events.post.side_effect = events_post_side_effect(
+        loads=[load_row(COORDINATOR_A, conflict=False, assigned_count=0)],
+        create_path="/events/internal",
+        create_status=201,
+        create_body=event_response(assigned_coordinator_id=COORDINATOR_A).json(),
+    )
+    requirements = {
+        "room_layout": "theatre",
+        "required_facilities": ["projector"],
+        "required_accessibility": ["lift"],
+    }
+    without_venue = {key: value for key, value in SUBMITTED.items() if key != "venue"}
+
+    response = client.post("/event-requests", json={**without_venue, **requirements})
+
+    assert response.status_code == 201
+    sent = events.post.call_args_list[-1].kwargs["json"]
+    assert sent["venue"] is None
+    for field, value in requirements.items():
+        assert sent[field] == value
+
+
+# --- TC-EVENTREQUESTS-030 --------------------------------------------------
+def test_venue_requirements_outside_the_catalogue_are_refused_first(client, users, events):
+    response = client.post("/event-requests", json={**SUBMITTED, "required_facilities": ["jacuzzi"]})
+
+    assert response.status_code == 422
+    assert any(key.startswith("required_facilities") for key in response.json()["errors"])
+    users.get.assert_not_called()
+    events.post.assert_not_called()

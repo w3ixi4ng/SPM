@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Check, RotateCcw, X } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, Building2, Check, RotateCcw, X } from 'lucide-react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import { hasPermission, PERMISSIONS } from '../lib/access.js'
+import { optionLabel } from '../lib/venues.js'
 import {
   decideEventRequest,
   eventErrorMessage,
@@ -9,6 +12,13 @@ import {
   eventStatusMeta,
   getAssignedEventRequest,
 } from '../lib/eventRequests.js'
+import {
+  bookingDateLabel,
+  bookingStatusMeta,
+  canRequestVenue,
+  listVenueBookingsForEvent,
+  shortTime,
+} from '../lib/venueBookings.js'
 
 const C = {
   ink: '#10192B',
@@ -201,9 +211,85 @@ function DecisionForm({ eventId, onDecided }) {
   )
 }
 
+// What this Coordinator has already asked for, so a reload never leaves them
+// guessing whether a request went out.
+function VenueRequests({ eventId }) {
+  const [state, setState] = useState({ status: 'loading', bookings: [] })
+
+  useEffect(() => {
+    let active = true
+    listVenueBookingsForEvent(eventId)
+      .then((bookings) => {
+        if (active) setState({ status: 'ready', bookings })
+      })
+      .catch(() => {
+        if (active) setState({ status: 'error', bookings: [] })
+      })
+    return () => {
+      active = false
+    }
+  }, [eventId])
+
+  return (
+    <section className="mb-8" aria-labelledby="venue-requests-heading">
+      <h2 id="venue-requests-heading" className="font-display text-xl mb-4" style={{ color: C.ink }}>
+        Venue requests
+      </h2>
+      {state.status === 'loading' && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venue requests…</p>
+      )}
+      {state.status === 'error' && (
+        <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>
+          We couldn&apos;t load the venue requests for this event. Reload the page to try again.
+        </p>
+      )}
+      {state.status === 'ready' && state.bookings.length === 0 && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venue requests sent yet.</p>
+      )}
+      {state.status === 'ready' && state.bookings.length > 0 && (
+        <ul className="divide-y" aria-label="Venue requests sent">
+          {state.bookings.map((booking) => {
+            const { label, color } = bookingStatusMeta(booking.status)
+            return (
+              <li
+                key={booking.id}
+                className="py-3 first:pt-0 last:pb-0 flex flex-wrap items-center justify-between gap-3"
+                style={{ borderColor: C.line }}
+              >
+                <div className="min-w-0">
+                  <p className="font-ui text-base font-medium" style={{ color: C.ink }}>{booking.venue_name}</p>
+                  <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                    {bookingDateLabel(booking.booking_date)} · {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0" style={{ color }}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                  {label}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export default function EventCoordinatorEventDetail() {
   const { id } = useParams()
+  const { user } = useAuth()
   const [state, setState] = useState({ status: 'loading', event: null, error: null })
+  const location = useLocation()
+  const navigate = useNavigate()
+  // Set by the venue request screen after a send. Read once, then cleared
+  // from history so a reload or Back does not announce the same send again.
+  const [notice] = useState(location.state?.notice ?? null)
+
+  useEffect(() => {
+    if (location.state?.notice) {
+      navigate(location.pathname, { replace: true, state: null })
+    }
+  }, [location, navigate])
 
   useEffect(() => {
     let active = true
@@ -223,6 +309,8 @@ export default function EventCoordinatorEventDetail() {
   }, [id])
 
   const form = state.event ? eventResponseToForm(state.event) : null
+  const isCoordinator = hasPermission(user?.role, PERMISSIONS.REQUEST_VENUE_BOOKING)
+  const showVenueRequest = state.event && isCoordinator && canRequestVenue(state.event.status)
 
   return (
     <div className="min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
@@ -262,6 +350,24 @@ export default function EventCoordinatorEventDetail() {
               <DecisionRecord event={state.event} />
             )}
 
+            {showVenueRequest && (
+              <div className="flex flex-wrap items-center gap-4 mb-8">
+                <Link
+                  to={`/coordinator/events/${state.event.id}/request-venue`}
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
+                  style={{ backgroundColor: C.teal, color: C.paper }}
+                >
+                  <Building2 size={16} aria-hidden="true" />
+                  Request venue
+                </Link>
+                <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
+                  {notice}
+                </p>
+              </div>
+            )}
+
+            {isCoordinator && <VenueRequests eventId={state.event.id} />}
+
             <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
               <h1 className="font-display text-3xl mb-8" style={{ color: C.ink }}>
                 {form.name || 'Untitled event request'}
@@ -269,7 +375,10 @@ export default function EventCoordinatorEventDetail() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <Field label="Purpose" value={form.purpose} />
-                <Field label="Venue" value={form.venue} />
+                <Field label="Venue preference" value={form.venue} />
+                <Field label="Room layout" value={form.roomLayout && optionLabel(form.roomLayout)} />
+                <Field label="Facilities needed" value={form.requiredFacilities.map(optionLabel).join(', ')} />
+                <Field label="Accessibility needed" value={form.requiredAccessibility.map(optionLabel).join(', ')} />
                 <Field
                   label="Starts"
                   value={form.startDate && `${form.startDate} at ${form.startTime}`}
@@ -280,7 +389,7 @@ export default function EventCoordinatorEventDetail() {
                 />
                 <Field label="Expected attendance" value={form.attendance} />
                 <Field label="Equipment requested" value={equipmentSummary(form.equipmentRequests)} />
-                <Field label="Accessibility requirements" value={form.accessibility} />
+                <Field label="Other accessibility notes" value={form.accessibility} />
                 <Field label="Other requirements" value={form.specialRequirements} />
               </div>
             </section>

@@ -10,6 +10,7 @@ queries another service's tables.
 | `POST` | `/events/drafts` | `events:save_draft` | Create an incomplete draft. |
 | `POST` | `/events` | `events:create` | Create an immediately submitted request. |
 | `GET` | `/events` | `events:view_own` | List the authenticated organiser's event requests, most recently updated first. |
+| `GET` | `/events/options` | `events:create` | The venue requirement option sets for the organiser's form: `room_layouts`, `facilities`, `accessibility`. |
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
@@ -73,10 +74,20 @@ When supplied, values still have to be valid.
 | `end_date` | `YYYY-MM-DD` or null | Optional. If both dates exist, must be on or after `start_date`. |
 | `end_time` | time or null | If both times exist and the event is single-day, must be after `start_time`. |
 | `expected_attendance` | integer or null | Greater than zero when present. |
-| `venue` | string or null | Blank text becomes null. |
+| `venue` | string or null | The organiser's venue preference, free text. Blank text becomes null. |
 | `equipment_requests` | object | Optional; values must be positive integers. Defaults to `{}` on create. |
-| `accessibility_requirements` | string or null | Blank text becomes null. |
+| `accessibility_requirements` | string or null | Other accessibility notes. Blank text becomes null. |
 | `special_requirements` | string or null | Anything the fixed fields do not cover — registration arrangements, catering, security. Blank text becomes null. |
+| `room_layout` | string or null | From the venue layout set. |
+| `required_facilities` | array of string | From the venue facility set. Defaults to `[]`. |
+| `required_accessibility` | array of string | From the venue accessibility set. Defaults to `[]`. |
+
+**Venue requirements (S-36).** `room_layout`, `required_facilities` and
+`required_accessibility` say what a venue must offer. They use the venue
+catalogue's fixed sets — repeated in [`schemas.py`](schemas.py) and as check
+constraints in [`events.sql`](../../../sql/events.sql) — so the
+`venue_bookings` composite can check each venue against them. The Coordinator
+books the actual venue; `venue` is only the organiser's preference.
 
 An empty draft is valid:
 
@@ -109,10 +120,13 @@ failure, rather than reaching the database's own constraint as an opaque
 | `end_date` | `YYYY-MM-DD` | yes | On or after `start_date`. |
 | `end_time` | time | yes | After `start_time` when the event is single-day (`end_date == start_date`); unconstrained relative to `start_time` for a multi-day event. |
 | `expected_attendance` | integer | yes | Greater than zero. |
-| `venue` | string | yes | Nonblank. |
+| `venue` | string or null | no | The organiser's venue preference. Blank becomes null. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
-| `accessibility_requirements` | string or null | no | Blank text becomes null. |
+| `accessibility_requirements` | string or null | no | Other accessibility notes. Blank text becomes null. |
 | `special_requirements` | string or null | no | Free text. Blank becomes null. |
+| `room_layout` | string or null | no | One of `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cocktail`. |
+| `required_facilities` | array of string | no | From the venue facility set; repeats dropped. Defaults to `[]`. |
+| `required_accessibility` | array of string | no | From the venue accessibility set; repeats dropped. Defaults to `[]`. |
 
 ```json
 {
@@ -159,6 +173,9 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "venue": "Main auditorium",
   "equipment_requests": {"projector": 1, "microphone": 2},
   "accessibility_requirements": "Wheelchair access",
+  "room_layout": "theatre",
+  "required_facilities": ["projector"],
+  "required_accessibility": ["wheelchair_access"],
   "assigned_coordinator_id": null,
   "decision": null,
   "decision_reason": null,
@@ -186,21 +203,26 @@ matches the verified user. An organiser with no requests receives `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14)
+## Status model (S-14, S-36)
 
 ```
-draft ──submit──> submitted ──decide──> approved   (terminal)
-  ^                   │                 returned ──edit + resubmit──┐
-  │                   └─────────────────rejected   (terminal)       │
-  └──────────────────────────────────────────────────────────────┘ │
-  returned <───────────────────────────────────────────────────────┘
+draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
+                    ▲   │ ────reject───> rejected   (terminal)
+                    │   └─────return───> returned
+                    └──edit + resubmit──────┘
 ```
+
+`confirmed`, `completed` and `cancelled` follow `planning` in the agreed
+flow; they arrive with the stories that move an event into them.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
   Still editable; editing does not change the status.
-- **approved** — the coordinator's positive decision. No further submit
-  action; edits still go through the same `PATCH`.
+- **planning** — the coordinator approved the request (S-36: an approval
+  moves the event here; there is no `approved` status, only the recorded
+  `decision=approved`). Venue booking requests are made against events in
+  this status. No further submit action; edits still go through the same
+  `PATCH`.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.
@@ -212,7 +234,7 @@ draft ──submit──> submitted ──decide──> approved   (terminal)
   `decision`/`decision_reason`/`decision_comment`/`decided_at` back to null
   and sets a fresh `submitted_at`.
 
-A coordinator's assigned submitted **or approved** events both occupy their
+A coordinator's assigned submitted **or planning** events both occupy their
 calendar for the purposes of routing a new request (see
 [`POST /events/coordinator-load`](#post-eventscoordinator-load)); returned
 and rejected do not, since neither is a live commitment.
@@ -232,8 +254,9 @@ is assigned to may call it, and only while it is `submitted`.
 {"decision": "returned", "reason": "Missing risk assessment", "comment": "Please attach the venue's fire safety form"}
 ```
 
-Returns `200` with the updated event (`status` now matches `decision`,
-`decided_at` set). `409` if the request is not currently `submitted` —
+Returns `200` with the updated event, `decided_at` set. `status` becomes
+`planning` for `approved`, and matches the decision for `rejected` and
+`returned`. `409` if the request is not currently `submitted` —
 including a decision already made, since a decision cannot be changed once
 recorded. `404` if the caller is not the assigned coordinator.
 
@@ -258,7 +281,7 @@ them from outside the Docker network.
 ```
 
 For each id in `coordinator_ids`, reports whether that coordinator has an
-assigned **submitted or approved** event overlapping the given window at all
+assigned **submitted or planning** event overlapping the given window at all
 (touching endpoints do not count as overlapping), and how many such events
 are currently assigned to them in total, independent of the window:
 
@@ -309,7 +332,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`. Editing a `submitted`/`returned`/`approved` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

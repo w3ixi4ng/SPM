@@ -2,10 +2,14 @@
 
 from unittest.mock import call
 
+import pytest
+from pydantic import ValidationError
+
 from .conftest import (
     COORDINATOR_A,
     EVENT_ORGANISER_PERMISSIONS,
     EVENT_ID,
+    EventRead,
     ORGANISER_ID,
     OTHER_USER_ID,
     ROLE_PERMISSIONS,
@@ -97,6 +101,9 @@ def test_create_derives_organiser_and_status_from_session(client, db, auth):
             "equipment_requests": {},
             "accessibility_requirements": None,
             "special_requirements": None,
+            "room_layout": None,
+            "required_facilities": [],
+            "required_accessibility": [],
             "organiser_id": ORGANISER_ID,
             "status": "draft",
             # A draft has no submission time, and the column says so rather
@@ -192,10 +199,10 @@ def test_updating_submitted_event_still_requires_submitted_fields(client, db, au
     authenticate(client, auth)
     on_owned_select(db, [event_row(status="submitted", **SUBMITTED)])
 
-    response = client.patch(f"/events/{EVENT_ID}", json={"venue": ""})
+    response = client.patch(f"/events/{EVENT_ID}", json={"name": ""})
 
     assert response.status_code == 422
-    assert "venue" in response.json()["errors"]
+    assert "name" in response.json()["errors"]
     db.schema.return_value.table.return_value.update.assert_not_called()
 
 
@@ -216,6 +223,9 @@ def test_submit_existing_draft(client, db, auth):
     assert {key: value for key, value in sent.items() if key not in excluded} == {
         **SUBMITTED,
         "special_requirements": None,
+        "room_layout": None,
+        "required_facilities": [],
+        "required_accessibility": [],
         "start_time": "18:00:00",
         "end_time": "21:00:00",
         "status": "submitted",
@@ -534,7 +544,7 @@ def test_coordinator_load_back_to_back_events_do_not_conflict(client, db):
 
 
 # --- TC-EVENTS-052 --------------------------------------------------------
-def test_coordinator_load_query_only_counts_submitted_and_approved_events(client, db):
+def test_coordinator_load_query_only_counts_submitted_and_planning_events(client, db):
     on_coordinator_rows(db, [])
 
     client.post(
@@ -550,9 +560,9 @@ def test_coordinator_load_query_only_counts_submitted_and_approved_events(client
 
     # Drafts, returned, and rejected are filtered out in the query itself,
     # not after -- so they never reach the conflict or count logic at all.
-    # S-14: approved counts alongside submitted -- both are live commitments.
+    # Planning counts alongside submitted -- both are live commitments.
     db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.assert_called_once_with(
-        "status", ["submitted", "approved"]
+        "status", ["submitted", "planning"]
     )
 
 
@@ -762,7 +772,7 @@ def test_internal_update_validates_the_resulting_submitted_event(client, db):
 
     response = client.patch(
         f"/events/{EVENT_ID}/internal",
-        json={"organiser_id": ORGANISER_ID, "venue": ""},
+        json={"organiser_id": ORGANISER_ID, "name": ""},
     )
 
     assert response.status_code == 422
@@ -778,15 +788,15 @@ def test_coordinator_approves_a_submitted_request(client, db, auth):
     on_owned_select(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
     on_decision_update(
         db,
-        [event_row(status="approved", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)],
+        [event_row(status="planning", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)],
     )
 
     response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
 
     assert response.status_code == 200
-    assert response.json()["status"] == "approved"
+    assert response.json()["status"] == "planning"
     sent = db.schema.return_value.table.return_value.update.call_args[0][0]
-    assert sent["status"] == "approved"
+    assert sent["status"] == "planning"
     assert sent["decision"] == "approved"
     assert sent["decision_reason"] is None
     assert sent["decision_comment"] is None
@@ -916,7 +926,7 @@ def test_a_coordinator_cannot_decide_an_event_not_assigned_to_them(client, db, a
 def test_a_decision_already_made_cannot_be_decided_again(client, db, auth):
     authenticate(client, auth, fake_user(user_id=COORDINATOR_A, role="event_coordinator"))
     on_owned_select(
-        db, [event_row(status="approved", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)]
+        db, [event_row(status="planning", decision="approved", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)]
     )
 
     response = client.post(f"/events/{EVENT_ID}/decision", json={"decision": "approved"})
@@ -959,9 +969,9 @@ def test_a_returned_request_can_be_resubmitted(client, db, auth):
 
 
 # --- TC-EVENTS-078 --------------------------------------------------------
-def test_an_approved_request_cannot_be_resubmitted(client, db, auth):
+def test_a_planning_request_cannot_be_resubmitted(client, db, auth):
     authenticate(client, auth)
-    on_owned_select(db, [event_row(status="approved", decision="approved", **SUBMITTED)])
+    on_owned_select(db, [event_row(status="planning", decision="approved", **SUBMITTED)])
 
     response = client.post(f"/events/{EVENT_ID}/submit", json=SUBMITTED)
 
@@ -1021,7 +1031,7 @@ def test_editing_a_returned_event_still_requires_submitted_fields(client, db, au
         [event_row(status="returned", decision="returned", decision_reason="Fix the venue", **SUBMITTED)],
     )
 
-    response = client.patch(f"/events/{EVENT_ID}", json={"venue": ""})
+    response = client.patch(f"/events/{EVENT_ID}", json={"name": ""})
 
     assert response.status_code == 422
     db.schema.return_value.table.return_value.update.assert_not_called()
@@ -1119,3 +1129,92 @@ def test_a_storage_failure_during_resubmission_is_reported(client, db, auth):
     assert response.status_code == 500
     assert response.json() == {"detail": "Event storage unavailable"}
     table.update.assert_called_once()
+
+
+# --- S-36: approved is a decision, never a status ---------------------------
+
+
+# --- TC-EVENTS-088 --------------------------------------------------------
+def test_approved_is_no_longer_a_status_an_event_can_be_read_in(client, db, auth):
+    authenticate(client, auth)
+    on_owned_select(db, [event_row(status="planning", decision="approved", **SUBMITTED)])
+
+    response = client.get(f"/events/{EVENT_ID}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "planning"
+    assert response.json()["decision"] == "approved"
+
+    with pytest.raises(ValidationError) as excinfo:
+        EventRead.model_validate(event_row(status="approved", decision="approved", **SUBMITTED))
+    assert any(error["loc"] == ("status",) for error in excinfo.value.errors())
+
+
+# --- S-36: venue requirements on the event ----------------------------------
+
+REQUIREMENTS = {
+    "room_layout": "theatre",
+    "required_facilities": ["projector", "stage"],
+    "required_accessibility": ["wheelchair_access"],
+}
+
+
+# --- TC-EVENTS-092 --------------------------------------------------------
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("room_layout", "ballroom"), ("required_facilities", ["jacuzzi"]), ("required_accessibility", ["ramp"])],
+)
+def test_only_values_from_the_venue_catalogue_are_accepted(client, db, auth, field, value):
+    authenticate(client, auth)
+
+    response = client.post("/events/drafts", json={field: value})
+
+    assert response.status_code == 422
+    assert any(key.startswith(field) for key in response.json()["errors"])
+    db.schema.return_value.table.return_value.insert.assert_not_called()
+
+
+# --- TC-EVENTS-093 --------------------------------------------------------
+def test_the_venue_requirements_are_stored_and_read_back(client, db, auth):
+    authenticate(client, auth)
+    without_venue = {key: value for key, value in SUBMITTED.items() if key != "venue"}
+    on_insert(db, [event_row(status="submitted", **without_venue, **REQUIREMENTS)])
+
+    response = client.post("/events", json={**without_venue, **REQUIREMENTS})
+
+    assert response.status_code == 201
+    sent = db.schema.return_value.table.return_value.insert.call_args[0][0]
+    assert sent["venue"] is None
+    for field, value in REQUIREMENTS.items():
+        assert sent[field] == value
+        assert response.json()[field] == value
+    assert response.json()["venue"] is None
+
+
+# --- TC-EVENTS-094 --------------------------------------------------------
+def test_organisers_get_the_option_lists(client, auth):
+    authenticate(client, auth)
+
+    response = client.get("/events/options")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "room_layouts": ["theatre", "classroom", "boardroom", "u_shape", "banquet", "cocktail"],
+        "facilities": [
+            "projector", "screen", "sound_system", "microphones", "wifi", "stage",
+            "whiteboard", "video_conferencing", "catering_kitchen", "air_conditioning", "parking",
+        ],
+        "accessibility": [
+            "wheelchair_access", "step_free_entrance", "accessible_toilets", "lift",
+            "hearing_loop", "accessible_parking",
+        ],
+    }
+
+
+@pytest.mark.parametrize("role", ["event_coordinator", "venue_staff", "technical_support", "attendee"])
+def test_other_roles_cannot_get_the_option_lists(client, auth, role):
+    authenticate(client, auth, fake_user(role=role))
+
+    response = client.get("/events/options")
+
+    assert response.status_code == 403

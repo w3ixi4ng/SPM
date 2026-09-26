@@ -257,7 +257,6 @@ def test_option_sets_are_served(client, db, auth, role):
             "boardroom",
             "u_shape",
             "banquet",
-            "cabaret",
             "cocktail",
         ],
         "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],

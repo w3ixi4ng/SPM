@@ -7,9 +7,9 @@ project.
 | | |
 | --- | --- |
 | Suite | Start the events service against `.env.test`, then `pytest tests/integration/atomic/events` |
-| Last run | 2026-09-17, branch `S-07/T-01` at `ea7cab7` |
-| Environment | `.env.test` test Supabase project; `events` schema applied, granted and exposed; users, events, and Kong healthy in Docker |
-| Result | 2 passed |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with both S-36 migrations), `venues` and `bookings` (with the cabaret removal) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
+| Result | 20 passed across `tests/integration`, twice consecutively |
 
 ## TC-EVENTS-101 — authenticated draft-to-submission round trip
 
@@ -82,3 +82,22 @@ project.
 - **Status:** Blocked — needs `events.sql` migrated with
   `assigned_coordinator_id` and the new internal routes built.
 - **Evidence:** —
+
+## TC-EVENTS-104 — an event with venue requirements and no venue preference is stored
+
+- **Scenario:** Proves the S-36 columns, their check constraints, and that the
+  submitted-fields constraint no longer needs `venue`.
+- **Pre-conditions:** `.env.test`; the `events` schema with the S-36
+  venue-requirements migration applied; stack started with
+  `--env-file .env.test` immediately before.
+- **Steps:** 1. Sign in as a fresh organiser. 2. `POST /events` with a complete
+  payload, no `venue`, `room_layout: "theatre"`, `required_facilities:
+  ["projector"]`, `required_accessibility: ["lift"]`. 3. Read the row with the
+  admin client.
+- **Test data:** As above.
+- **Expected:** Step 2 `201`. Step 3: `venue` null and the three requirement
+  columns as sent. The row is deleted on teardown.
+
+- **Actual:** `201`; the row had `venue` null and the three requirement columns as sent.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_event_with_venue_requirements_and_no_venue_is_stored`

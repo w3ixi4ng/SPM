@@ -148,9 +148,13 @@ jobs:
           EVENTS_SERVICE_PORT=8002
           VENUES_SERVICE_PORT=8003
           EVENT_REQUESTS_SERVICE_PORT=8100
+          BOOKINGS_SERVICE_PORT=8004
+          VENUE_BOOKINGS_SERVICE_PORT=8101
           KONG_PROXY_PORT=8000
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002
+          VENUES_SERVICE_URL=http://venues:8003
+          BOOKINGS_SERVICE_URL=http://bookings:8004
           ENV
 
       - name: Install test dependencies
@@ -242,9 +246,13 @@ jobs:
           EVENTS_SERVICE_PORT=8002
           VENUES_SERVICE_PORT=8003
           EVENT_REQUESTS_SERVICE_PORT=8100
+          BOOKINGS_SERVICE_PORT=8004
+          VENUE_BOOKINGS_SERVICE_PORT=8101
           KONG_PROXY_PORT=8000
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002
+          VENUES_SERVICE_URL=http://venues:8003
+          BOOKINGS_SERVICE_URL=http://bookings:8004
           ENV
 
       - name: Install test dependencies

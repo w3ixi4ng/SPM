@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
 from enum import Enum
+from typing import Literal, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
@@ -8,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 class EventStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
-    # S-14: the three outcomes of a coordinator's decision on a submitted
-    # request. APPROVED and REJECTED are terminal; RETURNED goes back to the
-    # organiser to edit and resubmit as the same record.
-    APPROVED = "approved"
+    # S-14: the outcomes of a coordinator's decision on a submitted request.
+    # REJECTED is terminal; RETURNED goes back to the organiser to edit and
+    # resubmit as the same record. S-36: an approval moves the event to
+    # PLANNING -- it passed the coordinator's check and venue/equipment
+    # planning is underway. There is no "approved" status; "approved" is only
+    # ever the recorded *decision* (DecisionValue), which stays put while the
+    # status moves on.
+    PLANNING = "planning"
     REJECTED = "rejected"
     RETURNED = "returned"
 
@@ -20,6 +25,43 @@ class DecisionValue(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     RETURNED = "returned"
+
+
+# S-36: the event's venue requirements use the venue catalogue's fixed sets,
+# so each venue can be checked against them. Repeated here rather than
+# imported -- each Docker image holds only its own service's code. Keep in
+# step with backend/services/atomic/venues/schemas.py and
+# backend/sql/events.sql.
+RoomLayout = Literal["theatre", "classroom", "boardroom", "u_shape", "banquet", "cocktail"]
+Facility = Literal[
+    "projector",
+    "screen",
+    "sound_system",
+    "microphones",
+    "wifi",
+    "stage",
+    "whiteboard",
+    "video_conferencing",
+    "catering_kitchen",
+    "air_conditioning",
+    "parking",
+]
+AccessibilityFeature = Literal[
+    "wheelchair_access",
+    "step_free_entrance",
+    "accessible_toilets",
+    "lift",
+    "hearing_loop",
+    "accessible_parking",
+]
+
+ROOM_LAYOUTS: tuple[str, ...] = get_args(RoomLayout)
+FACILITIES: tuple[str, ...] = get_args(Facility)
+ACCESSIBILITY_FEATURES: tuple[str, ...] = get_args(AccessibilityFeature)
+
+
+def _unique_in_order(values: list) -> list:
+    return list(dict.fromkeys(values))
 
 
 # Shared by EventDraftCreate and EventSubmittedCreate: end_date, if set, may
@@ -49,6 +91,9 @@ class EventDraftCreate(BaseModel):
     equipment_requests: dict[str, PositiveInt] = Field(default_factory=dict)
     accessibility_requirements: str | None = None
     special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] = Field(default_factory=list)
+    required_accessibility: list[AccessibilityFeature] = Field(default_factory=list)
 
     @field_validator(
         "name",
@@ -56,6 +101,7 @@ class EventDraftCreate(BaseModel):
         "venue",
         "accessibility_requirements",
         "special_requirements",
+        "room_layout",
         mode="before",
     )
     @classmethod
@@ -64,6 +110,11 @@ class EventDraftCreate(BaseModel):
             stripped = value.strip()
             return stripped or None
         return value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def drop_duplicates(cls, value: list) -> list:
+        return _unique_in_order(value)
 
     @model_validator(mode="after")
     def end_must_follow_start(self):
@@ -122,10 +173,14 @@ class EventSubmittedCreate(BaseModel):
     end_date: date
     end_time: time
     expected_attendance: PositiveInt
-    venue: str
+    # S-36: only a preference -- the Coordinator books the actual venue.
+    venue: str | None = None
     equipment_requests: dict[str, PositiveInt] = Field(default_factory=dict)
     accessibility_requirements: str | None = None
     special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] = Field(default_factory=list)
+    required_accessibility: list[AccessibilityFeature] = Field(default_factory=list)
 
     @field_validator(
         "name",
@@ -133,6 +188,7 @@ class EventSubmittedCreate(BaseModel):
         "venue",
         "accessibility_requirements",
         "special_requirements",
+        "room_layout",
         mode="before",
     )
     @classmethod
@@ -141,6 +197,11 @@ class EventSubmittedCreate(BaseModel):
             stripped = value.strip()
             return stripped or None
         return value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def drop_duplicates(cls, value: list) -> list:
+        return _unique_in_order(value)
 
     @model_validator(mode="after")
     def end_must_follow_start(self):
@@ -163,6 +224,9 @@ class EventRead(BaseModel):
     equipment_requests: dict[str, int]
     accessibility_requirements: str | None
     special_requirements: str | None
+    room_layout: str | None
+    required_facilities: list[str]
+    required_accessibility: list[str]
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
@@ -178,6 +242,12 @@ class EventRead(BaseModel):
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class EventOptions(BaseModel):
+    room_layouts: list[str]
+    facilities: list[str]
+    accessibility: list[str]
 
 
 # --- Internal, composite-only schemas --------------------------------------

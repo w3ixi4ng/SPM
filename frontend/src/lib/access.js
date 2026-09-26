@@ -9,13 +9,16 @@ export const PERMISSIONS = Object.freeze({
   VIEW_VENUES: 'venues:view',
   VIEW_ASSIGNED_EVENTS: 'events:view_assigned',
   DECIDE_EVENT: 'events:decide',
+  REQUEST_VENUE_BOOKING: 'venue_bookings:create',
+  VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
 
 // This mirrors the backend policy for presentation only. Backend dependencies
 // remain authoritative: events permissions come from the events service's
-// authorization.py, venues permissions from the venues service's. Event
+// authorization.py, venues permissions from the venues service's, venue
+// booking permissions from the venue_bookings composite's role checks. Event
 // Coordinator can view and decide on its assigned requests; the remaining
 // non-organiser workflows are not yet defined by the project requirements,
 // so those roles receive a dashboard and no controls.
@@ -42,6 +45,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.VIEW_ASSIGNED_EVENTS,
       PERMISSIONS.DECIDE_EVENT,
       PERMISSIONS.VIEW_VENUES,
+      PERMISSIONS.REQUEST_VENUE_BOOKING,
     ]),
   }),
   venue_staff: Object.freeze({
@@ -52,6 +56,7 @@ export const ROLE_ACCESS = Object.freeze({
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.CREATE_VENUE,
       PERMISSIONS.VIEW_VENUES,
+      PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS,
     ]),
   }),
   technical_support: Object.freeze({

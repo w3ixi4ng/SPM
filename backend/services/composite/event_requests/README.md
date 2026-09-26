@@ -42,7 +42,10 @@ submitted-event routes:
 | `end_date` | `YYYY-MM-DD` | yes | On or after `start_date`. |
 | `end_time` | time | yes | After `start_time` when the event is single-day. |
 | `expected_attendance` | integer | yes | Greater than zero. |
-| `venue` | string | yes | Nonblank. |
+| `venue` | string or null | no | The organiser's venue preference. Blank becomes null. |
+| `room_layout` | string or null | no | From the venue layout set. |
+| `required_facilities` | array of string | no | From the venue facility set. Defaults to `[]`. |
+| `required_accessibility` | array of string | no | From the venue accessibility set. Defaults to `[]`. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
 | `accessibility_requirements` | string or null | no | Blank text becomes null. |
 | `special_requirements` | string or null | no | Free text. Blank becomes null. |
@@ -80,10 +83,10 @@ depending on what the event currently is:
 
 1. Fetch every account with role `event_coordinator` from the users service.
 2. Ask the events service which of them have no assigned **submitted or
-   approved** event overlapping the requested window at all (a request
+   planning** event overlapping the requested window at all (a request
    starting exactly when another ends is not a conflict).
 3. Among the conflict-free coordinators, pick whoever currently has the
-   fewest assigned submitted/approved events. Ties are broken at random, so
+   fewest assigned submitted/planning events. Ties are broken at random, so
    load spreads out over many requests even when no one is busy yet.
 4. If no coordinator is conflict-free — including when no coordinator
    accounts exist at all — the request is rejected. Nothing is created.
