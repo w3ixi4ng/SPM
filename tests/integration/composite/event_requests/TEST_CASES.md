@@ -146,9 +146,9 @@ Verified runnable twice in a row.
   `decision`/`decision_reason`/`decision_comment`/`decided_at` all `null`, and
   the same count as step 1. Step 4 lists the event once, with
   `status=submitted` and `expected_attendance=80`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_returned_request_is_amended_resubmitted_and_back_with_its_coordinator`
 
 ## TC-EVENTREQUESTS-106 — a failed resubmission leaves the returned request exactly as it was
 
@@ -167,6 +167,6 @@ Verified runnable twice in a row.
   Step 3 equals step 1 field for field, including `updated_at`: still
   `returned`, `start_time=09:00:00`, attendance `120`, same coordinator, and
   the same reason, comment and `decided_at`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was`

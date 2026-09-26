@@ -147,6 +147,19 @@ def coordinator(admin):
 
 
 @pytest.fixture
+def coordinator_session(admin, auth_client):
+    """A signed-in event_coordinator, for reading their own assigned queue."""
+    user = _make_user(admin, "event_coordinator")
+    try:
+        signed_in = auth_client.auth.sign_in_with_password(
+            {"email": user["email"], "password": user["password"]}
+        )
+        yield {"user_id": user["id"], "access_token": signed_in.session.access_token}
+    finally:
+        admin.auth.admin.delete_user(user["id"])
+
+
+@pytest.fixture
 def second_coordinator(admin):
     """A second seeded event_coordinator account, for reassignment cases."""
     user = _make_user(admin, "event_coordinator")
