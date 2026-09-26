@@ -4,7 +4,7 @@ A real browser, driving the built frontend through Kong, against both services
 and a real (test) Supabase project. The slowest tests in the repo and the only
 ones that see the whole thing at once.
 
-Four journeys. That is deliberate — see [what goes here](#what-goes-here).
+Three journeys. That is deliberate — see [what goes here](#what-goes-here).
 
 ## What only these can prove
 
@@ -59,7 +59,7 @@ pytest tests/e2e
 pytest tests/e2e --headed --slowmo 300
 
 # one journey
-pytest tests/e2e/test_event_request.py -v
+pytest tests/e2e/test_role_access.py -v
 ```
 
 Everything is addressed through **Kong** on `KONG_PROXY_PORT`, never a service

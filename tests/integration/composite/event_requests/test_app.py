@@ -2,7 +2,15 @@
 
 import httpx
 
-from .conftest import BASE_URL, EVENTS_BASE_URL, GATEWAY_BASE_URL, requires_env
+from .conftest import (
+    BASE_URL,
+    EVENTS_BASE_URL,
+    GATEWAY_BASE_URL,
+    all_coordinator_ids,
+    block_other_coordinators,
+    request_with_retry,
+    requires_env,
+)
 
 pytestmark = requires_env
 
@@ -23,14 +31,14 @@ def test_free_coordinator_is_assigned_and_visible_on_the_event(organiser_session
     headers = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
 
     with httpx.Client(base_url=BASE_URL, timeout=15.0, headers=headers) as api:
-        response = api.post("/event-requests", json=SUBMITTED)
+        response = request_with_retry(api, "POST", "/event-requests", json=SUBMITTED)
         assert response.status_code == 201, response.text
         event = response.json()
         organiser_session["event_ids"].append(event["id"])
         assert event["assigned_coordinator_id"] == coordinator
 
     with httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=headers) as events_api:
-        fetched = events_api.get(f"/events/{event['id']}")
+        fetched = request_with_retry(events_api, "GET", f"/events/{event['id']}")
         assert fetched.status_code == 200, fetched.text
         assert fetched.json()["assigned_coordinator_id"] == coordinator
 
@@ -63,11 +71,11 @@ def test_fully_booked_coordinator_pool_rejects_the_submission(organiser_session,
     organiser_session["event_ids"].append(blocking.data[0]["id"])
 
     with httpx.Client(base_url=BASE_URL, timeout=15.0, headers=headers) as api:
-        response = api.post("/event-requests", json=SUBMITTED)
+        response = request_with_retry(api, "POST", "/event-requests", json=SUBMITTED)
         assert response.status_code == 409, response.text
 
     with httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=headers) as events_api:
-        listed = events_api.get("/events")
+        listed = request_with_retry(events_api, "GET", "/events")
         assert listed.status_code == 200, listed.text
         names = {event["name"] for event in listed.json()}
         assert SUBMITTED["name"] not in names
@@ -78,7 +86,7 @@ def test_every_event_requests_operation_routes_through_kong(organiser_session, c
     headers = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
 
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0, headers=headers) as api:
-        response = api.post("/event-requests", json=SUBMITTED)
+        response = request_with_retry(api, "POST", "/event-requests", json=SUBMITTED)
         assert response.status_code == 201, response.text
         event = response.json()
         organiser_session["event_ids"].append(event["id"])
@@ -136,13 +144,15 @@ def test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflic
     )
 
     with httpx.Client(base_url=BASE_URL, timeout=15.0, headers=headers) as api:
-        created = api.post("/event-requests", json=SUBMITTED)
+        created = request_with_retry(api, "POST", "/event-requests", json=SUBMITTED)
         assert created.status_code == 201, created.text
         event = created.json()
         organiser_session["event_ids"].append(event["id"])
         assert event["assigned_coordinator_id"] == coordinator
 
-        edited = api.patch(f"/event-requests/{event['id']}", json=edited_window)
+        edited = request_with_retry(
+            api, "PATCH", f"/event-requests/{event['id']}", json={"start_time": "13:00", "end_time": "15:00"}
+        )
         assert edited.status_code == 200, edited.text
         assert edited.json()["assigned_coordinator_id"] == second_coordinator
         assert edited.json()["start_time"] == "13:00:00"
