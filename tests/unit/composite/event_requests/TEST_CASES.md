@@ -31,7 +31,8 @@ coordinator A   aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa  (0 assigned events)
 coordinator B   bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb  (2 assigned events)
 event window    2026-10-20 18:00 -- 2026-10-20 21:00
 submitted body  name, purpose, start/end date+time, expected_attendance,
-                venue -- the same fields EventSubmittedCreate requires
+                -- the same fields EventSubmittedCreate requires; venue is
+                an optional preference since S-36
 ```
 
 ---
@@ -73,14 +74,14 @@ submitted body  name, purpose, start/end date+time, expected_attendance,
 
 ## TC-EVENTREQUESTS-004 — the request body is validated before any downstream call
 
-- **Scenario:** An incomplete submission fails the same way it would against
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. An incomplete submission fails the same way it would against
   the events service directly, without spending a call on either dependency.
 - **Pre-conditions:** Authenticated organiser.
-- **Steps:** `POST /event-requests` with `venue` omitted.
-- **Test data:** Shared submitted body minus `venue`.
-- **Expected:** `422` identifying `venue`; neither client called.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Steps:** `POST /event-requests` with `name` omitted.
+- **Test data:** Shared submitted body minus `name`.
+- **Expected:** `422` identifying `name`; neither client called.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_submit_validates_before_any_downstream_call`
 
 ## TC-EVENTREQUESTS-005 — the sole eligible coordinator is assigned
@@ -444,3 +445,33 @@ either never writes or passes the failure straight back.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_status_change_underneath_the_resubmission_is_passed_back_as_409`
+
+---
+
+**S-36 venue requirements.** The organiser's submission can carry the
+event's venue requirements and no venue.
+
+## TC-EVENTREQUESTS-029 — venue requirements pass through to the events service
+
+- **Pre-conditions:** Shared; one free coordinator.
+- **Steps:** `POST /event-requests` with the shared body minus `venue`, plus
+  `room_layout: "theatre"`, `required_facilities: ["projector"]`,
+  `required_accessibility: ["lift"]`.
+- **Test data:** As above.
+- **Expected:** `201`. The body sent to `POST /events/internal` carries the
+  three fields as given and `venue: null`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTREQUESTS-030 — venue requirements outside the catalogue are refused first
+
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /event-requests` with `required_facilities: ["jacuzzi"]`.
+- **Test data:** As above.
+- **Expected:** `422` naming `required_facilities`; neither client called.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

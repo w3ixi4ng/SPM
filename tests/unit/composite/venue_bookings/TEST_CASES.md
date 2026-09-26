@@ -34,9 +34,13 @@ The conditions agreed with the developer behind AC1 and AC2:
 - The booking is on **one date**. Its start and end must fall inside the
   event's own start and end, with equal times allowed. They must also fall
   inside the venue's opening hours for that weekday.
+- The venue requirements come from the **event**: the organiser gives a
+  room layout, facilities and accessibility features when creating it. The
+  Coordinator chooses only the venue, the date and time, and optional notes.
 - A request is **refused at submission** when the event's
-  `expected_attendance` exceeds the venue's `capacity`, or when a chosen room
-  layout, facility or accessibility feature is not offered by the venue. This
+  `expected_attendance` exceeds the venue's `capacity`, or when the event's
+  room layout, facilities or accessibility features are not all offered by
+  the venue. This
   is validation, not a booking decision: nothing is saved, and Venue Staff
   never see it. Venue Staff's own approve/reject is the Venue Booking
   Approval story.
@@ -67,6 +71,9 @@ event         id eeeeeeee-…, status planning, assigned to the coordinator
               2026-11-12 09:00 -- 2026-11-12 18:00        (a Thursday)
               expected_attendance 120
               accessibility_requirements "Two guests use wheelchairs"
+              room_layout theatre
+              required_facilities [projector]
+              required_accessibility [wheelchair_access]
 
 venue         id vvvvvvvv-…, name "Studio B", capacity 150
               facilities    [projector, sound_system, wifi]
@@ -77,9 +84,6 @@ venue         id vvvvvvvv-…, name "Studio B", capacity 150
 request body  {"event_id": <event>, "venue_id": <venue>,
                "booking_date": "2026-11-12",
                "start_time": "09:00", "end_time": "12:00",
-               "room_layout": "theatre",
-               "required_facilities": ["projector"],
-               "required_accessibility": ["wheelchair_access"],
                "notes": "Access from 08:30 for setup"}
 ```
 
@@ -126,7 +130,7 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
 ## TC-VENUEBOOKINGS-004 — the body is checked before any downstream call
 
-- **Scenario:** A malformed request costs no call to events, venues or
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request. A malformed request costs no call to events, venues or
   bookings.
 - **Pre-conditions:** Shared.
 - **Steps:** `POST /venue-bookings` once for each bad body below.
@@ -134,14 +138,14 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   - `venue_id` missing
   - `booking_date` missing
   - `end_time` `"09:00"` with `start_time` `"09:00"`
-  - `room_layout: "ballroom"`
-  - `required_facilities: ["jacuzzi"]`
+  - `room_layout: "theatre"` (the event's, not the request's)
+  - `required_facilities: ["projector"]` (likewise)
   - an extra field `"status": "approved"`
 - **Expected:** `422` with the offending field in `errors` for each one.
   No downstream service is called, not even users: FastAPI checks the body
   before the route runs, the same as TC-EVENTREQUESTS-004.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_the_body_is_checked_before_any_downstream_call`, `test_app.py::test_an_end_time_before_the_start_names_the_problem`
 
 ## TC-VENUEBOOKINGS-005 — a Coordinator cannot book for an event not assigned to them
@@ -252,72 +256,78 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
 ## TC-VENUEBOOKINGS-013 — every required facility must be at the venue
 
-- **Pre-conditions:** Shared.
-- **Steps:** `POST /venue-bookings` with
-  `required_facilities: ["projector", "stage", "whiteboard"]`.
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request.
+- **Pre-conditions:** Shared, with the event's `required_facilities` set to
+  `["projector", "stage", "whiteboard"]`.
+- **Steps:** `POST /venue-bookings` with the shared body.
 - **Test data:** As above. The venue has `projector` but not `stage` or
   `whiteboard`.
 - **Expected:** Refused at submission with `errors.required_facilities`
   = `"Studio B does not have: stage, whiteboard"`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_every_required_facility_must_be_at_the_venue`
 
 ## TC-VENUEBOOKINGS-014 — every required accessibility feature must be at the venue
 
-- **Pre-conditions:** Shared.
-- **Steps:** `POST /venue-bookings` with
-  `required_accessibility: ["wheelchair_access", "hearing_loop"]`.
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request.
+- **Pre-conditions:** Shared, with the event's `required_accessibility` set
+  to `["wheelchair_access", "hearing_loop"]`.
+- **Steps:** `POST /venue-bookings` with the shared body.
 - **Test data:** As above. The venue lacks `hearing_loop`.
 - **Expected:** Refused at submission with `errors.required_accessibility`
   = `"Studio B does not have: hearing_loop"`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_every_required_accessibility_feature_must_be_at_the_venue`
 
 ## TC-VENUEBOOKINGS-015 — the room layout must be one the venue offers
 
-- **Pre-conditions:** Shared.
-- **Steps:** `POST /venue-bookings` with `room_layout: "banquet"`.
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request.
+- **Pre-conditions:** Shared, with the event's `room_layout` set to
+  `banquet`.
+- **Steps:** `POST /venue-bookings` with the shared body.
 - **Test data:** As above. The venue offers `theatre` and `classroom` only.
 - **Expected:** Refused at submission with `errors.room_layout`
   = `"Studio B does not offer the banquet layout"`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_the_room_layout_must_be_one_the_venue_offers`
 
 ## TC-VENUEBOOKINGS-016 — every problem is reported at once
 
-- **Scenario:** A Coordinator fixes everything in one pass instead of
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request. A Coordinator fixes everything in one pass instead of
   discovering problems one at a time.
 - **Pre-conditions:** Shared, with the event's `expected_attendance` at
-  `200`.
-- **Steps:** `POST /venue-bookings` for `2026-11-12` `07:00`–`10:00` with
-  `room_layout: "banquet"` and `required_facilities: ["stage"]`.
+  `200`, `room_layout` `banquet` and `required_facilities` `["stage"]`.
+- **Steps:** `POST /venue-bookings` for `2026-11-12` `07:00`–`10:00`.
 - **Test data:** As above.
 - **Expected:** One `422` whose `errors` holds exactly these keys:
   `booking_date`, `operating_hours`, `expected_attendance`,
   `required_facilities`, `room_layout`. Bookings is never called.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_every_problem_is_reported_at_once`
 
-## TC-VENUEBOOKINGS-017 — the optional choices may be left out
+## TC-VENUEBOOKINGS-017 — an event with no venue requirements, and no notes
 
-- **Pre-conditions:** Shared.
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request.
+- **Pre-conditions:** Shared, with the event's `room_layout` null and both
+  requirement lists empty.
 - **Steps:** `POST /venue-bookings` with only `event_id`, `venue_id`,
   `booking_date`, `start_time` and `end_time`.
 - **Test data:** As above.
 - **Expected:** `201`. The body sent to `POST /bookings` has
   `room_layout=null`, `required_facilities=[]`,
   `required_accessibility=[]` and `notes=null`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_the_optional_choices_may_be_left_out`
 
 ## TC-VENUEBOOKINGS-018 — the request carries the event's requirements for Venue Staff
 
-- **Scenario:** AC2. What Venue Staff need is copied onto the request from
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request. AC2. What Venue Staff need — including the room layout,
+  facilities and accessibility features — is copied onto the request from
   the event, the venue and the session. None of it is taken from the
   browser.
 - **Pre-conditions:** Shared.
@@ -347,8 +357,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
   The response is `201` with the bookings service's body, including
   `status: "pending"`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_the_request_carries_the_events_requirements_for_venue_staff`
 
 ## TC-VENUEBOOKINGS-019 — submitting a request writes nothing to the event

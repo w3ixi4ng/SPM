@@ -49,19 +49,19 @@ RBAC, and validation remain authoritative.
 
 ## TC-FRONTEND-004 — event form maps to the backend contract
 
-- **Scenario:** Form state becomes snake_case JSON without server-owned fields.
+- **Scenario:** Revised for S-36: the requirement lists are always sent, like equipment. Form state becomes snake_case JSON without server-owned fields.
 - **Pre-conditions:** The event API helper is loaded.
 - **Steps:** Map a complete form and an empty draft.
 - **Test data:** Complete event fields plus client-supplied system fields; then
   an otherwise empty draft.
 - **Expected:** Business fields use backend names and numeric quantities;
   `id`, `organiser_id`, `status`, `created_at`, and `updated_at` are absent;
-  the empty draft contains only `equipment_requests: {}`.
+  the empty draft contains only `equipment_requests: {}`,
+  `required_facilities: []` and `required_accessibility: []`.
 - **Note:** covers `special_requirements` as well, including trimming and the
   blank-to-null rule.
-- **Actual:** Business fields were mapped exactly and all server-owned fields
-  were omitted; an empty draft mapped to an empty equipment object only.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_event_requests.mjs` — `form mapping uses the backend contract and omits server-owned fields`
 
 ## TC-FRONTEND-005 — event responses map to React state
@@ -483,25 +483,24 @@ says.
 
 ## TC-FRONTEND-030 — venue booking calls use the authenticated Kong contract
 
+- **Scenario:** Revised for S-36: the requirements come from the event, not the request.
 - **Pre-conditions:** `fetch` records requests and returns a valid booking.
 - **Steps:** Call `submitVenueBooking(form)` twice, first with every field
   filled and then with only the required ones. Then call
   `listPendingVenueBookings()`.
 - **Test data:** Full form: event `e1`, venue `v1`, date `2026-11-12`,
-  `09:00`–`12:00`, layout `theatre`, facilities `[projector]`,
-  accessibility `[wheelchair_access]`, notes `"  Setup from 08:30 "`.
-  Required-only form: the same event, venue, date and times, with layout
-  `""`, no facilities, no accessibility and notes `""`.
+  `09:00`–`12:00`, notes `"  Setup from 08:30 "`.
+  Required-only form: the same event, venue, date and times, with notes
+  `""`.
 - **Expected:** `POST /api/venue-bookings` and
   `GET /api/venue-bookings/pending`, each with `credentials: include`.
   - The full POST body is exactly `{event_id, venue_id, booking_date,
-    start_time, end_time, room_layout, required_facilities,
-    required_accessibility, notes}`, with notes trimmed to
-    `"Setup from 08:30"`.
-  - The required-only body leaves out `room_layout` and `notes`, and sends
-    `required_facilities: []` and `required_accessibility: []`.
-- **Actual:** As expected.
-- **Status:** Pass
+    start_time, end_time, notes}`, with notes trimmed to
+    `"Setup from 08:30"`. No layout, facilities or accessibility: those come
+    from the event.
+  - The required-only body leaves out `notes`.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_venue_bookings.mjs` — `venue booking calls use the authenticated Kong contract`
 
 ## TC-FRONTEND-031 — venue booking errors say what happened and what to do
@@ -542,3 +541,56 @@ says.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `an event's venue requests load through Kong`
+
+## TC-FRONTEND-033 — the organiser's venue requirements map both ways
+
+- **Pre-conditions:** The event API helper is loaded.
+- **Steps:** Map a form with requirements to a payload; map it with a blank
+  layout; map an API response with requirements back to form state.
+- **Test data:** Form `roomLayout: "theatre"`, `requiredFacilities:
+  ["projector"]`, `requiredAccessibility: ["lift"]`, `venue: ""`; the same
+  with `roomLayout: ""`; a response with `room_layout: "banquet"`,
+  `required_facilities: ["stage"]`, `required_accessibility: []`,
+  `venue: null`.
+- **Expected:** Payload carries `room_layout: "theatre"`,
+  `required_facilities: ["projector"]`, `required_accessibility: ["lift"]`,
+  `venue: null`. A blank layout is sent as `room_layout: null` (and left out
+  when `omitEmpty` is set). The response maps to `roomLayout: "banquet"`,
+  `requiredFacilities: ["stage"]`, `requiredAccessibility: []`, `venue: ""`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-034 — organisers load the option lists from the events service
+
+- **Pre-conditions:** `fetch` records requests.
+- **Steps:** Call `getEventOptions()`.
+- **Test data:** None.
+- **Expected:** One `GET /api/events/options` with `credentials: include`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-035 — each venue is marked against the event's requirements
+
+- **Scenario:** The request screen lists every venue and says, before
+  anything is sent, why one would not fit. Opening hours are left out: they
+  depend on the date and time, which the service checks on send.
+- **Pre-conditions:** The venue booking helpers are loaded.
+- **Steps:** Call `venueFit(event, venue)` for a venue that fits and one that
+  fails everything.
+- **Test data:** Event: `expected_attendance: 100`, `room_layout: "banquet"`,
+  `required_facilities: ["projector", "stage"]`,
+  `required_accessibility: ["hearing_loop"]`. Fitting venue: capacity `100`,
+  layouts `["banquet"]`, facilities `["projector", "stage"]`, accessibility
+  `["hearing_loop"]`. Failing venue: capacity `80`, layouts `["theatre"]`,
+  facilities `["projector"]`, accessibility `[]`.
+- **Expected:** Fitting venue: `[]`. Failing venue, in this order:
+  `"Too small: holds 80, event expects 100"`,
+  `"No Banquet layout"`, `"Missing: Stage"`, `"Missing: Hearing loop"`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

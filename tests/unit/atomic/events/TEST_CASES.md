@@ -85,13 +85,13 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-007 — missing submitted-required field
 
-- **Scenario:** A submitted request cannot omit a required field.
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. A submitted request cannot omit a required field.
 - **Pre-conditions:** The otherwise-valid submitted payload from TC-EVENTS-006.
-- **Steps:** Remove `venue` and instantiate `EventSubmittedCreate`.
-- **Test data:** Valid submitted payload without `venue`.
-- **Expected:** `ValidationError` identifies `venue`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Steps:** Remove `name` and instantiate `EventSubmittedCreate`.
+- **Test data:** Valid submitted payload without `name`.
+- **Expected:** `ValidationError` identifies `name`.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_schemas.py::test_submitted_request_rejects_missing_required_field`
 
 ## TC-EVENTS-008 — blank submitted-required text
@@ -480,16 +480,16 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-040 — editing a submitted event still enforces submitted-required fields
 
-- **Scenario:** PATCH on a submitted event is validated against the
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. PATCH on a submitted event is validated against the
   submitted-required rules, not the draft's permissive ones, so it cannot
   null out a field the database's own constraint requires.
 - **Pre-conditions:** The owned lookup returns the submitted payload from
   TC-EVENTS-014.
-- **Steps:** `PATCH` the event, clearing `venue`.
-- **Test data:** `{"venue": ""}`.
-- **Expected:** `422` identifying `venue`; update is never called.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Steps:** `PATCH` the event, clearing `name`.
+- **Test data:** `{"name": ""}`.
+- **Expected:** `422` identifying `name`; update is never called.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_updating_submitted_event_still_requires_submitted_fields`
 
 ## TC-EVENTS-041 — a draft accepts other requirements
@@ -848,15 +848,15 @@ in one update.
 
 ## TC-EVENTS-066 — internal update validates the resulting submitted event
 
-- **Scenario:** The internal route is validated exactly as strictly as the
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. The internal route is validated exactly as strictly as the
   public one — a caller-supplied `organiser_id` is not a way to bypass the
   submitted-required rules.
 - **Pre-conditions:** An owned submitted event.
-- **Steps:** `PATCH /events/{event_id}/internal` clearing `venue`.
-- **Test data:** `{"organiser_id": ..., "venue": ""}`.
+- **Steps:** `PATCH /events/{event_id}/internal` clearing `name`.
+- **Test data:** `{"organiser_id": ..., "name": ""}`.
 - **Expected:** `422`; no update issued.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_internal_update_validates_the_resulting_submitted_event`
 
 ---
@@ -1071,16 +1071,16 @@ submit route rather than creating a new one.
 
 ## TC-EVENTS-082 — editing a returned event still requires submitted fields
 
-- **Scenario:** A returned request is not treated as a permissive draft on
+- **Scenario:** Revised for S-36: `venue` is now an optional preference, so `name` stands in as the required field. A returned request is not treated as a permissive draft on
   edit — the same strict validation as a submitted or approved event
   applies, since every required field already exists and resubmission
   expects them to stay that way.
 - **Pre-conditions:** An owned event with `status=returned`.
-- **Steps:** `PATCH /events/{event_id}` clearing `venue`.
-- **Test data:** `{"venue": ""}`.
+- **Steps:** `PATCH /events/{event_id}` clearing `name`.
+- **Test data:** `{"name": ""}`.
 - **Expected:** `422`; no update issued.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_editing_a_returned_event_still_requires_submitted_fields`
 
 ## S-13 — the organiser responds to a return
@@ -1194,3 +1194,101 @@ where venue booking requests are made.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_approved_is_no_longer_a_status_an_event_can_be_read_in`
+
+---
+
+**S-36 venue requirements.** The organiser no longer names a venue; the
+Coordinator books one. What the organiser gives instead is what the venue
+has to offer: a room layout, facilities and accessibility features, chosen
+from the venue catalogue's fixed sets so each venue can be checked against
+them. All three are optional. The old free-text `venue` stays as an optional
+preference.
+
+Shared test data for these cases: the standard submitted payload, plus
+`room_layout: "theatre"`, `required_facilities: ["projector", "stage"]`,
+`required_accessibility: ["wheelchair_access"]`.
+
+## TC-EVENTS-089 — the venue preference is optional on submission
+
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` without `venue`, then with
+  `venue: "   "`.
+- **Test data:** The standard submitted payload.
+- **Expected:** Both are valid; `venue` is `None` both times.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTS-090 — the venue requirements are accepted and tidied
+
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventDraftCreate` and `EventSubmittedCreate` with
+  the shared requirements, with `projector` listed twice.
+- **Test data:** `required_facilities: ["projector", "stage", "projector"]`.
+- **Expected:** Both valid. `room_layout` is `"theatre"`,
+  `required_facilities` is `["projector", "stage"]`,
+  `required_accessibility` is `["wheelchair_access"]`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTS-091 — the venue requirements default to none
+
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` from the standard payload,
+  which has none of the three fields.
+- **Test data:** As above.
+- **Expected:** Valid; `room_layout` is `None`, `required_facilities` and
+  `required_accessibility` are `[]`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTS-092 — only values from the venue catalogue are accepted
+
+- **Scenario:** The same fixed sets as the venues service, so an event can be
+  compared with a venue.
+- **Pre-conditions:** A verified `event_organiser` session.
+- **Steps:** `POST /events/drafts` three times, each with one value outside
+  its set.
+- **Test data:** `room_layout: "ballroom"`; `required_facilities:
+  ["jacuzzi"]`; `required_accessibility: ["ramp"]`.
+- **Expected:** `422` each time, naming the field; nothing inserted.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTS-093 — the venue requirements are stored and read back
+
+- **Pre-conditions:** A verified `event_organiser` session; the fake's insert
+  returns the inserted row.
+- **Steps:** `POST /events` with the standard payload plus the shared
+  requirements and no `venue`.
+- **Test data:** As above.
+- **Expected:** `201`. The insert sent to Supabase carries `room_layout`,
+  `required_facilities` and `required_accessibility` as given and
+  `venue=null`; the response includes all four.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-EVENTS-094 — organisers get the option lists from the events service
+
+- **Scenario:** Organisers cannot view venues, so the events service serves
+  the three option sets for their form.
+- **Pre-conditions:** A verified session for each role in turn.
+- **Steps:** `GET /events/options`.
+- **Test data:** Roles `event_organiser`, then `event_coordinator`,
+  `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** `event_organiser`: `200` with `room_layouts`, `facilities` and
+  `accessibility`, each exactly the venue catalogue's set in its order. Every
+  other role: `403`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

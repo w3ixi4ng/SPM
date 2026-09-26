@@ -184,7 +184,7 @@ contract without a browser.
 
 ## TC-E2E-209 — a Coordinator's venue request stays on the event and shows up for Venue Staff
 
-- **Scenario:** S-36, AC1, AC3 and AC4 in a real browser. Only this suite sees
+- **Scenario:** Revised for S-36: requirements come from the event; venues are chosen from a list. S-36, AC1, AC3 and AC4 in a real browser. Only this suite sees
   the Coordinator's request screen posting through Kong and the Venue Staff
   dashboard rendering the pending list after a fresh sign-in. The unit and
   integration suites cover the suitability rules; they are not restaged
@@ -194,15 +194,16 @@ contract without a browser.
   removes afterwards:
   - an `event_coordinator` and a `venue_staff` account with `make_user`;
   - a venue `"spm-e2e Venue <hex>"`, capacity `150`, layout `theatre`,
-    open Thursday `08:00`–`20:00`;
+    facility `projector`, open Thursday `08:00`–`20:00`;
   - an event `"spm-e2e Event <hex>"` assigned to the coordinator,
     `status=planning`, `2026-11-12 09:00`–`18:00`, `expected_attendance`
-    `120`.
+    `120`, `room_layout` `theatre`, `required_facilities` `["projector"]`,
+    no venue preference.
 - **Steps:**
   1. Sign in as the coordinator and open `/coordinator/events/{id}`.
   2. Click **Request venue**.
-  3. On the request screen, choose the venue, date `2026-11-12`,
-     `09:00`–`12:00`, layout **Theatre**.
+  3. On the request screen, check the event's requirements are shown, choose
+     the venue from the list, and set date `2026-11-12`, `09:00`–`12:00`.
   4. Click **Send request**.
   5. Reload the event page.
   6. Sign out, then sign in as the venue staff account.
@@ -210,6 +211,9 @@ contract without a browser.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: the browser is on `/coordinator/events/{id}/request-venue`.
+  - Step 3: the screen shows the event's requirements, **Theatre** and
+    **Projector**, as text, not inputs. The venue's row in the list is marked
+    **Fits**.
   - Step 4: the browser returns to `/coordinator/events/{id}`, which says
     `"Venue request sent to Venue Staff."`
   - Step 5: the confirmation is gone, and **Venue requests** on the event
@@ -219,6 +223,6 @@ contract without a browser.
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
     `120 expected`, `Theatre`, and the coordinator's name. The row is
     labelled **Pending**.
-- **Actual:** Request venue opened the request screen; the send returned to the event page with the confirmation; after a reload the confirmation was gone and **Venue requests** listed the venue, 12 Nov 2026, 09:00–12:00, Pending; Venue Staff's pending list showed the full row.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`

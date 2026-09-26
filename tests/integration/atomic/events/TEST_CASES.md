@@ -82,3 +82,22 @@ project.
 - **Status:** Blocked — needs `events.sql` migrated with
   `assigned_coordinator_id` and the new internal routes built.
 - **Evidence:** —
+
+## TC-EVENTS-104 — an event with venue requirements and no venue preference is stored
+
+- **Scenario:** Proves the S-36 columns, their check constraints, and that the
+  submitted-fields constraint no longer needs `venue`.
+- **Pre-conditions:** `.env.test`; the `events` schema with the S-36
+  venue-requirements migration applied; stack started with
+  `--env-file .env.test` immediately before.
+- **Steps:** 1. Sign in as a fresh organiser. 2. `POST /events` with a complete
+  payload, no `venue`, `room_layout: "theatre"`, `required_facilities:
+  ["projector"]`, `required_accessibility: ["lift"]`. 3. Read the row with the
+  admin client.
+- **Test data:** As above.
+- **Expected:** Step 2 `201`. Step 3: `venue` null and the three requirement
+  columns as sent. The row is deleted on teardown.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

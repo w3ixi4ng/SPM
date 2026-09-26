@@ -30,7 +30,9 @@ and the gateway route.
     `wheelchair_access`, layout `theatre`, open Thursday `08:00`–`20:00`;
   - an event `"spm-test Event <hex>"` owned by the organiser, assigned to the
     coordinator, `status=planning`, `2026-11-12 09:00`–`18:00`,
-    `expected_attendance` `120`.
+    `expected_attendance` `120`, `room_layout` `theatre`,
+    `required_facilities` `["projector"]`, `required_accessibility`
+    `["wheelchair_access"]`, no venue preference.
 - Teardown deletes all of these, and any booking made, pass or fail.
 
 ## TC-VENUEBOOKINGS-101 — a Coordinator's request reaches Venue Staff's pending list and stays visible to the Coordinator
@@ -40,9 +42,7 @@ and the gateway route.
 - **Steps:**
   1. Sign in as the coordinator.
   2. `POST http://localhost:8000/api/venue-bookings` for the event and
-     venue, `2026-11-12` `09:00`–`12:00`, `room_layout: "theatre"`,
-     `required_facilities: ["projector"]`,
-     `required_accessibility: ["wheelchair_access"]`.
+     venue, `2026-11-12` `09:00`–`12:00`.
   3. Read `bookings.bookings` by the returned id with the admin client.
   4. Read the event with the admin client.
   5. As the coordinator,
@@ -53,14 +53,15 @@ and the gateway route.
 - **Expected:**
   - Step 2: `201`, `status: "pending"`.
   - Step 3: one row. `event_name`, `expected_attendance` (`120`) and
-    `venue_name` match the seeded rows, and `coordinator_email` is the
-    coordinator's.
+    `venue_name` match the seeded rows, `room_layout`,
+    `required_facilities` and `required_accessibility` are the event's, and
+    `coordinator_email` is the coordinator's.
   - Step 4: still `status=planning`.
   - Step 5: `200`, exactly one booking: the id from step 2, `status:
     "pending"`.
   - Step 7: `200`, and the list contains the booking id from step 2.
-- **Actual:** `201` pending through Kong; the stored row carried the seeded event, venue and coordinator details; the event stayed `planning`; the coordinator's list for the event held exactly that booking, `pending`; the booking was in Venue Staff's pending list through Kong.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coordinator`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved
@@ -79,6 +80,6 @@ and the gateway route.
   - Step 2: `422`, with `booking_date`, `operating_hours` and
     `expected_attendance` in `errors`.
   - Step 3: `0`.
-- **Actual:** `422` with `booking_date`, `operating_hours` and `expected_attendance` in `errors`; no row saved.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_an_unsuitable_venue_is_refused_against_real_venue_data`
