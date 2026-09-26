@@ -8,9 +8,9 @@ the table, the grants, the schema exposure and the connection all at once.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/bookings` |
-| Last run | Not yet run |
-| Environment | — |
-| Result | Blocked — see the cases below |
+| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dc7454a` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
+| Result | 1 passed (19 across `tests/integration`), twice consecutively |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -37,6 +37,6 @@ the table, the grants, the schema exposure and the connection all at once.
     `required_accessibility` and `room_layout` as sent.
   - Teardown deletes the row with the admin client, pass or fail, so the
     suite can run twice in a row.
-- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
-- **Status:** Blocked
+- **Actual:** `201` pending with `submitted_at`; listed as pending; one row in `bookings.bookings` with the options as sent; removed on teardown.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_a_booking_saved_through_the_service_is_listed_as_pending`

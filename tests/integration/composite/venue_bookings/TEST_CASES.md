@@ -11,9 +11,9 @@ and the gateway route.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/venue_bookings` |
-| Last run | Not yet run |
-| Environment | — |
-| Result | Blocked — see the cases below |
+| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dc7454a` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
+| Result | 2 passed (19 across `tests/integration`), twice consecutively |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -55,8 +55,8 @@ and the gateway route.
     coordinator's.
   - Step 4: still `status=planning`.
   - Step 6: `200`, and the list contains the booking id from step 2.
-- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
-- **Status:** Blocked
+- **Actual:** `201` pending through Kong; the stored row carried the seeded event, venue and coordinator details; the event stayed `planning`; the booking was in Venue Staff's pending list through Kong.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_through_the_gateway`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved
@@ -75,6 +75,6 @@ and the gateway route.
   - Step 2: `422`, with `booking_date`, `operating_hours` and
     `expected_attendance` in `errors`.
   - Step 3: `0`.
-- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
-- **Status:** Blocked
+- **Actual:** `422` with `booking_date`, `operating_hours` and `expected_attendance` in `errors`; no row saved.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_an_unsuitable_venue_is_refused_against_real_venue_data`

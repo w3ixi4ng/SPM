@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `f2c2c1e` |
-| Environment | `.env.test` → test Supabase project, `users`, `events` and `venues` schemas applied, exposed and granted; full stack via `docker compose --env-file .env.test up -d --build --wait`; Chromium via `playwright install chromium`; email confirmation **off** |
-| Result | 7 passed (twice consecutively) |
+| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dc7454a` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with the S-36 planning migration), `venues` and `bookings` schemas applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
+| Result | 8 passed on 8 of 9 full runs. Run 1 had 1 failure that was not captured and did not recur in the next 8 runs; the failing test is unknown, so treat it as a possible flake and capture `test-results/` if it appears again |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -215,6 +215,6 @@ contract without a browser.
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
     `120 expected`, `Theatre`, and the coordinator's name. The row is
     labelled **Pending**.
-- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
-- **Status:** Blocked
+- **Actual:** Request venue opened the request screen; the send returned to the event page with "Venue request sent to Venue Staff."; Venue Staff's pending list showed the row with venue, 12 Nov 2026, 09:00–12:00, 120 expected, Theatre, the coordinator's name and Pending. First attempt failed on a test selector (`get_by_label("To")` matched two checkboxes), fixed in `dc7454a`.
+- **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_shows_up_for_venue_staff`
