@@ -10,3 +10,4 @@ Each atomic service owns exactly one entity and its storage. Rules:
 | --- | --- |
 | [`users/`](users/README.md) | Users — account, session and profile |
 | [`events/`](events/README.md) | Events |
+| [`venues/`](venues/README.md) | Venues — capacity, facilities, layouts and hours |

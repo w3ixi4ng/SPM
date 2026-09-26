@@ -1,7 +1,10 @@
 import { CalendarCheck, ListChecks, LogOut, MessagesSquare } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import useVenueList from '../components/useVenueList.js'
+import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess } from '../lib/access.js'
 
 const C = {
@@ -33,10 +36,117 @@ const UPCOMING_AREAS = [
   },
 ]
 
+const TABS = [
+  { id: 'venues', label: 'Venues' },
+  { id: 'events', label: 'Events' },
+]
+
+function Tabs({ active, onSelect }) {
+  const refs = useRef({})
+
+  // Arrow keys, Home and End move between tabs, per the ARIA tabs pattern.
+  function onKeyDown(event) {
+    const index = TABS.findIndex((tab) => tab.id === active)
+    const next = {
+      ArrowRight: (index + 1) % TABS.length,
+      ArrowLeft: (index - 1 + TABS.length) % TABS.length,
+      Home: 0,
+      End: TABS.length - 1,
+    }[event.key]
+    if (next === undefined) return
+    event.preventDefault()
+    onSelect(TABS[next].id)
+    refs.current[TABS[next].id]?.focus()
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Coordinator workspace"
+      className="flex gap-6 border-b mb-8"
+      style={{ borderColor: C.line }}
+      onKeyDown={onKeyDown}
+    >
+      {TABS.map((tab) => {
+        const selected = tab.id === active
+        return (
+          <button
+            key={tab.id}
+            ref={(element) => { refs.current[tab.id] = element }}
+            type="button"
+            role="tab"
+            id={`tab-${tab.id}`}
+            aria-selected={selected}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onSelect(tab.id)}
+            className="csp-tab font-ui text-sm font-medium pb-3 -mb-px border-b-2"
+            style={{
+              borderColor: selected ? C.teal : 'transparent',
+              color: selected ? C.ink : C.inkFaint,
+            }}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function EventsPlaceholder() {
+  return (
+    <div className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
+      <h2 className="font-display text-2xl mb-2" style={{ color: C.ink }}>
+        Coordination tools, on the way
+      </h2>
+      <p className="font-ui text-sm mb-6 max-w-md" style={{ color: C.inkFaint }}>
+        Events you coordinate will appear here once assignment is built.
+      </p>
+      <ul className="divide-y">
+        {UPCOMING_AREAS.map(({ icon: Icon, title, description }) => (
+          <li
+            key={title}
+            className="py-4 first:pt-0 last:pb-0 flex items-start gap-4"
+            style={{ borderColor: C.line }}
+          >
+            <Icon size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
+            <div className="min-w-0 flex-1">
+              <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{title}</h3>
+              <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>{description}</p>
+            </div>
+            <span
+              className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1"
+              style={{ color: C.inkFaint }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full border"
+                style={{ borderColor: C.inkFaint }}
+                aria-hidden="true"
+              />
+              Not started
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export default function EventCoordinatorDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
+  const { venues, loading, error, reload } = useVenueList()
+  // Kept in the URL so a reload or a shared link opens the same tab.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = TABS.some((tab) => tab.id === searchParams.get('tab'))
+    ? searchParams.get('tab')
+    : TABS[0].id
+
+  function selectTab(id) {
+    setSearchParams(id === TABS[0].id ? {} : { tab: id }, { replace: true })
+  }
 
   async function handleSignOut() {
     await signOut()
@@ -58,10 +168,13 @@ export default function EventCoordinatorDashboard({ role }) {
           transition: background-color 0.2s, color 0.2s;
         }
         .csp-signout-btn:hover { background-color: ${C.ink}; color: ${C.paper}; }
-        .csp-signout-btn:focus-visible {
+        .csp-signout-btn:focus-visible,
+        .csp-tab:focus-visible {
           outline: 2px solid ${C.teal};
           outline-offset: 2px;
         }
+        .csp-tab { transition: color 0.2s; }
+        .csp-tab:hover { color: ${C.ink} !important; }
       `}</style>
       <div className="rise-in w-full max-w-5xl mx-auto">
         <header className="flex items-center justify-between gap-6 mb-14">
@@ -95,36 +208,33 @@ export default function EventCoordinatorDashboard({ role }) {
           </p>
         </div>
 
-        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>
-          <p className="font-ui text-xs uppercase tracking-widest mb-3" style={{ color: C.teal }}>
-            Coming to this workspace
-          </p>
-          <h2 className="font-display text-2xl mb-6" style={{ color: C.ink }}>
-            Coordination tools, on the way
-          </h2>
-          <ul className="divide-y" style={{ borderColor: C.line }}>
-            {UPCOMING_AREAS.map(({ icon: Icon, title, description }) => (
-              <li key={title} className="py-4 first:pt-0 last:pb-0 flex items-start gap-4">
-                <Icon size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{title}</h3>
-                  <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>{description}</p>
-                </div>
-                <span
-                  className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1"
-                  style={{ color: C.inkFaint }}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full border"
-                    style={{ borderColor: C.inkFaint }}
-                    aria-hidden="true"
-                  />
-                  Not started
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <div className="max-w-3xl">
+          <Tabs active={activeTab} onSelect={selectTab} />
+
+          <div
+            role="tabpanel"
+            id="panel-venues"
+            aria-labelledby="tab-venues"
+            hidden={activeTab !== 'venues'}
+          >
+            <VenueList
+              venues={venues}
+              loading={loading}
+              error={error}
+              onRetry={reload}
+              emptyMessage="No venues have been added yet. Venue staff add them from their workspace."
+            />
+          </div>
+
+          <div
+            role="tabpanel"
+            id="panel-events"
+            aria-labelledby="tab-events"
+            hidden={activeTab !== 'events'}
+          >
+            <EventsPlaceholder />
+          </div>
+        </div>
       </div>
     </div>
   )

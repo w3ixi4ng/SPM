@@ -35,8 +35,18 @@ services:
           - /api/events
         strip_path: true
 
+  - name: venues
+    # Keep /venues on the upstream URL, as for events: /api/venues/{id}
+    # reaches /venues/{id}.
+    url: http://venues:8003/venues
+    routes:
+      - name: venues
+        paths:
+          - /api/venues
+        strip_path: true
+
   # The frontend, last and least specific. Kong matches the longest path
-  # prefix first, so `/api/users` and `/api/events` still win over `/` and
+  # prefix first, so the `/api/...` routes above still win over `/` and
   # this only catches what they did not.
   #
   # strip_path is false because the SPA needs its own path: React Router reads

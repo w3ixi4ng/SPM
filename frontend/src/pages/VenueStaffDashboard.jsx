@@ -1,8 +1,11 @@
-import { Building2, CalendarDays, ListChecks, LogOut, MapPin } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { CalendarDays, ListChecks, LogOut, MapPin, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
-import { getRoleAccess } from '../lib/access.js'
+import useVenueList from '../components/useVenueList.js'
+import VenueList from '../components/VenueList.jsx'
+import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 
 const C = {
   ink: '#10192B',
@@ -37,6 +40,24 @@ export default function VenueStaffDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
+  const canAdd = hasPermission(role, PERMISSIONS.CREATE_VENUE)
+  const { venues, loading, error, reload } = useVenueList()
+  const location = useLocation()
+  // Set by the venue form after a save. Read once, then cleared from history
+  // so a reload or Back does not announce the same save again.
+  const [notice, setNotice] = useState(location.state?.notice ?? null)
+
+  useEffect(() => {
+    if (location.state?.notice) {
+      navigate(location.pathname, { replace: true, state: null })
+    }
+  }, [location, navigate])
+
+  useEffect(() => {
+    if (!notice) return undefined
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   async function handleSignOut() {
     await signOut()
@@ -50,6 +71,7 @@ export default function VenueStaffDashboard({ role }) {
         .rise-in { animation: riseIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
         @media (prefers-reduced-motion: reduce) {
           .rise-in { animation: none; }
+          .csp-primary-btn:hover { transform: none; }
         }
 
         .csp-signout-btn {
@@ -58,7 +80,8 @@ export default function VenueStaffDashboard({ role }) {
           transition: background-color 0.2s, color 0.2s;
         }
         .csp-signout-btn:hover { background-color: ${C.ink}; color: ${C.paper}; }
-        .csp-signout-btn:focus-visible {
+        .csp-signout-btn:focus-visible,
+        .csp-primary-btn:focus-visible {
           outline: 2px solid ${C.teal};
           outline-offset: 2px;
         }
@@ -95,19 +118,45 @@ export default function VenueStaffDashboard({ role }) {
           </p>
         </div>
 
-        <section className="rounded-sm p-7 sm:p-8 max-w-3xl" style={{ backgroundColor: C.paperDim }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 size={16} aria-hidden="true" style={{ color: C.teal }} />
-            <p className="font-ui text-xs uppercase tracking-widest" style={{ color: C.teal }}>
-              Coming to this workspace
-            </p>
+        <section className="max-w-3xl mb-12" aria-labelledby="venues-heading">
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+            <h2 id="venues-heading" className="font-display text-3xl" style={{ color: C.ink }}>
+              Your venues
+            </h2>
+            {canAdd && (
+              <Link
+                to="/venues/new"
+                className="csp-primary-btn inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium transition-transform duration-200 hover:-translate-y-0.5"
+                style={{ backgroundColor: C.teal, color: C.paper }}
+              >
+                <Plus size={16} aria-hidden="true" />
+                Add venue
+              </Link>
+            )}
           </div>
+          <div role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>
+            {notice}
+          </div>
+          <VenueList
+            venues={venues}
+            loading={loading}
+            error={error}
+            onRetry={reload}
+            emptyMessage="No venues yet. Add your first venue to start receiving booking requests."
+          />
+        </section>
+
+        <section className="rounded-sm p-7 sm:p-8 max-w-3xl" style={{ backgroundColor: C.paperDim }}>
           <h2 className="font-display text-2xl mb-6" style={{ color: C.ink }}>
-            Venue tools, on the way
+            More venue tools, on the way
           </h2>
-          <ul className="divide-y" style={{ borderColor: C.line }}>
+          <ul className="divide-y">
             {UPCOMING_AREAS.map(({ icon: Icon, title, description }) => (
-              <li key={title} className="py-4 first:pt-0 last:pb-0 flex items-start gap-4">
+              <li
+                key={title}
+                className="py-4 first:pt-0 last:pb-0 flex items-start gap-4"
+                style={{ borderColor: C.line }}
+              >
                 <Icon size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
                 <div className="min-w-0 flex-1">
                   <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{title}</h3>
@@ -129,6 +178,7 @@ export default function VenueStaffDashboard({ role }) {
           </ul>
         </section>
       </div>
+
     </div>
   )
 }

@@ -9,6 +9,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx'
 import Login from './pages/Login.jsx'
 import SignUp from './pages/SignUp.jsx'
 import TechnicalSupportDashboard from './pages/TechnicalSupportDashboard.jsx'
+import VenueForm from './pages/VenueForm.jsx'
 import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
 
 // Each role's landing page. event_organiser and attendee still share the
@@ -59,6 +60,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_OWN_EVENTS}>
               <EventRequestForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/venues/new"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.CREATE_VENUE}>
+              <VenueForm />
             </ProtectedRoute>
           )}
         />

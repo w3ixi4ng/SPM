@@ -146,6 +146,7 @@ jobs:
           AUTH_COOKIE_SECURE=true
           USERS_SERVICE_PORT=8001
           EVENTS_SERVICE_PORT=8002
+          VENUES_SERVICE_PORT=8003
           KONG_PROXY_PORT=8000
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002
@@ -228,6 +229,7 @@ jobs:
           AUTH_COOKIE_SECURE=true
           USERS_SERVICE_PORT=8001
           EVENTS_SERVICE_PORT=8002
+          VENUES_SERVICE_PORT=8003
           KONG_PROXY_PORT=8000
           USERS_SERVICE_URL=http://users:8001
           EVENTS_SERVICE_URL=http://events:8002

@@ -86,6 +86,7 @@ Supabase addresses tables as `schema.table`, so the users service's table is
 | --- | --- | --- | --- |
 | `atomic/users` | `users` | `users` | `users.users` |
 | `atomic/events` | `events` | `events` | `events.events` |
+| `atomic/venues` | `venues` | `venues` | `venues.venues` |
 
 Rules:
 
@@ -440,6 +441,7 @@ Every service gets its own port. 8000 is the gateway's.
 | **Kong (gateway)** | **8000** | `http://localhost:8000/api/...` — the only one a browser uses |
 | `atomic/users` | 8001 | `http://users:8001` (compose) / `http://localhost:8001` |
 | `atomic/events` | 8002 | `http://events:8002` / `http://localhost:8002` |
+| `atomic/venues` | 8003 | `http://venues:8003` / `http://localhost:8003` |
 | `frontend` | — | `http://frontend:80` — through Kong only, see below |
 | first composite | 8100 | reserved |
 
