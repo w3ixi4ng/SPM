@@ -59,7 +59,7 @@ pytest tests/e2e
 pytest tests/e2e --headed --slowmo 300
 
 # one journey
-pytest tests/e2e/test_event_request.py -v
+pytest tests/e2e/test_role_access.py -v
 ```
 
 Everything is addressed through **Kong** on `KONG_PROXY_PORT`, never a service

@@ -38,7 +38,8 @@ all confirmed at once.
 
 `tests/e2e/` drives a real browser (Playwright, through pytest) over the built
 frontend, Kong, both services and a real test Supabase project — the way a
-person would: sign up, log in, file a request, check it appears.
+person would: sign up, log in, add a venue, check a role is kept out of a
+route it should not reach.
 
 Four journeys, and that is meant to stay small. They are the slowest tests here
 and the most fragile, so one belongs there only if nothing cheaper can prove
