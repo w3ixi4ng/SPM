@@ -181,3 +181,39 @@ contract without a browser.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_rejected_tab.py::test_rejected_requests_sit_in_their_own_tab_and_open_read_only`
+
+## TC-E2E-209 — a Coordinator's venue request shows up on Venue Staff's dashboard
+
+- **Scenario:** S-36, AC1 and AC3 in a real browser. Only this suite sees
+  the Coordinator's slide-over panel posting through Kong and the Venue Staff
+  dashboard rendering the pending list after a fresh sign-in. The unit and
+  integration suites cover the suitability rules; they are not restaged
+  here.
+- **Pre-conditions:** Stack and project as the header, with the `bookings`
+  schema applied, exposed and granted as well. The test creates, and
+  removes afterwards:
+  - an `event_coordinator` and a `venue_staff` account with `make_user`;
+  - a venue `"spm-e2e Venue <hex>"`, capacity `150`, layout `theatre`,
+    open Thursday `08:00`–`20:00`;
+  - an event `"spm-e2e Event <hex>"` assigned to the coordinator,
+    `status=planning`, `2026-11-12 09:00`–`18:00`, `expected_attendance`
+    `120`.
+- **Steps:**
+  1. Sign in as the coordinator and open `/coordinator/events/{id}`.
+  2. Click **Request venue**.
+  3. In the panel, choose the venue, date `2026-11-12`, `09:00`–`12:00`,
+     layout **Theatre**.
+  4. Click **Send request**.
+  5. Sign out, then sign in as the venue staff account.
+  6. Look at **Pending booking requests** on `/dashboard/venue-staff`.
+- **Test data:** As above.
+- **Expected:**
+  - Step 4: the panel closes and the page says
+    `"Venue request sent to Venue Staff."`
+  - Step 6: the list has a row for `"spm-e2e Event <hex>"` at
+    `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
+    `120 expected`, `Theatre`, and the coordinator's name. The row is
+    labelled **Pending**.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

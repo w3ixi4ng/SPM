@@ -209,17 +209,18 @@ RBAC, and validation remain authoritative.
 
 ## TC-FRONTEND-014 — every backend status has a distinct display
 
-- **Scenario:** The organiser and coordinator dashboards both derive a
+- **Scenario:** Revised for S-36, where `planning` replaced `approved`. The organiser and coordinator dashboards both derive a
   status badge's label and color from one shared source, so the two never
   drift apart.
 - **Pre-conditions:** None.
 - **Steps:** Call `eventStatusMeta` for each of `draft`, `submitted`,
-  `approved`, `returned`, `rejected`.
+  `planning`, `returned`, `rejected`.
 - **Test data:** The five statuses above.
 - **Expected:** Each returns a string label and a `#rrggbb` color; the five
-  labels are all distinct.
-- **Actual:** As expected.
-- **Status:** Pass
+  labels are all distinct. `planning` is labelled `"Planning"` in green
+  (`#3F8F5F`), the color `approved` used.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_event_requests.mjs` — `eventStatusMeta covers every backend status with a distinct label`
 
 ## TC-FRONTEND-015 — an unrecognised status still renders safely
@@ -276,43 +277,41 @@ RBAC, and validation remain authoritative.
 
 ## TC-FRONTEND-019 — returned and awaiting-decision requests sort to the front, in that order
 
-- **Scenario:** On the organiser dashboard, `returned` (sent back for
+- **Scenario:** Revised for S-36, where `planning` replaced `approved`. On the organiser dashboard, `returned` (sent back for
   amendment -- the one status that needs the organiser to act) and
   `submitted` (awaiting the coordinator's decision) are the two statuses the
-  organiser cares about most, so both surface before draft/approved/rejected
+  organiser cares about most, so both surface before draft/planning/rejected
   -- `returned` first, then `submitted`.
 - **Pre-conditions:** `sortEventsForOrganiser` is loaded.
 - **Steps:** Call `sortEventsForOrganiser(events)` with a mixed list of
   statuses in a non-sorted order.
 - **Test data:** `[{id:'a',status:'submitted'}, {id:'b',status:'returned'},
   {id:'c',status:'draft'}, {id:'d',status:'returned'},
-  {id:'e',status:'approved'}, {id:'f',status:'submitted'}]`.
+  {id:'e',status:'planning'}, {id:'f',status:'submitted'}]`.
 - **Expected:** `['b','d','a','f','c','e']` — all `returned` events first
   (original relative order), then all `submitted` events (original relative
-  order), then the rest (original relative order). `draft`, `approved`, and
+  order), then the rest (original relative order). `draft`, `planning`, and
   `rejected` are never moved ahead of each other.
-- **Actual:** Returned events led, followed by submitted, followed by the
-  rest, each group in original relative order.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_event_requests.mjs` — `sortEventsForOrganiser sorts returned first, then submitted, then the rest, stable within each group`
 
 ## TC-FRONTEND-020 — sorting is a no-op with none of the two priority statuses, and does not mutate the input
 
-- **Scenario:** A list with neither `submitted` nor `returned` requests is
+- **Scenario:** Revised for S-36, where `planning` replaced `approved`. A list with neither `submitted` nor `returned` requests is
   left in its existing (backend-provided) order, and the function does not
   mutate its argument.
 - **Pre-conditions:** As above.
 - **Steps:** Call `sortEventsForOrganiser(events)` on a list containing only
-  `draft` and `approved` events, then compare the result to the input order,
+  `draft` and `planning` events, then compare the result to the input order,
   and separately assert the original array's element order is unchanged
   after the call.
-- **Test data:** `[{id:'a',status:'draft'}, {id:'b',status:'approved'},
+- **Test data:** `[{id:'a',status:'draft'}, {id:'b',status:'planning'},
   {id:'c',status:'draft'}]`.
 - **Expected:** Result order is `['a','b','c']`, identical to the input, and
   the input array itself still reads `['a','b','c']` afterward.
-- **Actual:** Result order was unchanged and the input array's own order was
-  unchanged after the call.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_event_requests.mjs` — `sortEventsForOrganiser is a no-op with neither priority status, and does not mutate its argument`
 
 ## TC-FRONTEND-021 — only the returned-for-amendment badge pulses, and only for the organiser
@@ -373,17 +372,17 @@ RBAC, and validation remain authoritative.
 
 ## TC-FRONTEND-024 — every other status falls through to the shared meta unchanged
 
-- **Scenario:** `draft`, `approved`, and `rejected` are not part of this
+- **Scenario:** Revised for S-36, where `planning` replaced `approved`. `draft`, `planning`, and `rejected` are not part of this
   organiser-only reframing — they must render identically to the
   coordinator-facing `eventStatusMeta`, label and color both.
 - **Pre-conditions:** As above.
-- **Steps:** Call `organiserStatusMeta(status)` for `'draft'`, `'approved'`,
+- **Steps:** Call `organiserStatusMeta(status)` for `'draft'`, `'planning'`,
   and `'rejected'`, and compare each to `eventStatusMeta(status)`.
-- **Test data:** `'draft'`, `'approved'`, `'rejected'`.
+- **Test data:** `'draft'`, `'planning'`, `'rejected'`.
 - **Expected:** `organiserStatusMeta(status)` deep-equals
   `eventStatusMeta(status)` for all three.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta falls through to the shared meta for every other status`
 
 ## TC-FRONTEND-025 — a failed resubmission tells the organiser nothing was changed
@@ -411,22 +410,22 @@ RBAC, and validation remain authoritative.
 ## S-13 — rejected requests in their own tab
 
 A rejected request is closed for good, so the organiser dashboard splits its
-list into two tabs: **Active** (returned, under review, draft, approved) and
+list into two tabs: **Active** (returned, under review, draft, planning) and
 **Rejected**. Rejected rows still open the read-only form.
 
 ## TC-FRONTEND-026 — rejected requests go to the Rejected tab, everything else stays Active
 
-- **Scenario:** The organiser's list is split by status, and the Active tab
+- **Scenario:** Revised for S-36, where `planning` replaced `approved`. The organiser's list is split by status, and the Active tab
   keeps the existing priority order (TC-FRONTEND-019).
 - **Pre-conditions:** The event request helpers are loaded.
 - **Steps:** Split the test list into the organiser's two tabs.
 - **Test data:** Six events in backend order: `a` draft, `b` rejected, `c`
-  approved, `d` submitted, `e` rejected, `f` returned.
+  planning, `d` submitted, `e` rejected, `f` returned.
 - **Expected:** Active holds `f, d, a, c`: returned, then submitted, then the
   rest in backend order. Rejected holds `b, e` in backend order. No event
   appears in both tabs. The input array is unchanged.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_event_requests.mjs` — `rejected requests go to the Rejected tab, everything else stays Active`
 
 ## TC-FRONTEND-027 — tab labels carry counts, and each tab has its own empty message
@@ -446,3 +445,85 @@ list into two tabs: **Active** (returned, under review, draft, approved) and
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `tab labels carry counts, and each tab has its own empty message`
+
+## S-36 — venue booking requests
+
+A Coordinator requests a venue for an event in planning. Venue Staff see
+every pending request on their dashboard. The backend is authoritative for
+every rule below; these cases cover only what the browser decides for
+itself: who sees the controls, which paths are called, and what an error
+says.
+
+## TC-FRONTEND-028 — venue booking permissions match the venue_bookings service
+
+- **Scenario:** Only a Coordinator sees "Request venue", and only Venue
+  Staff see the pending list.
+- **Pre-conditions:** The frontend access mapping is loaded.
+- **Steps:** Check `venue_bookings:create` and
+  `venue_bookings:view_pending` for every supported role.
+- **Test data:** All five supported role names.
+- **Expected:** `event_coordinator` has `venue_bookings:create` only.
+  `venue_staff` has `venue_bookings:view_pending` only. `event_organiser`,
+  `technical_support` and `attendee` have neither.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-029 — "Request venue" is offered only for an event in planning
+
+- **Pre-conditions:** The venue booking helpers are loaded.
+- **Steps:** Call `canRequestVenue(status)` for every event status.
+- **Test data:** `draft`, `submitted`, `returned`, `rejected`, `planning`,
+  and `undefined`.
+- **Expected:** `true` for `planning`; `false` for everything else.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-030 — venue booking calls use the authenticated Kong contract
+
+- **Pre-conditions:** `fetch` records requests and returns a valid booking.
+- **Steps:** Call `submitVenueBooking(form)` twice, first with every field
+  filled and then with only the required ones. Then call
+  `listPendingVenueBookings()`.
+- **Test data:** Full form: event `e1`, venue `v1`, date `2026-11-12`,
+  `09:00`–`12:00`, layout `theatre`, facilities `[projector]`,
+  accessibility `[wheelchair_access]`, notes `"  Setup from 08:30 "`.
+  Required-only form: the same event, venue, date and times, with layout
+  `""`, no facilities, no accessibility and notes `""`.
+- **Expected:** `POST /api/venue-bookings` and
+  `GET /api/venue-bookings/pending`, each with `credentials: include`.
+  - The full POST body is exactly `{event_id, venue_id, booking_date,
+    start_time, end_time, room_layout, required_facilities,
+    required_accessibility, notes}`, with notes trimmed to
+    `"Setup from 08:30"`.
+  - The required-only body leaves out `room_layout` and `notes`, and sends
+    `required_facilities: []` and `required_accessibility: []`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-031 — venue booking errors say what happened and what to do
+
+- **Pre-conditions:** The venue booking error mapping is loaded.
+- **Steps:** Resolve the message for each response below.
+- **Test data:**
+  - `422` with `{"detail": "This venue can't take this booking",
+    "errors": {"expected_attendance": "Studio B holds 150 people; this
+    event expects 200", "operating_hours": "Studio B is open 08:00–20:00 on
+    Thursdays"}}`
+  - `404` `"Event not found"`
+  - `404` `"Venue not found"`
+  - `409` `"A venue can only be requested for an event in planning"`
+  - `401`
+  - `502`
+  - a network failure
+- **Expected:**
+  - `422`: both `errors` messages, as a list, so each problem is shown.
+  - `404` and `409`: the service's `detail` as given.
+  - `401`: `"Your session has expired. Please sign in again."`
+  - `502` and network failure: `"We couldn't send the venue request. Nothing
+    was submitted — try again in a moment."`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

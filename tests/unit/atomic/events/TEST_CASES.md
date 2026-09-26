@@ -633,20 +633,20 @@ only by `event_requests` over the Docker network, never by a browser.
 
 ## TC-EVENTS-052 — only live commitments count toward load or conflict
 
-- **Scenario:** Only submitted (awaiting decision) and approved (confirmed)
-  events represent committed time on a coordinator's schedule. Updated for
-  S-14: drafts never counted; returned and rejected now don't either, since
-  neither is a live commitment.
+- **Scenario:** Only submitted (awaiting decision) and planning (accepted,
+  arrangements underway) events are committed time on a coordinator's
+  schedule. Drafts never counted. Returned and rejected don't either, since
+  neither is a live commitment. Revised for S-36: `planning` replaces
+  `approved`, which no longer exists.
 - **Pre-conditions:** None beyond the shared fakes.
 - **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
 - **Test data:** One coordinator id, any window.
-- **Expected:** The query filters on `status in ("submitted", "approved")` --
-  every other status is excluded at the query itself, not filtered out
+- **Expected:** The query filters on `status in ("submitted", "planning")`.
+  Every other status is excluded in the query itself, not filtered out
   afterwards, so it can never reach the conflict check or the count.
-- **Actual:** As expected; `.in_("status", ["submitted", "approved"])` called
-  once.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_approved_events`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
 
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and coordinator ids
 
@@ -869,20 +869,22 @@ permanently (no further edits, no resubmission); a returned one goes back to
 the organiser to edit and resubmit as the same record, which reuses the
 submit route rather than creating a new one.
 
-## TC-EVENTS-067 — coordinator approves a submitted request
+## TC-EVENTS-067 — a coordinator accepting a request moves it into planning
 
-- **Scenario:** Approval needs no reason and closes the decision loop with
-  `status=approved`.
+- **Scenario:** Approval needs no reason. The decision is recorded as
+  `approved`, and the event moves to `planning`: it has passed the
+  coordinator's check and venue and equipment planning can start. Revised
+  for S-36, where the status was previously `approved`.
 - **Pre-conditions:** A verified `event_coordinator` session; the assigned,
   submitted event exists.
 - **Steps:** `POST /events/{event_id}/decision` with `{"decision":
   "approved"}`.
 - **Test data:** The standard submitted payload, assigned to the caller.
-- **Expected:** `200`; `status=approved`; the update sent to Supabase has
-  `decision=approved`, `decision_reason=null`, `decision_comment=null`, and a
-  non-null `decided_at`.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Expected:** `200`; `status=planning`. The update sent to Supabase has
+  `status=planning`, `decision=approved`, `decision_reason=null`,
+  `decision_comment=null`, and a non-null `decided_at`.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_coordinator_approves_a_submitted_request`
 
 ## TC-EVENTS-068 — reject requires a reason
@@ -982,13 +984,13 @@ submit route rather than creating a new one.
 ## TC-EVENTS-075 — a decision already made cannot be decided again
 
 - **Pre-conditions:** A verified `event_coordinator` session; the assigned
-  event's status is already `approved`.
+  event is already `status=planning`, `decision=approved`. Revised for S-36.
 - **Steps:** `POST /events/{event_id}/decision` with `{"decision":
   "approved"}`.
 - **Test data:** As above.
 - **Expected:** `409`; no update issued.
-- **Actual:** As expected.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_app.py::test_a_decision_already_made_cannot_be_decided_again`
 
 ## TC-EVENTS-076 — an organiser cannot decide a request
@@ -1019,16 +1021,18 @@ submit route rather than creating a new one.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_returned_request_can_be_resubmitted`
 
-## TC-EVENTS-078 — an approved request cannot be resubmitted
+## TC-EVENTS-078 — a request in planning cannot be resubmitted
 
-- **Pre-conditions:** An owned event with `status=approved`.
+- **Pre-conditions:** An owned event with `status=planning`,
+  `decision=approved`. Revised for S-36, where the status was previously
+  `approved`.
 - **Steps:** `POST /events/{event_id}/submit` with the standard submitted
   payload.
 - **Test data:** As above.
 - **Expected:** `409`; no update issued.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_an_approved_request_cannot_be_resubmitted`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_app.py::test_a_planning_request_cannot_be_resubmitted`
 
 ## TC-EVENTS-079 — a rejected request cannot be resubmitted
 
@@ -1168,3 +1172,25 @@ lands on the same record, and a failed resubmission leaves the record alone.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_storage_failure_during_resubmission_is_reported`
+
+---
+
+**S-36 additions.** `approved` is no longer an event status. A
+coordinator's approval moves an event to `planning` (TC-EVENTS-067), which is
+where venue booking requests are made.
+
+## TC-EVENTS-088 — approved is no longer a status an event can be read in
+
+- **Scenario:** The status set matches the agreed flow: `draft`,
+  `submitted`, `returned`, `rejected`, `planning`. A leftover `approved`
+  status is a failure, not something silently shown.
+- **Pre-conditions:** A verified `event_organiser` session.
+- **Steps:** 1. `GET /events/{event_id}` where the owned row has
+  `status=planning`, `decision=approved`. 2. Validate
+  `EventRead` against a row with `status=approved`.
+- **Test data:** The standard submitted payload.
+- **Expected:** Step 1 returns `200` with `status=planning` and
+  `decision=approved`. Step 2 raises a validation error on `status`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

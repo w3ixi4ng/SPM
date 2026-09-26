@@ -1,0 +1,426 @@
+# Test cases — venue_bookings service (unit)
+
+Covers `tests/unit/composite/venue_bookings/test_app.py`: the composite that
+stands between the browser and three atomic services for venue booking
+requests. For a Coordinator's request it checks the session (`users`), the
+event (`events`) and the venue (`venues`), then writes the request
+(`bookings`). For Venue Staff it serves the pending list. All four outbound
+clients are faked and record every call. There is no network, database, or
+Docker.
+
+| | |
+| --- | --- |
+| Suite | `pytest tests/unit/composite/venue_bookings` |
+| Last run | Not yet run |
+| Environment | — |
+| Result | — |
+
+**Story:** S-36 Submit venue booking request.
+
+**Acceptance criteria → cases**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: A Coordinator can submit a booking request for a specific venue, date and time against an event | 002–011, 017, 019, 020 |
+| AC2: The request includes the event's relevant requirements needed for Venue Staff to assess it | 012–016, 018 |
+| AC3: A submitted request appears in Venue Staff's pending-requests view | 021–024 |
+
+The conditions agreed with the developer behind AC1 and AC2:
+
+- A Coordinator can request a venue only for an event **assigned to them**
+  and in status **`planning`**. Submitting a request does not change the
+  event's status.
+- The booking is on **one date**. Its start and end must fall inside the
+  event's own start and end, with equal times allowed. They must also fall
+  inside the venue's opening hours for that weekday.
+- A request is **refused at submission** when the event's
+  `expected_attendance` exceeds the venue's `capacity`, or when a chosen room
+  layout, facility or accessibility feature is not offered by the venue. This
+  is validation, not a booking decision: nothing is saved, and Venue Staff
+  never see it. Venue Staff's own approve/reject is the Venue Booking
+  Approval story.
+- The event's details are **copied** onto the request when it is submitted.
+  Later edits to the event do not change a request already sent.
+- Duplicate and overlapping requests are **not** checked here. They belong to
+  the tentative-holds and conflict-detection stories.
+- **All** Venue Staff see every pending request.
+
+**Shared pre-conditions.** The app built with `get_users_client`,
+`get_events_client`, `get_venues_client` and `get_bookings_client`
+overridden by fakes. Unless a case says otherwise:
+- `GET /users/me` resolves to the shared coordinator.
+- `GET /events/assigned/{event_id}` returns the shared event.
+- `GET /venues/{venue_id}` returns the shared venue.
+- `POST /bookings` returns `201` with the body it was sent, plus an `id`,
+  `status: "pending"` and `submitted_at`.
+
+**Shared test data.**
+
+```
+coordinator   id cccccccc-…, name "Grace Hopper", email grace@example.com,
+              role event_coordinator
+
+event         id eeeeeeee-…, status planning, assigned to the coordinator
+              name "Alumni networking evening"
+              purpose "Reconnect graduates with faculty"
+              2026-11-12 09:00 -- 2026-11-12 18:00        (a Thursday)
+              expected_attendance 120
+              accessibility_requirements "Two guests use wheelchairs"
+
+venue         id vvvvvvvv-…, name "Studio B", capacity 150
+              facilities    [projector, sound_system, wifi]
+              accessibility [wheelchair_access, lift]
+              room_layouts  [theatre, classroom]
+              operating_hours thu 08:00-20:00, fri 08:00-20:00  (closed Sat)
+
+request body  {"event_id": <event>, "venue_id": <venue>,
+               "booking_date": "2026-11-12",
+               "start_time": "09:00", "end_time": "12:00",
+               "room_layout": "theatre",
+               "required_facilities": ["projector"],
+               "required_accessibility": ["wheelchair_access"],
+               "notes": "Access from 08:30 for setup"}
+```
+
+"Refused at submission" below means: `422` with
+`{"detail": "This venue can't take this booking", "errors": {...}}`, the
+named key present in `errors`, and **no** call to `POST /bookings`.
+
+---
+
+## TC-VENUEBOOKINGS-001 — health check
+
+- **Scenario:** The service reports itself up without calling anything
+  downstream.
+- **Pre-conditions:** Shared.
+- **Steps:** `GET /health`.
+- **Test data:** None.
+- **Expected:** `200`, `{"status": "ok"}`; no client called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-002 — a request needs a session
+
+- **Pre-conditions:** `GET /users/me` answers `401`.
+- **Steps:** `POST /venue-bookings` with the shared body and no cookies.
+- **Test data:** Shared body.
+- **Expected:** `401`, `{"detail": "Not authenticated"}`; events, venues and
+  bookings are never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-003 — only an Event Coordinator can submit a request
+
+- **Pre-conditions:** `GET /users/me` resolves to each other role in turn.
+- **Steps:** `POST /venue-bookings` with the shared body, once per role.
+- **Test data:** Roles `event_organiser`, `venue_staff`,
+  `technical_support`, `attendee`.
+- **Expected:** `403`, `{"detail": "Permission denied"}` for every one;
+  events, venues and bookings are never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-004 — the body is checked before any downstream call
+
+- **Scenario:** A malformed request costs no call to events, venues or
+  bookings.
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` once for each bad body below.
+- **Test data:**
+  - `venue_id` missing
+  - `booking_date` missing
+  - `end_time` `"09:00"` with `start_time` `"09:00"`
+  - `room_layout: "ballroom"`
+  - `required_facilities: ["jacuzzi"]`
+  - an extra field `"status": "approved"`
+- **Expected:** `422` with the offending field in `errors` for each one.
+  Only `GET /users/me` is called, never events, venues or bookings.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-005 — a Coordinator cannot book for an event not assigned to them
+
+- **Scenario:** The events service decides who is assigned. The composite
+  forwards the Coordinator's own session and takes the answer as given.
+- **Pre-conditions:** `GET /events/assigned/{event_id}` answers `404`.
+- **Steps:** `POST /venue-bookings` with the shared body.
+- **Test data:** Shared body.
+- **Expected:** `404`, `{"detail": "Event not found"}`. The events call
+  carried the request's cookies. Venues and bookings are never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-006 — only an event in planning can have a venue requested
+
+- **Pre-conditions:** The shared event, with its status set to each value
+  below in turn.
+- **Steps:** `POST /venue-bookings` with the shared body, once per status.
+- **Test data:** `submitted`, `returned`, `rejected`.
+- **Expected:** `409`,
+  `{"detail": "A venue can only be requested for an event in planning"}`
+  for every one; venues and bookings are never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-007 — the venue must exist
+
+- **Pre-conditions:** `GET /venues/{venue_id}` answers `404`.
+- **Steps:** `POST /venue-bookings` with the shared body.
+- **Test data:** Shared body with a random `venue_id`.
+- **Expected:** `404`, `{"detail": "Venue not found"}`; bookings is never
+  called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-008 — the booking must fall inside the event's date and time
+
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` once for each window below.
+- **Test data:** All are inside the venue's opening hours:
+  - `2026-11-13` `09:00`–`12:00` (a day the event is not on)
+  - `2026-11-12` `08:30`–`10:00` (starts before the event)
+  - `2026-11-12` `17:00`–`19:00` (ends after the event)
+- **Expected:** Each is refused at submission with `errors.booking_date`
+  = `"The booking must fall within the event's date and time"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-009 — a booking may use the event's full window, and one day of a multi-day event
+
+- **Scenario:** The window check is inclusive. On a multi-day event, any
+  single day inside it is valid.
+- **Pre-conditions:** Shared; for the second step, the event runs
+  `2026-11-12 18:00` to `2026-11-13 12:00`.
+- **Steps:** 1. `POST /venue-bookings` for `2026-11-12` `09:00`–`18:00`
+  against the shared event. 2. `POST /venue-bookings` for `2026-11-13`
+  `08:00`–`12:00` against the multi-day event.
+- **Test data:** As above.
+- **Expected:** `201` both times.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-010 — the venue must be open that day
+
+- **Pre-conditions:** The event runs `2026-11-14 10:00`–`12:00`, a Saturday.
+  The venue has no Saturday hours.
+- **Steps:** `POST /venue-bookings` for `2026-11-14` `10:00`–`12:00`.
+- **Test data:** As above.
+- **Expected:** Refused at submission with `errors.operating_hours`
+  = `"Studio B is closed on Saturdays"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-011 — the booking must fall inside the venue's opening hours
+
+- **Scenario:** Opening hours are inclusive at both ends.
+- **Pre-conditions:** The event runs `2026-11-12 06:00`–`23:00`, so only the
+  venue's hours (`08:00`–`20:00`) can fail.
+- **Steps:** `POST /venue-bookings` once for each window below.
+- **Test data:** `07:00`–`09:00`; `19:00`–`21:00`; `08:00`–`20:00`.
+- **Expected:** The first two are refused at submission with
+  `errors.operating_hours` = `"Studio B is open 08:00–20:00 on Thursdays"`.
+  The third returns `201`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-012 — the venue must hold the expected attendance
+
+- **Pre-conditions:** Shared, with the event's `expected_attendance` set to
+  each value below.
+- **Steps:** `POST /venue-bookings` with the shared body, once per value.
+- **Test data:** `151`; `150`.
+- **Expected:** `151` is refused at submission with
+  `errors.expected_attendance`
+  = `"Studio B holds 150 people; this event expects 151"`. `150` returns
+  `201`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-013 — every required facility must be at the venue
+
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` with
+  `required_facilities: ["projector", "stage", "whiteboard"]`.
+- **Test data:** As above. The venue has `projector` but not `stage` or
+  `whiteboard`.
+- **Expected:** Refused at submission with `errors.required_facilities`
+  = `"Studio B does not have: stage, whiteboard"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-014 — every required accessibility feature must be at the venue
+
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` with
+  `required_accessibility: ["wheelchair_access", "hearing_loop"]`.
+- **Test data:** As above. The venue lacks `hearing_loop`.
+- **Expected:** Refused at submission with `errors.required_accessibility`
+  = `"Studio B does not have: hearing_loop"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-015 — the room layout must be one the venue offers
+
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` with `room_layout: "banquet"`.
+- **Test data:** As above. The venue offers `theatre` and `classroom` only.
+- **Expected:** Refused at submission with `errors.room_layout`
+  = `"Studio B does not offer the banquet layout"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-016 — every problem is reported at once
+
+- **Scenario:** A Coordinator fixes everything in one pass instead of
+  discovering problems one at a time.
+- **Pre-conditions:** Shared, with the event's `expected_attendance` at
+  `200`.
+- **Steps:** `POST /venue-bookings` for `2026-11-12` `07:00`–`10:00` with
+  `room_layout: "banquet"` and `required_facilities: ["stage"]`.
+- **Test data:** As above.
+- **Expected:** One `422` whose `errors` holds exactly these keys:
+  `booking_date`, `operating_hours`, `expected_attendance`,
+  `required_facilities`, `room_layout`. Bookings is never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-017 — the optional choices may be left out
+
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` with only `event_id`, `venue_id`,
+  `booking_date`, `start_time` and `end_time`.
+- **Test data:** As above.
+- **Expected:** `201`. The body sent to `POST /bookings` has
+  `room_layout=null`, `required_facilities=[]`,
+  `required_accessibility=[]` and `notes=null`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-018 — the request carries the event's requirements for Venue Staff
+
+- **Scenario:** AC2. What Venue Staff need is copied onto the request from
+  the event, the venue and the session. None of it is taken from the
+  browser.
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` with the shared body.
+- **Test data:** Shared.
+- **Expected:** `POST /bookings` is called once, with exactly:
+
+  ```json
+  {
+    "event_id": "<event>", "venue_id": "<venue>",
+    "coordinator_id": "<coordinator>",
+    "coordinator_name": "Grace Hopper",
+    "coordinator_email": "grace@example.com",
+    "booking_date": "2026-11-12",
+    "start_time": "09:00:00", "end_time": "12:00:00",
+    "event_name": "Alumni networking evening",
+    "event_purpose": "Reconnect graduates with faculty",
+    "expected_attendance": 120,
+    "accessibility_requirements": "Two guests use wheelchairs",
+    "required_accessibility": ["wheelchair_access"],
+    "required_facilities": ["projector"],
+    "room_layout": "theatre",
+    "notes": "Access from 08:30 for setup",
+    "venue_name": "Studio B"
+  }
+  ```
+
+  The response is `201` with the bookings service's body, including
+  `status: "pending"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-019 — submitting a request writes nothing to the event
+
+- **Scenario:** The event is already in planning and stays there. This
+  story changes only the bookings table.
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /venue-bookings` with the shared body.
+- **Test data:** Shared.
+- **Expected:** `201`. The events fake received exactly one call, the
+  `GET /events/assigned/{event_id}`, and no `POST`, `PATCH` or `PUT`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-020 — a service that can't be reached is a 502, and nothing is half-written
+
+- **Pre-conditions:** One downstream service fails at a time. Each fails
+  once by raising `httpx.ConnectError` and once by answering `500`.
+- **Steps:** `POST /venue-bookings` with the shared body, once per failure.
+- **Test data:** users, events, venues, bookings.
+- **Expected:** `502`, with detail `"Users service unavailable"`,
+  `"Events service unavailable"`, `"Venues service unavailable"` or
+  `"Bookings service unavailable"` respectively. When users, events or
+  venues fail, bookings is never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-021 — the pending list needs a session
+
+- **Pre-conditions:** `GET /users/me` answers `401`.
+- **Steps:** `GET /venue-bookings/pending` with no cookies.
+- **Test data:** None.
+- **Expected:** `401`; bookings is never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-022 — only Venue Staff see the pending list
+
+- **Pre-conditions:** `GET /users/me` resolves to each other role in turn.
+- **Steps:** `GET /venue-bookings/pending`, once per role.
+- **Test data:** `event_coordinator`, `event_organiser`,
+  `technical_support`, `attendee`.
+- **Expected:** `403`, `{"detail": "Permission denied"}` for every one;
+  bookings is never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-023 — any Venue Staff member sees every pending request
+
+- **Scenario:** AC3. The list is not filtered by who created the venue.
+- **Pre-conditions:** `GET /users/me` resolves to a `venue_staff` user who
+  created neither venue. `GET /bookings?status=pending` returns two
+  bookings for two venues created by other staff.
+- **Steps:** `GET /venue-bookings/pending`.
+- **Test data:** As above.
+- **Expected:** `200` with both bookings, in the order the bookings service
+  returned them. The bookings call was `GET /bookings` with
+  `status=pending`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-024 — the pending list fails loudly when bookings is down
+
+- **Pre-conditions:** A `venue_staff` session. The bookings fake raises
+  `httpx.ConnectError`, then answers `500`.
+- **Steps:** `GET /venue-bookings/pending`, once per failure.
+- **Test data:** As above.
+- **Expected:** `502`, `{"detail": "Bookings service unavailable"}` both
+  times. An outage is never shown as an empty list.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
