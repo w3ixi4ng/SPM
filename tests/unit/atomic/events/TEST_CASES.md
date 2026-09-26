@@ -13,16 +13,16 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-001 — valid partial draft
 
-- **Scenario:** A draft accepts valid supplied values without requiring the full submission.
+- **Scenario:** Revised for S-36: the free-text accessibility notes are gone; `special_requirements` (Other requirements) is the one free-text field. A draft accepts valid supplied values without requiring the full submission.
 - **Pre-conditions:** None.
 - **Steps:** Instantiate `EventDraftCreate` with a padded name, attendance,
-  start/end times, one equipment quantity, and blank accessibility text.
+  start/end times, one equipment quantity, and blank other-requirements text.
 - **Test data:** Name `"  Alumni networking evening  "`, attendance `120`,
-  times `18:00`–`21:00`, equipment `{"projector": 1}`, accessibility `"   "`.
-- **Expected:** The model is valid; text is trimmed; blank optional accessibility
-  becomes `None`; attendance and equipment are retained.
-- **Actual:** As expected.
-- **Status:** Pass
+  times `18:00`–`21:00`, equipment `{"projector": 1}`, special requirements `"   "`.
+- **Expected:** The model is valid; text is trimmed; blank optional
+  `special_requirements` becomes `None`; attendance and equipment are retained.
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_schemas.py::test_valid_draft_accepts_and_normalises_supplied_values`
 
 ## TC-EVENTS-002 — empty draft
