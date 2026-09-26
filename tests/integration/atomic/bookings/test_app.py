@@ -23,7 +23,7 @@ def test_a_booking_saved_through_the_service_is_listed_as_pending(admin, booking
         "event_name": f"spm-test booking {uuid.uuid4().hex[:8]}",
         "event_purpose": "Reconnect graduates with faculty",
         "expected_attendance": 120,
-        "accessibility_requirements": "Two guests use wheelchairs",
+        "special_requirements": "Vegetarian catering for 40",
         "required_accessibility": ["wheelchair_access", "lift"],
         "required_facilities": ["projector", "sound_system"],
         "room_layout": "theatre",

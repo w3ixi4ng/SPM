@@ -36,7 +36,6 @@ SUBMITTED = {
     "expected_attendance": 120,
     "venue": "Main auditorium",
     "equipment_requests": {"projector": 1},
-    "accessibility_requirements": "Wheelchair access",
 }
 
 
@@ -99,7 +98,6 @@ def test_create_derives_organiser_and_status_from_session(client, db, auth):
             "expected_attendance": None,
             "venue": None,
             "equipment_requests": {},
-            "accessibility_requirements": None,
             "special_requirements": None,
             "room_layout": None,
             "required_facilities": [],

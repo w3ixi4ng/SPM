@@ -50,7 +50,7 @@ Reached through Kong at `/api/venue-bookings`.
 Any other field is a `422`, including `room_layout`, `required_facilities`
 and `required_accessibility`: those are the event's venue requirements, set
 by the organiser. Everything else on the stored request — the event's name,
-purpose, expected attendance, venue requirements and accessibility notes, the
+purpose, expected attendance, venue requirements and other requirements, the
 venue's name, the Coordinator's name and email — is looked up by this
 service and copied onto the request. It is a snapshot: later edits to the
 event do not change a request already sent.

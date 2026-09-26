@@ -84,7 +84,7 @@ def test_every_required_field_is_required(client, db, field):
 def test_the_optional_fields_may_be_left_out(client, db):
     on_insert(db, [booking_row()])
     optional = (
-        "accessibility_requirements",
+        "special_requirements",
         "required_accessibility",
         "required_facilities",
         "room_layout",
@@ -95,7 +95,7 @@ def test_the_optional_fields_may_be_left_out(client, db):
 
     assert response.status_code == 201
     sent = table(db).insert.call_args[0][0]
-    assert sent["accessibility_requirements"] is None
+    assert sent["special_requirements"] is None
     assert sent["required_accessibility"] == []
     assert sent["required_facilities"] == []
     assert sent["room_layout"] is None
@@ -148,7 +148,7 @@ def test_text_is_trimmed_and_blank_optional_text_becomes_null(client, db):
         json={
             **BOOKING,
             "notes": "  Access from 08:30  ",
-            "accessibility_requirements": "   ",
+            "special_requirements": "   ",
             "required_facilities": ["projector", "projector"],
         },
     )
@@ -156,7 +156,7 @@ def test_text_is_trimmed_and_blank_optional_text_becomes_null(client, db):
     assert response.status_code == 201
     sent = table(db).insert.call_args[0][0]
     assert sent["notes"] == "Access from 08:30"
-    assert sent["accessibility_requirements"] is None
+    assert sent["special_requirements"] is None
     assert sent["required_facilities"] == ["projector"]
 
 

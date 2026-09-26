@@ -16,7 +16,6 @@ SUBMITTED = {
     "expected_attendance": 120,
     "venue": "Main auditorium",
     "equipment_requests": {"projector": 1, "microphone": 2},
-    "accessibility_requirements": "Wheelchair access",
 }
 
 
@@ -28,13 +27,13 @@ def test_valid_draft_accepts_and_normalises_supplied_values():
         start_time="18:00",
         end_time="21:00",
         equipment_requests={"projector": 1},
-        accessibility_requirements="   ",
+        special_requirements="   ",
     )
 
     assert draft.name == "Alumni networking evening"
     assert draft.expected_attendance == 120
     assert draft.equipment_requests == {"projector": 1}
-    assert draft.accessibility_requirements is None
+    assert draft.special_requirements is None
 
 
 # --- TC-EVENTS-002 --------------------------------------------------------
@@ -49,7 +48,6 @@ def test_empty_draft_is_valid():
         "expected_attendance": None,
         "venue": None,
         "equipment_requests": {},
-        "accessibility_requirements": None,
         "special_requirements": None,
         "room_layout": None,
         "required_facilities": [],

@@ -4,7 +4,6 @@ const TEXT_FIELDS = {
   name: 'name',
   purpose: 'purpose',
   venue: 'venue',
-  accessibility: 'accessibility_requirements',
   specialRequirements: 'special_requirements',
 }
 
@@ -25,7 +24,6 @@ const API_TO_FORM_FIELD = {
   expected_attendance: 'attendance',
   venue: 'venue',
   equipment_requests: 'equipmentRequests',
-  accessibility_requirements: 'accessibility',
   special_requirements: 'specialRequirements',
   room_layout: 'roomLayout',
   required_facilities: 'requiredFacilities',
@@ -83,7 +81,6 @@ export function eventResponseToForm(event) {
     attendance: event.expected_attendance?.toString() ?? '',
     venue: event.venue ?? '',
     equipmentRequests: event.equipment_requests ?? {},
-    accessibility: event.accessibility_requirements ?? '',
     specialRequirements: event.special_requirements ?? '',
     roomLayout: event.room_layout ?? '',
     requiredFacilities: event.required_facilities ?? [],
