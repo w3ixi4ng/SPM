@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `f2c2c1e` |
-| Environment | Local Node.js; no network or Supabase |
-| Result | 26 passed |
+| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Environment | Node.js v22.16.0; no network or Supabase |
+| Result | 30 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -220,8 +220,8 @@ RBAC, and validation remain authoritative.
 - **Expected:** Each returns a string label and a `#rrggbb` color; the five
   labels are all distinct. `planning` is labelled `"Planning"` in green
   (`#3F8F5F`), the color `approved` used.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `eventStatusMeta covers every backend status with a distinct label`
 
 ## TC-FRONTEND-015 — an unrecognised status still renders safely
@@ -293,8 +293,8 @@ RBAC, and validation remain authoritative.
   (original relative order), then all `submitted` events (original relative
   order), then the rest (original relative order). `draft`, `planning`, and
   `rejected` are never moved ahead of each other.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `sortEventsForOrganiser sorts returned first, then submitted, then the rest, stable within each group`
 
 ## TC-FRONTEND-020 — sorting is a no-op with none of the two priority statuses, and does not mutate the input
@@ -311,8 +311,8 @@ RBAC, and validation remain authoritative.
   {id:'c',status:'draft'}]`.
 - **Expected:** Result order is `['a','b','c']`, identical to the input, and
   the input array itself still reads `['a','b','c']` afterward.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `sortEventsForOrganiser is a no-op with neither priority status, and does not mutate its argument`
 
 ## TC-FRONTEND-021 — only the returned-for-amendment badge pulses, and only for the organiser
@@ -382,8 +382,8 @@ RBAC, and validation remain authoritative.
 - **Test data:** `'draft'`, `'planning'`, `'rejected'`.
 - **Expected:** `organiserStatusMeta(status)` deep-equals
   `eventStatusMeta(status)` for all three.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `organiserStatusMeta falls through to the shared meta for every other status`
 
 ## TC-FRONTEND-025 — a failed resubmission tells the organiser nothing was changed
@@ -425,8 +425,8 @@ list into two tabs: **Active** (returned, under review, draft, planning) and
 - **Expected:** Active holds `f, d, a, c`: returned, then submitted, then the
   rest in backend order. Rejected holds `b, e` in backend order. No event
   appears in both tabs. The input array is unchanged.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `rejected requests go to the Rejected tab, everything else stays Active`
 
 ## TC-FRONTEND-027 — tab labels carry counts, and each tab has its own empty message
@@ -466,9 +466,9 @@ says.
 - **Expected:** `event_coordinator` has `venue_bookings:create` only.
   `venue_staff` has `venue_bookings:view_pending` only. `event_organiser`,
   `technical_support` and `attendee` have neither.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only coordinators request venues and only venue staff see pending requests`
 
 ## TC-FRONTEND-029 — "Request venue" is offered only for an event in planning
 
@@ -477,9 +477,9 @@ says.
 - **Test data:** `draft`, `submitted`, `returned`, `rejected`, `planning`,
   and `undefined`.
 - **Expected:** `true` for `planning`; `false` for everything else.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `Request venue is offered only for an event in planning`
 
 ## TC-FRONTEND-030 — venue booking calls use the authenticated Kong contract
 
@@ -500,9 +500,9 @@ says.
     `"Setup from 08:30"`.
   - The required-only body leaves out `room_layout` and `notes`, and sends
     `required_facilities: []` and `required_accessibility: []`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `venue booking calls use the authenticated Kong contract`
 
 ## TC-FRONTEND-031 — venue booking errors say what happened and what to do
 
@@ -525,6 +525,6 @@ says.
   - `401`: `"Your session has expired. Please sign in again."`
   - `502` and network failure: `"We couldn't send the venue request. Nothing
     was submitted — try again in a moment."`
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `venue booking errors say what happened and what to do`

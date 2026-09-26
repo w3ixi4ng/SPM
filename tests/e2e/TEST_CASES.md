@@ -214,6 +214,6 @@ contract without a browser.
     `"spm-e2e Venue <hex>"`, showing `12 Nov 2026`, `09:00–12:00`,
     `120 expected`, `Theatre`, and the coordinator's name. The row is
     labelled **Pending**.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
+- **Status:** Blocked
+- **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_shows_up_for_venue_staff`

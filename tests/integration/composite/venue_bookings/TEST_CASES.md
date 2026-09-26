@@ -13,7 +13,7 @@ and the gateway route.
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/venue_bookings` |
 | Last run | Not yet run |
 | Environment | — |
-| Result | — |
+| Result | Blocked — see the cases below |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -55,9 +55,9 @@ and the gateway route.
     coordinator's.
   - Step 4: still `status=planning`.
   - Step 6: `200`, and the list contains the booking id from step 2.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
+- **Status:** Blocked
+- **Evidence:** `test_app.py::test_a_coordinators_request_reaches_venue_staff_through_the_gateway`
 
 ## TC-VENUEBOOKINGS-102 — an unsuitable venue is refused against real venue data, and nothing is saved
 
@@ -75,6 +75,6 @@ and the gateway route.
   - Step 2: `422`, with `booking_date`, `operating_hours` and
     `expected_attendance` in `errors`.
   - Step 3: `0`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Not run: `backend/sql/bookings.sql` and the S-36 migration in `backend/sql/events.sql` are not yet applied to the test project, `bookings` is not yet exposed, and `.env.test` lacks the new `BOOKINGS_SERVICE_PORT`, `VENUE_BOOKINGS_SERVICE_PORT`, `VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`.
+- **Status:** Blocked
+- **Evidence:** `test_app.py::test_an_unsuitable_venue_is_refused_against_real_venue_data`

@@ -11,9 +11,9 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/venue_bookings` |
-| Last run | Not yet run |
-| Environment | — |
-| Result | — |
+| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 52 passed |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -96,9 +96,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Steps:** `GET /health`.
 - **Test data:** None.
 - **Expected:** `200`, `{"status": "ok"}`; no client called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_health_reports_ok`
 
 ## TC-VENUEBOOKINGS-002 — a request needs a session
 
@@ -107,9 +107,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** Shared body.
 - **Expected:** `401`, `{"detail": "Not authenticated"}`; events, venues and
   bookings are never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_request_needs_a_session`
 
 ## TC-VENUEBOOKINGS-003 — only an Event Coordinator can submit a request
 
@@ -119,9 +119,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `technical_support`, `attendee`.
 - **Expected:** `403`, `{"detail": "Permission denied"}` for every one;
   events, venues and bookings are never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_an_event_coordinator_can_submit`
 
 ## TC-VENUEBOOKINGS-004 — the body is checked before any downstream call
 
@@ -139,9 +139,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** `422` with the offending field in `errors` for each one.
   No downstream service is called, not even users: FastAPI checks the body
   before the route runs, the same as TC-EVENTREQUESTS-004.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_body_is_checked_before_any_downstream_call`, `test_app.py::test_an_end_time_before_the_start_names_the_problem`
 
 ## TC-VENUEBOOKINGS-005 — a Coordinator cannot book for an event not assigned to them
 
@@ -152,9 +152,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** Shared body.
 - **Expected:** `404`, `{"detail": "Event not found"}`. The events call
   carried the request's cookies. Venues and bookings are never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_coordinator_cannot_book_for_an_event_not_assigned_to_them`
 
 ## TC-VENUEBOOKINGS-006 — only an event in planning can have a venue requested
 
@@ -165,9 +165,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** `409`,
   `{"detail": "A venue can only be requested for an event in planning"}`
   for every one; venues and bookings are never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_an_event_in_planning_can_have_a_venue_requested`
 
 ## TC-VENUEBOOKINGS-007 — the venue must exist
 
@@ -176,9 +176,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** Shared body with a random `venue_id`.
 - **Expected:** `404`, `{"detail": "Venue not found"}`; bookings is never
   called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_venue_must_exist`
 
 ## TC-VENUEBOOKINGS-008 — the booking must fall inside the event's date and time
 
@@ -190,9 +190,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   - `2026-11-12` `17:00`–`19:00` (ends after the event)
 - **Expected:** Each is refused at submission with `errors.booking_date`
   = `"The booking must fall within the event's date and time"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_booking_must_fall_inside_the_event`
 
 ## TC-VENUEBOOKINGS-009 — a booking may use the event's full window, and one day of a multi-day event
 
@@ -205,9 +205,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `08:00`–`12:00` against the multi-day event.
 - **Test data:** As above.
 - **Expected:** `201` both times.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_booking_may_use_the_events_full_window`, `test_app.py::test_a_booking_may_use_one_day_of_a_multi_day_event`
 
 ## TC-VENUEBOOKINGS-010 — the venue must be open that day
 
@@ -217,9 +217,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** As above.
 - **Expected:** Refused at submission with `errors.operating_hours`
   = `"Studio B is closed on Saturdays"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_venue_must_be_open_that_day`
 
 ## TC-VENUEBOOKINGS-011 — the booking must fall inside the venue's opening hours
 
@@ -231,9 +231,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** The first two are refused at submission with
   `errors.operating_hours` = `"Studio B is open 08:00–20:00 on Thursdays"`.
   The third returns `201`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_booking_must_fall_inside_opening_hours`, `test_app.py::test_opening_hours_are_inclusive`
 
 ## TC-VENUEBOOKINGS-012 — the venue must hold the expected attendance
 
@@ -245,9 +245,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `errors.expected_attendance`
   = `"Studio B holds 150 people; this event expects 151"`. `150` returns
   `201`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_venue_must_hold_the_expected_attendance`, `test_app.py::test_attendance_equal_to_capacity_is_accepted`
 
 ## TC-VENUEBOOKINGS-013 — every required facility must be at the venue
 
@@ -258,9 +258,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `whiteboard`.
 - **Expected:** Refused at submission with `errors.required_facilities`
   = `"Studio B does not have: stage, whiteboard"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_every_required_facility_must_be_at_the_venue`
 
 ## TC-VENUEBOOKINGS-014 — every required accessibility feature must be at the venue
 
@@ -270,9 +270,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** As above. The venue lacks `hearing_loop`.
 - **Expected:** Refused at submission with `errors.required_accessibility`
   = `"Studio B does not have: hearing_loop"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_every_required_accessibility_feature_must_be_at_the_venue`
 
 ## TC-VENUEBOOKINGS-015 — the room layout must be one the venue offers
 
@@ -281,9 +281,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** As above. The venue offers `theatre` and `classroom` only.
 - **Expected:** Refused at submission with `errors.room_layout`
   = `"Studio B does not offer the banquet layout"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_room_layout_must_be_one_the_venue_offers`
 
 ## TC-VENUEBOOKINGS-016 — every problem is reported at once
 
@@ -297,9 +297,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** One `422` whose `errors` holds exactly these keys:
   `booking_date`, `operating_hours`, `expected_attendance`,
   `required_facilities`, `room_layout`. Bookings is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_every_problem_is_reported_at_once`
 
 ## TC-VENUEBOOKINGS-017 — the optional choices may be left out
 
@@ -310,9 +310,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** `201`. The body sent to `POST /bookings` has
   `room_layout=null`, `required_facilities=[]`,
   `required_accessibility=[]` and `notes=null`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_optional_choices_may_be_left_out`
 
 ## TC-VENUEBOOKINGS-018 — the request carries the event's requirements for Venue Staff
 
@@ -346,9 +346,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
   The response is `201` with the bookings service's body, including
   `status: "pending"`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_request_carries_the_events_requirements_for_venue_staff`
 
 ## TC-VENUEBOOKINGS-019 — submitting a request writes nothing to the event
 
@@ -359,9 +359,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** Shared.
 - **Expected:** `201`. The events fake received exactly one call, the
   `GET /events/assigned/{event_id}`, and no `POST`, `PATCH` or `PUT`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_submitting_a_request_writes_nothing_to_the_event`
 
 ## TC-VENUEBOOKINGS-020 — a service that can't be reached is a 502, and nothing is half-written
 
@@ -373,9 +373,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `"Events service unavailable"`, `"Venues service unavailable"` or
   `"Bookings service unavailable"` respectively. When users, events or
   venues fail, bookings is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_service_that_cannot_be_reached_is_a_502`
 
 ## TC-VENUEBOOKINGS-021 — the pending list needs a session
 
@@ -383,9 +383,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Steps:** `GET /venue-bookings/pending` with no cookies.
 - **Test data:** None.
 - **Expected:** `401`; bookings is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_pending_list_needs_a_session`
 
 ## TC-VENUEBOOKINGS-022 — only Venue Staff see the pending list
 
@@ -395,9 +395,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
   `technical_support`, `attendee`.
 - **Expected:** `403`, `{"detail": "Permission denied"}` for every one;
   bookings is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_venue_staff_see_the_pending_list`
 
 ## TC-VENUEBOOKINGS-023 — any Venue Staff member sees every pending request
 
@@ -410,9 +410,9 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Expected:** `200` with both bookings, in the order the bookings service
   returned them. The bookings call was `GET /bookings` with
   `status=pending`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_any_venue_staff_member_sees_every_pending_request`
 
 ## TC-VENUEBOOKINGS-024 — the pending list fails loudly when bookings is down
 
@@ -422,6 +422,6 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 - **Test data:** As above.
 - **Expected:** `502`, `{"detail": "Bookings service unavailable"}` both
   times. An outage is never shown as an empty list.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_pending_list_fails_loudly_when_bookings_is_down`

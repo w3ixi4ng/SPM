@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-26, branch `S-13/eo-respond-change-request` at `92b529e` |
-| Environment | Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 87 passed |
+| Last run | 2026-09-26, branch `S-36/submit-venue-booking-request` at `dbfa58d` |
+| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 88 passed |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -644,8 +644,8 @@ only by `event_requests` over the Docker network, never by a browser.
 - **Expected:** The query filters on `status in ("submitted", "planning")`.
   Every other status is excluded in the query itself, not filtered out
   afterwards, so it can never reach the conflict check or the count.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
 
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and coordinator ids
@@ -883,8 +883,8 @@ submit route rather than creating a new one.
 - **Expected:** `200`; `status=planning`. The update sent to Supabase has
   `status=planning`, `decision=approved`, `decision_reason=null`,
   `decision_comment=null`, and a non-null `decided_at`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_approves_a_submitted_request`
 
 ## TC-EVENTS-068 — reject requires a reason
@@ -989,8 +989,8 @@ submit route rather than creating a new one.
   "approved"}`.
 - **Test data:** As above.
 - **Expected:** `409`; no update issued.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_a_decision_already_made_cannot_be_decided_again`
 
 ## TC-EVENTS-076 — an organiser cannot decide a request
@@ -1030,8 +1030,8 @@ submit route rather than creating a new one.
   payload.
 - **Test data:** As above.
 - **Expected:** `409`; no update issued.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_a_planning_request_cannot_be_resubmitted`
 
 ## TC-EVENTS-079 — a rejected request cannot be resubmitted
@@ -1191,6 +1191,6 @@ where venue booking requests are made.
 - **Test data:** The standard submitted payload.
 - **Expected:** Step 1 returns `200` with `status=planning` and
   `decision=approved`. Step 2 raises a validation error on `status`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_approved_is_no_longer_a_status_an_event_can_be_read_in`
