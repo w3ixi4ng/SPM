@@ -9,7 +9,7 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
 | Environment | Node.js v22.16.0; no network or Supabase |
 | Result | 34 passed |
 

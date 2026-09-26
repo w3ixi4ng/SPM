@@ -11,7 +11,7 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/venue_bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 65 passed |
 
@@ -357,8 +357,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
   The response is `201` with the bookings service's body, including
   `status: "pending"`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** As expected.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_the_request_carries_the_events_requirements_for_venue_staff`
 
 ## TC-VENUEBOOKINGS-019 — submitting a request writes nothing to the event
