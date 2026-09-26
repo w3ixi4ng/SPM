@@ -768,7 +768,11 @@ apart at a glance:
 
 Both Docker jobs bring up the **whole** stack, Kong and the frontend included:
 the events tests exercise the gateway routes as well as the service directly,
-and the browser has nothing to open otherwise. Both are skipped on pull
+and the browser has nothing to open otherwise. The e2e job waits for the
+integration job, pass or fail, rather than running alongside it: both write to
+the same test project, and a coordinator account an e2e journey creates
+mid-way through an integration test is one that test never blocked, so it wins
+the assignment. Both are skipped on pull
 requests from forks — those get no secrets, and a job that cannot authenticate
 would fail for a reason the contributor cannot fix.
 

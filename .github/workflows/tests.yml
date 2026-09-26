@@ -190,9 +190,19 @@ jobs:
   e2e:
     name: End-to-end (playwright)
     runs-on: ubuntu-latest
+    # Runs after integration, never alongside it: both write to the same test
+    # Supabase project, and the e2e journeys create event_coordinator
+    # accounts. One created mid-way through an integration test is a fresh,
+    # zero-load coordinator the assignment tests never blocked, so it wins
+    # the pick and the test fails naming an account nobody recognises.
+    # `!cancelled()` keeps e2e running when integration fails -- the two stay
+    # separate signals, they just no longer overlap.
+    needs: integration
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      !cancelled() && (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
 
     steps:
       - name: Checkout code
