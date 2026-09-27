@@ -67,7 +67,10 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     )
 
     sign_in(coordinator)
-    page.wait_for_url(re.compile(r"/dashboard"), timeout=20000)
+    # The coordinator's own dashboard, not just any /dashboard URL: the app
+    # passes through /dashboard while it resolves the session, and leaving
+    # before that settles can open the next page signed out.
+    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
     page.goto(f"/coordinator/events/{event['id']}/request-venue")
 
     send = page.get_by_role("button", name="Send request")
