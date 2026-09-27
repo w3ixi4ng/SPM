@@ -642,3 +642,33 @@ says.
 - **Actual:** Every status and field error mapped to the specified safe feedback.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `equipment errors are safe and actionable`
+
+## S-35 — warn on attendance exceeding venue capacity
+
+On the Coordinator's venue request screen, selecting a venue too small for
+the event's expected attendance shows a warning and disables **Send request**
+until a venue that holds everyone is selected (warn and block, agreed with
+the developer). Only capacity blocks; a layout, facility or accessibility
+mismatch is still marked on the list and refused by the service on send, as
+in S-36.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Selecting a venue whose capacity is less than the event's expected attendance triggers a warning | TC-FRONTEND-036, TC-E2E-210 step 3 |
+| AC2: The warning is shown before the booking request can be submitted | TC-E2E-210 step 3 |
+| AC3: The Coordinator can still choose a different, suitable venue after the warning | TC-E2E-210 steps 4–5 |
+
+## TC-FRONTEND-036 — a venue too small for the event produces the capacity warning
+
+- **Pre-conditions:** The venue booking helpers are loaded.
+- **Steps:** Call `capacityWarning(event, venue)` for each venue below.
+- **Test data:** Event `expected_attendance: 100`. Venues named `Studio B`
+  with capacity `80`, `100` and `150`; then `venue` = `null` (nothing
+  selected yet).
+- **Expected:** Capacity `80`:
+  `"Studio B holds 80 people; this event expects 100. Choose a larger venue."`.
+  Capacity `100` (equal), `150`, and `null`: `null`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
