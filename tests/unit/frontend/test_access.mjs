@@ -92,7 +92,7 @@ test('only coordinators request venues and only venue staff see pending requests
   }
 })
 
-// --- TC-FRONTEND-041 -------------------------------------------------------
+// --- TC-FRONTEND-042 -------------------------------------------------------
 test('coordinators edit requirements and technical support can only view them', () => {
   const expected = {
     event_coordinator: [true, true],

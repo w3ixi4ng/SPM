@@ -58,6 +58,18 @@ export function venueFit(event, venue) {
   return problems
 }
 
+// S-35: the warning shown when the selected venue doesn't meet the event's
+// venue requirements -- capacity, layout, facilities or accessibility -- or
+// null when it does, or when nothing is selected yet. While it is showing,
+// Send request is disabled: the service would refuse the request anyway, so
+// the Coordinator is steered to a venue that fits instead.
+export function venueWarning(event, venue) {
+  if (!venue) return null
+  const problems = venueFit(event, venue)
+  if (problems.length === 0) return null
+  return `${venue.name} doesn't suit this event: ${problems.join('; ')}. Choose a venue that fits.`
+}
+
 // Always a list: a refused request can fail several checks at once, and the
 // Coordinator should see every one of them, not just the first.
 export function venueBookingErrorMessages(error) {

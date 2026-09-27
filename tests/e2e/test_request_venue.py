@@ -62,7 +62,10 @@ def test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_
     )
 
     sign_in(coordinator)
-    page.wait_for_url(re.compile(r"/dashboard"), timeout=20000)
+    # The coordinator's own dashboard, not just any /dashboard URL: the app
+    # passes through /dashboard while it resolves the session, and leaving
+    # before that settles can open the next page signed out.
+    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
     page.goto(f"/coordinator/events/{event['id']}")
 
     page.get_by_role("link", name="Request venue").click()

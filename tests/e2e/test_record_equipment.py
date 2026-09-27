@@ -1,4 +1,4 @@
-"""TC-E2E-210 -- Coordinator records equipment and Technical Support sees it."""
+"""TC-E2E-211 -- Coordinator records equipment and Technical Support sees it."""
 
 import re
 import uuid
@@ -8,7 +8,7 @@ from .conftest import requires_env
 pytestmark = requires_env
 
 
-# --- TC-E2E-210 -----------------------------------------------------------
+# --- TC-E2E-211 -----------------------------------------------------------
 def test_coordinator_records_required_equipment_visible_to_technical_support(admin, page, make_user, sign_in):
     coordinator = make_user("event_coordinator")
     support = make_user("technical_support")
