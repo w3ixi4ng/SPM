@@ -307,7 +307,7 @@ def test_the_request_carries_the_events_requirements_for_venue_staff(client, ser
         "event_name": "Alumni networking evening",
         "event_purpose": "Reconnect graduates with faculty",
         "expected_attendance": 120,
-        "accessibility_requirements": "Two guests use wheelchairs",
+        "special_requirements": "Vegetarian catering for 40",
         "required_accessibility": ["wheelchair_access"],
         "required_facilities": ["projector"],
         "room_layout": "theatre",

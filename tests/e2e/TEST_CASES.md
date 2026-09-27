@@ -1,7 +1,7 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py` and `test_request_venue.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`, `test_request_venue.py`, `test_capacity_warning.py` and `test_update_venue.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with both S-36 migrations), `venues` and `bookings` (with the cabaret removal) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 8 passed, twice consecutively |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `22144d0` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
+| Result | 9 passed, twice consecutively. On the previous commit one full-suite run failed TC-E2E-210 with the request screen never loading (not reproduced in five isolated runs); the likely cause, leaving the dashboard before the session settled, was fixed in the test at this commit |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -227,11 +227,52 @@ contract without a browser.
 - **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`
 
+## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
+
+- **Scenario:** S-35 in a real browser. Only a browser shows the warning
+  appearing on selection and **Send request** being disabled and re-enabled;
+  TC-FRONTEND-039 covers the wording.
+- **Pre-conditions:** Stack and project as the header. The test creates, and
+  removes afterwards: an `event_coordinator` with `make_user`; an event
+  `"spm-e2e Event <hex>"` assigned to them, `status=planning`,
+  `2026-11-12 09:00`–`18:00`, `expected_attendance` `100`,
+  `required_facilities` `["projector"]`; three venues, all layout `theatre`
+  and open Thursday `08:00`–`20:00`:
+  - `"spm-e2e Small <hex>"`: capacity `80`, facility `projector`;
+  - `"spm-e2e Bare <hex>"`: capacity `150`, no facilities;
+  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`.
+- **Steps:**
+  1. Sign in as the coordinator and open
+     `/coordinator/events/{id}/request-venue`.
+  2. Look at **Send request** before choosing a venue.
+  3. Choose the Small venue.
+  4. Choose the Bare venue.
+  5. Choose the Large venue.
+  6. Set `09:00`–`12:00` and click **Send request**.
+- **Test data:** As above.
+- **Expected:**
+  - Step 2: no warning; **Send request** is enabled.
+  - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
+    expects 100"` is shown, and **Send request** is disabled.
+  - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
+    **Send request** is still disabled.
+  - Step 5: no warning, and **Send request** is enabled.
+  - Step 6: the browser returns to `/coordinator/events/{id}` with
+    `"Venue request sent to Venue Staff."`
+- **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
+- **Status:** Pass
+- **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
+
 ## S-28 approved coverage
+
+ID reconciliation: the S-28 staff-edit case was TC-E2E-210 on its branch.
+It is TC-E2E-212 after integration because main already uses TC-E2E-210
+for the S-35 capacity-warning case. TC-E2E-211 remains the access-control case.
+These recorded results precede this merge; the combined suite has not been rerun.
 
 Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chromium against freshly recreated `.env.test` Docker stack. Existing add-venue and coordinator read-only journeys also passed.
 
-### TC-E2E-210 ? Staff edit refreshes catalogue and persists
+### TC-E2E-212 - Staff edit refreshes catalogue and persists
 
 - Scenario: Staff edit refreshes catalogue and persists
 - Pre-conditions: Approved test stack and Chromium; venue created by another staff member.
@@ -242,7 +283,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_staff_edit_refreshes_catalogue_and_persists[chromium]`; local browser execution.
 
-### TC-E2E-211 ? Non-staff cannot edit venues
+### TC-E2E-211 - Non-staff cannot edit venues
 
 - Scenario: Non-staff cannot edit venues
 - Pre-conditions: Approved test stack; coordinator account and existing venue.
@@ -252,3 +293,4 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Actual: Coordinator saw no Edit action; direct edit URL redirected to coordinator dashboard. Passed on targeted rerun after an initial session-expired response during catalogue loading.
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_coordinator_cannot_open_edit[chromium]`; local Chromium rerun, 1 passed.
+

@@ -11,7 +11,7 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/venue_bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 65 passed |
 
@@ -70,7 +70,7 @@ event         id eeeeeeee-…, status planning, assigned to the coordinator
               purpose "Reconnect graduates with faculty"
               2026-11-12 09:00 -- 2026-11-12 18:00        (a Thursday)
               expected_attendance 120
-              accessibility_requirements "Two guests use wheelchairs"
+              special_requirements "Vegetarian catering for 40"
               room_layout theatre
               required_facilities [projector]
               required_accessibility [wheelchair_access]
@@ -326,8 +326,8 @@ named key present in `errors`, and **no** call to `POST /bookings`.
 
 ## TC-VENUEBOOKINGS-018 — the request carries the event's requirements for Venue Staff
 
-- **Scenario:** Revised for S-36: the requirements come from the event, not the request. AC2. What Venue Staff need — including the room layout,
-  facilities and accessibility features — is copied onto the request from
+- **Scenario:** Revised for S-36: the free-text accessibility notes are gone; `special_requirements` (Other requirements) is the one free-text field. Revised for S-36: the requirements come from the event, not the request. AC2. What Venue Staff need — including the room layout,
+  facilities, accessibility features and other requirements — is copied onto the request from
   the event, the venue and the session. None of it is taken from the
   browser.
 - **Pre-conditions:** Shared.
@@ -346,7 +346,7 @@ named key present in `errors`, and **no** call to `POST /bookings`.
     "event_name": "Alumni networking evening",
     "event_purpose": "Reconnect graduates with faculty",
     "expected_attendance": 120,
-    "accessibility_requirements": "Two guests use wheelchairs",
+    "special_requirements": "Vegetarian catering for 40",
     "required_accessibility": ["wheelchair_access"],
     "required_facilities": ["projector"],
     "room_layout": "theatre",

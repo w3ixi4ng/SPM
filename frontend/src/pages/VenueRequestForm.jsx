@@ -5,6 +5,7 @@ import Logo from '../components/Logo.jsx'
 import { eventErrorMessage, getAssignedEventRequest } from '../lib/eventRequests.js'
 import {
   canRequestVenue,
+  venueWarning,
   emptyVenueBookingForm,
   shortTime,
   submitVenueBooking,
@@ -48,7 +49,7 @@ function Requirements({ event }) {
     ['Room layout', event.room_layout && optionLabel(event.room_layout)],
     ['Facilities', labels(event.required_facilities)],
     ['Accessibility', labels(event.required_accessibility)],
-    ['Other accessibility notes', event.accessibility_requirements],
+    ['Other requirements', event.special_requirements],
     ['Venue preference', event.venue],
   ]
   return (
@@ -144,6 +145,9 @@ function RequestForm({ event, onSent }) {
       .catch(() => { if (active) setVenues({ status: 'error', list: [] }) })
     return () => { active = false }
   }, [])
+
+  const selectedVenue = venues.list.find((venue) => venue.id === form.venueId) ?? null
+  const warning = venueWarning(event, selectedVenue)
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -252,6 +256,12 @@ function RequestForm({ event, onSent }) {
         />
       </div>
 
+      {warning && (
+        <p id="venue-warning" role="alert" className="font-ui text-sm mb-4" style={{ color: C.amber }}>
+          ⚠ {warning}
+        </p>
+      )}
+
       {sendState.errors.length > 0 && (
         <div role="alert" className="font-ui text-sm mb-6" style={{ color: C.rose }}>
           <p className="font-medium mb-1">This request wasn&apos;t sent:</p>
@@ -263,7 +273,8 @@ function RequestForm({ event, onSent }) {
 
       <button
         type="submit"
-        disabled={sendState.status === 'sending'}
+        disabled={sendState.status === 'sending' || Boolean(warning)}
+        aria-describedby={warning ? 'venue-warning' : undefined}
         className="csp-primary-btn px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
         style={{ backgroundColor: C.teal, color: C.paper }}
       >

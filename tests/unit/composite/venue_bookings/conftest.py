@@ -77,7 +77,7 @@ EVENT = {
     "end_date": "2026-11-12",
     "end_time": "18:00:00",
     "expected_attendance": 120,
-    "accessibility_requirements": "Two guests use wheelchairs",
+    "special_requirements": "Vegetarian catering for 40",
     # S-36: the venue requirements are the event's.
     "room_layout": "theatre",
     "required_facilities": ["projector"],

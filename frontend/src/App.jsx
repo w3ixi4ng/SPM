@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import EventCoordinatorDashboard from './pages/EventCoordinatorDashboard.jsx'
 import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
+import EquipmentForm from './pages/EquipmentForm.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Login from './pages/Login.jsx'
 import SignUp from './pages/SignUp.jsx'
@@ -78,6 +79,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.UPDATE_VENUE}>
               <VenueForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/equipment/new"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.CREATE_EQUIPMENT}>
+              <EquipmentForm />
             </ProtectedRoute>
           )}
         />

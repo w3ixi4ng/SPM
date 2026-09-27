@@ -1,7 +1,7 @@
 # Test cases — frontend role access (unit)
 
-Covers `test_access.mjs`, `test_event_requests.mjs`, `test_venues.mjs` and
-`test_venue_bookings.mjs`.
+Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
+`test_venues.mjs`, `test_venue_bookings.mjs` and `test_venue_update.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `7d6ac09` |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 34 passed |
+| Result | 38 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -595,12 +595,110 @@ says.
 - **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `each venue is marked against the event requirements`
 
+## S-39 — equipment catalogue
+
+### TC-FRONTEND-036 — equipment form validates required catalogue fields
+
+- **Scenario:** Technical Support gets immediate, specific feedback before a
+  bad catalogue item reaches the service.
+- **Pre-conditions:** Equipment form validation is loaded.
+- **Steps:** Validate an empty form, quantities `0`, `-1`, and `1.5`, then a
+  complete form.
+- **Test data:** Type `Wireless Microphone`, description `Handheld wireless
+  microphone with receiver`, quantity `12`.
+- **Expected:** Empty/blank type and every invalid quantity are identified;
+  the complete form has no errors.
+- **Actual:** Each invalid form produced the expected field error; the complete form passed.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment form validates required catalogue fields`
+
+### TC-FRONTEND-037 — equipment operations use the authenticated Kong contract
+
+- **Scenario:** Catalogue screens call the S-39 gateway routes and do not send
+  server-owned state.
+- **Pre-conditions:** Fetch is recorded and returns a stored item.
+- **Steps:** List the catalogue, list selection options, and create the
+  complete item.
+- **Test data:** As TC-FRONTEND-036, plus client-supplied fake id, creator and
+  statuses that must not enter the request body.
+- **Expected:** Authenticated calls use `GET /api/equipment`,
+  `GET /api/equipment/selection`, and `POST /api/equipment`; the POST body is
+  exactly type, description and numeric total quantity.
+- **Actual:** All three calls used the specified paths and credentials; the POST omitted protected fields.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment operations use authenticated Kong routes and safe payloads`
+
+### TC-FRONTEND-038 — equipment errors are safe and actionable
+
+- **Scenario:** The form maps API failures to guidance without exposing
+  backend details.
+- **Pre-conditions:** Equipment error helpers are loaded.
+- **Steps:** Map `401`, `403`, `422`, and `500`, plus field errors for type and
+  total quantity.
+- **Test data:** Representative responses for each status.
+- **Expected:** The user is told to sign in, that their role is not permitted,
+  which fields to fix, or that the item was not saved; field names map to the
+  matching form controls.
+- **Actual:** Every status and field error mapped to the specified safe feedback.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment errors are safe and actionable`
+
+## S-35 — warn on attendance exceeding venue capacity
+
+On the Coordinator's venue request screen, selecting a venue that does not
+meet the event's venue requirements shows a warning listing why, and disables
+**Send request** until a venue that fits is selected (warn and block, agreed
+with the developer). The story names capacity; the developer confirmed the
+same rule applies to every venue requirement the event has — capacity, room
+layout, facilities and accessibility — as the project brief's capacity
+example is one case of it. Opening hours and the event window depend on the
+date and time typed in, so they are still checked by the service on send.
+
+Acceptance criteria, as reworded by the developer for this scope:
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Selecting a venue that doesn't meet the event's requirements — expected attendance above its capacity, or a missing room layout, facility or accessibility feature — triggers a warning that says why | TC-FRONTEND-039, TC-E2E-210 steps 3–4 |
+| AC2: The warning is shown before the booking request can be submitted, and the request cannot be sent while the selected venue doesn't meet them | TC-E2E-210 steps 3–4 |
+| AC3: The Coordinator can still choose a different, suitable venue after the warning, and the warning clears when they do | TC-E2E-210 steps 5–6 |
+
+## TC-FRONTEND-039 — a venue that doesn't suit the event produces a warning listing why
+
+- **Pre-conditions:** The venue booking helpers are loaded.
+- **Steps:** Call `venueWarning(event, venue)` for each venue below.
+- **Test data:** Event `expected_attendance: 100`, `room_layout: "banquet"`,
+  `required_facilities: ["stage"]`, `required_accessibility: ["lift"]`.
+  Venues, each named `Studio B`:
+  - too small only: capacity `80`, layouts `["banquet"]`, facilities
+    `["stage"]`, accessibility `["lift"]`;
+  - large enough but missing the rest: capacity `150`, layouts
+    `["theatre"]`, facilities `[]`, accessibility `[]`;
+  - fits: capacity `100`, layouts `["banquet"]`, facilities `["stage"]`,
+    accessibility `["lift"]`;
+  - `null` (nothing selected yet).
+- **Expected:**
+  - Too small only: `"Studio B doesn't suit this event: Too small: holds
+    80, event expects 100. Choose a venue that fits."`
+  - Missing the rest: `"Studio B doesn't suit this event: No Banquet layout;
+    Missing: Stage; Missing: Lift. Choose a venue that fits."`
+  - Fits, and `null`: `null`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `a venue that doesn't suit the event produces a warning listing why`
 
 ## S-28 approved coverage
 
+ID reconciliation: S-28 used TC-FRONTEND-036 on its branch. It is
+TC-FRONTEND-040 in the combined document because main already uses
+TC-FRONTEND-036 through TC-FRONTEND-039. Earlier S-28 references to 036
+refer to the edit helpers case below, not the equipment case.
+
+The results below were recorded before conflict resolution. The combined
+suite has not been rerun; the header result describes the main-branch run.
+
 Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
 
-### TC-FRONTEND-036 ? Edit helpers and permissions
+### TC-FRONTEND-040 - Edit helpers and permissions
 
 - Scenario: Edit helpers and permissions
 - Pre-conditions: Saved venue: location Block A, capacity 250, facilities projector, accessibility wheelchair_access.
@@ -610,3 +708,4 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Actual: All 39 Node tests passed, including five S-28 cases.
 - Status: Pass
 - Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.
+

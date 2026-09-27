@@ -49,7 +49,7 @@ BOOKING = {
     "event_name": "Alumni networking evening",
     "event_purpose": "Reconnect graduates with faculty",
     "expected_attendance": 120,
-    "accessibility_requirements": "Two guests use wheelchairs",
+    "special_requirements": "Vegetarian catering for 40",
     "required_accessibility": ["wheelchair_access", "lift"],
     "required_facilities": ["projector", "sound_system"],
     "room_layout": "theatre",
