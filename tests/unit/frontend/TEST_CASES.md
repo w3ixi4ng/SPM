@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `7d6ac09` |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 37 passed |
+| Result | 38 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -682,6 +682,6 @@ Acceptance criteria, as reworded by the developer for this scope:
   - Missing the rest: `"Studio B doesn't suit this event: No Banquet layout;
     Missing: Stage; Missing: Lift. Choose a venue that fits."`
   - Fits, and `null`: `null`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs` — `a venue that doesn't suit the event produces a warning listing why`

@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `805896e` |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `7d6ac09` |
 | Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 9 passed, twice consecutively |
+| Result | 9 passed on the last two of three consecutive runs. The first run failed TC-E2E-207 (`test_respond_to_return.py`, untouched by S-35) waiting for the returned request's **Action required** row on the organiser dashboard; it did not recur. TC-E2E-210 passed on all three |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -259,6 +259,6 @@ contract without a browser.
   - Step 5: no warning, and **Send request** is enabled.
   - Step 6: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
+- **Status:** Pass
+- **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
