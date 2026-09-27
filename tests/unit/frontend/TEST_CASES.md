@@ -597,7 +597,93 @@ says.
 
 ## S-39 — equipment catalogue
 
-### TC-FRONTEND-036 — equipment form validates required catalogue fields
+### TC-FRONTEND-036 — a venue that doesn't suit the event produces a warning listing why
+
+- **Pre-conditions:** The venue booking helpers are loaded.
+- **Steps:** Call `venueWarning(event, venue)` for each venue below.
+- **Test data:** Event `expected_attendance: 100`, `room_layout: "banquet"`,
+  `required_facilities: ["stage"]`, `required_accessibility: ["lift"]`.
+  Venues, each named `Studio B`:
+  - too small only: capacity `80`, layouts `["banquet"]`, facilities
+    `["stage"]`, accessibility `["lift"]`;
+  - large enough but missing the rest: capacity `150`, layouts
+    `["theatre"]`, facilities `[]`, accessibility `[]`;
+  - fits: capacity `100`, layouts `["banquet"]`, facilities `["stage"]`,
+    accessibility `["lift"]`;
+  - `null` (nothing selected yet).
+- **Expected:**
+  - Too small only: `"Studio B doesn't suit this event: Too small: holds
+    80, event expects 100. Choose a venue that fits."`
+  - Missing the rest: `"Studio B doesn't suit this event: No Banquet layout;
+    Missing: Stage; Missing: Lift. Choose a venue that fits."`
+  - Fits, and `null`: `null`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## S-35 — warn on attendance exceeding venue capacity
+
+On the Coordinator's venue request screen, selecting a venue that does not
+meet the event's venue requirements shows a warning listing why, and disables
+**Send request** until a venue that fits is selected (warn and block, agreed
+with the developer). The story names capacity; the developer confirmed the
+same rule applies to every venue requirement the event has — capacity, room
+layout, facilities and accessibility — as the project brief's capacity
+example is one case of it. Opening hours and the event window depend on the
+date and time typed in, so they are still checked by the service on send.
+
+Acceptance criteria, as reworded by the developer for this scope:
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Selecting a venue that doesn't meet the event's requirements — expected attendance above its capacity, or a missing room layout, facility or accessibility feature — triggers a warning that says why | TC-FRONTEND-036, TC-E2E-210 steps 3–4 |
+| AC2: The warning is shown before the booking request can be submitted, and the request cannot be sent while the selected venue doesn't meet them | TC-E2E-210 steps 3–4 |
+| AC3: The Coordinator can still choose a different, suitable venue after the warning, and the warning clears when they do | TC-E2E-210 steps 5–6 |
+
+## TC-FRONTEND-036 — a venue that doesn't suit the event produces a warning listing why
+
+- **Pre-conditions:** The venue booking helpers are loaded.
+- **Steps:** Call `venueWarning(event, venue)` for each venue below.
+- **Test data:** Event `expected_attendance: 100`, `room_layout: "banquet"`,
+  `required_facilities: ["stage"]`, `required_accessibility: ["lift"]`.
+  Venues, each named `Studio B`:
+  - too small only: capacity `80`, layouts `["banquet"]`, facilities
+    `["stage"]`, accessibility `["lift"]`;
+  - large enough but missing the rest: capacity `150`, layouts
+    `["theatre"]`, facilities `[]`, accessibility `[]`;
+  - fits: capacity `100`, layouts `["banquet"]`, facilities `["stage"]`,
+    accessibility `["lift"]`;
+  - `null` (nothing selected yet).
+- **Expected:**
+  - Too small only: `"Studio B doesn't suit this event: Too small: holds
+    80, event expects 100. Choose a venue that fits."`
+  - Missing the rest: `"Studio B doesn't suit this event: No Banquet layout;
+    Missing: Stage; Missing: Lift. Choose a venue that fits."`
+  - Fits, and `null`: `null`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## S-35 — warn on attendance exceeding venue capacity
+
+On the Coordinator's venue request screen, selecting a venue that does not
+meet the event's venue requirements shows a warning listing why, and disables
+**Send request** until a venue that fits is selected (warn and block, agreed
+with the developer). The story names capacity; the developer confirmed the
+same rule applies to every venue requirement the event has — capacity, room
+layout, facilities and accessibility — as the project brief's capacity
+example is one case of it. Opening hours and the event window depend on the
+date and time typed in, so they are still checked by the service on send.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Selecting a venue whose capacity is less than the event's expected attendance triggers a warning | TC-FRONTEND-036, TC-E2E-210 step 3 |
+| AC2: The warning is shown before the booking request can be submitted | TC-E2E-210 steps 3–4 |
+| AC3: The Coordinator can still choose a different, suitable venue after the warning | TC-E2E-210 steps 5–6 |
+
+## TC-FRONTEND-036 — equipment form validates required catalogue fields
 
 - **Scenario:** Technical Support gets immediate, specific feedback before a
   bad catalogue item reaches the service.

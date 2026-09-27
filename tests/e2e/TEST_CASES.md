@@ -227,34 +227,38 @@ contract without a browser.
 - **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`
 
-## TC-E2E-210 — a too-small venue is warned about and blocked, and a larger one can be sent
+## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
 
-- **Scenario:** S-35, all three criteria in a real browser. Only a browser
-  shows the warning appearing on selection and **Send request** being
-  disabled and re-enabled; TC-FRONTEND-036 covers the wording.
+- **Scenario:** S-35 in a real browser. Only a browser shows the warning
+  appearing on selection and **Send request** being disabled and re-enabled;
+  TC-FRONTEND-036 covers the wording.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
   removes afterwards: an `event_coordinator` with `make_user`; an event
   `"spm-e2e Event <hex>"` assigned to them, `status=planning`,
-  `2026-11-12 09:00`–`18:00`, `expected_attendance` `100`, no venue
-  requirements; two venues, both layout `theatre` and open Thursday
-  `08:00`–`20:00`: `"spm-e2e Small <hex>"` capacity `80` and
-  `"spm-e2e Large <hex>"` capacity `150`.
+  `2026-11-12 09:00`–`18:00`, `expected_attendance` `100`,
+  `required_facilities` `["projector"]`; three venues, all layout `theatre`
+  and open Thursday `08:00`–`20:00`:
+  - `"spm-e2e Small <hex>"`: capacity `80`, facility `projector`;
+  - `"spm-e2e Bare <hex>"`: capacity `150`, no facilities;
+  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`.
 - **Steps:**
   1. Sign in as the coordinator and open
      `/coordinator/events/{id}/request-venue`.
   2. Look at **Send request** before choosing a venue.
   3. Choose the Small venue.
-  4. Choose the Large venue.
-  5. Set `09:00`–`12:00` and click **Send request**.
+  4. Choose the Bare venue.
+  5. Choose the Large venue.
+  6. Set `09:00`–`12:00` and click **Send request**.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: no warning; **Send request** is enabled.
-  - Step 3: `"spm-e2e Small <hex> holds 80 people; this event expects 100.
-    Choose a larger venue."` is shown, and **Send request** is disabled.
-  - Step 4: the warning is gone and **Send request** is enabled.
-  - Step 5: the browser returns to `/coordinator/events/{id}` with
+  - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
+    expects 100"` is shown, and **Send request** is disabled.
+  - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
+    **Send request** is still disabled.
+  - Step 5: no warning, and **Send request** is enabled.
+  - Step 6: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
-
-- **Actual:** No warning and Send request enabled on arrival; choosing the Small venue showed the warning and disabled Send request; choosing the Large venue removed the warning and re-enabled it; the send returned to the event page with the confirmation.
-- **Status:** Pass
-- **Evidence:** `test_capacity_warning.py::test_a_too_small_venue_is_warned_about_and_blocked`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
