@@ -4,6 +4,7 @@ import test from 'node:test'
 import { ApiError } from '../../../frontend/src/lib/api.js'
 import {
   canRequestVenue,
+  capacityWarning,
   listPendingVenueBookings,
   listVenueBookingsForEvent,
   submitVenueBooking,
@@ -159,4 +160,20 @@ test('each venue is marked against the event requirements', () => {
     'Missing: Stage',
     'Missing: Hearing loop',
   ])
+})
+
+// --- S-35: warn on attendance exceeding venue capacity ---------------------
+
+// --- TC-FRONTEND-036 -------------------------------------------------------
+test('a venue too small for the event produces the capacity warning', () => {
+  const event = { expected_attendance: 100 }
+  const venue = (capacity) => ({ name: 'Studio B', capacity })
+
+  assert.equal(
+    capacityWarning(event, venue(80)),
+    'Studio B holds 80 people; this event expects 100. Choose a larger venue.',
+  )
+  assert.equal(capacityWarning(event, venue(100)), null)
+  assert.equal(capacityWarning(event, venue(150)), null)
+  assert.equal(capacityWarning(event, null), null)
 })

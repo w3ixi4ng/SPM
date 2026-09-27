@@ -1,7 +1,7 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py` and `test_request_venue.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`, `test_request_venue.py` and `test_capacity_warning.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
