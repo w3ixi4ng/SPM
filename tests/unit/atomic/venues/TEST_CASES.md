@@ -457,3 +457,30 @@ create and view; `event_coordinator` may view only; `event_organiser`,
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_health`
+
+
+## S-28 approved coverage
+
+Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
+
+### TC-VENUES-031 ? Partial update and staff authorisation
+
+- Scenario: Partial update and staff authorisation
+- Pre-conditions: Mock existing venue with capacity 250 and another creator.
+- Steps: 1. PATCH capacity=100; repeat with each role and no session.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Staff receives 200; only capacity is written; other roles 403; no session 401.
+- Actual: 164 focused tests and full 359-test Python suite passed.
+- Status: Pass
+- Evidence: `tests/unit/atomic/venues/test_update.py`; local execution, no CI run.
+
+### TC-VENUES-032 ? Update validation and safe failures
+
+- Scenario: Update validation and safe failures
+- Pre-conditions: Mock venue storage.
+- Steps: 1. PATCH blank location, capacity 0/1.5/true/null, unknown options, protected fields, empty body; simulate missing row and storage failure.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Invalid bodies 422 without writes; missing row 404; safe storage error 500.
+- Actual: 164 focused tests and full 359-test Python suite passed.
+- Status: Pass
+- Evidence: `tests/unit/atomic/venues/test_update.py`; local execution, no CI run.

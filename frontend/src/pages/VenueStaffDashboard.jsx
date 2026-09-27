@@ -256,6 +256,7 @@ export default function VenueStaffDashboard({ role }) {
             {notice}
           </div>
           <VenueList
+            canEdit={hasPermission(role, PERMISSIONS.UPDATE_VENUE)}
             venues={venues}
             loading={loading}
             error={error}

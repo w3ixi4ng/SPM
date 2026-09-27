@@ -226,3 +226,29 @@ contract without a browser.
 - **Actual:** The request screen showed Theatre and Projector as text with no inputs; the venue's row was marked Fits and chosen by its radio; the send returned to the event page with the confirmation; after a reload Venue requests listed the venue, 12 Nov 2026, 09:00–12:00, Pending; Venue Staff's pending list showed the full row.
 - **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`
+
+## S-28 approved coverage
+
+Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chromium against freshly recreated `.env.test` Docker stack. Existing add-venue and coordinator read-only journeys also passed.
+
+### TC-E2E-210 ? Staff edit refreshes catalogue and persists
+
+- Scenario: Staff edit refreshes catalogue and persists
+- Pre-conditions: Approved test stack and Chromium; venue created by another staff member.
+- Steps: 1. Open Edit; change location to Block B, capacity to 100, facilities/accessibility; save; inspect list without reload then reload.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Only four edit fields shown; updated catalogue immediately and after reload; Cancel leaves saved values unchanged.
+- Actual: Another staff member edited all four fields; catalogue refreshed without manual reload; reload/reopen preserved values; invalid capacity showed error; Cancel discarded unsaved edits.
+- Status: Pass
+- Evidence: `tests/e2e/test_update_venue.py::test_staff_edit_refreshes_catalogue_and_persists[chromium]`; local browser execution.
+
+### TC-E2E-211 ? Non-staff cannot edit venues
+
+- Scenario: Non-staff cannot edit venues
+- Pre-conditions: Approved test stack; coordinator account and existing venue.
+- Steps: 1. Open dashboard then navigate directly to venue edit URL.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: No Edit action; redirect to coordinator dashboard.
+- Actual: Coordinator saw no Edit action; direct edit URL redirected to coordinator dashboard. Passed on targeted rerun after an initial session-expired response during catalogue loading.
+- Status: Pass
+- Evidence: `tests/e2e/test_update_venue.py::test_coordinator_cannot_open_edit[chromium]`; local Chromium rerun, 1 passed.

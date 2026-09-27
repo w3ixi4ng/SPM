@@ -153,3 +153,46 @@ export function createVenue(form) {
     body: JSON.stringify(venueFormToPayload(form)),
   })
 }
+
+export function venueToEditForm(venue) {
+  return {
+    location: venue.location,
+    capacity: String(venue.capacity),
+    facilities: [...venue.facilities],
+    accessibility: [...venue.accessibility],
+  }
+}
+
+export function validateVenueEditForm(form) {
+  const errors = {}
+  if (!form.location?.trim()) errors.location = 'Enter where the venue is.'
+  const capacity = String(form.capacity ?? '').trim()
+  if (!/^\d+$/.test(capacity) || Number(capacity) < 1 || Number(capacity) > 2147483647) {
+    errors.capacity = 'Capacity must be a whole number between 1 and 2147483647.'
+  }
+  return errors
+}
+
+export function getVenue(id) {
+  return requestJSON(`/venues/${encodeURIComponent(id)}`)
+}
+
+export function updateVenue(id, form) {
+  return requestJSON(`/venues/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      location: form.location.trim(),
+      capacity: Number(form.capacity),
+      facilities: [...form.facilities],
+      accessibility: [...form.accessibility],
+    }),
+  })
+}
+
+export function venueUpdateErrorMessage(error) {
+  if (error.status === 403) return 'Your role is not permitted to edit venues.'
+  if (error.status === 404) return 'This venue could not be found. Return to the catalogue.'
+  if (!error.status || error.status >= 500) return 'We could not confirm that your changes were saved. Reload the venue before trying again.'
+  return venueErrorMessage(error)
+}

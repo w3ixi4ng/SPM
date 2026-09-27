@@ -5,13 +5,14 @@ from fastapi import Depends, HTTPException, status
 from security import get_current_user
 
 CREATE_PERMISSION = "venues:create"
+UPDATE_PERMISSION = "venues:update"
 VIEW_PERMISSION = "venues:view"
 
 # Every recognized role is listed so an unknown role is told apart from a
 # known one without venue access. Mirrored for presentation only by
 # frontend/src/lib/access.js; this file is the one that is enforced.
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
-    "venue_staff": frozenset({CREATE_PERMISSION, VIEW_PERMISSION}),
+    "venue_staff": frozenset({CREATE_PERMISSION, VIEW_PERMISSION, UPDATE_PERMISSION}),
     "event_coordinator": frozenset({VIEW_PERMISSION}),
     "event_organiser": frozenset(),
     "technical_support": frozenset(),

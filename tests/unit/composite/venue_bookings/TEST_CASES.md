@@ -520,3 +520,19 @@ with the Coordinator's own session.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_listing_an_events_requests_is_a_502_when_a_service_is_down`
+
+
+## S-28 approved coverage
+
+Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
+
+### TC-VENUEBOOKINGS-031 ? Submission rereads venue information
+
+- Scenario: Submission rereads venue information
+- Pre-conditions: Mock suitable venue and event.
+- Steps: 1. Submit once; change mocked capacity to 1, then facilities/accessibility to empty; submit again.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Each submission fetches venue; subsequent unsuitable requests return 422 without a new booking.
+- Actual: Each submission fetched venue information again; changed capacity/features caused 422 without another write. Full 359-test Python suite passed.
+- Status: Pass
+- Evidence: `tests/unit/composite/venue_bookings/test_app.py::test_submission_rereads_updated_venue`; local execution, no CI run.

@@ -2,7 +2,7 @@ from datetime import datetime, time
 from typing import Literal, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # The fixed option sets. Every venue chooses from these and nothing else; the
 # API rejects any other value, GET /venues/options serves them to the form,
@@ -103,6 +103,33 @@ class VenueCreate(BaseModel):
                 raise ValueError(f"{hours.day} is listed more than once")
             seen.add(hours.day)
         return sorted(value, key=lambda hours: DAYS.index(hours.day))
+
+
+class VenueUpdate(BaseModel):
+    """Only S-28 fields; omitted values are preserved, explicit nulls refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location: str = Field(default=None, min_length=1)
+    capacity: int = Field(default=None, ge=1, le=MAX_CAPACITY, strict=True)
+    facilities: list[Facility] = Field(default=None)
+    accessibility: list[AccessibilityFeature] = Field(default=None)
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def strip_location(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("facilities", "accessibility")
+    @classmethod
+    def drop_duplicates(cls, value):
+        return _unique_in_order(value)
+
+    @model_validator(mode="after")
+    def require_changes(self):
+        if not self.model_fields_set:
+            raise ValueError("Provide at least one editable venue field")
+        return self
 
 
 class VenueRead(BaseModel):

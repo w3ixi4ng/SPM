@@ -594,3 +594,19 @@ says.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `each venue is marked against the event requirements`
+
+
+## S-28 approved coverage
+
+Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
+
+### TC-FRONTEND-036 ? Edit helpers and permissions
+
+- Scenario: Edit helpers and permissions
+- Pre-conditions: Saved venue: location Block A, capacity 250, facilities projector, accessibility wheelchair_access.
+- Steps: 1. Load form, change capacity to 100, save; check role policy and failures.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Only four fields sent via credentialled PATCH; staff alone has update permission; safe errors.
+- Actual: All 39 Node tests passed, including five S-28 cases.
+- Status: Pass
+- Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.

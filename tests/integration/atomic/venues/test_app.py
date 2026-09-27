@@ -104,3 +104,36 @@ def test_kong_routes_every_venue_operation(make_session, venue_ids):
         fetched = api.get(f"/venues/{venue_id}")
         assert fetched.status_code == 200, fetched.text
         assert fetched.json()["name"] == venue["name"]
+
+
+# TC-VENUES-103
+def test_staff_partial_update_persists_and_preserves_other_fields(admin, make_session, venue_ids):
+    creator = make_session("venue_staff")
+    editor = make_session("venue_staff")
+    coordinator = make_session("event_coordinator")
+    with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0) as api:
+        response = api.post("/venues", headers=creator["headers"], json={
+            "name": f"spm-test Edit {uuid.uuid4().hex[:8]}", "location": "Block A",
+            "capacity": 250, "facilities": ["projector"], "accessibility": ["wheelchair_access"],
+            "room_layouts": ["theatre"], "operating_hours": [{"day": "mon", "open": "09:00", "close": "18:00"}],
+        })
+        assert response.status_code == 201, response.text
+        before = response.json()
+        venue_id = before["id"]
+        venue_ids.append(venue_id)
+        changes = {"location": "Block B", "capacity": 100, "facilities": [], "accessibility": []}
+        updated = api.patch(f"/venues/{venue_id}", headers=editor["headers"], json=changes)
+        assert updated.status_code == 200, updated.text
+        expected = {**before, **changes}
+        assert updated.json() == expected
+        assert api.get(f"/venues/{venue_id}", headers=editor["headers"]).json() == expected
+        assert expected in api.get("/venues", headers=editor["headers"]).json()
+        partial = api.patch(f"/venues/{venue_id}", headers=editor["headers"], json={"capacity": 90})
+        assert partial.status_code == 200, partial.text
+        assert partial.json() == {**expected, "capacity": 90}
+        denied = api.patch(f"/venues/{venue_id}", headers=coordinator["headers"], json={"capacity": 1})
+        assert denied.status_code == 403
+        row = admin.schema("venues").table("venues").select("*").eq("id", venue_id).execute().data[0]
+        assert row["capacity"] == 90
+        for field in ("location", "facilities", "accessibility", "created_by", "name", "room_layouts"):
+            assert row[field] == expected[field]

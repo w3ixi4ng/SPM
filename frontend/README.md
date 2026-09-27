@@ -80,3 +80,25 @@ From the repository root:
 node --test tests/unit/frontend/test_*.mjs
 cd frontend && npm run lint && npm run build
 ```
+
+
+## Edit venue details (S-28)
+
+Venue Staff see Edit beside every venue in their catalogue. `/venues/:id/edit`
+loads the saved venue and reuses the Add Venue form controls for location,
+capacity, facilities and accessibility only. Other roles cannot open this route;
+the backend independently enforces `venues:update`.
+
+Save calls `PATCH /api/venues/{id}` and returns to a newly loaded staff catalogue.
+The updated values appear without a manual refresh and survive subsequent page
+loads. Other users may refresh their already-open pages. Cancel returns without
+saving. Field errors preserve entered values; load/save failures are shown safely.
+
+Existing booking history is unchanged. Availability and editing name, description,
+operating hours or layouts are outside this story. No new booking logic is added.
+
+Automated browser checks (fresh `.env.test` Docker stack and Chromium required):
+
+```bash
+pytest tests/e2e/test_update_venue.py tests/e2e/test_add_venue.py
+```

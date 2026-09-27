@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ROLE_ACCESS } from '../lib/access.js'
 import {
   createVenue,
+  getVenue,
+  updateVenue,
+  venueToEditForm,
+  validateVenueEditForm,
+  venueUpdateErrorMessage,
   DAY_LABELS,
   DEFAULT_HOURS,
   emptyVenueForm,
@@ -199,7 +204,14 @@ function HoursField({ days, hours, onChange, errors }) {
 }
 
 export default function VenueForm() {
+  const { id } = useParams()
+  return <VenueFormFields key={id ?? 'new'} id={id} />
+}
+
+function VenueFormFields({ id }) {
   const navigate = useNavigate()
+  const editing = Boolean(id)
+  const [venueName, setVenueName] = useState('')
   const [options, setOptions] = useState(null)
   const [optionsError, setOptionsError] = useState(null)
   const [form, setForm] = useState(emptyVenueForm)
@@ -209,16 +221,21 @@ export default function VenueForm() {
 
   useEffect(() => {
     let active = true
-    getVenueOptions()
-      .then((loaded) => { if (active) setOptions(loaded) })
+    Promise.all([getVenueOptions(), id ? getVenue(id) : Promise.resolve(null)])
+      .then(([loaded, venue]) => {
+        if (!active) return
+        setForm(venue ? venueToEditForm(venue) : emptyVenueForm())
+        setVenueName(venue?.name ?? '')
+        setOptions(loaded)
+      })
       .catch((error) => {
         if (!active) return
-        setOptionsError(error.status === 401 || error.status === 403
+        setOptionsError(id ? venueUpdateErrorMessage(error) : error.status === 401 || error.status === 403
           ? venueErrorMessage(error)
           : "We couldn't load the venue form. Refresh the page to try again.")
       })
     return () => { active = false }
-  }, [])
+  }, [id])
 
   function update(field) {
     return (value) => setForm((current) => ({ ...current, [field]: value }))
@@ -228,7 +245,7 @@ export default function VenueForm() {
     event.preventDefault()
     setFormError(null)
 
-    const found = validateVenueForm(form)
+    const found = editing ? validateVenueEditForm(form) : validateVenueForm(form)
     setErrors(found)
     if (Object.keys(found).length) {
       setFormError('Complete the highlighted fields before saving.')
@@ -238,12 +255,13 @@ export default function VenueForm() {
 
     setSaving(true)
     try {
-      await createVenue(form)
+      if (editing) await updateVenue(id, form)
+      else await createVenue(form)
       navigate(DASHBOARD, { state: { notice: 'Venue saved.' } })
     } catch (error) {
       const fieldErrors = venueFieldErrorsToForm(error.fieldErrors, form)
       setErrors(fieldErrors)
-      setFormError(venueErrorMessage(error))
+      setFormError(editing ? venueUpdateErrorMessage(error) : venueErrorMessage(error))
       setSaving(false)
       if (error.status === 409) document.querySelector('#name')?.focus()
       else focusFirstError(fieldErrors)
@@ -291,11 +309,10 @@ export default function VenueForm() {
         </Link>
 
         <h1 className="font-display text-4xl sm:text-5xl leading-tight mb-3" style={{ color: C.ink }}>
-          New venue
+          {editing ? `Edit ${venueName || 'venue'}` : 'New venue'}
         </h1>
         <p className="font-ui text-base leading-relaxed mb-10 max-w-md" style={{ color: C.inkFaint }}>
-          Once saved, the venue can receive booking requests. Fields marked required must be
-          filled in first.
+          {editing ? 'Update location, capacity, facilities and accessibility. Existing booking requests remain unchanged.' : 'Once saved, the venue can receive booking requests. Fields marked required must be filled in first.'}
         </p>
 
         {optionsError && (
@@ -306,9 +323,9 @@ export default function VenueForm() {
         )}
 
         {options && (
-          <form noValidate onSubmit={handleSubmit} className="rise-in" aria-label="New venue">
+          <form noValidate onSubmit={handleSubmit} className="rise-in" aria-label={editing ? 'Edit venue' : 'New venue'}>
             <Section title="About the venue">
-              <TextField id="name" label="Name" required value={form.name} onChange={update('name')} error={errors.name} />
+              {!editing && <TextField id="name" label="Name" required value={form.name} onChange={update('name')} error={errors.name} />}
               <TextField
                 id="location"
                 label="Location"
@@ -329,7 +346,7 @@ export default function VenueForm() {
                 error={errors.capacity}
                 className="max-w-xs"
               />
-              <div>
+              {!editing && <div>
                 <label htmlFor="description" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
                   Description
                 </label>
@@ -341,10 +358,10 @@ export default function VenueForm() {
                   onChange={(event) => update('description')(event.target.value)}
                   className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
                 />
-              </div>
+              </div>}
             </Section>
 
-            <Section title="Room layouts">
+            {!editing && <Section title="Room layouts">
               <CheckboxGroup
                 name="room_layouts"
                 legend="Layouts the venue can be set up in"
@@ -354,11 +371,11 @@ export default function VenueForm() {
                 onChange={update('roomLayouts')}
                 error={errors.room_layouts}
               />
-            </Section>
+            </Section>}
 
-            <Section title="Opening hours" hint="Tick the days the venue is open. Unticked days count as closed. At least one day is required.">
+            {!editing && <Section title="Opening hours" hint="Tick the days the venue is open. Unticked days count as closed. At least one day is required.">
               <HoursField days={options.days} hours={form.hours} onChange={update('hours')} errors={errors} />
-            </Section>
+            </Section>}
 
             <Section title="Facilities & accessibility">
               <CheckboxGroup
@@ -391,6 +408,7 @@ export default function VenueForm() {
               >
                 {saving ? 'Saving…' : 'Save venue'}
               </button>
+              {!saving && <Link to={DASHBOARD} className="ml-5 underline">Cancel</Link>}
             </div>
           </form>
         )}
