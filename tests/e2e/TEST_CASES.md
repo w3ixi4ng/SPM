@@ -1,7 +1,7 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py` and `test_request_venue.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`, `test_request_venue.py` and `test_capacity_warning.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `22144d0` |
 | Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 8 passed, twice consecutively |
+| Result | 9 passed, twice consecutively. On the previous commit one full-suite run failed TC-E2E-210 with the request screen never loading (not reproduced in five isolated runs); the likely cause, leaving the dashboard before the session settled, was fixed in the test at this commit |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -226,3 +226,39 @@ contract without a browser.
 - **Actual:** The request screen showed Theatre and Projector as text with no inputs; the venue's row was marked Fits and chosen by its radio; the send returned to the event page with the confirmation; after a reload Venue requests listed the venue, 12 Nov 2026, 09:00–12:00, Pending; Venue Staff's pending list showed the full row.
 - **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`
+
+## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
+
+- **Scenario:** S-35 in a real browser. Only a browser shows the warning
+  appearing on selection and **Send request** being disabled and re-enabled;
+  TC-FRONTEND-039 covers the wording.
+- **Pre-conditions:** Stack and project as the header. The test creates, and
+  removes afterwards: an `event_coordinator` with `make_user`; an event
+  `"spm-e2e Event <hex>"` assigned to them, `status=planning`,
+  `2026-11-12 09:00`–`18:00`, `expected_attendance` `100`,
+  `required_facilities` `["projector"]`; three venues, all layout `theatre`
+  and open Thursday `08:00`–`20:00`:
+  - `"spm-e2e Small <hex>"`: capacity `80`, facility `projector`;
+  - `"spm-e2e Bare <hex>"`: capacity `150`, no facilities;
+  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`.
+- **Steps:**
+  1. Sign in as the coordinator and open
+     `/coordinator/events/{id}/request-venue`.
+  2. Look at **Send request** before choosing a venue.
+  3. Choose the Small venue.
+  4. Choose the Bare venue.
+  5. Choose the Large venue.
+  6. Set `09:00`–`12:00` and click **Send request**.
+- **Test data:** As above.
+- **Expected:**
+  - Step 2: no warning; **Send request** is enabled.
+  - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
+    expects 100"` is shown, and **Send request** is disabled.
+  - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
+    **Send request** is still disabled.
+  - Step 5: no warning, and **Send request** is enabled.
+  - Step 6: the browser returns to `/coordinator/events/{id}` with
+    `"Venue request sent to Venue Staff."`
+- **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
+- **Status:** Pass
+- **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`

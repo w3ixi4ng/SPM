@@ -9,6 +9,7 @@ import {
   submitVenueBooking,
   venueBookingErrorMessages,
   venueFit,
+  venueWarning,
 } from '../../../frontend/src/lib/venueBookings.js'
 
 const FULL_FORM = {
@@ -159,4 +160,35 @@ test('each venue is marked against the event requirements', () => {
     'Missing: Stage',
     'Missing: Hearing loop',
   ])
+})
+
+// --- S-35: warn when the chosen venue doesn't suit the event --------------
+
+// --- TC-FRONTEND-039 -------------------------------------------------------
+test("a venue that doesn't suit the event produces a warning listing why", () => {
+  const event = {
+    expected_attendance: 100,
+    room_layout: 'banquet',
+    required_facilities: ['stage'],
+    required_accessibility: ['lift'],
+  }
+  const venue = (overrides) => ({
+    name: 'Studio B',
+    capacity: 100,
+    room_layouts: ['banquet'],
+    facilities: ['stage'],
+    accessibility: ['lift'],
+    ...overrides,
+  })
+
+  assert.equal(
+    venueWarning(event, venue({ capacity: 80 })),
+    "Studio B doesn't suit this event: Too small: holds 80, event expects 100. Choose a venue that fits.",
+  )
+  assert.equal(
+    venueWarning(event, venue({ capacity: 150, room_layouts: ['theatre'], facilities: [], accessibility: [] })),
+    "Studio B doesn't suit this event: No Banquet layout; Missing: Stage; Missing: Lift. Choose a venue that fits.",
+  )
+  assert.equal(venueWarning(event, venue({})), null)
+  assert.equal(venueWarning(event, null), null)
 })
