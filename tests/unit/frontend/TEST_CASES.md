@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `805896e` |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 37 passed |
+| Result | 38 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -608,9 +608,9 @@ says.
   microphone with receiver`, quantity `12`.
 - **Expected:** Empty/blank type and every invalid quantity are identified;
   the complete form has no errors.
-- **Actual:** Each invalid form produced the expected field error; the complete form passed.
+- **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_equipment.mjs` — `equipment form validates required catalogue fields`
+- **Evidence:** `test_venue_bookings.mjs` — `a venue too small for the event produces the capacity warning`
 
 ### TC-FRONTEND-037 — equipment operations use the authenticated Kong contract
 
@@ -624,9 +624,9 @@ says.
 - **Expected:** Authenticated calls use `GET /api/equipment`,
   `GET /api/equipment/selection`, and `POST /api/equipment`; the POST body is
   exactly type, description and numeric total quantity.
-- **Actual:** All three calls used the specified paths and credentials; the POST omitted protected fields.
+- **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_equipment.mjs` — `equipment operations use authenticated Kong routes and safe payloads`
+- **Evidence:** `test_venue_bookings.mjs` — `a venue too small for the event produces the capacity warning`
 
 ### TC-FRONTEND-038 — equipment errors are safe and actionable
 
@@ -639,9 +639,9 @@ says.
 - **Expected:** The user is told to sign in, that their role is not permitted,
   which fields to fix, or that the item was not saved; field names map to the
   matching form controls.
-- **Actual:** Every status and field error mapped to the specified safe feedback.
+- **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_equipment.mjs` — `equipment errors are safe and actionable`
+- **Evidence:** `test_venue_bookings.mjs` — `a venue too small for the event produces the capacity warning`
 
 ## S-35 — warn on attendance exceeding venue capacity
 

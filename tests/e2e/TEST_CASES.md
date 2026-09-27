@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `805896e` |
 | Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 8 passed, twice consecutively |
+| Result | 9 passed, twice consecutively |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -255,6 +255,6 @@ contract without a browser.
   - Step 5: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
 
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** No warning and Send request enabled on arrival; choosing the Small venue showed the warning and disabled Send request; choosing the Large venue removed the warning and re-enabled it; the send returned to the event page with the confirmation.
+- **Status:** Pass
+- **Evidence:** `test_capacity_warning.py::test_a_too_small_venue_is_warned_about_and_blocked`
