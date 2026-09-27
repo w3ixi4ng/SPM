@@ -1,8 +1,10 @@
-import { CheckCircle2, LogOut, Package, Wrench } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { CheckCircle2, LogOut, Package, PackagePlus, Plus, Wrench } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import { getRoleAccess } from '../lib/access.js'
+import { equipmentErrorMessage, listEquipment } from '../lib/equipment.js'
 
 const C = {
   ink: '#10192B',
@@ -35,8 +37,40 @@ const UPCOMING_AREAS = [
 
 export default function TechnicalSupportDashboard({ role }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
+  const [catalogue, setCatalogue] = useState({ status: 'loading', items: [], error: null })
+  const [notice, setNotice] = useState(location.state?.notice ?? null)
+
+  const loadCatalogue = useCallback(async () => {
+    try {
+      const items = await listEquipment()
+      setCatalogue({ status: 'ready', items, error: null })
+    } catch (error) {
+      setCatalogue({ status: 'error', items: [], error: equipmentErrorMessage(error) })
+    }
+  }, [])
+
+  // Loading remote catalogue data is exactly the external synchronization
+  // this effect owns; the state updates happen only after that request settles.
+  // oxlint-disable-next-line react/set-state-in-effect
+  useEffect(() => { void loadCatalogue() }, [loadCatalogue])
+
+  function retryCatalogue() {
+    setCatalogue((current) => ({ ...current, status: 'loading', error: null }))
+    void loadCatalogue()
+  }
+
+  useEffect(() => {
+    if (location.state?.notice) navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
+
+  useEffect(() => {
+    if (!notice) return undefined
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   async function handleSignOut() {
     await signOut()
@@ -94,6 +128,47 @@ export default function TechnicalSupportDashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl mb-10" style={{ borderColor: C.line }} aria-labelledby="equipment-heading">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <PackagePlus size={18} aria-hidden="true" style={{ color: C.teal }} />
+              <h2 id="equipment-heading" className="font-display text-2xl" style={{ color: C.ink }}>Equipment catalogue</h2>
+            </div>
+            <Link to="/equipment/new" className="inline-flex items-center gap-2 px-4 py-2 rounded-sm font-ui text-sm font-medium" style={{ backgroundColor: C.teal, color: C.paper }}>
+              <Plus size={15} aria-hidden="true" />
+              Add equipment
+            </Link>
+          </div>
+          {notice && <p role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</p>}
+          {catalogue.status === 'loading' && <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading equipment…</p>}
+          {catalogue.status === 'error' && (
+            <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
+              <p role="alert">{catalogue.error}</p>
+              <button type="button" onClick={retryCatalogue} className="underline mt-1" style={{ color: C.teal }}>Try again</button>
+            </div>
+          )}
+          {catalogue.status === 'ready' && catalogue.items.length === 0 && (
+            <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No equipment has been added yet.</p>
+          )}
+          {catalogue.status === 'ready' && catalogue.items.length > 0 && (
+            <ul className="divide-y" aria-label="Equipment catalogue" style={{ borderColor: C.line }}>
+              {catalogue.items.map((item) => (
+                <li key={item.id} className="py-4 first:pt-0 last:pb-0 flex items-start gap-4">
+                  <Package size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{item.type}</h3>
+                      <span className="font-ui text-sm" style={{ color: C.inkFaint }}>{item.total_quantity} total</span>
+                    </div>
+                    {item.description && <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>{item.description}</p>}
+                    <p className="font-ui text-xs mt-2" style={{ color: C.green }}>Available · Active</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>
           <div className="flex items-center gap-2 mb-3">

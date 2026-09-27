@@ -1,46 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
-  Armchair,
-  Cable,
   CalendarDays,
-  Camera,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
-  CupSoda,
-  Fan,
-  Flag,
-  Flashlight,
-  Laptop,
-  Lightbulb,
   Loader2,
-  MapPin,
-  Mic,
   Package,
-  Plug,
   Plus,
-  Printer,
-  Projector,
-  QrCode,
   Save,
   Search,
   Send,
-  ShieldAlert,
-  Speaker,
-  Table2,
-  Thermometer,
-  Trash2,
-  Tv,
-  Umbrella,
-  Utensils,
-  Wifi,
-  Wrench,
   X,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { optionLabel } from '../lib/venues.js'
+import { listEquipmentSelection } from '../lib/equipment.js'
 import useAuth from '../auth/useAuth.js'
 import {
   createEventDraft,
@@ -75,39 +51,6 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-const EQUIPMENT_CATALOG = [
-  { id: 'projector', label: 'Projector', available: 6, costPerDay: 25, icon: Projector, description: '1080p projector with HDMI and VGA input, includes a screen stand.' },
-  { id: 'microphone', label: 'Wireless microphone', available: 10, costPerDay: 8, icon: Mic, description: 'Handheld wireless mic with a dedicated receiver, fresh batteries included.' },
-  { id: 'speaker', label: 'PA speaker system', available: 4, costPerDay: 35, icon: Speaker, description: 'Powered speaker pair, enough for a room of up to 150 people.' },
-  { id: 'tables', label: 'Folding tables', available: 20, costPerDay: 5, icon: Table2, description: '6-foot folding table, seats six comfortably.' },
-  { id: 'chairs', label: 'Chairs', available: 100, costPerDay: 2, icon: Armchair, description: 'Stackable padded chair, indoor or outdoor use.' },
-  { id: 'extension-cords', label: 'Extension cords', available: 15, costPerDay: 3, icon: Cable, description: '10-metre heavy-duty extension cord with three outlets.' },
-  { id: 'stage-lighting', label: 'Stage lighting kit', available: 8, costPerDay: 40, icon: Lightbulb, description: 'Two adjustable LED par lights on stands, with a basic controller.' },
-  { id: 'video-camera', label: 'Video camera', available: 3, costPerDay: 30, icon: Camera, description: 'HD camcorder with tripod, good for recording talks or panels.' },
-  { id: 'tv-screen', label: 'TV display screen', available: 6, costPerDay: 20, icon: Tv, description: '55-inch display on a rolling stand, HDMI input.' },
-  { id: 'wifi-router', label: 'Portable Wi-Fi router', available: 5, costPerDay: 10, icon: Wifi, description: 'Battery-backed router for venues without reliable Wi-Fi.' },
-  { id: 'power-strip', label: 'Power strip', available: 12, costPerDay: 3, icon: Plug, description: '6-outlet power strip with surge protection.' },
-  { id: 'signage', label: 'Directional signage set', available: 10, costPerDay: 6, icon: MapPin, description: 'Freestanding A-frame sign with a blank insert for your own text.' },
-  { id: 'waste-bins', label: 'Waste bins', available: 15, costPerDay: 4, icon: Trash2, description: '50-litre bin with a liner, general waste or recycling.' },
-  { id: 'utensil-set', label: 'Catering utensil set', available: 20, costPerDay: 12, icon: Utensils, description: 'Serving set for one table: tongs, ladles, and serving spoons.' },
-  { id: 'beverage-dispenser', label: 'Beverage dispenser', available: 6, costPerDay: 10, icon: CupSoda, description: '10-litre insulated dispenser with a tap, hot or cold drinks.' },
-  { id: 'storage-crates', label: 'Storage crates', available: 25, costPerDay: 3, icon: Package, description: 'Stackable plastic crate, holds up to 20kg.' },
-  { id: 'umbrellas', label: 'Outdoor umbrellas', available: 8, costPerDay: 8, icon: Umbrella, description: '2.5-metre market umbrella with a weighted base.' },
-  { id: 'pedestal-fans', label: 'Pedestal fans', available: 10, costPerDay: 6, icon: Fan, description: 'Oscillating floor fan, three speed settings.' },
-  { id: 'portable-heaters', label: 'Portable heaters', available: 6, costPerDay: 9, icon: Thermometer, description: 'Electric space heater, safe for indoor use.' },
-  { id: 'first-aid-kit', label: 'First aid kit', available: 4, costPerDay: 5, icon: ShieldAlert, description: 'Fully stocked kit meeting standard workplace first-aid guidelines.' },
-  { id: 'toolkit', label: 'Toolkit', available: 5, costPerDay: 7, icon: Wrench, description: 'General-purpose toolkit for last-minute setup fixes.' },
-  { id: 'flashlights', label: 'Flashlights', available: 12, costPerDay: 2, icon: Flashlight, description: 'Rechargeable LED flashlight, useful for backstage or outdoor areas.' },
-  { id: 'laptop', label: 'Presentation laptop', available: 4, costPerDay: 18, icon: Laptop, description: 'Laptop pre-loaded with presentation software, HDMI and USB-C out.' },
-  { id: 'printer', label: 'Portable printer', available: 2, costPerDay: 10, icon: Printer, description: 'Compact printer for name tags or last-minute handouts.' },
-  { id: 'checkin-kiosk', label: 'QR check-in kiosk', available: 3, costPerDay: 15, icon: QrCode, description: 'Tablet on a stand for scanning guest QR codes at the door.' },
-  { id: 'banners', label: 'Event banners', available: 10, costPerDay: 6, icon: Flag, description: 'Retractable banner stand, 85 x 200cm, reusable frame.' },
-]
-
-const EMPTY_EQUIPMENT_REQUESTS = Object.fromEntries(
-  EQUIPMENT_CATALOG.map((item) => [item.id, '']),
-)
-
 const EMPTY_FORM = {
   id: '',
   name: '',
@@ -118,7 +61,7 @@ const EMPTY_FORM = {
   endTime: '',
   attendance: '',
   venue: '',
-  equipmentRequests: EMPTY_EQUIPMENT_REQUESTS,
+  equipmentRequests: {},
   accessibility: '',
   specialRequirements: '',
   roomLayout: '',
@@ -145,8 +88,8 @@ function withAlpha(hex, alpha) {
 // A quantity that is negative or exceeds stock is not an "incomplete field"
 // -- it is impossible to fulfil -- so it blocks Save Draft too, unlike the
 // rest of validateForSubmit's checks.
-function hasInvalidEquipment(form) {
-  return EQUIPMENT_CATALOG.some((item) => {
+function hasInvalidEquipment(form, equipmentCatalog) {
+  return equipmentCatalog.some((item) => {
     const raw = form.equipmentRequests[item.id]
     if (raw === '' || raw === undefined) return false
     const q = Number(raw)
@@ -178,7 +121,7 @@ function validateDraft(form) {
   return errors
 }
 
-function validateForSubmit(form) {
+function validateForSubmit(form, equipmentCatalog) {
   const errors = validateDraft(form)
   if (!form.name.trim()) errors.name = 'Please enter an event name.'
   if (!form.purpose.trim()) errors.purpose = 'Please describe the purpose of this event.'
@@ -188,7 +131,7 @@ function validateForSubmit(form) {
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
   if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
 
-  if (hasInvalidEquipment(form)) {
+  if (hasInvalidEquipment(form, equipmentCatalog)) {
     errors.equipmentRequests = 'Fix the equipment quantities before submitting.'
   }
 
@@ -531,14 +474,6 @@ function EquipmentDetail({ item, quantity, onQuantityChange, disabled }) {
         </p>
       </div>
 
-      <p className="font-display text-xl" style={{ color: C.ink }}>
-        ${item.costPerDay}
-        <span className="font-ui text-sm" style={{ color: C.inkFaint }}>
-          {' '}
-          / day
-        </span>
-      </p>
-
       <p className="font-ui text-sm leading-relaxed max-w-sm" style={{ color: C.inkFaint }}>
         {item.description}
       </p>
@@ -570,7 +505,7 @@ function EquipmentDetail({ item, quantity, onQuantityChange, disabled }) {
   )
 }
 
-function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled }) {
+function EquipmentPanel({ open, onClose, items, quantities, onQuantityChange, disabled }) {
   const panelRef = useRef(null)
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState(null)
@@ -578,9 +513,9 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
   useEffect(() => {
     if (open) {
       setQuery('')
-      setSelectedId(EQUIPMENT_CATALOG[0]?.id ?? null)
+      setSelectedId(items[0]?.id ?? null)
     }
-  }, [open])
+  }, [items, open])
 
   const focusableSelector =
     'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -635,12 +570,12 @@ function EquipmentPanel({ open, onClose, quantities, onQuantityChange, disabled 
 
   if (!open) return null
 
-  const filtered = EQUIPMENT_CATALOG.filter((item) =>
+  const filtered = items.filter((item) =>
     item.label.toLowerCase().includes(query.trim().toLowerCase()),
   )
   const selectedItem = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null
 
-  const hasInvalidQuantity = EQUIPMENT_CATALOG.some((item) => {
+  const hasInvalidQuantity = items.some((item) => {
     const raw = quantities[item.id]
     if (raw === '' || raw === undefined) return false
     const q = Number(raw)
@@ -980,12 +915,36 @@ export default function EventRequestForm() {
   const [savedForm, setSavedForm] = useState(EMPTY_FORM)
   // S-36: the venue requirement option sets, from the events service.
   const [venueOptions, setVenueOptions] = useState({ status: 'loading', options: null })
+  // S-39: equipment is service-owned catalogue data, never a frontend list.
+  const [equipmentOptions, setEquipmentOptions] = useState({ status: 'loading', items: [] })
 
   useEffect(() => {
     let active = true
     getEventOptions()
       .then((options) => { if (active) setVenueOptions({ status: 'ready', options }) })
       .catch(() => { if (active) setVenueOptions({ status: 'error', options: null }) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    listEquipmentSelection()
+      .then((items) => {
+        if (!active) return
+        setEquipmentOptions({
+          status: 'ready',
+          items: items.map((item) => ({
+            id: item.id,
+            label: item.type,
+            available: item.total_quantity,
+            description: item.description || 'No description provided.',
+            icon: Package,
+          })),
+        })
+      })
+      .catch(() => {
+        if (active) setEquipmentOptions({ status: 'error', items: [] })
+      })
     return () => { active = false }
   }, [])
 
@@ -1005,10 +964,7 @@ export default function EventRequestForm() {
     const merged = {
       ...EMPTY_FORM,
       ...nextForm,
-      equipmentRequests: {
-        ...EMPTY_EQUIPMENT_REQUESTS,
-        ...nextForm.equipmentRequests,
-      },
+      equipmentRequests: { ...nextForm.equipmentRequests },
     }
     setForm(merged)
     setSavedForm(merged)
@@ -1093,7 +1049,8 @@ export default function EventRequestForm() {
   // submitted event as it does to a draft.
   const isDirty = JSON.stringify(form) !== JSON.stringify(savedForm)
 
-  const selectedEquipment = EQUIPMENT_CATALOG.filter(
+  const equipmentCatalog = equipmentOptions.items
+  const selectedEquipment = equipmentCatalog.filter(
     (item) => Number(form.equipmentRequests[item.id]) > 0,
   )
 
@@ -1147,7 +1104,7 @@ export default function EventRequestForm() {
     setForm((prev) => {
       let changed = false
       const sanitized = { ...prev.equipmentRequests }
-      for (const item of EQUIPMENT_CATALOG) {
+      for (const item of equipmentCatalog) {
         const raw = sanitized[item.id]
         if (raw === '' || raw === undefined) continue
         const q = Number(raw)
@@ -1165,7 +1122,7 @@ export default function EventRequestForm() {
     ))
     setEquipmentPanelOpen(false)
     equipmentTriggerRef.current?.focus()
-  }, [])
+  }, [equipmentCatalog])
 
   // `redirectTo`, when passed, is where a *successful* save sends the user
   // afterward (the "save and leave" path out of the unsaved-changes dialog)
@@ -1180,8 +1137,10 @@ export default function EventRequestForm() {
   async function handleSave({ redirectTo } = {}) {
     if (isBusy) return
 
-    const validationErrors = requiresStrictValidation ? validateForSubmit(form) : validateDraft(form)
-    if (!requiresStrictValidation && hasInvalidEquipment(form)) {
+    const validationErrors = requiresStrictValidation
+      ? validateForSubmit(form, equipmentCatalog)
+      : validateDraft(form)
+    if (!requiresStrictValidation && hasInvalidEquipment(form, equipmentCatalog)) {
       validationErrors.equipmentRequests = 'Fix the equipment quantities before saving.'
     }
     setErrors(validationErrors)
@@ -1241,7 +1200,7 @@ export default function EventRequestForm() {
       return
     }
 
-    const validationErrors = validateForSubmit(form)
+    const validationErrors = validateForSubmit(form, equipmentCatalog)
     setErrors(validationErrors)
 
     if (Object.keys(validationErrors).length) {
@@ -1583,12 +1542,21 @@ export default function EventRequestForm() {
                 ref={equipmentTriggerRef}
                 type="button"
                 onClick={() => setEquipmentPanelOpen(true)}
+                disabled={equipmentOptions.status !== 'ready'}
                 className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-medium font-ui border transition-colors duration-200 disabled:opacity-60"
                 style={{ borderColor: C.ink, color: C.ink }}
               >
                 <Plus size={16} aria-hidden="true" />
                 Add equipment
               </button>
+              {equipmentOptions.status === 'loading' && (
+                <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>Loading equipment catalogue…</p>
+              )}
+              {equipmentOptions.status === 'error' && (
+                <p role="alert" className="font-ui text-xs mt-2" style={{ color: C.rose }}>
+                  We couldn&apos;t load equipment options. Reload the page to try again.
+                </p>
+              )}
               <FieldError
                 id="event-equipment-error"
                 message={errors.equipmentRequests}
@@ -1775,6 +1743,7 @@ export default function EventRequestForm() {
       <EquipmentPanel
         open={equipmentPanelOpen}
         onClose={closeEquipmentPanel}
+        items={equipmentCatalog}
         quantities={form.equipmentRequests}
         onQuantityChange={updateEquipmentQuantity}
       />

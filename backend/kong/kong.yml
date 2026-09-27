@@ -45,6 +45,15 @@ services:
           - /api/venues
         strip_path: true
 
+  - name: equipment
+    # Catalogue management and selection both live under /equipment.
+    url: http://equipment:8005/equipment
+    routes:
+      - name: equipment
+        paths:
+          - /api/equipment
+        strip_path: true
+
   - name: event-requests
     # Same pattern as events: keep /event-requests on the upstream URL so
     # /api/event-requests/{id}/submit reaches /event-requests/{id}/submit.

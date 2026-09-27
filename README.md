@@ -7,7 +7,7 @@ Microservices project.
 ```
 backend/
   services/
-    atomic/       one service per entity (users, events, venues, bookings)
+    atomic/       one service per entity (users, events, venues, bookings, equipment)
     composite/    orchestrates atomic services
 frontend/
 tests/
@@ -31,6 +31,7 @@ docker compose up --build
 | events | 8002 |
 | venues | 8003 |
 | bookings | 8004 |
+| equipment | 8005 |
 | event_requests | 8100 |
 | venue_bookings | 8101 |
 
