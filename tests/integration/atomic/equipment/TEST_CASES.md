@@ -5,9 +5,9 @@ Story: S-39 Add Equipment Item.
 | | |
 | --- | --- |
 | Suite | `pytest tests/integration/atomic/equipment` |
-| Last run | Not run — awaiting developer database setup |
+| Last run | 2026-09-27, branch `S-39/add-equipment-item` at `735a84d` |
 | Environment | `.env.test`, Docker Compose, test Supabase project |
-| Result | Blocked pending database setup |
+| Result | 2 passed |
 
 ## Shared pre-conditions
 
@@ -38,9 +38,11 @@ Story: S-39 Add Equipment Item.
   Direct inspection finds exactly one row in `equipment.equipment`, not
   `public`. Coordinator creation returns `403`. Cleanup leaves no row and the
   case passes twice consecutively.
-- **Actual:** Not executed.
-- **Status:** Blocked — `equipment.sql` must be applied and the schema exposed in the test project
-- **Evidence:** —
+- **Actual:** The item persisted in `equipment.equipment`, appeared in both
+  catalogue surfaces, carried its server-owned defaults, and Coordinator
+  creation was refused. Fixture cleanup removed the item and both users.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_created_item_is_immediately_available`
 
 ## TC-EQUIPMENT-102 — every S-39 operation routes through Kong
 
@@ -54,6 +56,7 @@ Story: S-39 Add Equipment Item.
 - **Test data:** Type `spm-test Gateway Microphone <hex>`, quantity `8`.
 - **Expected:** Health and reads return `200`; create returns `201`; catalogue
   and selection both contain the new item.
-- **Actual:** Not executed.
-- **Status:** Blocked — `equipment.sql` must be applied and the schema exposed in the test project
-- **Evidence:** —
+- **Actual:** Health, create, catalogue, and selection all returned their
+  expected successful responses through `/api/equipment`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_kong_routes_every_s39_operation`
