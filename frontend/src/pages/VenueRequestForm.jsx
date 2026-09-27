@@ -5,7 +5,7 @@ import Logo from '../components/Logo.jsx'
 import { eventErrorMessage, getAssignedEventRequest } from '../lib/eventRequests.js'
 import {
   canRequestVenue,
-  capacityWarning,
+  venueWarning,
   emptyVenueBookingForm,
   shortTime,
   submitVenueBooking,
@@ -147,7 +147,7 @@ function RequestForm({ event, onSent }) {
   }, [])
 
   const selectedVenue = venues.list.find((venue) => venue.id === form.venueId) ?? null
-  const warning = capacityWarning(event, selectedVenue)
+  const warning = venueWarning(event, selectedVenue)
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -257,7 +257,7 @@ function RequestForm({ event, onSent }) {
       </div>
 
       {warning && (
-        <p id="capacity-warning" role="alert" className="font-ui text-sm mb-4" style={{ color: C.amber }}>
+        <p id="venue-warning" role="alert" className="font-ui text-sm mb-4" style={{ color: C.amber }}>
           ⚠ {warning}
         </p>
       )}
@@ -274,7 +274,7 @@ function RequestForm({ event, onSent }) {
       <button
         type="submit"
         disabled={sendState.status === 'sending' || Boolean(warning)}
-        aria-describedby={warning ? 'capacity-warning' : undefined}
+        aria-describedby={warning ? 'venue-warning' : undefined}
         className="csp-primary-btn px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
         style={{ backgroundColor: C.teal, color: C.paper }}
       >
