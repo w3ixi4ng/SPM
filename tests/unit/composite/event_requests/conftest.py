@@ -65,7 +65,6 @@ SUBMITTED = {
     "expected_attendance": 120,
     "venue": "Main auditorium",
     "equipment_requests": {"projector": 1},
-    "accessibility_requirements": "Wheelchair access",
 }
 
 

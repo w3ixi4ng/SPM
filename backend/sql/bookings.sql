@@ -7,7 +7,7 @@
 --
 -- event_id, venue_id and coordinator_id are opaque ids owned by other
 -- services -- no foreign keys, since those would cross schemas. The event's
--- name, purpose, attendance and accessibility needs, the venue's name and the
+-- name, purpose, attendance and requirements, the venue's name and the
 -- coordinator's name and email are a snapshot taken at submission: Venue
 -- Staff assess what was asked, even if the event changes afterwards.
 --
@@ -48,7 +48,7 @@ create table if not exists bookings.bookings (
   event_name                 text not null,
   event_purpose              text not null,
   expected_attendance        integer not null,
-  accessibility_requirements text,
+  special_requirements       text,
   required_accessibility     text[] not null default '{}',
   required_facilities        text[] not null default '{}',
   room_layout                text,
@@ -77,7 +77,7 @@ create table if not exists bookings.bookings (
 
   constraint bookings_optional_text_not_blank
     check (
-      (accessibility_requirements is null or btrim(accessibility_requirements) <> '')
+      (special_requirements is null or btrim(special_requirements) <> '')
       and (notes is null or btrim(notes) <> '')
     ),
 
@@ -133,6 +133,29 @@ alter table bookings.bookings enable row level security;
 --     check (room_layout is null or room_layout in (
 --       'theatre', 'classroom', 'boardroom', 'u_shape', 'banquet', 'cocktail'
 --     ));
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- S-36: the request carries the event's other requirements instead of its
+-- free-text accessibility notes, which the event no longer has. Already have
+-- the table? Run this instead. Safe to run twice.
+--
+--   do $$
+--   begin
+--     if exists (select 1 from information_schema.columns
+--                where table_schema = 'bookings' and table_name = 'bookings'
+--                  and column_name = 'accessibility_requirements') then
+--       alter table bookings.bookings
+--         rename column accessibility_requirements to special_requirements;
+--     end if;
+--   end $$;
+--
+--   alter table bookings.bookings drop constraint if exists bookings_optional_text_not_blank;
+--   alter table bookings.bookings add constraint bookings_optional_text_not_blank
+--     check (
+--       (special_requirements is null or btrim(special_requirements) <> '')
+--       and (notes is null or btrim(notes) <> '')
+--     );
 -- ---------------------------------------------------------------------------
 
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.

@@ -38,7 +38,7 @@ same arrangement as the events service's internal routes.
 | `event_purpose` | string | yes | Trimmed; not blank. |
 | `expected_attendance` | integer | yes | At least `1`. |
 | `venue_name` | string | yes | Trimmed; not blank. |
-| `accessibility_requirements` | string or null | no | The organiser's free text. Blank becomes null. |
+| `special_requirements` | string or null | no | The event's other requirements, free text. Blank becomes null. |
 | `required_accessibility` | array of string | no | From the venue accessibility set. Defaults to `[]`. |
 | `required_facilities` | array of string | no | From the venue facility set. Defaults to `[]`. |
 | `room_layout` | string or null | no | From the venue layout set. |
@@ -83,7 +83,7 @@ the same shape (`[]` when there are none).
   "event_name": "Alumni networking evening",
   "event_purpose": "Reconnect graduates with faculty",
   "expected_attendance": 120,
-  "accessibility_requirements": "Two guests use wheelchairs",
+  "special_requirements": "Vegetarian catering for 40",
   "required_accessibility": ["wheelchair_access"],
   "required_facilities": ["projector"],
   "room_layout": "theatre",

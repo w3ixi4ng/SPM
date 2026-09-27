@@ -11,8 +11,8 @@ and the gateway route.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/venue_bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with both S-36 migrations), `venues` and `bookings` (with the cabaret removal) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
+| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
 | Result | 2 passed (20 across `tests/integration`), twice consecutively |
 
 **Story:** S-36 Submit venue booking request.

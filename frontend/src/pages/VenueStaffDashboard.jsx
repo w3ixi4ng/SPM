@@ -100,7 +100,7 @@ function PendingBooking({ booking }) {
         <Detail label="Purpose" value={booking.event_purpose} />
         <Detail label="Facilities" value={listLabel(booking.required_facilities)} />
         <Detail label="Accessibility" value={listLabel(booking.required_accessibility)} />
-        <Detail label="Organiser's accessibility notes" value={booking.accessibility_requirements} />
+        <Detail label="Other requirements" value={booking.special_requirements} />
         <Detail label="Notes" value={booking.notes} />
       </div>
       <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>

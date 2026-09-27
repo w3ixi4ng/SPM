@@ -10,7 +10,7 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 30 passed |
 

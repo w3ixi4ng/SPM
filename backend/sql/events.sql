@@ -32,7 +32,6 @@ create table if not exists events.events (
   expected_attendance        integer,
   venue                      text,
   equipment_requests         jsonb not null default '{}'::jsonb,
-  accessibility_requirements text,
 
   -- A catch-all for anything the fixed fields do not cover -- registration
   -- arrangements, catering, security, whatever the organiser needs to say.
@@ -429,6 +428,13 @@ alter table events.events enable row level security;
 --         and end_time is not null and expected_attendance is not null
 --       )
 --     );
+--
+-- S-36: the free-text accessibility notes are dropped -- accessibility is
+-- given through required_accessibility, and special_requirements is the one
+-- free-text field. Already have the table? Run this instead. Safe to run
+-- twice. DESTRUCTIVE: any text in the column is lost.
+--
+--   alter table events.events drop column if exists accessibility_requirements;
 -- ---------------------------------------------------------------------------
 
 notify pgrst, 'reload schema';

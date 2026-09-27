@@ -73,7 +73,7 @@ class BookingCreate(BaseModel):
     event_name: str = Field(min_length=1)
     event_purpose: str = Field(min_length=1)
     expected_attendance: PositiveInt
-    accessibility_requirements: str | None = None
+    special_requirements: str | None = None
     required_accessibility: list[AccessibilityFeature] = Field(default_factory=list)
     required_facilities: list[Facility] = Field(default_factory=list)
     room_layout: RoomLayout | None = None
@@ -87,7 +87,7 @@ class BookingCreate(BaseModel):
     def strip_required_text(cls, value):
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("accessibility_requirements", "notes", mode="before")
+    @field_validator("special_requirements", "notes", mode="before")
     @classmethod
     def blank_optional_text_is_none(cls, value):
         if isinstance(value, str):
@@ -120,7 +120,7 @@ class BookingRead(BaseModel):
     event_name: str
     event_purpose: str
     expected_attendance: int
-    accessibility_requirements: str | None
+    special_requirements: str | None
     required_accessibility: list[str]
     required_facilities: list[str]
     room_layout: str | None

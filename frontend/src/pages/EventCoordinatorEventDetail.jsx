@@ -389,7 +389,6 @@ export default function EventCoordinatorEventDetail() {
                 />
                 <Field label="Expected attendance" value={form.attendance} />
                 <Field label="Equipment requested" value={equipmentSummary(form.equipmentRequests)} />
-                <Field label="Other accessibility notes" value={form.accessibility} />
                 <Field label="Other requirements" value={form.specialRequirements} />
               </div>
             </section>

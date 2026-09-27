@@ -48,7 +48,7 @@ function Requirements({ event }) {
     ['Room layout', event.room_layout && optionLabel(event.room_layout)],
     ['Facilities', labels(event.required_facilities)],
     ['Accessibility', labels(event.required_accessibility)],
-    ['Other accessibility notes', event.accessibility_requirements],
+    ['Other requirements', event.special_requirements],
     ['Venue preference', event.venue],
   ]
   return (

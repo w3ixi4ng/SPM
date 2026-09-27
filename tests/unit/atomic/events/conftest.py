@@ -78,7 +78,6 @@ def event_row(**changes):
         "expected_attendance": None,
         "venue": None,
         "equipment_requests": {},
-        "accessibility_requirements": None,
         "special_requirements": None,
         "room_layout": None,
         "required_facilities": [],

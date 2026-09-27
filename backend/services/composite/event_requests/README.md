@@ -47,7 +47,6 @@ submitted-event routes:
 | `required_facilities` | array of string | no | From the venue facility set. Defaults to `[]`. |
 | `required_accessibility` | array of string | no | From the venue accessibility set. Defaults to `[]`. |
 | `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
-| `accessibility_requirements` | string or null | no | Blank text becomes null. |
 | `special_requirements` | string or null | no | Free text. Blank becomes null. |
 
 `PATCH /event-requests/{event_id}` takes the same fields, all optional —

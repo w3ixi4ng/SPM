@@ -1645,22 +1645,6 @@ export default function EventRequestForm() {
             </div>
 
             <div>
-              <label htmlFor="event-accessibility" className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
-                Other accessibility notes
-                <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
-              </label>
-              <textarea
-                id="event-accessibility"
-                name="accessibility"
-                rows={2}
-                placeholder="Wheelchair access, live captioning, quiet room..."
-                value={form.accessibility}
-                onChange={(e) => updateField('accessibility', e.target.value)}
-                className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm resize-none"
-              />
-            </div>
-
-            <div>
               <label htmlFor="event-special" className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
                 Other requirements
                 <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>

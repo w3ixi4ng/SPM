@@ -16,7 +16,7 @@ session or role check here, and none is tested.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `96930b9` |
+| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 32 passed |
 
@@ -41,7 +41,7 @@ case names.
   "event_name": "Alumni networking evening",
   "event_purpose": "Reconnect graduates with faculty",
   "expected_attendance": 120,
-  "accessibility_requirements": "Two guests use wheelchairs",
+  "special_requirements": "Vegetarian catering for 40",
   "required_accessibility": ["wheelchair_access", "lift"],
   "required_facilities": ["projector", "sound_system"],
   "room_layout": "theatre",
@@ -68,7 +68,7 @@ version-4 UUIDs.
 
 ## TC-BOOKINGS-002 — a booking is stored as pending, with the submission time set by the service
 
-- **Scenario:** A complete booking is saved as `pending`, and the service
+- **Scenario:** Revised for S-36: the free-text accessibility notes are gone; `special_requirements` (Other requirements) is the one free-text field. A complete booking is saved as `pending`, and the service
   alone sets `status` and `submitted_at`.
 - **Pre-conditions:** The fake's insert returns the inserted row plus `id`
   and `submitted_at`.
@@ -115,13 +115,13 @@ version-4 UUIDs.
 
 ## TC-BOOKINGS-005 — the optional fields may be left out
 
-- **Scenario:** The optional fields default to empty.
+- **Scenario:** Revised for S-36: the free-text accessibility notes are gone; `special_requirements` (Other requirements) is the one free-text field. The optional fields default to empty.
 - **Pre-conditions:** As TC-BOOKINGS-002.
 - **Steps:** `POST /bookings` with the shared body minus
-  `accessibility_requirements`, `required_accessibility`,
+  `special_requirements`, `required_accessibility`,
   `required_facilities`, `room_layout` and `notes`.
 - **Test data:** As above.
-- **Expected:** `201`. The insert has `accessibility_requirements=null`,
+- **Expected:** `201`. The insert has `special_requirements=null`,
   `required_accessibility=[]`, `required_facilities=[]`,
   `room_layout=null` and `notes=null`.
 - **Actual:** As expected.
@@ -172,14 +172,15 @@ version-4 UUIDs.
 
 ## TC-BOOKINGS-009 — text is trimmed, and blank optional text becomes null
 
+- **Scenario:** Revised for S-36: the free-text accessibility notes are gone; `special_requirements` (Other requirements) is the one free-text field.
 - **Pre-conditions:** As TC-BOOKINGS-002.
 - **Steps:** `POST /bookings` with padded `notes` and a whitespace-only
-  `accessibility_requirements`. Also send duplicated option values.
+  `special_requirements`. Also send duplicated option values.
 - **Test data:** `notes: "  Access from 08:30  "`,
-  `accessibility_requirements: "   "`,
+  `special_requirements: "   "`,
   `required_facilities: ["projector", "projector"]`.
 - **Expected:** `201`. The insert has `notes="Access from 08:30"`,
-  `accessibility_requirements=null` and `required_facilities=["projector"]`.
+  `special_requirements=null` and `required_facilities=["projector"]`.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_text_is_trimmed_and_blank_optional_text_becomes_null`
