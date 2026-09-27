@@ -38,6 +38,8 @@ services:
         condition: service_healthy
       venues:
         condition: service_healthy
+      equipment:
+        condition: service_healthy
       event_requests:
         condition: service_healthy
       venue_bookings:
@@ -180,6 +182,28 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8004/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  equipment:
+    build: ./backend/services/atomic/equipment
+    ports:
+      - "${EQUIPMENT_SERVICE_PORT}:8005"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8005/health').read()",
         ]
       interval: 10s
       timeout: 5s

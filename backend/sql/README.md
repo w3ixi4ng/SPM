@@ -8,6 +8,7 @@ users.sql
 events.sql
 venues.sql
 bookings.sql
+equipment.sql
 ```
 
 The database is not generated from Python, so these files are the only record
