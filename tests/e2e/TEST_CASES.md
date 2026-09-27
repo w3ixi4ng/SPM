@@ -9,9 +9,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `7d6ac09` |
+| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `22144d0` |
 | Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 9 passed on the last two of three consecutive runs. The first run failed TC-E2E-207 (`test_respond_to_return.py`, untouched by S-35) waiting for the returned request's **Action required** row on the organiser dashboard; it did not recur. TC-E2E-210 passed on all three |
+| Result | 9 passed, twice consecutively. On the previous commit one full-suite run failed TC-E2E-210 with the request screen never loading (not reproduced in five isolated runs); the likely cause, leaving the dashboard before the session settled, was fixed in the test at this commit |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
