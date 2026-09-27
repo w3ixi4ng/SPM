@@ -15,7 +15,6 @@ SUBMITTED = {
     "end_time": "21:00",
     "expected_attendance": 120,
     "venue": "Main auditorium",
-    "equipment_requests": {"projector": 1, "microphone": 2},
 }
 
 
@@ -26,13 +25,11 @@ def test_valid_draft_accepts_and_normalises_supplied_values():
         expected_attendance=120,
         start_time="18:00",
         end_time="21:00",
-        equipment_requests={"projector": 1},
         special_requirements="   ",
     )
 
     assert draft.name == "Alumni networking evening"
     assert draft.expected_attendance == 120
-    assert draft.equipment_requests == {"projector": 1}
     assert draft.special_requirements is None
 
 
@@ -47,7 +44,6 @@ def test_empty_draft_is_valid():
         "end_time": None,
         "expected_attendance": None,
         "venue": None,
-        "equipment_requests": {},
         "special_requirements": None,
         "room_layout": None,
         "required_facilities": [],
@@ -62,9 +58,9 @@ def test_draft_rejects_non_positive_attendance():
 
 
 # --- TC-EVENTS-004 --------------------------------------------------------
-def test_draft_rejects_non_positive_equipment_quantity():
+def test_draft_rejects_legacy_organiser_equipment_requests():
     with pytest.raises(ValidationError):
-        EventDraftCreate(equipment_requests={"projector": 0})
+        EventDraftCreate(equipment_requests={"projector": 1})
 
 
 # --- TC-EVENTS-005 --------------------------------------------------------
@@ -79,7 +75,6 @@ def test_valid_submitted_request_is_accepted():
 
     assert submitted.name == SUBMITTED["name"]
     assert submitted.expected_attendance == 120
-    assert submitted.equipment_requests == {"projector": 1, "microphone": 2}
 
 
 # --- TC-EVENTS-007 --------------------------------------------------------

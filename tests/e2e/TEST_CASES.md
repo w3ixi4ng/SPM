@@ -1,7 +1,8 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py` and `test_request_venue.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
+`test_request_venue.py` and `test_record_equipment.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +10,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 8 passed, twice consecutively |
+| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
+| Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
+| Result | 9 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -226,3 +227,21 @@ contract without a browser.
 - **Actual:** The request screen showed Theatre and Projector as text with no inputs; the venue's row was marked Fits and chosen by its radio; the send returned to the event page with the confirmation; after a reload Venue requests listed the venue, 12 Nov 2026, 09:00–12:00, Pending; Venue Staff's pending list showed the full row.
 - **Status:** Pass
 - **Evidence:** `test_request_venue.py::test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_staff`
+
+## TC-E2E-210 — equipment moves from catalogue to planning requirement to Technical Support view
+
+- **Scenario:** Combined S-39/S-40 browser journey proving the gateway,
+  role-specific screens, session cookies, orchestration, and persistence.
+- **Pre-conditions:** Complete test stack; a Technical Support user, assigned
+  Coordinator, organiser, planning event, and no requirement for the item.
+- **Steps:** Technical Support adds `spm-e2e Wireless Microphone <hex>` with
+  total `12`; Coordinator opens the planning event, records quantity `6`, and
+  sees it after reload; sign out and back in as Technical Support.
+- **Expected:** The new item needs no frontend code change, the Coordinator can
+  record it only on the planning event, and Technical Support's requirement
+  view shows the event id, item name, and quantity `6`.
+- **Actual:** Technical Support added the item, the assigned Coordinator saved
+  quantity 6 on the planning event, and Technical Support saw the item,
+  quantity and event id after a fresh sign-in.
+- **Status:** Pass
+- **Evidence:** `test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support`

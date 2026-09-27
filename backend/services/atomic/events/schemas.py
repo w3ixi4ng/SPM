@@ -88,7 +88,6 @@ class EventDraftCreate(BaseModel):
     end_time: time | None = None
     expected_attendance: PositiveInt | None = None
     venue: str | None = None
-    equipment_requests: dict[str, PositiveInt] = Field(default_factory=dict)
     special_requirements: str | None = None
     room_layout: RoomLayout | None = None
     required_facilities: list[Facility] = Field(default_factory=list)
@@ -173,7 +172,6 @@ class EventSubmittedCreate(BaseModel):
     expected_attendance: PositiveInt
     # S-36: only a preference -- the Coordinator books the actual venue.
     venue: str | None = None
-    equipment_requests: dict[str, PositiveInt] = Field(default_factory=dict)
     special_requirements: str | None = None
     room_layout: RoomLayout | None = None
     required_facilities: list[Facility] = Field(default_factory=list)
@@ -217,7 +215,6 @@ class EventRead(BaseModel):
     end_time: time | None
     expected_attendance: int | None
     venue: str | None
-    equipment_requests: dict[str, int]
     special_requirements: str | None
     room_layout: str | None
     required_facilities: list[str]

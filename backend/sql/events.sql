@@ -31,6 +31,10 @@ create table if not exists events.events (
   end_time                   time without time zone,
   expected_attendance        integer,
   venue                      text,
+  -- S-40 stores equipment requirements in equipment.requirements. Keep this
+  -- legacy column temporarily so applying this declarative file to an
+  -- existing project is non-destructive; the events API no longer accepts or
+  -- returns it.
   equipment_requests         jsonb not null default '{}'::jsonb,
 
   -- A catch-all for anything the fixed fields do not cover -- registration

@@ -37,9 +37,12 @@ app = app_module.app
 get_auth = database_module.get_auth
 get_db = database_module.get_db
 EquipmentCreate = schemas_module.EquipmentCreate
+EquipmentRequirementWrite = schemas_module.EquipmentRequirementWrite
 
 STAFF_ID = "11111111-1111-4111-8111-111111111111"
 ITEM_ID = "22222222-2222-4222-8222-222222222222"
+EVENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+REQUIREMENT_ID = "33333333-3333-4333-8333-333333333333"
 
 VALID_ITEM = {
     "type": "Wireless Microphone",
@@ -70,6 +73,32 @@ def equipment_row(**changes):
     }
     row.update(changes)
     return row
+
+
+def requirement_row(**changes):
+    row = {
+        "id": REQUIREMENT_ID,
+        "event_id": EVENT_ID,
+        "equipment_item_id": ITEM_ID,
+        "required_quantity": 6,
+        "recorded_by_coordinator_id": STAFF_ID,
+        "created_at": "2026-09-27T09:00:00Z",
+        "updated_at": "2026-09-27T09:00:00Z",
+    }
+    row.update(changes)
+    return row
+
+
+def requirement_detail(**changes):
+    return {
+        **requirement_row(),
+        "equipment": {
+            key: value
+            for key, value in equipment_row().items()
+            if key not in {"created_by", "created_at", "updated_at"}
+        },
+        **changes,
+    }
 
 
 def table(db):

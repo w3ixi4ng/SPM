@@ -1,11 +1,11 @@
 # Test cases — equipment service (integration)
 
-Story: S-39 Add Equipment Item.
+Stories: S-39 Add Equipment Item; S-40 Record Required Equipment.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/integration/atomic/equipment` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item` at `735a84d` |
+| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
 | Environment | `.env.test`, Docker Compose, test Supabase project |
 | Result | 2 passed |
 

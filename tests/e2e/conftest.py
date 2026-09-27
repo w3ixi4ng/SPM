@@ -113,10 +113,16 @@ def make_user(admin):
         admin.schema("bookings").table("bookings").delete().eq(
             "coordinator_id", user_id
         ).execute()
+        admin.schema("equipment").table("requirements").delete().eq(
+            "recorded_by_coordinator_id", user_id
+        ).execute()
         admin.schema("events").table("events").delete().eq(
             "organiser_id", user_id
         ).execute()
         admin.schema("venues").table("venues").delete().eq(
+            "created_by", user_id
+        ).execute()
+        admin.schema("equipment").table("equipment").delete().eq(
             "created_by", user_id
         ).execute()
         # users.users cascades from auth.users, so the profile goes with this.

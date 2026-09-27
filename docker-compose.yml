@@ -44,6 +44,8 @@ services:
         condition: service_healthy
       venue_bookings:
         condition: service_healthy
+      equipment_requirements:
+        condition: service_healthy
       frontend:
         condition: service_healthy
     healthcheck:
@@ -237,6 +239,37 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8101/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  # Lets the currently assigned Coordinator edit event equipment requirements
+  # during planning and Technical Support read them. Storage stays in the
+  # equipment atomic service.
+  equipment_requirements:
+    build: ./backend/services/composite/equipment_requirements
+    ports:
+      - "${EQUIPMENT_REQUIREMENTS_SERVICE_PORT:-8102}:8102"
+    environment:
+      USERS_SERVICE_URL: ${USERS_SERVICE_URL}
+      EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
+      EQUIPMENT_SERVICE_URL: ${EQUIPMENT_SERVICE_URL:-http://equipment:8005}
+    depends_on:
+      users:
+        condition: service_healthy
+      events:
+        condition: service_healthy
+      equipment:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8102/health').read()",
         ]
       interval: 10s
       timeout: 5s

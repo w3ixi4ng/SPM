@@ -33,7 +33,6 @@ const FORM = {
   endTime: '21:00',
   attendance: '120',
   venue: 'Main auditorium',
-  equipmentRequests: { projector: '2', microphone: '', chairs: '0' },
   specialRequirements: '  Registration closes a week before  ',
   created_at: 'must-not-be-sent',
   updated_at: 'must-not-be-sent',
@@ -51,7 +50,6 @@ const API_EVENT = {
   end_time: '21:00:00',
   expected_attendance: 120,
   venue: 'Main auditorium',
-  equipment_requests: { projector: 2 },
   special_requirements: 'Registration closes a week before',
   submitted_at: null,
   created_at: '2026-09-14T00:00:00Z',
@@ -69,7 +67,6 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     end_date: '2026-10-20',
     end_time: '21:00',
     expected_attendance: 120,
-    equipment_requests: { projector: 2 },
     room_layout: null,
     required_facilities: [],
     required_accessibility: [],
@@ -86,9 +83,7 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     attendance: '',
     venue: '',
     specialRequirements: '',
-    equipmentRequests: {},
   }, { omitEmpty: true }), {
-    equipment_requests: {},
     required_facilities: [],
     required_accessibility: [],
   })
@@ -105,7 +100,6 @@ test('API responses populate the existing React state shape', () => {
     endTime: '21:00',
     attendance: '120',
     venue: 'Main auditorium',
-    equipmentRequests: { projector: 2 },
     specialRequirements: 'Registration closes a week before',
     roomLayout: '',
     requiredFacilities: [],
@@ -175,11 +169,9 @@ test('event API functions use Kong paths, methods, JSON, and credentials', async
 test('event API errors map to safe status and field feedback', () => {
   assert.deepEqual(eventFieldErrorsToForm({
     expected_attendance: 'Input should be greater than 0',
-    'equipment_requests.projector': 'Input should be greater than 0',
     body: 'Value error, end_time must be after start_time',
   }), {
     attendance: 'Input should be greater than 0',
-    equipmentRequests: 'Input should be greater than 0',
     endTime: 'End time must be after the start time.',
   })
 

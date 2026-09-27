@@ -35,11 +35,33 @@ create table if not exists equipment.equipment (
     check (lifecycle_status in ('active', 'retired'))
 );
 
+-- S-40. The equipment service owns the event-to-equipment relationship. The
+-- event id is opaque because events belongs to another service; the equipment
+-- item foreign key stays within this service's schema.
+create table if not exists equipment.requirements (
+  id                             uuid primary key default gen_random_uuid(),
+  event_id                       uuid not null,
+  equipment_item_id              uuid not null
+    references equipment.equipment(id) on delete restrict,
+  required_quantity              integer not null,
+  recorded_by_coordinator_id     uuid not null,
+  created_at                     timestamptz not null default now(),
+  updated_at                     timestamptz not null default now(),
+
+  constraint equipment_requirements_quantity_positive
+    check (required_quantity > 0),
+  constraint equipment_requirements_event_item_unique
+    unique (event_id, equipment_item_id)
+);
+
 create index if not exists equipment_equipment_type_idx
   on equipment.equipment (lower(type));
 
 create index if not exists equipment_equipment_selection_idx
   on equipment.equipment (operational_status, lifecycle_status, lower(type));
+
+create index if not exists equipment_requirements_event_id_idx
+  on equipment.requirements (event_id, created_at);
 
 grant usage on schema equipment to service_role;
 grant all on all tables in schema equipment to service_role;
@@ -51,5 +73,6 @@ alter default privileges for role postgres in schema equipment
   grant all on sequences to service_role;
 
 alter table equipment.equipment enable row level security;
+alter table equipment.requirements enable row level security;
 
 notify pgrst, 'reload schema';

@@ -1,7 +1,8 @@
 # Test cases — frontend role access (unit)
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
-`test_venues.mjs` and `test_venue_bookings.mjs`.
+`test_equipment_requirements.mjs`, `test_venues.mjs` and
+`test_venue_bookings.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -9,9 +10,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 37 passed |
+| Result | 41 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -56,8 +57,8 @@ RBAC, and validation remain authoritative.
   an otherwise empty draft.
 - **Expected:** Business fields use backend names and numeric quantities;
   `id`, `organiser_id`, `status`, `created_at`, and `updated_at` are absent;
-  the empty draft contains only `equipment_requests: {}`,
-  `required_facilities: []` and `required_accessibility: []`.
+  the empty draft contains only `required_facilities: []` and
+  `required_accessibility: []`.
 - **Note:** covers `special_requirements` as well, including trimming and the
   blank-to-null rule.
 - **Actual:** As expected.
@@ -102,7 +103,7 @@ RBAC, and validation remain authoritative.
 - **Scenario:** Backend validation fields and HTTP failures produce useful,
   non-misleading form feedback.
 - **Pre-conditions:** The event API error mapping is loaded.
-- **Steps:** Map attendance, equipment, and time-order validation errors; then
+- **Steps:** Map attendance and time-order validation errors; then
   resolve messages for `401`, `403`, `404`, `409`, `422`, and `500`.
 - **Test data:** Backend snake_case field paths and each required status code.
 - **Expected:** Field paths target the current React controls; each status gets
@@ -642,3 +643,44 @@ says.
 - **Actual:** Every status and field error mapped to the specified safe feedback.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `equipment errors are safe and actionable`
+
+## S-40 — record required equipment
+
+### TC-FRONTEND-039 — requirement calls use the authenticated composite route
+
+- **Steps:** List one event's requirements, list all for Technical Support,
+  save a quantity, and remove an item.
+- **Expected:** Calls use `/api/equipment-requirements`, include credentials,
+  encode ids, and send only `{required_quantity}` on PUT.
+- **Actual:** All four calls used the composite route, credentials, encoded ids,
+  and the numeric-only write payload.
+- **Status:** Pass
+- **Evidence:** `test_equipment_requirements.mjs` — `requirement API uses the composite route and numeric quantity`
+
+### TC-FRONTEND-040 — only valid positive whole quantities are saved
+
+- **Test data:** Blank, `0`, `-1`, `1.5`, and `6`.
+- **Expected:** The first four are rejected locally; `6` is accepted.
+- **Actual:** Blank, zero, negative and decimal quantities were rejected; the
+  positive whole number was accepted.
+- **Status:** Pass
+- **Evidence:** `test_equipment_requirements.mjs` — `requirement quantity accepts only positive whole numbers`
+
+### TC-FRONTEND-041 — presentation permissions match the composite policy
+
+- **Expected:** Event Coordinator has edit/view; Technical Support has view
+  only; every other role has neither.
+- **Actual:** The permission matrix matched the composite policy for all roles.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `coordinators edit requirements and technical support can only view them`
+
+### TC-FRONTEND-042 — organiser event payloads no longer carry equipment requirements
+
+- **Scenario:** S-40 has one source of truth owned by the equipment service.
+- **Steps:** Map complete organiser event form state to create/update payloads.
+- **Expected:** `equipment_requests` is absent even if stale form state contains
+  it; the events API rejects a direct browser-supplied field.
+- **Actual:** Event mapping omitted the legacy field and the events request
+  model rejected it as an extra field.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` and `test_schemas.py::test_draft_rejects_legacy_organiser_equipment_requests`

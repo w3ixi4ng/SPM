@@ -3,6 +3,8 @@
 import pytest
 
 from .conftest import (
+    EVENT_ID,
+    ITEM_ID,
     STAFF_ID,
     VALID_ITEM,
     authenticate,
@@ -11,6 +13,8 @@ from .conftest import (
     fake_user,
     insert_operation,
     returns,
+    requirement_detail,
+    requirement_row,
     selection_operation,
     table,
 )
@@ -162,3 +166,116 @@ def test_health_needs_no_storage_or_session(client, db):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     db.schema.assert_not_called()
+
+
+def _usable_item_operation(db):
+    return (
+        table(db)
+        .select.return_value.eq.return_value.eq.return_value.eq.return_value
+    )
+
+
+# --- TC-EQUIPMENT-013 / 014 ---------------------------------------------
+def test_requirement_upsert_uses_the_event_item_conflict_and_updates_audit(client, db):
+    returns(_usable_item_operation(db), [{"id": ITEM_ID}])
+    returns(table(db).upsert.return_value, [requirement_row(required_quantity=9)])
+
+    response = client.put(
+        f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}",
+        json={"required_quantity": 9, "recorded_by_coordinator_id": STAFF_ID},
+    )
+
+    assert response.status_code == 200
+    values = table(db).upsert.call_args.args[0]
+    assert values["event_id"] == EVENT_ID
+    assert values["equipment_item_id"] == ITEM_ID
+    assert values["required_quantity"] == 9
+    assert values["recorded_by_coordinator_id"] == STAFF_ID
+    assert "updated_at" in values
+    assert table(db).upsert.call_args.kwargs == {
+        "on_conflict": "event_id,equipment_item_id"
+    }
+
+
+def test_requirement_refuses_an_item_outside_active_available_selection(client, db):
+    returns(_usable_item_operation(db), [])
+
+    response = client.put(
+        f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}",
+        json={"required_quantity": 6, "recorded_by_coordinator_id": STAFF_ID},
+    )
+
+    assert response.status_code == 409
+    table(db).upsert.assert_not_called()
+
+
+# --- TC-EQUIPMENT-015 ----------------------------------------------------
+def test_requirement_list_embeds_catalogue_and_filters_by_event(client, db):
+    operation = table(db).select.return_value.eq.return_value.order.return_value
+    returns(operation, [requirement_detail()])
+
+    response = client.get(
+        "/internal/equipment-requirements", params={"event_id": EVENT_ID}
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["equipment"]["type"] == "Wireless Microphone"
+    table(db).select.return_value.eq.assert_called_once_with("event_id", EVENT_ID)
+    table(db).select.return_value.eq.return_value.order.assert_called_once_with(
+        "created_at"
+    )
+
+
+# --- TC-EQUIPMENT-016 ----------------------------------------------------
+def test_requirement_delete_is_constrained_by_event_and_item(client, db):
+    operation = (
+        table(db)
+        .delete.return_value.eq.return_value.eq.return_value
+    )
+    returns(operation, [requirement_row()])
+
+    response = client.delete(
+        f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}"
+    )
+
+    assert response.status_code == 204
+    first_eq = table(db).delete.return_value.eq
+    first_eq.assert_called_once_with("event_id", EVENT_ID)
+    first_eq.return_value.eq.assert_called_once_with("equipment_item_id", ITEM_ID)
+
+
+def test_requirement_delete_returns_404_when_relationship_is_missing(client, db):
+    operation = table(db).delete.return_value.eq.return_value.eq.return_value
+    returns(operation, [])
+
+    response = client.delete(
+        f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}"
+    )
+
+    assert response.status_code == 404
+
+
+# --- TC-EQUIPMENT-017 ----------------------------------------------------
+@pytest.mark.parametrize("method", ["put", "get", "delete"])
+def test_requirement_storage_failures_are_safe(client, db, method):
+    if method == "put":
+        _usable_item_operation(db).execute.side_effect = Exception("database secret")
+        response = client.put(
+            f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}",
+            json={"required_quantity": 6, "recorded_by_coordinator_id": STAFF_ID},
+        )
+    elif method == "get":
+        table(db).select.return_value.order.return_value.execute.side_effect = Exception(
+            "database secret"
+        )
+        response = client.get("/internal/equipment-requirements")
+    else:
+        operation = table(db).delete.return_value.eq.return_value.eq.return_value
+        operation.execute.side_effect = Exception("database secret")
+        response = client.delete(
+            f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}"
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Equipment storage unavailable"}
+    assert "database secret" not in response.text

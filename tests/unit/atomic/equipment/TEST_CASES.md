@@ -1,6 +1,6 @@
 # Test cases — equipment service (unit)
 
-Story: S-39 Add Equipment Item.
+Stories: S-39 Add Equipment Item; S-40 Record Required Equipment.
 
 These cases specify the equipment catalogue before its implementation. Supabase
 and Auth are mocked; this suite makes no network or database calls.
@@ -8,9 +8,9 @@ and Auth are mocked; this suite makes no network or database calls.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/equipment` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
 | Environment | Unit test environment; Supabase and authentication mocked |
-| Result | 28 passed |
+| Result | 40 passed |
 
 ## Shared test data
 
@@ -172,3 +172,69 @@ The authenticated creator is user
 - **Actual:** Health returned the specified response without storage access.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_health_needs_no_storage_or_session`
+
+## S-40 — equipment requirement storage
+
+## TC-EQUIPMENT-012 — requirement input requires identifiers and positive quantity
+
+- **Scenario:** Invalid relationships never reach Supabase.
+- **Test data:** Missing/malformed event or item UUID; quantity missing, `0`,
+  `-1`, or `1.5`; unknown fields.
+- **Expected:** Schema validation fails with the relevant field.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-013 — upsert creates or edits one event-item relationship
+
+- **Scenario:** The same item is recorded once per event and later edits do
+  not duplicate it.
+- **Pre-conditions:** Storage returns the upserted row with catalogue details.
+- **Steps:** Upsert quantity `6`, then `9`, for the same event and item.
+- **Expected:** Storage targets `equipment.requirements` with conflict key
+  `(event_id,equipment_item_id)` and returns the relationship.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-014 — recorded-by is mutable audit information
+
+- **Scenario:** A new authorized write updates who last recorded the value.
+- **Pre-conditions:** Existing row says Coordinator A; request body says B.
+- **Steps:** Upsert a new quantity as B.
+- **Expected:** The row's `recorded_by_coordinator_id` becomes B; this atomic
+  service does not use that field to decide authorization.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-015 — requirements list carries catalogue details
+
+- **Scenario:** Consumers can show type, description, quantity, and statuses
+  without querying another service or schema.
+- **Steps:** List all requirements, then filter by event id.
+- **Expected:** Results are ordered by creation time and embed the referenced
+  row from `equipment.equipment`; the event filter is applied when provided.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-016 — deleting one requirement preserves every other relationship
+
+- **Pre-conditions:** One matching relationship exists.
+- **Steps:** Delete by event and equipment item.
+- **Expected:** `204`; both identifiers constrain the delete. Missing row is
+  `404`; no catalogue item or unrelated requirement is deleted.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-017 — requirement storage failures are safe
+
+- **Pre-conditions:** Upsert, list, and delete execution each raise a database
+  exception in turn.
+- **Expected:** `500 {"detail":"Equipment storage unavailable"}` without
+  database details.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`

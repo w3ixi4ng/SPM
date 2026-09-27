@@ -64,7 +64,6 @@ SUBMITTED = {
     "end_time": "21:00",
     "expected_attendance": 120,
     "venue": "Main auditorium",
-    "equipment_requests": {"projector": 1},
 }
 
 
