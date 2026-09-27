@@ -164,7 +164,7 @@ test('each venue is marked against the event requirements', () => {
 
 // --- S-35: warn on attendance exceeding venue capacity ---------------------
 
-// --- TC-FRONTEND-036 -------------------------------------------------------
+// --- TC-FRONTEND-039 -------------------------------------------------------
 test('a venue too small for the event produces the capacity warning', () => {
   const event = { expected_attendance: 100 }
   const venue = (capacity) => ({ name: 'Studio B', capacity })

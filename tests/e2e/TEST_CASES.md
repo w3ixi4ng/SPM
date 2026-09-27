@@ -231,7 +231,7 @@ contract without a browser.
 
 - **Scenario:** S-35 in a real browser. Only a browser shows the warning
   appearing on selection and **Send request** being disabled and re-enabled;
-  TC-FRONTEND-036 covers the wording.
+  TC-FRONTEND-039 covers the wording.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
   removes afterwards: an `event_coordinator` with `make_user`; an event
   `"spm-e2e Event <hex>"` assigned to them, `status=planning`,

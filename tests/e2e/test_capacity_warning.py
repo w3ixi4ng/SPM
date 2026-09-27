@@ -1,6 +1,6 @@
 """TC-E2E-210 -- a too-small venue is warned about and blocked (S-35).
 
-TC-FRONTEND-036 covers the wording. This proves the warning appears on
+TC-FRONTEND-039 covers the wording. This proves the warning appears on
 selection and that Send request is disabled until a venue that fits is
 chosen, which only a browser can show.
 """
