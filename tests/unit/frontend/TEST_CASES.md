@@ -1,7 +1,7 @@
 # Test cases — frontend role access (unit)
 
-Covers `test_access.mjs`, `test_event_requests.mjs`, `test_venues.mjs` and
-`test_venue_bookings.mjs`.
+Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
+`test_venues.mjs` and `test_venue_bookings.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -9,9 +9,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
+| Last run | 2026-09-27, branch `S-39/add-equipment-item`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 34 passed |
+| Result | 37 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -594,3 +594,51 @@ says.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `each venue is marked against the event requirements`
+
+## S-39 — equipment catalogue
+
+### TC-FRONTEND-036 — equipment form validates required catalogue fields
+
+- **Scenario:** Technical Support gets immediate, specific feedback before a
+  bad catalogue item reaches the service.
+- **Pre-conditions:** Equipment form validation is loaded.
+- **Steps:** Validate an empty form, quantities `0`, `-1`, and `1.5`, then a
+  complete form.
+- **Test data:** Type `Wireless Microphone`, description `Handheld wireless
+  microphone with receiver`, quantity `12`.
+- **Expected:** Empty/blank type and every invalid quantity are identified;
+  the complete form has no errors.
+- **Actual:** Each invalid form produced the expected field error; the complete form passed.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment form validates required catalogue fields`
+
+### TC-FRONTEND-037 — equipment operations use the authenticated Kong contract
+
+- **Scenario:** Catalogue screens call the S-39 gateway routes and do not send
+  server-owned state.
+- **Pre-conditions:** Fetch is recorded and returns a stored item.
+- **Steps:** List the catalogue, list selection options, and create the
+  complete item.
+- **Test data:** As TC-FRONTEND-036, plus client-supplied fake id, creator and
+  statuses that must not enter the request body.
+- **Expected:** Authenticated calls use `GET /api/equipment`,
+  `GET /api/equipment/selection`, and `POST /api/equipment`; the POST body is
+  exactly type, description and numeric total quantity.
+- **Actual:** All three calls used the specified paths and credentials; the POST omitted protected fields.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment operations use authenticated Kong routes and safe payloads`
+
+### TC-FRONTEND-038 — equipment errors are safe and actionable
+
+- **Scenario:** The form maps API failures to guidance without exposing
+  backend details.
+- **Pre-conditions:** Equipment error helpers are loaded.
+- **Steps:** Map `401`, `403`, `422`, and `500`, plus field errors for type and
+  total quantity.
+- **Test data:** Representative responses for each status.
+- **Expected:** The user is told to sign in, that their role is not permitted,
+  which fields to fix, or that the item was not saved; field names map to the
+  matching form controls.
+- **Actual:** Every status and field error mapped to the specified safe feedback.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment errors are safe and actionable`

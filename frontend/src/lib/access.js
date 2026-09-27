@@ -11,6 +11,8 @@ export const PERMISSIONS = Object.freeze({
   DECIDE_EVENT: 'events:decide',
   REQUEST_VENUE_BOOKING: 'venue_bookings:create',
   VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
+  CREATE_EQUIPMENT: 'equipment:create',
+  VIEW_EQUIPMENT_CATALOGUE: 'equipment:view_catalogue',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -63,7 +65,11 @@ export const ROLE_ACCESS = Object.freeze({
     label: 'Technical Support',
     dashboardPath: '/dashboard/technical-support',
     description: 'Your technical workspace is ready for assigned workflows.',
-    permissions: Object.freeze([...DASHBOARD_PERMISSION]),
+    permissions: Object.freeze([
+      ...DASHBOARD_PERMISSION,
+      PERMISSIONS.CREATE_EQUIPMENT,
+      PERMISSIONS.VIEW_EQUIPMENT_CATALOGUE,
+    ]),
   }),
   attendee: Object.freeze({
     label: 'Attendee',
