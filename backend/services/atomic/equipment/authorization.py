@@ -6,6 +6,7 @@ from security import get_current_user
 
 CREATE_PERMISSION = "equipment:create"
 UPDATE_PERMISSION = "equipment:update"
+RETIRE_PERMISSION = "equipment:retire"
 MANAGE_VIEW_PERMISSION = "equipment:view_catalogue"
 SELECTION_PERMISSION = "equipment:view_selection"
 
@@ -14,6 +15,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         {
             CREATE_PERMISSION,
             UPDATE_PERMISSION,
+            RETIRE_PERMISSION,
             MANAGE_VIEW_PERMISSION,
             SELECTION_PERMISSION,
         }

@@ -1,14 +1,14 @@
 # Test cases — equipment service (integration)
 
 Stories: S-39 Add Equipment Item; S-40 Record Required Equipment; S-41 Update
-Equipment Item Details.
+Equipment Item Details; S-42 Retire Equipment Item.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/integration/atomic/equipment` |
-| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
+| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
 | Environment | `.env.test`, Docker Compose, test Supabase project |
-| Result | 3 passed |
+| Result | 4 passed |
 
 ## Shared pre-conditions
 
@@ -84,3 +84,29 @@ Equipment Item Details.
 - **Actual:** Both edits appeared through Kong and the management catalogue; both statuses stayed out of selection; the same requirement row and quantity remained while its embedded catalogue fields updated.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_updated_item_is_immediate_and_preserves_requirement`
+
+## TC-EQUIPMENT-104 — retirement persists, is idempotent, and preserves existing requirements
+
+- **Scenario:** Prove S-42 through Kong, the real equipment schema, selection,
+  and the internal S-40 relationship boundary.
+- **Pre-conditions:** Shared; a temporary Technical Support user and Event
+  Coordinator exist; one active available item and one existing requirement
+  referencing it are stored.
+- **Steps:** Record the complete item and requirement rows; retire the item
+  through Kong; read detail and management catalogue; query Coordinator
+  selection; attempt a new requirement for another event; read the existing
+  requirement; inspect both tables directly; retire the item a second time.
+- **Test data:** `spm-test S42 Microphone <hex>`, total quantity `12`, existing
+  requested quantity `6`, two opaque event UUIDs.
+- **Expected:** Retirement returns `200` and changes only lifecycle status and
+  updated time. The item still exists and appears in catalogue/detail as
+  retired, but not selection. New requirement creation returns `409`. The old
+  requirement keeps the same id, event id, item id, and quantity and remains
+  readable with retired catalogue detail. Repeated retirement returns the same
+  retired row without changing unrelated fields or relationships.
+- **Actual:** The first action persisted retirement and changed only lifecycle
+  state and update time. Catalogue/detail retained the item, selection and new
+  requirement creation excluded it, the original relationship remained
+  unchanged, and the second action returned the exact first retired response.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_retirement_is_idempotent_and_preserves_existing_requirement`

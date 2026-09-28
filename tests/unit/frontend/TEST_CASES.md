@@ -10,9 +10,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
+| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 46 passed on the recorded S-41 run; combined S-28/main suite not rerun |
+| Result | 55 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -776,8 +776,8 @@ TC-FRONTEND-047 (originally TC-FRONTEND-036, then TC-FRONTEND-040
 on the S-28 branch). Earlier S-28 references to those IDs refer to this
 venue-edit case, not the equipment cases. No case was removed.
 
-The results below were recorded before conflict resolution. The combined
-suite has not been rerun; the header result describes the main-branch run.
+The S-28 result below records its original execution. The combined suite was
+rerun successfully on S-42; the header records that latest execution.
 
 Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
 
@@ -791,3 +791,44 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Actual: All 39 Node tests passed, including five S-28 cases.
 - Status: Pass
 - Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.
+
+## S-42 — retire equipment item
+
+S-28 already owns `TC-FRONTEND-047` on current `main`, so S-42 begins at the
+next unused frontend id.
+
+### TC-FRONTEND-048 — retirement uses the authenticated item action
+
+- **Steps:** Retire an item whose id requires URL encoding.
+- **Expected:** The client sends credentialed
+  `POST /api/equipment/{id}/retire` with no client-controlled lifecycle or
+  catalogue body and returns the retired item response.
+- **Actual:** The encoded, credentialed POST used the explicit retirement path
+  and sent no request body.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `retirement uses the authenticated item action without a lifecycle payload`
+
+### TC-FRONTEND-049 — only Technical Support sees a valid retirement action
+
+- **Scenario:** Presentation policy mirrors the backend while lifecycle state
+  prevents a meaningless repeat control.
+- **Steps:** Check retirement permission for every role and action visibility
+  for active and retired items; format the retired catalogue status.
+- **Expected:** Only Technical Support has retirement permission. Its active
+  items expose Retire; retired items remain visible with a clear Retired label
+  but no unretire or additional retirement action.
+- **Actual:** Only Technical Support received the permission; only active items
+  exposed the action, while retired items kept their Retired label.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only technical support can retire equipment` and `test_equipment.mjs` — `retirement actions and labels follow lifecycle state`
+
+### TC-FRONTEND-050 — retirement failures are actionable and never claim success
+
+- **Steps:** Map retirement failures for `401`, `403`, `404`, and `500`.
+- **Expected:** The user is told to sign in, that their role is not permitted,
+  that the item is missing, or that retirement failed. No success notice is
+  produced for a rejected request.
+- **Actual:** All four statuses mapped to safe, actionable feedback and server
+  failure messaging explicitly said the item was not retired.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `retirement failures are safe and actionable`
