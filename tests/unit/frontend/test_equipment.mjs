@@ -6,8 +6,13 @@ import {
   emptyEquipmentForm,
   equipmentErrorMessage,
   equipmentFieldErrorsToForm,
+  equipmentReadToForm,
+  equipmentStatusLabel,
+  equipmentUpdateFormToPayload,
+  getEquipment,
   listEquipment,
   listEquipmentSelection,
+  updateEquipment,
   validateEquipmentForm,
 } from '../../../frontend/src/lib/equipment.js'
 
@@ -28,6 +33,18 @@ const API_ITEM = {
   total_quantity: 12,
   operational_status: 'available',
   lifecycle_status: 'active',
+}
+
+const UPDATE_FORM = {
+  type: '  Radio Microphone  ',
+  description: '   ',
+  totalQuantity: '18',
+  operationalStatus: 'maintenance',
+  id: 'must-not-be-sent',
+  lifecycle_status: 'retired',
+  created_by: 'must-not-be-sent',
+  created_at: 'must-not-be-sent',
+  updated_at: 'must-not-be-sent',
 }
 
 // --- TC-FRONTEND-036 ----------------------------------------------------
@@ -95,5 +112,74 @@ test('equipment errors are safe and actionable', () => {
       type: 'String should have at least 1 character',
       total_quantity: 'Input should be greater than 0',
     },
+  )
+})
+
+// --- TC-FRONTEND-044 -----------------------------------------------------
+test('equipment edit mapping accepts exactly the S-41 fields and statuses', () => {
+  assert.deepEqual(equipmentReadToForm(API_ITEM), {
+    type: 'Wireless Microphone',
+    description: 'Handheld wireless microphone with receiver',
+    totalQuantity: '12',
+    operationalStatus: 'available',
+  })
+  assert.deepEqual(equipmentUpdateFormToPayload(UPDATE_FORM), {
+    type: 'Radio Microphone',
+    description: null,
+    total_quantity: 18,
+    operational_status: 'maintenance',
+  })
+
+  for (const operationalStatus of ['available', 'unavailable', 'maintenance']) {
+    assert.deepEqual(validateEquipmentForm({ ...UPDATE_FORM, operationalStatus }, { editing: true }), {})
+  }
+  assert.match(
+    validateEquipmentForm({ ...UPDATE_FORM, operationalStatus: 'damaged' }, { editing: true }).operational_status,
+    /status/i,
+  )
+})
+
+// --- TC-FRONTEND-045 -----------------------------------------------------
+test('equipment detail and update use authenticated Kong routes', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify(API_ITEM), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    await getEquipment('item/1')
+    await updateEquipment('item/1', UPDATE_FORM)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.deepEqual(calls.map(({ url, options }) => [options.method ?? 'GET', url]), [
+    ['GET', '/api/equipment/item%2F1'],
+    ['PUT', '/api/equipment/item%2F1'],
+  ])
+  assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    type: 'Radio Microphone',
+    description: null,
+    total_quantity: 18,
+    operational_status: 'maintenance',
+  })
+})
+
+// --- TC-FRONTEND-046 -----------------------------------------------------
+test('equipment catalogue status labels reflect stored state', () => {
+  assert.equal(equipmentStatusLabel(API_ITEM), 'Available · Active')
+  assert.equal(
+    equipmentStatusLabel({ ...API_ITEM, operational_status: 'unavailable' }),
+    'Unavailable · Active',
+  )
+  assert.equal(
+    equipmentStatusLabel({ ...API_ITEM, operational_status: 'maintenance', lifecycle_status: 'retired' }),
+    'Maintenance · Retired',
   )
 })

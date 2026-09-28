@@ -52,6 +52,9 @@ def equipment_ids(admin):
     ids: list[str] = []
     yield ids
     for item_id in ids:
+        admin.schema("equipment").table("requirements").delete().eq(
+            "equipment_item_id", item_id
+        ).execute()
         admin.schema("equipment").table("equipment").delete().eq("id", item_id).execute()
 
 
