@@ -2,8 +2,8 @@
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
-`test_request_venue.py`, `test_capacity_warning.py` and
-`test_record_equipment.py`. A real browser drives the built frontend through Kong,
+`test_request_venue.py`, `test_capacity_warning.py`,
+`test_record_equipment.py` and `test_update_equipment.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -11,9 +11,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-40/record-required-equipment`, merge working tree |
+| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 10 passed |
+| Result | 11 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -282,3 +282,23 @@ contract without a browser.
   quantity and event id after a fresh sign-in.
 - **Status:** Pass
 - **Evidence:** `test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support`
+
+## TC-E2E-212 — Technical Support edits an item and immediately sees the catalogue update
+
+- **Scenario:** S-41 browser journey proving the protected editor, populated
+  controls, update request, navigation, and refreshed management catalogue.
+- **Pre-conditions:** Complete test stack; a Technical Support user and active
+  available item exist.
+- **Steps:** Sign in as Technical Support; open the item's Edit action; change
+  its type, description, quantity, and operational status to `maintenance`;
+  save; return to the catalogue.
+- **Test data:** Existing `spm-e2e S41 Microphone <hex>` becomes
+  `spm-e2e S41 Radio Microphone <hex>`, description `Updated in browser`,
+  total `18`, status `maintenance`.
+- **Expected:** The editor starts with stored values. Saving returns to the
+  Technical Support dashboard with a success notice, and the catalogue row
+  immediately shows the new type, description, quantity, and Maintenance
+  status while the item remains visible.
+- **Actual:** The editor loaded every stored value; saving returned to the dashboard with confirmation and immediately showed the updated name, description, quantity, and Maintenance · Active label. Direct storage inspection matched.
+- **Status:** Pass
+- **Evidence:** `test_update_equipment.py::test_technical_support_updates_equipment_and_sees_it_immediately`

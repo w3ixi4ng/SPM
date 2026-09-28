@@ -37,6 +37,7 @@ app = app_module.app
 get_auth = database_module.get_auth
 get_db = database_module.get_db
 EquipmentCreate = schemas_module.EquipmentCreate
+EquipmentUpdate = schemas_module.EquipmentUpdate
 EquipmentRequirementWrite = schemas_module.EquipmentRequirementWrite
 
 STAFF_ID = "11111111-1111-4111-8111-111111111111"
@@ -48,6 +49,13 @@ VALID_ITEM = {
     "type": "Wireless Microphone",
     "description": "Handheld wireless microphone with receiver",
     "total_quantity": 12,
+}
+
+VALID_UPDATE = {
+    "type": "Radio Microphone",
+    "description": "Updated handheld microphone",
+    "total_quantity": 18,
+    "operational_status": "maintenance",
 }
 
 
@@ -118,6 +126,14 @@ def selection_operation(db):
         table(db)
         .select.return_value.eq.return_value.eq.return_value.order.return_value
     )
+
+
+def detail_operation(db):
+    return table(db).select.return_value.eq.return_value
+
+
+def update_operation(db):
+    return table(db).update.return_value.eq.return_value.select.return_value
 
 
 def returns(operation, rows):

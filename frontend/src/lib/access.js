@@ -12,6 +12,7 @@ export const PERMISSIONS = Object.freeze({
   REQUEST_VENUE_BOOKING: 'venue_bookings:create',
   VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
   CREATE_EQUIPMENT: 'equipment:create',
+  UPDATE_EQUIPMENT: 'equipment:update',
   VIEW_EQUIPMENT_CATALOGUE: 'equipment:view_catalogue',
   EDIT_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:edit',
   VIEW_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:view',
@@ -72,6 +73,7 @@ export const ROLE_ACCESS = Object.freeze({
     permissions: Object.freeze([
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.CREATE_EQUIPMENT,
+      PERMISSIONS.UPDATE_EQUIPMENT,
       PERMISSIONS.VIEW_EQUIPMENT_CATALOGUE,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
     ]),

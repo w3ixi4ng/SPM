@@ -10,9 +10,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-40/record-required-equipment`, merge working tree |
+| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 42 passed |
+| Result | 46 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -727,3 +727,43 @@ Acceptance criteria, as reworded by the developer for this scope:
   model rejected it as an extra field.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` and `test_schemas.py::test_draft_rejects_legacy_organiser_equipment_requests`
+
+## S-41 — update equipment item details
+
+### TC-FRONTEND-044 — the editor maps current and changed catalogue details
+
+- **Scenario:** A stored item can populate the editor and return the complete
+  S-41 update contract.
+- **Steps:** Map an API item to form state, validate it, then map changed form
+  state to an update payload.
+- **Test data:** Renamed microphone, blank optional description, quantity `18`,
+  and each allowed operational status; then blank type, invalid quantities,
+  and an unknown status.
+- **Expected:** Current values populate matching controls; valid fields map to
+  `type`, nullable `description`, numeric `total_quantity`, and
+  `operational_status`; invalid values receive field errors.
+- **Actual:** Stored fields populated the form, all three statuses validated, invalid status failed, and the payload contained exactly the four S-41 fields.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment edit mapping accepts exactly the S-41 fields and statuses`
+
+### TC-FRONTEND-045 — detail and update calls use authenticated Kong routes
+
+- **Steps:** Load and update an item whose id needs URL encoding.
+- **Expected:** Calls use `GET /api/equipment/{id}` and
+  `PUT /api/equipment/{id}`, include credentials, and the update body contains
+  only the four editable fields.
+- **Actual:** Both encoded, credentialed Kong calls used the expected methods and the update body omitted protected fields.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment detail and update use authenticated Kong routes`
+
+### TC-FRONTEND-046 — equipment status labels reflect management state
+
+- **Scenario:** Technical Support still sees unavailable and maintenance items
+  and can distinguish their status.
+- **Steps:** Format all three allowed operational statuses and both existing
+  lifecycle statuses for catalogue rows.
+- **Expected:** Human-readable labels come from the stored values rather than a
+  hardcoded `Available · Active` string.
+- **Actual:** Catalogue labels reflected all tested stored operational and lifecycle combinations.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment catalogue status labels reflect stored state`

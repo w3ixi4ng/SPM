@@ -13,6 +13,7 @@ from authorization import (
     CREATE_PERMISSION,
     MANAGE_VIEW_PERMISSION,
     SELECTION_PERMISSION,
+    UPDATE_PERMISSION,
     require_permission,
 )
 from database import get_db
@@ -22,6 +23,7 @@ from schemas import (
     EquipmentRequirementDetail,
     EquipmentRequirementRead,
     EquipmentRequirementWrite,
+    EquipmentUpdate,
 )
 from security import clear_session_cookies
 
@@ -130,6 +132,46 @@ def list_equipment_selection(
         .order("type")
     )
     return _execute(operation).data
+
+
+@app.get("/equipment/{equipment_item_id}", response_model=EquipmentRead)
+def get_equipment(
+    equipment_item_id: UUID,
+    user=Depends(require_permission(MANAGE_VIEW_PERMISSION)),
+    db: Client = Depends(get_db),
+):
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("id", str(equipment_item_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    return result.data[0]
+
+
+@app.put("/equipment/{equipment_item_id}", response_model=EquipmentRead)
+def update_equipment(
+    equipment_item_id: UUID,
+    payload: EquipmentUpdate,
+    user=Depends(require_permission(UPDATE_PERMISSION)),
+    db: Client = Depends(get_db),
+):
+    values = {
+        **payload.model_dump(mode="json"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(equipment_item_id))
+        .select("*")
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    return result.data[0]
 
 
 # Internal-only routes. They deliberately sit outside /equipment, so Kong's

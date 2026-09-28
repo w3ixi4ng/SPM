@@ -107,3 +107,14 @@ test('coordinators edit requirements and technical support can only view them', 
     assert.equal(hasPermission(role, PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS), view, role)
   }
 })
+
+// --- TC-FRONTEND-045 -------------------------------------------------------
+test('only technical support receives the equipment update permission', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    assert.equal(
+      hasPermission(role, PERMISSIONS.UPDATE_EQUIPMENT),
+      role === 'technical_support',
+      role,
+    )
+  }
+})
