@@ -3,7 +3,8 @@
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
-`test_record_equipment.py` and `test_update_equipment.py`.
+`test_record_equipment.py`, `test_update_equipment.py` and
+`test_retire_equipment.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -12,9 +13,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
+| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 11 passed on the recorded S-41 run; combined S-28/main suite not rerun |
+| Result | 14 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -311,8 +312,9 @@ TC-E2E-211 (S-39/S-40 equipment journey), and TC-E2E-212 (S-41 equipment edit).
 The S-28 staff-edit case is now TC-E2E-213 (originally TC-E2E-210,
 then TC-E2E-212 on the S-28 branch). The S-28 access-control case is
 now TC-E2E-214 (previously TC-E2E-211 on the S-28 branch).
-Earlier S-28 references retain those meanings; no case was removed.
-These recorded results precede this merge; the combined suite has not been rerun.
+Earlier S-28 references retain those meanings; no case was removed. The S-28
+results below retain their original evidence, and the combined suite was rerun
+successfully on S-42 as recorded in the header.
 
 Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chromium against freshly recreated `.env.test` Docker stack. Existing add-venue and coordinator read-only journeys also passed.
 
@@ -338,10 +340,39 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_coordinator_cannot_open_edit[chromium]`; local Chromium rerun, 1 passed.
 
+## S-42 — retire equipment item
+
+S-28 owns `TC-E2E-213` and `TC-E2E-214` on current `main`, so the S-42 journey
+uses the next unused E2E id.
+
+## TC-E2E-215 — retired equipment remains managed but disappears from new selection
+
+- **Scenario:** S-42 browser journey across Technical Support management and
+  the Event Coordinator's new-requirement editor.
+- **Pre-conditions:** Complete test stack; Technical Support, Coordinator, and
+  Organiser users; one active available item; one planning event assigned to
+  the Coordinator; no requirement yet exists for the item.
+- **Steps:** Sign in as Technical Support; retire the item from its catalogue
+  row and confirm the action; observe the refreshed row; sign out and sign in
+  as the Coordinator; open the planning event's equipment-requirement editor.
+- **Test data:** `spm-e2e S42 Microphone <hex>`, quantity `12`.
+- **Expected:** Retirement returns to or refreshes the Technical Support
+  catalogue with a success notice. The same item row remains visible and says
+  `Retired`. In the Coordinator editor, the retired item is absent from new
+  selection and no requirement can be entered for it.
+- **Actual:** Technical Support retired the active item and immediately saw the
+  same row labelled `Available · Retired` with no further Retire action. After
+  signing in as the assigned Coordinator, the planning event offered no
+  quantity input for that item.
+- **Status:** Pass
+- **Evidence:** `test_retire_equipment.py::test_retired_equipment_remains_managed_but_disappears_from_selection`
+
+S-37 IDs reconciled after merging S-42: TC-E2E-215 -> TC-E2E-216. Earlier S-37 references identify the same cases.
+
 ## S-37 confirmed specifications
 
 Confirmed by the developer on 2026-09-28, with no reassignment exception.
-S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
 S-37/approve-reject-booking-with-reason-or-alternative.
 Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
 Approval stores `status=confirmed`; rejection stores `status=rejected`.
@@ -349,7 +380,7 @@ Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `dec
 B means the saved booking fixture; S means the authenticated deciding staff UUID.
 No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 
-### TC-E2E-215 — Staff decide requests and Coordinators see the saved results
+### TC-E2E-216 — Staff decide requests and Coordinators see the saved results
 
 - **Scenario:** Staff decide requests and Coordinators see the saved results (AC1, AC2, AC3).
 - **Pre-conditions:** Fresh .env.test stack, developer-applied SQL and Chromium; isolated staff/coordinator fixtures with pending requests.

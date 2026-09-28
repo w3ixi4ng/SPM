@@ -44,7 +44,7 @@ the table, the grants, the schema exposure and the connection all at once.
 ## S-37 confirmed specifications
 
 Confirmed by the developer on 2026-09-28, with no reassignment exception.
-S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
 S-37/approve-reject-booking-with-reason-or-alternative.
 Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
 Approval stores `status=confirmed`; rejection stores `status=rejected`.

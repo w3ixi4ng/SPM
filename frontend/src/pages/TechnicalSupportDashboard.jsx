@@ -1,11 +1,18 @@
-import { CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
+import { Archive, CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
-import { getRoleAccess } from '../lib/access.js'
-import { equipmentErrorMessage, equipmentStatusLabel, listEquipment } from '../lib/equipment.js'
+import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
+import {
+  canRetireEquipment,
+  equipmentErrorMessage,
+  equipmentRetirementErrorMessage,
+  equipmentStatusLabel,
+  listEquipment,
+  retireEquipment,
+} from '../lib/equipment.js'
 
 const C = {
   ink: '#10192B',
@@ -38,6 +45,7 @@ export default function TechnicalSupportDashboard({ role }) {
   const access = getRoleAccess(role)
   const [catalogue, setCatalogue] = useState({ status: 'loading', items: [], error: null })
   const [notice, setNotice] = useState(location.state?.notice ?? null)
+  const [retirement, setRetirement] = useState({ itemId: null, error: null })
 
   const loadCatalogue = useCallback(async () => {
     try {
@@ -71,6 +79,26 @@ export default function TechnicalSupportDashboard({ role }) {
   async function handleSignOut() {
     await signOut()
     navigate('/login', { replace: true })
+  }
+
+  async function handleRetire(item) {
+    if (!window.confirm(`Retire ${item.type}? It will no longer be available for new equipment requests.`)) return
+
+    setRetirement({ itemId: item.id, error: null })
+    setNotice(null)
+    try {
+      const retired = await retireEquipment(item.id)
+      setCatalogue((current) => ({
+        ...current,
+        items: current.items.map((catalogueItem) => (
+          catalogueItem.id === retired.id ? retired : catalogueItem
+        )),
+      }))
+      setNotice(`${retired.type} was retired from new equipment requests.`)
+      setRetirement({ itemId: null, error: null })
+    } catch (error) {
+      setRetirement({ itemId: null, error: equipmentRetirementErrorMessage(error) })
+    }
   }
 
   return (
@@ -137,6 +165,7 @@ export default function TechnicalSupportDashboard({ role }) {
             </Link>
           </div>
           {notice && <p role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</p>}
+          {retirement.error && <p role="alert" className="font-ui text-sm mb-4" style={{ color: '#A13D3D' }}>{retirement.error}</p>}
           {catalogue.status === 'loading' && <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading equipment…</p>}
           {catalogue.status === 'error' && (
             <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
@@ -162,15 +191,30 @@ export default function TechnicalSupportDashboard({ role }) {
                       <p className="font-ui text-xs" style={{ color: item.operational_status === 'available' ? C.green : C.inkFaint }}>
                         {equipmentStatusLabel(item)}
                       </p>
-                      <Link
-                        to={`/equipment/${encodeURIComponent(item.id)}/edit`}
-                        aria-label={`Edit ${item.type}`}
-                        className="inline-flex items-center gap-1.5 font-ui text-xs font-medium"
-                        style={{ color: C.teal }}
-                      >
-                        <Pencil size={13} aria-hidden="true" />
-                        Edit
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Link
+                          to={`/equipment/${encodeURIComponent(item.id)}/edit`}
+                          aria-label={`Edit ${item.type}`}
+                          className="inline-flex items-center gap-1.5 font-ui text-xs font-medium"
+                          style={{ color: C.teal }}
+                        >
+                          <Pencil size={13} aria-hidden="true" />
+                          Edit
+                        </Link>
+                        {hasPermission(role, PERMISSIONS.RETIRE_EQUIPMENT) && canRetireEquipment(item) && (
+                          <button
+                            type="button"
+                            aria-label={`Retire ${item.type}`}
+                            disabled={retirement.itemId === item.id}
+                            onClick={() => { void handleRetire(item) }}
+                            className="inline-flex items-center gap-1.5 font-ui text-xs font-medium disabled:opacity-50"
+                            style={{ color: C.inkFaint }}
+                          >
+                            <Archive size={13} aria-hidden="true" />
+                            {retirement.itemId === item.id ? 'Retiring…' : 'Retire'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </li>

@@ -118,3 +118,14 @@ test('only technical support receives the equipment update permission', () => {
     )
   }
 })
+
+// --- TC-FRONTEND-049 -------------------------------------------------------
+test('only technical support can retire equipment', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    assert.equal(
+      hasPermission(role, PERMISSIONS.RETIRE_EQUIPMENT),
+      role === 'technical_support',
+      role,
+    )
+  }
+})

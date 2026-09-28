@@ -1,4 +1,6 @@
-"""Endpoint tests for the S-39 equipment atomic service."""
+"""Endpoint tests for the equipment atomic service."""
+
+from types import SimpleNamespace
 
 import pytest
 
@@ -392,6 +394,166 @@ def test_s41_storage_failures_are_safe(client, db, auth, method):
     else:
         update_operation(db).execute.side_effect = Exception("database secret")
         response = client.put(f"/equipment/{ITEM_ID}", json=VALID_UPDATE)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Equipment storage unavailable"}
+    assert "database secret" not in response.text
+
+
+# --- TC-EQUIPMENT-025 ----------------------------------------------------
+def test_technical_support_retires_an_item_idempotently(client, db, auth):
+    authenticate(client, auth)
+    active = equipment_row(operational_status="maintenance")
+    retired = equipment_row(
+        operational_status="maintenance",
+        lifecycle_status="retired",
+        updated_at="2026-09-28T02:00:00Z",
+    )
+    detail_operation(db).execute.side_effect = [
+        SimpleNamespace(data=[active]),
+        SimpleNamespace(data=[retired]),
+    ]
+    returns(update_operation(db), [retired])
+
+    first = client.post(f"/equipment/{ITEM_ID}/retire")
+    second = client.post(f"/equipment/{ITEM_ID}/retire")
+
+    assert first.status_code == 200
+    assert first.json() == retired
+    assert second.status_code == 200
+    assert second.json() == retired
+    assert second.json()["updated_at"] == first.json()["updated_at"]
+    values = table(db).update.call_args.args[0]
+    assert set(values) == {"lifecycle_status", "updated_at"}
+    assert values["lifecycle_status"] == "retired"
+    assert values["updated_at"] != active["updated_at"]
+    table(db).update.assert_called_once()
+
+    unchanged = (
+        "id",
+        "type",
+        "description",
+        "total_quantity",
+        "operational_status",
+        "created_by",
+        "created_at",
+    )
+    for field in unchanged:
+        assert first.json()[field] == active[field]
+
+
+# --- TC-EQUIPMENT-026 ----------------------------------------------------
+def test_retirement_requires_a_session(client, db):
+    response = client.post(f"/equipment/{ITEM_ID}/retire")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+    db.schema.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "role", ["event_organiser", "event_coordinator", "venue_staff", "attendee"]
+)
+def test_only_technical_support_retires_equipment(client, db, auth, role):
+    authenticate(client, auth, fake_user(role=role))
+
+    response = client.post(f"/equipment/{ITEM_ID}/retire")
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Permission denied"}
+    db.schema.assert_not_called()
+
+
+# --- TC-EQUIPMENT-027 ----------------------------------------------------
+def test_retiring_missing_item_returns_404(client, db, auth):
+    authenticate(client, auth)
+    returns(detail_operation(db), [])
+
+    response = client.post(f"/equipment/{ITEM_ID}/retire")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Equipment item not found"}
+    table(db).update.assert_not_called()
+
+
+# --- TC-EQUIPMENT-028 ----------------------------------------------------
+def test_retired_item_is_excluded_from_selection(client, db, auth):
+    authenticate(client, auth)
+    returns(selection_operation(db), [])
+
+    response = client.get("/equipment/selection")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    first_filter = table(db).select.return_value.eq
+    first_filter.assert_called_once_with("operational_status", "available")
+    first_filter.return_value.eq.assert_called_once_with("lifecycle_status", "active")
+
+
+def test_retired_item_is_refused_for_new_requirements(client, db):
+    returns(_usable_item_operation(db), [])
+
+    response = client.put(
+        f"/internal/equipment-requirements/{EVENT_ID}/{ITEM_ID}",
+        json={"required_quantity": 6, "recorded_by_coordinator_id": STAFF_ID},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Equipment item is not available for new requirements"
+    }
+    table(db).upsert.assert_not_called()
+
+
+def test_existing_requirement_remains_readable_after_retirement(client, db):
+    retired_detail = requirement_detail()
+    retired_detail["equipment"]["lifecycle_status"] = "retired"
+    operation = table(db).select.return_value.eq.return_value.order.return_value
+    returns(operation, [retired_detail])
+
+    response = client.get(
+        "/internal/equipment-requirements", params={"event_id": EVENT_ID}
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == retired_detail["id"]
+    assert response.json()[0]["event_id"] == retired_detail["event_id"]
+    assert response.json()[0]["equipment_item_id"] == retired_detail["equipment_item_id"]
+    assert response.json()[0]["required_quantity"] == 6
+    assert response.json()[0]["equipment"]["lifecycle_status"] == "retired"
+
+
+def test_retirement_never_deletes_or_mutates_requirements(client, db, auth):
+    authenticate(client, auth)
+    returns(detail_operation(db), [equipment_row()])
+    returns(
+        update_operation(db),
+        [equipment_row(lifecycle_status="retired", updated_at="2026-09-28T02:00:00Z")],
+    )
+
+    response = client.post(f"/equipment/{ITEM_ID}/retire")
+
+    assert response.status_code == 200
+    assert [entry.args for entry in db.schema.return_value.table.call_args_list] == [
+        ("equipment",),
+        ("equipment",),
+    ]
+    table(db).insert.assert_not_called()
+    table(db).upsert.assert_not_called()
+    table(db).delete.assert_not_called()
+
+
+# --- TC-EQUIPMENT-029 ----------------------------------------------------
+@pytest.mark.parametrize("failure", ["lookup", "update"])
+def test_retirement_storage_failures_are_safe(client, db, auth, failure):
+    authenticate(client, auth)
+    if failure == "lookup":
+        detail_operation(db).execute.side_effect = Exception("database secret")
+    else:
+        returns(detail_operation(db), [equipment_row()])
+        update_operation(db).execute.side_effect = Exception("database secret")
+
+    response = client.post(f"/equipment/{ITEM_ID}/retire")
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Equipment storage unavailable"}

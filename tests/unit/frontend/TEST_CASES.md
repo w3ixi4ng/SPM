@@ -10,9 +10,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
+| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 46 passed on the recorded S-41 run; combined S-28/main suite not rerun |
+| Result | 55 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -776,8 +776,8 @@ TC-FRONTEND-047 (originally TC-FRONTEND-036, then TC-FRONTEND-040
 on the S-28 branch). Earlier S-28 references to those IDs refer to this
 venue-edit case, not the equipment cases. No case was removed.
 
-The results below were recorded before conflict resolution. The combined
-suite has not been rerun; the header result describes the main-branch run.
+The S-28 result below records its original execution. The combined suite was
+rerun successfully on S-42; the header records that latest execution.
 
 Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
 
@@ -792,10 +792,53 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Status: Pass
 - Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.
 
+## S-42 — retire equipment item
+
+S-28 already owns `TC-FRONTEND-047` on current `main`, so S-42 begins at the
+next unused frontend id.
+
+### TC-FRONTEND-048 — retirement uses the authenticated item action
+
+- **Steps:** Retire an item whose id requires URL encoding.
+- **Expected:** The client sends credentialed
+  `POST /api/equipment/{id}/retire` with no client-controlled lifecycle or
+  catalogue body and returns the retired item response.
+- **Actual:** The encoded, credentialed POST used the explicit retirement path
+  and sent no request body.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `retirement uses the authenticated item action without a lifecycle payload`
+
+### TC-FRONTEND-049 — only Technical Support sees a valid retirement action
+
+- **Scenario:** Presentation policy mirrors the backend while lifecycle state
+  prevents a meaningless repeat control.
+- **Steps:** Check retirement permission for every role and action visibility
+  for active and retired items; format the retired catalogue status.
+- **Expected:** Only Technical Support has retirement permission. Its active
+  items expose Retire; retired items remain visible with a clear Retired label
+  but no unretire or additional retirement action.
+- **Actual:** Only Technical Support received the permission; only active items
+  exposed the action, while retired items kept their Retired label.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only technical support can retire equipment` and `test_equipment.mjs` — `retirement actions and labels follow lifecycle state`
+
+### TC-FRONTEND-050 — retirement failures are actionable and never claim success
+
+- **Steps:** Map retirement failures for `401`, `403`, `404`, and `500`.
+- **Expected:** The user is told to sign in, that their role is not permitted,
+  that the item is missing, or that retirement failed. No success notice is
+  produced for a rejected request.
+- **Actual:** All four statuses mapped to safe, actionable feedback and server
+  failure messaging explicitly said the item was not retired.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `retirement failures are safe and actionable`
+
+S-37 IDs reconciled after merging S-42: TC-FRONTEND-048 -> TC-FRONTEND-051, TC-FRONTEND-049 -> TC-FRONTEND-052. Earlier S-37 references identify the same cases.
+
 ## S-37 confirmed specifications
 
 Confirmed by the developer on 2026-09-28, with no reassignment exception.
-S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
 S-37/approve-reject-booking-with-reason-or-alternative.
 Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
 Approval stores `status=confirmed`; rejection stores `status=rejected`.
@@ -803,7 +846,7 @@ Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `dec
 B means the saved booking fixture; S means the authenticated deciding staff UUID.
 No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 
-### TC-FRONTEND-048 — Decision form validation and permissions match backend policy
+### TC-FRONTEND-051 — Decision form validation and permissions match backend policy
 
 - **Scenario:** Decision form validation and permissions match backend policy (AC1, AC2).
 - **Pre-conditions:** Pure frontend helpers loaded; no network.
@@ -811,11 +854,11 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Check all five role permissions.
 - **Test data:** approved with no reason; rejected with reason='Repairs', alternative='Try Studio C', both, or whitespace only.
 - **Expected:** Only Venue Staff receive decision permission. Approval needs no text; rejection requires one trimmed nonblank field. Unknown decisions invalid.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_booking_decision.mjs`; local execution, no CI run. Node IDs/test names: `only venue staff have booking decision permission; approval needs no reason and rejection needs reason or alternative`.
 
-### TC-FRONTEND-049 — Decision API and saved status presentation
+### TC-FRONTEND-052 — Decision API and saved status presentation
 
 - **Scenario:** Decision API and saved status presentation (AC1, AC2, AC3).
 - **Pre-conditions:** Mock fetch records requests and returns saved booking or error.
@@ -823,6 +866,6 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Map all three statuses and errors.
 - **Test data:** B=44444444-4444-4444-8444-444444444444; rejected; alternative='  Try Friday  '; extra decided_by; HTTP401,403,404,409,422,500 and network failure.
 - **Expected:** Credentialled POST /api/venue-bookings/B/decision sends only decision/reason/alternative with trimming. Distinct Pending, Confirmed and Rejected labels; safe actionable errors; no false saved message. Server-owned fields excluded.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_booking_decision.mjs`; local execution, no CI run. Node IDs/test names: `decision call uses credentialled gateway route and only permitted fields; saved booking statuses have distinct labels and safe failure messages`.

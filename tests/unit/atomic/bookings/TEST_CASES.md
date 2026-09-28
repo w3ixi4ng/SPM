@@ -280,7 +280,7 @@ so the list can also be filtered by `event_id`.
 ## S-37 confirmed specifications
 
 Confirmed by the developer on 2026-09-28, with no reassignment exception.
-S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
 S-37/approve-reject-booking-with-reason-or-alternative.
 Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
 Approval stores `status=confirmed`; rejection stores `status=rejected`.
@@ -296,7 +296,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Inspect the update and response.
 - **Test data:** decision=approved; reason omitted; alternative omitted.
 - **Expected:** 200; status confirmed; decided_by=S; server decided_at; update matches both B.id and status=pending. Only decision fields/status change; every original request field and submitted_at remain identical.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_decision_preserves_request`.
 
@@ -308,7 +308,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Inspect normalized values and database calls.
 - **Test data:** (reason, alternative): ('Room needs repairs', null), (null, 'Try Studio C at 14:00'), ('Repairs', 'Try Friday'), ('  ', '\t'), (null, null).
 - **Expected:** First three succeed with rejected status and trimmed text; last two return 422 without writing. Alternative never changes venue/date/time or creates another row.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_decision_preserves_request; test_invalid_decision_never_writes`.
 
@@ -320,7 +320,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Inspect writes.
 - **Test data:** decision=pending or cancelled; reason=42; alternative=[]; extra status, decided_by, decided_at, venue_id or booking_date.
 - **Expected:** 422 for each invalid payload; no storage mutation. Valid approval may include optional explanation; blank optional text becomes null.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_invalid_decision_never_writes`.
 
@@ -332,7 +332,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Attempt a decision on missing UUID.
 - **Test data:** B previously confirmed by S at 2026-09-28T01:00:00Z; competing decision=rejected with reason='Changed mind'.
 - **Expected:** Existing final B returns 409; missing B returns 404; stored outcome, explanation, staff and time are unchanged. No unconditional retry update.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_no_conditional_match_is_conflict_or_missing`.
 
@@ -344,7 +344,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Try forged staff identity in body/headers.
 - **Test data:** roles=event_coordinator,event_organiser,technical_support,attendee,venue_staff; forged decided_by UUID.
 - **Expected:** Missing/invalid credentials return 401; nonstaff 403; no denied write. Valid staff succeeds with trusted identity, never caller-supplied identity. Use existing local token-verification conventions, not an atomic-to-users HTTP call.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_direct_nonstaff_call_forbidden; test_missing_and_invalid_session`.
 
@@ -356,6 +356,6 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. List saved pending and final records using response schema.
 - **Test data:** Exception text='private database diagnostic'; statuses pending,confirmed,rejected.
 - **Expected:** Decision returns safe 500 without raw diagnostic or false success; response schema accepts existing pending rows with null decision fields and final rows with metadata.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_storage_failure_safe; test_decision_preserves_request`.

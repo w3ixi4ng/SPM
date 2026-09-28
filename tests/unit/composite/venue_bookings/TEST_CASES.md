@@ -540,7 +540,7 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 ## S-37 confirmed specifications
 
 Confirmed by the developer on 2026-09-28, with no reassignment exception.
-S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
 S-37/approve-reject-booking-with-reason-or-alternative.
 Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
 Approval stores `status=confirmed`; rejection stores `status=rejected`.
@@ -556,7 +556,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Inspect forwarded request.
 - **Test data:** POST /venue-bookings/B/decision; approved; rejected with reason='Repairs'.
 - **Expected:** 401 without valid session; 403 for nonstaff; staff request forwards authenticated credentials to atomic decision route. No event/venue/hold mutation; identity fields cannot be forged.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_staff_decision_forwarded_with_credentials; test_nonstaff_cannot_decide; test_missing_session_denied`.
 
@@ -568,7 +568,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Simulate downstream failures.
 - **Test data:** HTTP 200,401,403,404,409,422,500; timeout; unknown decision and extra decided_at.
 - **Expected:** Successful saved record returned; expected client errors retain status and safe guidance; upstream failure/timeout produces safe 502 without false success. Invalid body does not mutate storage.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_safe_downstream_errors; test_timeout_is_safe; test_invalid_body_never_forwarded`.
 
@@ -580,6 +580,6 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Repeat with users/events/bookings failures.
 - **Test data:** C1=11111111-1111-4111-8111-111111111111; C2=22222222-2222-4222-8222-222222222222; C3=33333333-3333-4333-8333-333333333333.
 - **Expected:** Existing TC-VENUEBOOKINGS-028 remains authoritative: C1 and C3 receive 404; C2 retains existing assigned-event access, including saved decisions. Other roles remain forbidden. Upstream failures do not grant fallback access or appear as an empty success. Full event access stays assignment-only.
-- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_reassigned_requester_still_denied; test_assigned_coordinator_sees_saved_decision; test_app.py::test_listing_an_events_requests_is_a_502_when_a_service_is_down`.
