@@ -13,6 +13,7 @@ SERVICE = Path(__file__).resolve().parents[4] / "backend" / "services" / "atomic
 
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
+os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
 
 # Services use flat imports because each Docker image runs from its own folder.
 # Load this service while preserving any same-named modules another service's

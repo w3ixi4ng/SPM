@@ -106,13 +106,39 @@ export function listVenueBookingsForEvent(eventId) {
   return requestJSON(`/venue-bookings?event_id=${encodeURIComponent(eventId)}`)
 }
 
-// Only pending exists until Venue Staff can approve or reject.
 const BOOKING_STATUS_META = {
   pending: { label: 'Pending', color: '#B5842B' },
+  confirmed: { label: 'Confirmed', color: '#3F8F5F' },
+  rejected: { label: 'Rejected', color: '#B25547' },
 }
 
 export function bookingStatusMeta(status) {
   return BOOKING_STATUS_META[status] ?? { label: status, color: '#4C5A70' }
+}
+
+export function validateBookingDecision({ decision, reason = '', alternative = '' }) {
+  if (!['approved', 'rejected'].includes(decision)) return 'Choose Approve or Reject.'
+  if (decision === 'rejected' && !reason.trim() && !alternative.trim()) {
+    return 'Provide a reason or alternative to reject this request.'
+  }
+  return null
+}
+
+export function decideVenueBooking(id, { decision, reason = '', alternative = '' }) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision, reason: reason.trim() || null, alternative: alternative.trim() || null }),
+  })
+}
+
+export function bookingDecisionErrorMessage(error) {
+  if (error.status === 401) return 'Your session has expired. Please sign in again.'
+  if (error.status === 403) return 'Only Venue Staff can decide booking requests.'
+  if (error.status === 404) return 'This booking request could not be found. Reload the list.'
+  if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
+  if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
+  return 'We could not confirm whether your decision was saved. Reload the list before trying again.'
 }
 
 // "09:00:00" -> "09:00"

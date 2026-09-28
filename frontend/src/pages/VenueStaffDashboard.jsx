@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import BookingDecisionForm from '../components/BookingDecisionForm.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
@@ -76,7 +77,7 @@ function listLabel(codes) {
   return codes.length > 0 ? codes.map(optionLabel).join(', ') : null
 }
 
-function PendingBooking({ booking }) {
+function PendingBooking({ booking, canDecide, onDecided }) {
   return (
     <li className="py-5 first:pt-0 last:pb-0" style={{ borderColor: C.line }}>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
@@ -106,11 +107,12 @@ function PendingBooking({ booking }) {
       <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>
         Requested by {booking.coordinator_name} ({booking.coordinator_email})
       </p>
+      {canDecide && <BookingDecisionForm booking={booking} onDecided={onDecided} />}
     </li>
   )
 }
 
-function PendingBookings({ bookings, loading, error, onRetry }) {
+function PendingBookings({ bookings, loading, error, onRetry, canDecide, onDecided }) {
   if (loading) {
     return <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading booking requests…</p>
   }
@@ -133,7 +135,7 @@ function PendingBookings({ bookings, loading, error, onRetry }) {
   }
   return (
     <ul className="divide-y" aria-label="Pending booking requests">
-      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} />)}
+      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} canDecide={canDecide} onDecided={onDecided} />)}
     </ul>
   )
 }
@@ -232,6 +234,8 @@ export default function VenueStaffDashboard({ role }) {
               loading={pending.loading}
               error={pending.error}
               onRetry={pending.reload}
+              canDecide={hasPermission(role, PERMISSIONS.DECIDE_VENUE_BOOKING)}
+              onDecided={() => { setNotice('Booking decision saved.'); pending.reload() }}
             />
           </section>
         )}

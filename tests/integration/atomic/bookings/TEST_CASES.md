@@ -40,3 +40,39 @@ the table, the grants, the schema exposure and the connection all at once.
 - **Actual:** `201` pending with `submitted_at`; listed as pending; one row in `bookings.bookings` with the options as sent; removed on teardown.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_booking_saved_through_the_service_is_listed_as_pending`
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-BOOKINGS-102 — Decisions persist while original requests remain intact
+
+- **Scenario:** Decisions persist while original requests remain intact (AC1, AC2).
+- **Pre-conditions:** Fresh .env.test stack only; additive SQL applied by developer; test staff and two pending fixtures exist. Cleanup removes only test-created rows.
+- **Steps:** 1. Capture both requests.
+  2. Approve one and reject the other with alternative only.
+  3. Read through API and test database; repeat decision; call directly as nonstaff.
+- **Test data:** Venue Studio B; date 2026-11-12; 09:00-12:00; capacity snapshot 100; alternative='Try Studio C at 14:00'.
+- **Expected:** Confirmed/rejected status and correct staff/server timestamp persist; explanations persist; every original field unchanged; no extra booking created; no decided row in pending list. Repeat=409; direct nonstaff mutation denied.
+- **Actual:** Not run; developer confirmation of S-37 SQL on dev and test is pending.
+- **Status:** Blocked
+- **Evidence:** Test code added; real execution pending database confirmation and fresh .env.test stack.
+
+### TC-BOOKINGS-103 — Concurrent decisions on the same request have one winner
+
+- **Scenario:** Concurrent decisions on the same request have one winner (AC1, AC2).
+- **Pre-conditions:** Approved test environment and migrated schema; one pending fixture; two authenticated staff.
+- **Steps:** 1. Send simultaneous approval and rejection.
+  2. Read final row; attempt another decision.
+- **Test data:** Same booking UUID; S1 approves; S2 rejects with reason='Repairs'.
+- **Expected:** Exactly one 200 and one 409; stored metadata belongs entirely to the winner; later attempt 409. This proves same-request concurrency only, not S-38 overlap protection across different requests.
+- **Actual:** Not run; developer confirmation of S-37 SQL on dev and test is pending.
+- **Status:** Blocked
+- **Evidence:** Test code added; real execution pending database confirmation and fresh .env.test stack.

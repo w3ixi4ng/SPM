@@ -3,19 +3,22 @@
 Atomic FastAPI service for venue booking requests (S-36). It owns
 `bookings.bookings` and never queries another service's tables.
 
-It stores and lists requests and nothing else. Whether a venue can take a
+It stores and lists requests and records final staff decisions. Whether a venue can take a
 request is decided by the [`venue_bookings`](../../composite/venue_bookings/README.md)
 composite before it writes here, because that needs the event and the venue.
 
-**No browser reaches this service.** There is no Kong route and no session
-check; the only caller is `venue_bookings`, inside the Docker network — the
-same arrangement as the events service's internal routes.
+There is no direct Kong route. The composite calls this service; its port is
+also published for testing. S-37's decision endpoint independently verifies
+the access-token cookie through Supabase Auth and requires trusted
+`app_metadata.role=venue_staff`. Existing create/list endpoints retain their
+internal-service contract. Atomic services never call the users service.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/bookings` | Store a checked booking request as `pending`. |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending request. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/health` | Liveness check. |
@@ -122,3 +125,84 @@ docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/atomic/bookings
 ```
+
+## S-37 decisions
+
+Request: `POST /bookings/{id}/decision` (UUID path parameter), with
+the `sb_access_token` session cookie. The gateway equivalent is
+`POST /api/venue-bookings/{id}/decision`.
+
+```json
+{"decision":"rejected","reason":"Room needs repairs","alternative":"Try Studio C on Friday"}
+```
+
+`decision` is required, either `approved` or `rejected`. Optional `reason`
+and `alternative` are strings or null; whitespace is trimmed and blanks become
+null. Rejection requires at least one nonblank explanation. Approval needs
+neither; both may be supplied. Other fields, including staff ID/time, are
+rejected. An alternative is a suggestion, never a booking or hold.
+
+200 returns the full original BookingRead request, with these decision fields:
+```json
+{"status":"rejected","decision_reason":"Room needs repairs","decision_alternative":"Try Studio C on Friday","decided_by":"abababab-abab-4bab-8bab-abababababab","decided_at":"2026-09-28T01:00:00Z"}
+```
+The JSON above shows the added fields; the response also includes all original
+request fields documented above. Approval returns `status=confirmed`.
+Pending records have null decision fields. Server identity comes from verified
+Auth app metadata; time comes from the server. No request snapshot is rewritten.
+
+| Status | JSON body / meaning |
+| --- | --- |
+| 401 | `{"detail":"Not authenticated"}` — sign in again, including after an expired access token |
+| 403 | `{"detail":"Permission denied"}` — only Venue Staff may decide |
+| 404 | `{"detail":"Booking not found"}` |
+| 409 | `{"detail":"This booking request has already been decided"}` |
+| 422 | `{"detail":"Please check the details you entered","errors":{"body":"Value error, Provide a reason or alternative to reject this request"}}` — body validation; field/path errors vary |
+| 500 | `{"detail":"Booking storage unavailable"}` — database failure; unexpected failures use `{"detail":"Internal server error"}` |
+
+The composite maps downstream 500/network failures to 502 and sanitizes error
+messages. On uncertain network failure, reload before retrying: the write may
+have succeeded. Final requests cannot be decided again.
+
+### Database setup and release dependency
+
+Existing projects: copy the entire block between
+`BEGIN S-37 DATA-PRESERVING MIGRATION` and
+`END S-37 DATA-PRESERVING MIGRATION` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the Supabase SQL
+Editor, first in development and then in test. Run the whole transaction.
+It adds four nullable columns and replaces check constraints; it does not
+delete or rewrite requests. Do not uncomment the destructive schema-drop line.
+
+For a fresh database run the complete file. In both projects, confirm
+`bookings` is exposed under Data API Settings and existing service_role
+usage/table grants are present. No new schema, port, secret or browser grant is
+required. Docker now passes the existing SUPABASE_ANON_KEY into bookings for
+session verification. Confirm both setups before real integration/browser tests.
+
+**S-38 release dependency:** the conditional update in `decide_booking`:
+`UPDATE bookings.bookings SET status='confirmed', ... WHERE id=? AND status='pending'`
+must be protected against overlapping confirmations of different requests for
+the same venue/date/time. S-37 prevents two decisions on the same request only.
+It does not check or reserve venue availability, create another booking row,
+change the venue record, or implement S-33 holds. Do not release with a
+double-booking guarantee until S-38 enforces it atomically.
+
+### S-37 verification
+
+From the repository root:
+```powershell
+python -m pytest tests/unit/atomic/bookings tests/unit/composite/venue_bookings -q
+node --test tests/unit/frontend/test_*.mjs
+```
+
+After the developer confirms the SQL on dev and test, recreate the test stack
+immediately before running real tests (these create and clean up test data):
+```powershell
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+python -m pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings -q
+python -m pytest tests/e2e/test_decide_booking.py -q
+```
+For development, after dev SQL setup: `docker compose up -d --build --wait`.
+Open Kong, or run `npm.cmd run dev` from frontend for hot reload.

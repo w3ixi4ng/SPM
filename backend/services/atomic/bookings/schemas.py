@@ -40,9 +40,8 @@ RoomLayout = Literal[
     "cocktail",
 ]
 
-# S-36 only ever creates pending requests. Venue Staff's approve/reject adds
-# the other statuses in its own story.
-BookingStatus = Literal["pending"]
+# S-36 creates pending requests; S-37 records final staff decisions.
+BookingStatus = Literal["pending", "confirmed", "rejected"]
 
 
 def _unique_in_order(values: list) -> list:
@@ -107,6 +106,10 @@ class BookingCreate(BaseModel):
 
 
 class BookingRead(BaseModel):
+    decision_reason: str | None = None
+    decision_alternative: str | None = None
+    decided_by: UUID | None = None
+    decided_at: datetime | None = None
     id: UUID
     event_id: UUID
     venue_id: UUID
@@ -127,3 +130,24 @@ class BookingRead(BaseModel):
     notes: str | None
     venue_name: str
     submitted_at: datetime
+
+
+class BookingDecision(BaseModel):
+    """Final decision only; request snapshots and audit fields are server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected"]
+    reason: str | None = None
+    alternative: str | None = None
+
+    @field_validator("reason", "alternative", mode="before")
+    @classmethod
+    def trim_explanation(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def rejection_needs_explanation(self):
+        if self.decision == "rejected" and not (self.reason or self.alternative):
+            raise ValueError("Provide a reason or alternative to reject this request")
+        return self

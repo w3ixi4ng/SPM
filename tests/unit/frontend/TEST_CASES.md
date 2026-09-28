@@ -791,3 +791,38 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Actual: All 39 Node tests passed, including five S-28 cases.
 - Status: Pass
 - Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-FRONTEND-048 — Decision form validation and permissions match backend policy
+
+- **Scenario:** Decision form validation and permissions match backend policy (AC1, AC2).
+- **Pre-conditions:** Pure frontend helpers loaded; no network.
+- **Steps:** 1. Validate approval and rejection variants.
+  2. Check all five role permissions.
+- **Test data:** approved with no reason; rejected with reason='Repairs', alternative='Try Studio C', both, or whitespace only.
+- **Expected:** Only Venue Staff receive decision permission. Approval needs no text; rejection requires one trimmed nonblank field. Unknown decisions invalid.
+- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_booking_decision.mjs`; local execution, no CI run. Node IDs/test names: `only venue staff have booking decision permission; approval needs no reason and rejection needs reason or alternative`.
+
+### TC-FRONTEND-049 — Decision API and saved status presentation
+
+- **Scenario:** Decision API and saved status presentation (AC1, AC2, AC3).
+- **Pre-conditions:** Mock fetch records requests and returns saved booking or error.
+- **Steps:** 1. Submit a decision.
+  2. Map all three statuses and errors.
+- **Test data:** B=44444444-4444-4444-8444-444444444444; rejected; alternative='  Try Friday  '; extra decided_by; HTTP401,403,404,409,422,500 and network failure.
+- **Expected:** Credentialled POST /api/venue-bookings/B/decision sends only decision/reason/alternative with trimming. Distinct Pending, Confirmed and Rejected labels; safe actionable errors; no false saved message. Server-owned fields excluded.
+- **Actual:** Passed in local isolated suites: 516 Python tests and 55 Node tests.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_booking_decision.mjs`; local execution, no CI run. Node IDs/test names: `decision call uses credentialled gateway route and only permitted fields; saved booking statuses have distinct labels and safe failure messages`.

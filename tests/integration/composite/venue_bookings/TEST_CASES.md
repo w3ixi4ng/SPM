@@ -110,3 +110,28 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; fre
 - Actual: PATCH succeeded; new submission returned 422 for capacity, facilities and accessibility; no booking was stored.
 - Status: Pass
 - Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_new_request_uses_updated_venue_values`; local .env.test execution.
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-VENUEBOOKINGS-105 — Saved decisions reach the permitted Coordinator through real services
+
+- **Scenario:** Saved decisions reach the permitted Coordinator through real services (AC1, AC2, AC3).
+- **Pre-conditions:** Fresh approved test stack with additive SQL; real test users/events/venues/bookings, isolated fixture cleanup.
+- **Steps:** 1. Submit two requests as C1.
+  2. Decide as staff: approve one, reject one with reason and alternative.
+  3. Reload pending and event requests through gateway.
+  4. Reassign test event to C2 using controlled fixture setup; read as C1,C2,C3.
+- **Test data:** reason='Room needs repairs'; alternative='Try Studio C on Friday'; C1 original, C2 new assigned, C3 unrelated.
+- **Expected:** Decided rows leave pending list; Coordinator reads Confirmed/Rejected with exact saved explanation. The original requester loses access after reassignment, as before; currently assigned Coordinators retain access; unrelated Coordinators are denied. Requester access after reassignment remains an open team requirement. Requests and event/venue records are not rewritten by decision.
+- **Actual:** Not run; developer confirmation of S-37 SQL on dev and test is pending.
+- **Status:** Blocked
+- **Evidence:** Test code added; real execution pending database confirmation and fresh .env.test stack.

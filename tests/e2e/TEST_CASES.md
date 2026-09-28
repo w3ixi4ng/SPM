@@ -337,3 +337,30 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Actual: Coordinator saw no Edit action; direct edit URL redirected to coordinator dashboard. Passed on targeted rerun after an initial session-expired response during catalogue loading.
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_coordinator_cannot_open_edit[chromium]`; local Chromium rerun, 1 passed.
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base acd56fa plus working changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-E2E-215 — Staff decide requests and Coordinators see the saved results
+
+- **Scenario:** Staff decide requests and Coordinators see the saved results (AC1, AC2, AC3).
+- **Pre-conditions:** Fresh .env.test stack, developer-applied SQL and Chromium; isolated staff/coordinator fixtures with pending requests.
+- **Steps:** 1. Sign in as staff; approve without reason.
+  2. Reject another with alternative only; verify blank rejection blocked.
+  3. Confirm successful decisions disappear from pending without refresh.
+  4. Sign in as requester; reopen event and read both decisions.
+  5. Exercise failed/conflicting save and a nonstaff dashboard.
+  6. Reload the Coordinator event page and verify the saved result persists.
+- **Test data:** Studio B, 2026-11-12 09:00-12:00; alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
+- **Expected:** Saved Confirmed/Rejected outcome and alternative visible after reopen; no automatic booking of alternative. Failure/conflict gives safe feedback, not success. Nonstaff sees no decision controls. No reassignment exception is added; the existing assignment rule remains in force. Manual supplement: two staff tabs, keyboard operation, narrow screen and reason-plus-alternative display.
+- **Actual:** Not run; developer confirmation of S-37 SQL on dev and test is pending.
+- **Status:** Blocked
+- **Evidence:** Test code added; real execution pending database confirmation and fresh .env.test stack.
