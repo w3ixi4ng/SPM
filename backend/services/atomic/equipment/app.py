@@ -12,6 +12,7 @@ from supabase import Client
 from authorization import (
     CREATE_PERMISSION,
     MANAGE_VIEW_PERMISSION,
+    RETIRE_PERMISSION,
     SELECTION_PERMISSION,
     UPDATE_PERMISSION,
     require_permission,
@@ -166,6 +167,42 @@ def update_equipment(
         db.schema(SCHEMA)
         .table(TABLE)
         .update(values)
+        .eq("id", str(equipment_item_id))
+        .select("*")
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    return result.data[0]
+
+
+@app.post("/equipment/{equipment_item_id}/retire", response_model=EquipmentRead)
+def retire_equipment(
+    equipment_item_id: UUID,
+    user=Depends(require_permission(RETIRE_PERMISSION)),
+    db: Client = Depends(get_db),
+):
+    current = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("id", str(equipment_item_id))
+    )
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+
+    item = current.data[0]
+    if item["lifecycle_status"] == "retired":
+        return item
+
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(
+            {
+                "lifecycle_status": "retired",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         .eq("id", str(equipment_item_id))
         .select("*")
     )

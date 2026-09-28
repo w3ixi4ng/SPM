@@ -7,11 +7,14 @@ import {
   equipmentErrorMessage,
   equipmentFieldErrorsToForm,
   equipmentReadToForm,
+  equipmentRetirementErrorMessage,
   equipmentStatusLabel,
   equipmentUpdateFormToPayload,
+  canRetireEquipment,
   getEquipment,
   listEquipment,
   listEquipmentSelection,
+  retireEquipment,
   updateEquipment,
   validateEquipmentForm,
 } from '../../../frontend/src/lib/equipment.js'
@@ -182,4 +185,46 @@ test('equipment catalogue status labels reflect stored state', () => {
     equipmentStatusLabel({ ...API_ITEM, operational_status: 'maintenance', lifecycle_status: 'retired' }),
     'Maintenance · Retired',
   )
+})
+
+// --- TC-FRONTEND-048 -----------------------------------------------------
+test('retirement uses the authenticated item action without a lifecycle payload', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ ...API_ITEM, lifecycle_status: 'retired' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    const retired = await retireEquipment('item/1')
+    assert.equal(retired.lifecycle_status, 'retired')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.deepEqual(calls.map(({ url, options }) => [options.method, url]), [
+    ['POST', '/api/equipment/item%2F1/retire'],
+  ])
+  assert.equal(calls[0].options.credentials, 'include')
+  assert.equal(calls[0].options.body, undefined)
+})
+
+// --- TC-FRONTEND-049 -----------------------------------------------------
+test('retirement actions and labels follow lifecycle state', () => {
+  assert.equal(canRetireEquipment(API_ITEM), true)
+  const retired = { ...API_ITEM, lifecycle_status: 'retired' }
+  assert.equal(canRetireEquipment(retired), false)
+  assert.equal(equipmentStatusLabel(retired), 'Available · Retired')
+})
+
+// --- TC-FRONTEND-050 -----------------------------------------------------
+test('retirement failures are safe and actionable', () => {
+  assert.match(equipmentRetirementErrorMessage({ status: 401 }), /sign in again/i)
+  assert.match(equipmentRetirementErrorMessage({ status: 403 }), /not permitted/i)
+  assert.match(equipmentRetirementErrorMessage({ status: 404 }), /could not be found/i)
+  assert.match(equipmentRetirementErrorMessage({ status: 500 }), /not been retired/i)
 })

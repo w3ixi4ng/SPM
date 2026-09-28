@@ -62,6 +62,10 @@ export function equipmentStatusLabel(item) {
   return `${titleCaseStatus(item.operational_status)} · ${titleCaseStatus(item.lifecycle_status)}`
 }
 
+export function canRetireEquipment(item) {
+  return item?.lifecycle_status === 'active'
+}
+
 export function equipmentFieldErrorsToForm(fieldErrors) {
   return Object.fromEntries(
     Object.entries(fieldErrors ?? {}).map(([field, message]) => [
@@ -78,6 +82,14 @@ export function equipmentErrorMessage(error) {
   if (error.status === 422) return 'Please check the highlighted equipment details.'
   if (error.status >= 500) return 'The equipment service is unavailable. The item has not been saved.'
   return error.message || "We couldn't reach the equipment service. The item has not been saved."
+}
+
+export function equipmentRetirementErrorMessage(error) {
+  if (error.status === 401) return 'Your session has expired. Please sign in again.'
+  if (error.status === 403) return 'Your role is not permitted to retire equipment.'
+  if (error.status === 404) return 'This equipment item could not be found.'
+  if (error.status >= 500) return 'The equipment service is unavailable. The item has not been retired.'
+  return error.message || "We couldn't reach the equipment service. The item has not been retired."
 }
 
 export function listEquipment() {
@@ -105,5 +117,11 @@ export function updateEquipment(itemId, form) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(equipmentUpdateFormToPayload(form)),
+  })
+}
+
+export function retireEquipment(itemId) {
+  return requestJSON(`/equipment/${encodeURIComponent(itemId)}/retire`, {
+    method: 'POST',
   })
 }

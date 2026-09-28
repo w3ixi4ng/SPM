@@ -1,7 +1,7 @@
 # Test cases — equipment service (unit)
 
 Stories: S-39 Add Equipment Item; S-40 Record Required Equipment; S-41 Update
-Equipment Item Details.
+Equipment Item Details; S-42 Retire Equipment Item.
 
 These cases specify the equipment catalogue before its implementation. Supabase
 and Auth are mocked; this suite makes no network or database calls.
@@ -9,9 +9,9 @@ and Auth are mocked; this suite makes no network or database calls.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/equipment` |
-| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
+| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
 | Environment | Unit test environment; Supabase and authentication mocked |
-| Result | 64 passed |
+| Result | 77 passed |
 
 ## Shared test data
 
@@ -331,3 +331,86 @@ fields. `GET /equipment/{item_id}` supplies the current values to the editor.
 - **Actual:** Both failures returned the safe storage message without the exception text.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_s41_storage_failures_are_safe`
+
+## S-42 — retire equipment item
+
+Retirement is a lifecycle action through
+`POST /equipment/{equipment_item_id}/retire`. It is separate from S-41
+operational status and is idempotent. There is no unretirement or hard-delete
+operation in this story.
+
+## TC-EQUIPMENT-025 — Technical Support retires an active item idempotently
+
+- **Scenario:** Retirement changes lifecycle state without changing catalogue
+  identity or business details.
+- **Pre-conditions:** Auth resolves to Technical Support. Storage first returns
+  an active item, then the same retired item on a repeated request.
+- **Steps:** Retire the active item; record the response; retire it again.
+- **Test data:** The shared microphone, operational status `maintenance`.
+- **Expected:** The first request filters by item id and updates only
+  `lifecycle_status="retired"` plus server-managed `updated_at`. Type,
+  description, total quantity, operational status, creator, created timestamp,
+  and id are unchanged. The second request returns `200` with the existing
+  retired item and issues no second update or new record.
+- **Actual:** The first request changed only lifecycle state and update time;
+  the repeated request returned the identical retired row without a second
+  update.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_technical_support_retires_an_item_idempotently`
+
+## TC-EQUIPMENT-026 — only Technical Support can retire an item
+
+- **Scenario:** Retirement is protected by trusted role metadata.
+- **Pre-conditions:** Anonymous session, then each authenticated non-Technical
+  Support role.
+- **Steps:** Call the retirement endpoint.
+- **Expected:** Anonymous requests return `401`; Event Organiser, Event
+  Coordinator, Venue Staff, and Attendee requests return `403`; storage is
+  untouched.
+- **Actual:** Anonymous access returned `401`; all four non-Technical-Support
+  roles returned `403`; no storage operation ran.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_retirement_requires_a_session` and `test_app.py::test_only_technical_support_retires_equipment`
+
+## TC-EQUIPMENT-027 — retiring a missing item returns 404
+
+- **Scenario:** A nonexistent item cannot be reported as retired.
+- **Pre-conditions:** The id-filtered lookup returns no row.
+- **Steps:** Retire an unknown UUID.
+- **Expected:** `404 {"detail":"Equipment item not found"}` and no update.
+- **Actual:** The missing lookup returned `404` and no update ran.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_retiring_missing_item_returns_404`
+
+## TC-EQUIPMENT-028 — retired items are excluded from new requirements without losing old ones
+
+- **Scenario:** Lifecycle retirement blocks future selection and requirement
+  creation while preserving existing S-40 relationships.
+- **Pre-conditions:** One existing requirement references an item that is now
+  retired.
+- **Steps:** Query selection; try to create a requirement for another event;
+  list the pre-retirement requirement; inspect retirement storage operations.
+- **Expected:** Selection still filters lifecycle to `active`; new requirement
+  creation returns `409`; the existing requirement remains readable with its
+  same id, event id, item id and quantity and may embed the retired item.
+  Retirement never deletes the catalogue row or inserts, updates, or deletes a
+  requirement relationship.
+- **Actual:** Active-only selection and requirement validation excluded the
+  retired item; the pre-existing relationship remained readable with the same
+  identity and quantity, and retirement never touched requirement storage.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_retired_item_is_refused_for_new_requirements`, `test_app.py::test_existing_requirement_remains_readable_after_retirement`, and `test_app.py::test_retirement_never_deletes_or_mutates_requirements`
+
+## TC-EQUIPMENT-029 — retirement storage failures are safe
+
+- **Scenario:** Lookup or update failures reveal no database details and never
+  report success.
+- **Pre-conditions:** Each storage operation raises `database secret` in turn.
+- **Steps:** Retire an item.
+- **Expected:** Each failure returns
+  `500 {"detail":"Equipment storage unavailable"}` without the underlying
+  exception text.
+- **Actual:** Both lookup and update failures returned the safe `500` response
+  without exposing the simulated database detail.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_retirement_storage_failures_are_safe`

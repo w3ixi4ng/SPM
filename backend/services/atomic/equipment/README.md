@@ -16,6 +16,7 @@ physical unit. It also owns the event-to-item relationship in
 | `GET` | `/equipment/selection` | Technical Support, Event Coordinator, Event Organiser | List active, available options for requirement forms. |
 | `GET` | `/equipment/{equipment_item_id}` | Technical Support | Read one item for catalogue editing. |
 | `PUT` | `/equipment/{equipment_item_id}` | Technical Support | Replace the editable catalogue details. |
+| `POST` | `/equipment/{equipment_item_id}/retire` | Technical Support | Retire an item from future requirement selection. |
 | `GET` | `/internal/equipment-requirements` | Equipment requirements composite | List requirements, optionally filtered by `event_id`. |
 | `PUT` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Upsert a positive required quantity and audit user. |
 | `DELETE` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Delete one event/item relationship. |
@@ -48,6 +49,15 @@ are rejected if sent. An update changes only `equipment.equipment`; existing
 rows in `equipment.requirements` retain their identity, event, item and
 quantity. Non-available items remain in `GET /equipment` but are filtered from
 `GET /equipment/selection`.
+
+`POST /equipment/{equipment_item_id}/retire` accepts no request body. It is an
+explicit server action: clients cannot set `lifecycle_status` through the edit
+payload. Retiring an active item changes only `lifecycle_status` and the
+server-managed `updated_at`. Retiring an already-retired item is idempotent and
+returns its existing row without another storage update, so its timestamp also
+stays unchanged. The item remains in the management catalogue, while active
+selection and new requirements exclude it. Existing requirement relationships
+are neither updated nor deleted and continue to embed the retired item.
 
 The internal `PUT` body contains `required_quantity` (positive integer) and
 `recorded_by_coordinator_id` (UUID). The relationship's `event_id` is opaque
