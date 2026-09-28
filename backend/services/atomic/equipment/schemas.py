@@ -40,3 +40,35 @@ class EquipmentRead(BaseModel):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class EquipmentRequirementWrite(BaseModel):
+    """Internal payload from the equipment_requirements composite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required_quantity: PositiveInt
+    recorded_by_coordinator_id: UUID
+
+
+class EquipmentRequirementRead(BaseModel):
+    id: UUID
+    event_id: UUID
+    equipment_item_id: UUID
+    required_quantity: int
+    recorded_by_coordinator_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class EquipmentRequirementItem(BaseModel):
+    id: UUID
+    type: str
+    description: str | None
+    total_quantity: int
+    operational_status: OperationalStatus
+    lifecycle_status: LifecycleStatus
+
+
+class EquipmentRequirementDetail(EquipmentRequirementRead):
+    equipment: EquipmentRequirementItem

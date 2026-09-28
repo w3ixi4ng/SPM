@@ -1,7 +1,9 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`, `test_request_venue.py` and `test_capacity_warning.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
+`test_request_venue.py`, `test_capacity_warning.py` and
+`test_record_equipment.py`. A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +11,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `22144d0` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 9 passed, twice consecutively. On the previous commit one full-suite run failed TC-E2E-210 with the request screen never loading (not reproduced in five isolated runs); the likely cause, leaving the dashboard before the session settled, was fixed in the test at this commit |
+| Last run | 2026-09-27, branch `S-40/record-required-equipment`, merge working tree |
+| Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
+| Result | 10 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -262,3 +264,21 @@ contract without a browser.
 - **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
 - **Status:** Pass
 - **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
+
+## TC-E2E-211 — equipment moves from catalogue to planning requirement to Technical Support view
+
+- **Scenario:** Combined S-39/S-40 browser journey proving the gateway,
+  role-specific screens, session cookies, orchestration, and persistence.
+- **Pre-conditions:** Complete test stack; a Technical Support user, assigned
+  Coordinator, organiser, planning event, and no requirement for the item.
+- **Steps:** Technical Support adds `spm-e2e Wireless Microphone <hex>` with
+  total `12`; Coordinator opens the planning event, records quantity `6`, and
+  sees it after reload; sign out and back in as Technical Support.
+- **Expected:** The new item needs no frontend code change, the Coordinator can
+  record it only on the planning event, and Technical Support's requirement
+  view shows the event id, item name, and quantity `6`.
+- **Actual:** Technical Support added the item, the assigned Coordinator saved
+  quantity 6 on the planning event, and Technical Support saw the item,
+  quantity and event id after a fresh sign-in.
+- **Status:** Pass
+- **Evidence:** `test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support`

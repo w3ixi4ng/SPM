@@ -34,6 +34,7 @@ docker compose up --build
 | equipment | 8005 |
 | event_requests | 8100 |
 | venue_bookings | 8101 |
+| equipment_requirements | 8102 |
 
 - [`AGENTS.md`](AGENTS.md) — service structure and conventions
 - [`tests/README.md`](tests/README.md) — how tests are organised

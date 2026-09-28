@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import { getRoleAccess } from '../lib/access.js'
 import { equipmentErrorMessage, listEquipment } from '../lib/equipment.js'
 
@@ -18,11 +19,6 @@ const C = {
 }
 
 const UPCOMING_AREAS = [
-  {
-    icon: Package,
-    title: 'Equipment requests',
-    description: 'Review and fulfil equipment requested for an event.',
-  },
   {
     icon: Wrench,
     title: 'On-site technical tickets',
@@ -168,6 +164,17 @@ export default function TechnicalSupportDashboard({ role }) {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl mb-10" style={{ borderColor: C.line }} aria-labelledby="requirements-heading">
+          <div className="flex items-center gap-2 mb-3">
+            <Package size={18} aria-hidden="true" style={{ color: C.teal }} />
+            <h2 id="requirements-heading" className="font-display text-2xl" style={{ color: C.ink }}>Event equipment requirements</h2>
+          </div>
+          <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
+            Requirements recorded by Event Coordinators for upcoming events.
+          </p>
+          <EquipmentRequirementsPanel />
         </section>
 
         <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>

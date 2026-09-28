@@ -7,7 +7,7 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
+| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
 | Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, supabase-py 2.31.0; no network, database, or Docker |
 | Result | 102 passed |
 
@@ -31,8 +31,8 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Pre-conditions:** None.
 - **Steps:** Instantiate `EventDraftCreate` without arguments.
 - **Test data:** `{}`.
-- **Expected:** The model is valid; every optional field is `None` and
-  `equipment_requests` is `{}`.
+- **Expected:** The model is valid; optional scalar fields are `None` and
+  venue requirement lists are empty.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_schemas.py::test_empty_draft_is_valid`
@@ -48,16 +48,16 @@ Supabase clients mocked. They use no network, database, or Docker.
 - **Status:** Pass
 - **Evidence:** `test_schemas.py::test_draft_rejects_non_positive_attendance`
 
-## TC-EVENTS-004 — invalid equipment quantity
+## TC-EVENTS-004 — legacy organiser equipment field is refused
 
-- **Scenario:** A supplied equipment quantity must be positive.
+- **Scenario:** Equipment requirements cannot be written through an organiser event payload.
 - **Pre-conditions:** None.
-- **Steps:** Instantiate `EventDraftCreate` with a zero projector quantity.
-- **Test data:** `{"equipment_requests": {"projector": 0}}`.
+- **Steps:** Instantiate `EventDraftCreate` with the removed legacy field.
+- **Test data:** `{"equipment_requests": {"projector": 1}}`.
 - **Expected:** Pydantic raises `ValidationError`.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_schemas.py::test_draft_rejects_non_positive_equipment_quantity`
+- **Evidence:** `test_schemas.py::test_draft_rejects_legacy_organiser_equipment_requests`
 
 ## TC-EVENTS-005 — invalid draft time ordering
 

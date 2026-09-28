@@ -35,7 +35,6 @@ SUBMITTED = {
     "end_time": "21:00",
     "expected_attendance": 120,
     "venue": "Main auditorium",
-    "equipment_requests": {"projector": 1},
 }
 
 
@@ -97,7 +96,6 @@ def test_create_derives_organiser_and_status_from_session(client, db, auth):
             "end_time": None,
             "expected_attendance": None,
             "venue": None,
-            "equipment_requests": {},
             "special_requirements": None,
             "room_layout": None,
             "required_facilities": [],

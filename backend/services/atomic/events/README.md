@@ -75,7 +75,6 @@ When supplied, values still have to be valid.
 | `end_time` | time or null | If both times exist and the event is single-day, must be after `start_time`. |
 | `expected_attendance` | integer or null | Greater than zero when present. |
 | `venue` | string or null | The organiser's venue preference, free text. Blank text becomes null. |
-| `equipment_requests` | object | Optional; values must be positive integers. Defaults to `{}` on create. |
 | `special_requirements` | string or null | Anything the fixed fields do not cover — registration arrangements, catering, security. Blank text becomes null. |
 | `room_layout` | string or null | From the venue layout set. |
 | `required_facilities` | array of string | From the venue facility set. Defaults to `[]`. |
@@ -120,7 +119,6 @@ failure, rather than reaching the database's own constraint as an opaque
 | `end_time` | time | yes | After `start_time` when the event is single-day (`end_date == start_date`); unconstrained relative to `start_time` for a multi-day event. |
 | `expected_attendance` | integer | yes | Greater than zero. |
 | `venue` | string or null | no | The organiser's venue preference. Blank becomes null. |
-| `equipment_requests` | object | no | Values must be positive integers; defaults to `{}`. |
 | `special_requirements` | string or null | no | Free text. Blank becomes null. |
 | `room_layout` | string or null | no | One of `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cocktail`. |
 | `required_facilities` | array of string | no | From the venue facility set; repeats dropped. Defaults to `[]`. |
@@ -136,7 +134,6 @@ failure, rather than reaching the database's own constraint as an opaque
   "end_time": "21:00",
   "expected_attendance": 120,
   "venue": "Main auditorium",
-  "equipment_requests": {"projector": 1, "microphone": 2},
   "special_requirements": "Registration closes a week before",
   "submitted_at": "2026-09-17T10:04:11.502Z",
   "special_requirements": "Registration closes a week before",
@@ -168,7 +165,6 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "end_time": "21:00:00",
   "expected_attendance": 120,
   "venue": "Main auditorium",
-  "equipment_requests": {"projector": 1, "microphone": 2},
   "room_layout": "theatre",
   "required_facilities": ["projector"],
   "required_accessibility": ["wheelchair_access"],
