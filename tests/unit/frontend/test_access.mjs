@@ -91,3 +91,30 @@ test('only coordinators request venues and only venue staff see pending requests
     assert.equal(hasPermission(role, PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS), viewPending, role)
   }
 })
+
+// --- TC-FRONTEND-042 -------------------------------------------------------
+test('coordinators edit requirements and technical support can only view them', () => {
+  const expected = {
+    event_coordinator: [true, true],
+    technical_support: [false, true],
+    event_organiser: [false, false],
+    venue_staff: [false, false],
+    attendee: [false, false],
+  }
+
+  for (const [role, [edit, view]] of Object.entries(expected)) {
+    assert.equal(hasPermission(role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS), edit, role)
+    assert.equal(hasPermission(role, PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS), view, role)
+  }
+})
+
+// --- TC-FRONTEND-045 -------------------------------------------------------
+test('only technical support receives the equipment update permission', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    assert.equal(
+      hasPermission(role, PERMISSIONS.UPDATE_EQUIPMENT),
+      role === 'technical_support',
+      role,
+    )
+  }
+})

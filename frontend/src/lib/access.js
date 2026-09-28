@@ -13,7 +13,10 @@ export const PERMISSIONS = Object.freeze({
   REQUEST_VENUE_BOOKING: 'venue_bookings:create',
   VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
   CREATE_EQUIPMENT: 'equipment:create',
+  UPDATE_EQUIPMENT: 'equipment:update',
   VIEW_EQUIPMENT_CATALOGUE: 'equipment:view_catalogue',
+  EDIT_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:edit',
+  VIEW_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:view',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -49,6 +52,8 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.DECIDE_EVENT,
       PERMISSIONS.VIEW_VENUES,
       PERMISSIONS.REQUEST_VENUE_BOOKING,
+      PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS,
+      PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
     ]),
   }),
   venue_staff: Object.freeze({
@@ -70,7 +75,9 @@ export const ROLE_ACCESS = Object.freeze({
     permissions: Object.freeze([
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.CREATE_EQUIPMENT,
+      PERMISSIONS.UPDATE_EQUIPMENT,
       PERMISSIONS.VIEW_EQUIPMENT_CATALOGUE,
+      PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
     ]),
   }),
   attendee: Object.freeze({

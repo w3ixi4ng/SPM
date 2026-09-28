@@ -23,19 +23,10 @@ const API_TO_FORM_FIELD = {
   end_time: 'endTime',
   expected_attendance: 'attendance',
   venue: 'venue',
-  equipment_requests: 'equipmentRequests',
   special_requirements: 'specialRequirements',
   room_layout: 'roomLayout',
   required_facilities: 'requiredFacilities',
   required_accessibility: 'requiredAccessibility',
-}
-
-function equipmentPayload(equipmentRequests = {}) {
-  return Object.fromEntries(
-    Object.entries(equipmentRequests)
-      .filter(([, quantity]) => quantity !== '' && Number(quantity) > 0)
-      .map(([name, quantity]) => [name, Number(quantity)]),
-  )
 }
 
 export function eventFormToPayload(form, { omitEmpty = false } = {}) {
@@ -58,10 +49,8 @@ export function eventFormToPayload(form, { omitEmpty = false } = {}) {
     payload.expected_attendance = null
   }
 
-  payload.equipment_requests = equipmentPayload(form.equipmentRequests)
-
-  // S-36: the venue requirements. The two lists are always sent, like
-  // equipment; a blank layout is null, or left out of a partial draft.
+  // S-36: the venue requirements. The two lists are always sent; a blank
+  // layout is null, or left out of a partial draft.
   const layout = form.roomLayout || null
   if (layout !== null || !omitEmpty) payload.room_layout = layout
   payload.required_facilities = [...(form.requiredFacilities ?? [])]
@@ -80,7 +69,6 @@ export function eventResponseToForm(event) {
     endTime: event.end_time?.slice(0, 5) ?? '',
     attendance: event.expected_attendance?.toString() ?? '',
     venue: event.venue ?? '',
-    equipmentRequests: event.equipment_requests ?? {},
     specialRequirements: event.special_requirements ?? '',
     roomLayout: event.room_layout ?? '',
     requiredFacilities: event.required_facilities ?? [],

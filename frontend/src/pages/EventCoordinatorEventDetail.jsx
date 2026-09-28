@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Building2, Check, RotateCcw, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
+import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
@@ -49,12 +50,6 @@ function Field({ label, value }) {
       </p>
     </div>
   )
-}
-
-function equipmentSummary(equipmentRequests) {
-  const entries = Object.entries(equipmentRequests ?? {})
-  if (entries.length === 0) return null
-  return entries.map(([name, quantity]) => `${quantity}× ${name}`).join(', ')
 }
 
 function DecisionRecord({ event }) {
@@ -309,7 +304,7 @@ export default function EventCoordinatorEventDetail() {
   }, [id])
 
   const form = state.event ? eventResponseToForm(state.event) : null
-  const isCoordinator = hasPermission(user?.role, PERMISSIONS.REQUEST_VENUE_BOOKING)
+  const isCoordinator = hasPermission(user?.role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS)
   const showVenueRequest = state.event && isCoordinator && canRequestVenue(state.event.status)
 
   return (
@@ -388,9 +383,22 @@ export default function EventCoordinatorEventDetail() {
                   value={form.endDate && `${form.endDate} at ${form.endTime}`}
                 />
                 <Field label="Expected attendance" value={form.attendance} />
-                <Field label="Equipment requested" value={equipmentSummary(form.equipmentRequests)} />
                 <Field label="Other requirements" value={form.specialRequirements} />
               </div>
+            </section>
+
+            <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }} aria-labelledby="equipment-requirements-heading">
+              <h2 id="equipment-requirements-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
+                Required equipment
+              </h2>
+              <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
+                Record the types and quantities Technical Support must prepare for this event.
+              </p>
+              <EquipmentRequirementsPanel
+                eventId={state.event.id}
+                status={state.event.status}
+                editable={isCoordinator}
+              />
             </section>
           </>
         )}

@@ -1,6 +1,7 @@
 # Test cases — equipment service (unit)
 
-Story: S-39 Add Equipment Item.
+Stories: S-39 Add Equipment Item; S-40 Record Required Equipment; S-41 Update
+Equipment Item Details.
 
 These cases specify the equipment catalogue before its implementation. Supabase
 and Auth are mocked; this suite makes no network or database calls.
@@ -8,9 +9,9 @@ and Auth are mocked; this suite makes no network or database calls.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/equipment` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | Unit test environment; Supabase and authentication mocked |
-| Result | 28 passed |
+| Result | 64 passed |
 
 ## Shared test data
 
@@ -172,3 +173,161 @@ The authenticated creator is user
 - **Actual:** Health returned the specified response without storage access.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_health_needs_no_storage_or_session`
+
+## S-40 — equipment requirement storage
+
+## TC-EQUIPMENT-012 — requirement input requires identifiers and positive quantity
+
+- **Scenario:** Invalid relationships never reach Supabase.
+- **Test data:** Missing/malformed event or item UUID; quantity missing, `0`,
+  `-1`, or `1.5`; unknown fields.
+- **Expected:** Schema validation fails with the relevant field.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-013 — upsert creates or edits one event-item relationship
+
+- **Scenario:** The same item is recorded once per event and later edits do
+  not duplicate it.
+- **Pre-conditions:** Storage returns the upserted row with catalogue details.
+- **Steps:** Upsert quantity `6`, then `9`, for the same event and item.
+- **Expected:** Storage targets `equipment.requirements` with conflict key
+  `(event_id,equipment_item_id)` and returns the relationship.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-014 — recorded-by is mutable audit information
+
+- **Scenario:** A new authorized write updates who last recorded the value.
+- **Pre-conditions:** Existing row says Coordinator A; request body says B.
+- **Steps:** Upsert a new quantity as B.
+- **Expected:** The row's `recorded_by_coordinator_id` becomes B; this atomic
+  service does not use that field to decide authorization.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-015 — requirements list carries catalogue details
+
+- **Scenario:** Consumers can show type, description, quantity, and statuses
+  without querying another service or schema.
+- **Steps:** List all requirements, then filter by event id.
+- **Expected:** Results are ordered by creation time and embed the referenced
+  row from `equipment.equipment`; the event filter is applied when provided.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-016 — deleting one requirement preserves every other relationship
+
+- **Pre-conditions:** One matching relationship exists.
+- **Steps:** Delete by event and equipment item.
+- **Expected:** `204`; both identifiers constrain the delete. Missing row is
+  `404`; no catalogue item or unrelated requirement is deleted.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## TC-EQUIPMENT-017 — requirement storage failures are safe
+
+- **Pre-conditions:** Upsert, list, and delete execution each raise a database
+  exception in turn.
+- **Expected:** `500 {"detail":"Equipment storage unavailable"}` without
+  database details.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_app.py` / `test_schemas.py`
+
+## S-41 — update equipment item details
+
+The management update is a complete replacement of the editable catalogue
+fields through `PUT /equipment/{item_id}`. It never accepts lifecycle or audit
+fields. `GET /equipment/{item_id}` supplies the current values to the editor.
+
+## TC-EQUIPMENT-018 — update input normalizes every editable field
+
+- **Scenario:** Technical Support can submit the four S-41 catalogue fields.
+- **Pre-conditions:** None.
+- **Steps:** Validate padded type and description, quantity `18`, and each of
+  `available`, `unavailable`, and `maintenance`.
+- **Expected:** Text is stripped, blank description becomes `null`, quantity
+  remains a positive integer, and all three statuses are accepted.
+- **Actual:** Text normalization, optional blank description, quantity, and all three statuses behaved as specified.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_valid_update_is_normalized`
+
+## TC-EQUIPMENT-019 — invalid and protected update fields are rejected
+
+- **Scenario:** Catalogue integrity and server-owned data cannot be bypassed.
+- **Pre-conditions:** None.
+- **Steps:** Validate, in turn, blank type; quantity `0`, `-1`, and `1.5`;
+  unknown operational status; and payloads containing id, lifecycle status,
+  creator, created timestamp, or updated timestamp.
+- **Expected:** Every payload returns `422`; description remains optional and
+  accepts `null` or blank-as-null.
+- **Actual:** Invalid business values and every protected field were rejected; nullable description remained valid.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_invalid_updates_are_rejected` and `test_app.py::test_invalid_update_never_calls_storage`
+
+## TC-EQUIPMENT-020 — Technical Support reads and updates one item
+
+- **Scenario:** The editor loads current values and persists changed details.
+- **Pre-conditions:** Auth resolves to Technical Support; storage returns the
+  existing row on read and the updated row on update.
+- **Steps:** `GET /equipment/{id}`, then `PUT /equipment/{id}` with a renamed
+  item, new description, quantity `18`, and `maintenance`.
+- **Expected:** Read returns `200`. Update targets only
+  `equipment.equipment`, filters by id, sets only the four editable fields plus
+  a server-generated `updated_at`, and returns `200` with the updated row.
+- **Actual:** Detail returned the stored row and update sent only the editable values plus server time through an id-filtered equipment-table query.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_technical_support_reads_and_updates_one_item`
+
+## TC-EQUIPMENT-021 — a missing item returns 404
+
+- **Scenario:** A stale editor URL cannot appear to save a nonexistent item.
+- **Pre-conditions:** The filtered read or update returns no row.
+- **Steps:** Read and update an unknown UUID.
+- **Expected:** Both requests return `404 {"detail":"Equipment item not found"}`.
+- **Actual:** Empty read and update results both returned the specified 404.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_missing_item_returns_404`
+
+## TC-EQUIPMENT-022 — only Technical Support can read detail and update
+
+- **Scenario:** Catalogue mutation remains restricted to the responsible role.
+- **Pre-conditions:** Anonymous session, then each authenticated non-Technical
+  Support role.
+- **Steps:** Call both S-41 endpoints.
+- **Expected:** Anonymous requests return `401`; Event Organiser, Event
+  Coordinator, Venue Staff, and Attendee requests return `403`; storage is
+  untouched.
+- **Actual:** Anonymous callers received 401 and every non-Technical-Support role received 403 without storage access.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s41_requires_a_session` and `test_app.py::test_only_technical_support_updates_equipment`
+
+## TC-EQUIPMENT-023 — catalogue updates never mutate requirement relationships
+
+- **Scenario:** S-41 edits catalogue data without deleting, recreating, or
+  detaching S-40 requirements.
+- **Pre-conditions:** One existing requirement references the item.
+- **Steps:** Update the catalogue item.
+- **Expected:** The service issues one filtered update against
+  `equipment.equipment`; it never inserts, updates, or deletes from
+  `equipment.requirements`.
+- **Actual:** Update touched only `equipment.equipment`; no requirement mutation operation was called.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_catalogue_update_does_not_touch_requirements`
+
+## TC-EQUIPMENT-024 — S-41 storage failures are safe
+
+- **Scenario:** Detail and update failures reveal no database information.
+- **Pre-conditions:** Each operation raises `database secret`.
+- **Steps:** Read and update an item.
+- **Expected:** Each returns `500 {"detail":"Equipment storage unavailable"}`
+  without the underlying exception text.
+- **Actual:** Both failures returned the safe storage message without the exception text.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s41_storage_failures_are_safe`

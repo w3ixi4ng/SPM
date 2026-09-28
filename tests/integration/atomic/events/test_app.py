@@ -23,7 +23,6 @@ def test_draft_to_submission_round_trip(organiser_session):
         "end_time": "21:00",
         "expected_attendance": 120,
         "venue": "Main auditorium",
-        "equipment_requests": {"projector": 1},
     }
 
     with httpx.Client(base_url=BASE_URL, timeout=15.0, headers=headers) as api:
@@ -74,7 +73,6 @@ def test_kong_routes_every_event_operation(organiser_session):
         "end_time": "11:00",
         "expected_attendance": 40,
         "venue": "Seminar room",
-        "equipment_requests": {"projector": 1},
     }
 
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0, headers=headers) as api:

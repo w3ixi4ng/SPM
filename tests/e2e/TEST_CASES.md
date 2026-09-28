@@ -1,7 +1,10 @@
 # Test cases — end-to-end journeys
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
-`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`, `test_request_venue.py`, `test_capacity_warning.py` and `test_update_venue.py`. A real browser drives the built frontend through Kong,
+`test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
+`test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
+`test_record_equipment.py` and `test_update_equipment.py`.
+A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -9,9 +12,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `22144d0` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project; Chromium; email confirmation off |
-| Result | 9 passed, twice consecutively. On the previous commit one full-suite run failed TC-E2E-210 with the request screen never loading (not reproduced in five isolated runs); the likely cause, leaving the dashboard before the session settled, was fixed in the test at this commit |
+| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
+| Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
+| Result | 11 passed on the recorded S-41 run; combined S-28/main suite not rerun |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -263,16 +266,57 @@ contract without a browser.
 - **Status:** Pass
 - **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
 
+## TC-E2E-211 — equipment moves from catalogue to planning requirement to Technical Support view
+
+- **Scenario:** Combined S-39/S-40 browser journey proving the gateway,
+  role-specific screens, session cookies, orchestration, and persistence.
+- **Pre-conditions:** Complete test stack; a Technical Support user, assigned
+  Coordinator, organiser, planning event, and no requirement for the item.
+- **Steps:** Technical Support adds `spm-e2e Wireless Microphone <hex>` with
+  total `12`; Coordinator opens the planning event, records quantity `6`, and
+  sees it after reload; sign out and back in as Technical Support.
+- **Expected:** The new item needs no frontend code change, the Coordinator can
+  record it only on the planning event, and Technical Support's requirement
+  view shows the event id, item name, and quantity `6`.
+- **Actual:** Technical Support added the item, the assigned Coordinator saved
+  quantity 6 on the planning event, and Technical Support saw the item,
+  quantity and event id after a fresh sign-in.
+- **Status:** Pass
+- **Evidence:** `test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support`
+
+## TC-E2E-212 — Technical Support edits an item and immediately sees the catalogue update
+
+- **Scenario:** S-41 browser journey proving the protected editor, populated
+  controls, update request, navigation, and refreshed management catalogue.
+- **Pre-conditions:** Complete test stack; a Technical Support user and active
+  available item exist.
+- **Steps:** Sign in as Technical Support; open the item's Edit action; change
+  its type, description, quantity, and operational status to `maintenance`;
+  save; return to the catalogue.
+- **Test data:** Existing `spm-e2e S41 Microphone <hex>` becomes
+  `spm-e2e S41 Radio Microphone <hex>`, description `Updated in browser`,
+  total `18`, status `maintenance`.
+- **Expected:** The editor starts with stored values. Saving returns to the
+  Technical Support dashboard with a success notice, and the catalogue row
+  immediately shows the new type, description, quantity, and Maintenance
+  status while the item remains visible.
+- **Actual:** The editor loaded every stored value; saving returned to the dashboard with confirmation and immediately showed the updated name, description, quantity, and Maintenance · Active label. Direct storage inspection matched.
+- **Status:** Pass
+- **Evidence:** `test_update_equipment.py::test_technical_support_updates_equipment_and_sees_it_immediately`
+
 ## S-28 approved coverage
 
-ID reconciliation: the S-28 staff-edit case was TC-E2E-210 on its branch.
-It is TC-E2E-212 after integration because main already uses TC-E2E-210
-for the S-35 capacity-warning case. TC-E2E-211 remains the access-control case.
+ID reconciliation: main retains TC-E2E-210 (S-35 capacity warning),
+TC-E2E-211 (S-39/S-40 equipment journey), and TC-E2E-212 (S-41 equipment edit).
+The S-28 staff-edit case is now TC-E2E-213 (originally TC-E2E-210,
+then TC-E2E-212 on the S-28 branch). The S-28 access-control case is
+now TC-E2E-214 (previously TC-E2E-211 on the S-28 branch).
+Earlier S-28 references retain those meanings; no case was removed.
 These recorded results precede this merge; the combined suite has not been rerun.
 
 Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chromium against freshly recreated `.env.test` Docker stack. Existing add-venue and coordinator read-only journeys also passed.
 
-### TC-E2E-212 - Staff edit refreshes catalogue and persists
+### TC-E2E-213 - Staff edit refreshes catalogue and persists
 
 - Scenario: Staff edit refreshes catalogue and persists
 - Pre-conditions: Approved test stack and Chromium; venue created by another staff member.
@@ -283,7 +327,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_staff_edit_refreshes_catalogue_and_persists[chromium]`; local browser execution.
 
-### TC-E2E-211 - Non-staff cannot edit venues
+### TC-E2E-214 - Non-staff cannot edit venues
 
 - Scenario: Non-staff cannot edit venues
 - Pre-conditions: Approved test stack; coordinator account and existing venue.
@@ -293,4 +337,3 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Actual: Coordinator saw no Edit action; direct edit URL redirected to coordinator dashboard. Passed on targeted rerun after an initial session-expired response during catalogue loading.
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_coordinator_cannot_open_edit[chromium]`; local Chromium rerun, 1 passed.
-

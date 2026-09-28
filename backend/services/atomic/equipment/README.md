@@ -2,8 +2,8 @@
 
 Atomic owner of the equipment catalogue. One item is an equipment type/pool,
 such as “Wireless Microphone”, with a total quantity; it is not one serialized
-physical unit. The service owns `equipment.equipment` and calls no other
-service.
+physical unit. It also owns the event-to-item relationship in
+`equipment.requirements`. The service calls no other service.
 
 ## Endpoints
 
@@ -14,6 +14,11 @@ service.
 | `POST` | `/equipment` | Technical Support | Add an equipment item. |
 | `GET` | `/equipment` | Technical Support | List the complete management catalogue. |
 | `GET` | `/equipment/selection` | Technical Support, Event Coordinator, Event Organiser | List active, available options for requirement forms. |
+| `GET` | `/equipment/{equipment_item_id}` | Technical Support | Read one item for catalogue editing. |
+| `PUT` | `/equipment/{equipment_item_id}` | Technical Support | Replace the editable catalogue details. |
+| `GET` | `/internal/equipment-requirements` | Equipment requirements composite | List requirements, optionally filtered by `event_id`. |
+| `PUT` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Upsert a positive required quantity and audit user. |
+| `DELETE` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Delete one event/item relationship. |
 
 ## Request
 
@@ -29,9 +34,30 @@ The service sets `operational_status="available"`,
 `lifecycle_status="active"`, and `created_by` from the verified session.
 Clients cannot choose these values.
 
+`PUT /equipment/{equipment_item_id}` accepts the complete editable field set:
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `type` | string | Yes | Must contain non-whitespace text. |
+| `description` | string or null | No | Blank text becomes null. |
+| `total_quantity` | integer | Yes | Positive whole number. |
+| `operational_status` | string | Yes | Exactly `available`, `unavailable`, or `maintenance`. |
+
+The item id, lifecycle status, creator and timestamps are server-managed and
+are rejected if sent. An update changes only `equipment.equipment`; existing
+rows in `equipment.requirements` retain their identity, event, item and
+quantity. Non-available items remain in `GET /equipment` but are filtered from
+`GET /equipment/selection`.
+
+The internal `PUT` body contains `required_quantity` (positive integer) and
+`recorded_by_coordinator_id` (UUID). The relationship's `event_id` is opaque
+to this atomic service: assignment and event status are checked by the
+composite before it calls this route. These internal routes are not exposed
+through Kong.
+
 ## Response
 
-Creation returns `201`; both lists return `200`. An item has this shape:
+Creation returns `201`; reads and updates return `200`. An item has this shape:
 
 ```json
 {
@@ -53,6 +79,7 @@ Errors:
 | --- | --- | --- |
 | `401` | `{"detail":"Not authenticated"}` | Session is absent or expired. |
 | `403` | `{"detail":"Permission denied"}` | Trusted role lacks the requested permission. |
+| `404` | `{"detail":"Equipment item not found"}` | The requested item does not exist. |
 | `422` | `{"detail":"Please check the details you entered","errors":{...}}` | Request validation failed. |
 | `500` | `{"detail":"Equipment storage unavailable"}` | Catalogue storage failed safely. |
 

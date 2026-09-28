@@ -1,10 +1,11 @@
-import { CheckCircle2, LogOut, Package, PackagePlus, Plus, Wrench } from 'lucide-react'
+import { CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import { getRoleAccess } from '../lib/access.js'
-import { equipmentErrorMessage, listEquipment } from '../lib/equipment.js'
+import { equipmentErrorMessage, equipmentStatusLabel, listEquipment } from '../lib/equipment.js'
 
 const C = {
   ink: '#10192B',
@@ -18,11 +19,6 @@ const C = {
 }
 
 const UPCOMING_AREAS = [
-  {
-    icon: Package,
-    title: 'Equipment requests',
-    description: 'Review and fulfil equipment requested for an event.',
-  },
   {
     icon: Wrench,
     title: 'On-site technical tickets',
@@ -162,12 +158,36 @@ export default function TechnicalSupportDashboard({ role }) {
                       <span className="font-ui text-sm" style={{ color: C.inkFaint }}>{item.total_quantity} total</span>
                     </div>
                     {item.description && <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>{item.description}</p>}
-                    <p className="font-ui text-xs mt-2" style={{ color: C.green }}>Available · Active</p>
+                    <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
+                      <p className="font-ui text-xs" style={{ color: item.operational_status === 'available' ? C.green : C.inkFaint }}>
+                        {equipmentStatusLabel(item)}
+                      </p>
+                      <Link
+                        to={`/equipment/${encodeURIComponent(item.id)}/edit`}
+                        aria-label={`Edit ${item.type}`}
+                        className="inline-flex items-center gap-1.5 font-ui text-xs font-medium"
+                        style={{ color: C.teal }}
+                      >
+                        <Pencil size={13} aria-hidden="true" />
+                        Edit
+                      </Link>
+                    </div>
                   </div>
                 </li>
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl mb-10" style={{ borderColor: C.line }} aria-labelledby="requirements-heading">
+          <div className="flex items-center gap-2 mb-3">
+            <Package size={18} aria-hidden="true" style={{ color: C.teal }} />
+            <h2 id="requirements-heading" className="font-display text-2xl" style={{ color: C.ink }}>Event equipment requirements</h2>
+          </div>
+          <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
+            Requirements recorded by Event Coordinators for upcoming events.
+          </p>
+          <EquipmentRequirementsPanel />
         </section>
 
         <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>

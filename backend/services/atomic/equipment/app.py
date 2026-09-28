@@ -1,6 +1,8 @@
 import logging
+from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -11,10 +13,18 @@ from authorization import (
     CREATE_PERMISSION,
     MANAGE_VIEW_PERMISSION,
     SELECTION_PERMISSION,
+    UPDATE_PERMISSION,
     require_permission,
 )
 from database import get_db
-from schemas import EquipmentCreate, EquipmentRead
+from schemas import (
+    EquipmentCreate,
+    EquipmentRead,
+    EquipmentRequirementDetail,
+    EquipmentRequirementRead,
+    EquipmentRequirementWrite,
+    EquipmentUpdate,
+)
 from security import clear_session_cookies
 
 app = FastAPI(title="Equipment Service")
@@ -22,6 +32,14 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "equipment"
 TABLE = "equipment"
+REQUIREMENTS_TABLE = "requirements"
+
+REQUIREMENT_SELECT = (
+    "id,event_id,equipment_item_id,required_quantity,"
+    "recorded_by_coordinator_id,created_at,updated_at,"
+    "equipment("
+    "id,type,description,total_quantity,operational_status,lifecycle_status)"
+)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -114,3 +132,128 @@ def list_equipment_selection(
         .order("type")
     )
     return _execute(operation).data
+
+
+@app.get("/equipment/{equipment_item_id}", response_model=EquipmentRead)
+def get_equipment(
+    equipment_item_id: UUID,
+    user=Depends(require_permission(MANAGE_VIEW_PERMISSION)),
+    db: Client = Depends(get_db),
+):
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("id", str(equipment_item_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    return result.data[0]
+
+
+@app.put("/equipment/{equipment_item_id}", response_model=EquipmentRead)
+def update_equipment(
+    equipment_item_id: UUID,
+    payload: EquipmentUpdate,
+    user=Depends(require_permission(UPDATE_PERMISSION)),
+    db: Client = Depends(get_db),
+):
+    values = {
+        **payload.model_dump(mode="json"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(equipment_item_id))
+        .select("*")
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    return result.data[0]
+
+
+# Internal-only routes. They deliberately sit outside /equipment, so Kong's
+# browser-facing equipment route cannot reach them. The composite service
+# verifies the current role, assignment, and event status before calling here.
+@app.put(
+    "/internal/equipment-requirements/{event_id}/{equipment_item_id}",
+    response_model=EquipmentRequirementRead,
+)
+def upsert_equipment_requirement(
+    event_id: UUID,
+    equipment_item_id: UUID,
+    payload: EquipmentRequirementWrite,
+    db: Client = Depends(get_db),
+):
+    usable = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("id")
+        .eq("id", str(equipment_item_id))
+        .eq("operational_status", "available")
+        .eq("lifecycle_status", "active")
+    )
+    if not usable.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Equipment item is not available for new requirements",
+        )
+
+    values = {
+        "event_id": str(event_id),
+        "equipment_item_id": str(equipment_item_id),
+        **payload.model_dump(mode="json"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(REQUIREMENTS_TABLE)
+        .upsert(values, on_conflict="event_id,equipment_item_id")
+    )
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save equipment requirement",
+        )
+    return result.data[0]
+
+
+@app.get(
+    "/internal/equipment-requirements",
+    response_model=list[EquipmentRequirementDetail],
+)
+def list_equipment_requirements(
+    event_id: UUID | None = Query(default=None),
+    db: Client = Depends(get_db),
+):
+    operation = (
+        db.schema(SCHEMA)
+        .table(REQUIREMENTS_TABLE)
+        .select(REQUIREMENT_SELECT)
+    )
+    if event_id is not None:
+        operation = operation.eq("event_id", str(event_id))
+    return _execute(operation.order("created_at")).data
+
+
+@app.delete(
+    "/internal/equipment-requirements/{event_id}/{equipment_item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_equipment_requirement(
+    event_id: UUID,
+    equipment_item_id: UUID,
+    db: Client = Depends(get_db),
+):
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(REQUIREMENTS_TABLE)
+        .delete()
+        .eq("event_id", str(event_id))
+        .eq("equipment_item_id", str(equipment_item_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment requirement not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

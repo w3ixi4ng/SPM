@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   CalendarDays,
@@ -7,16 +7,12 @@ import {
   ChevronRight,
   Clock,
   Loader2,
-  Package,
-  Plus,
   Save,
-  Search,
   Send,
   X,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { optionLabel } from '../lib/venues.js'
-import { listEquipmentSelection } from '../lib/equipment.js'
 import useAuth from '../auth/useAuth.js'
 import {
   createEventDraft,
@@ -61,7 +57,6 @@ const EMPTY_FORM = {
   endTime: '',
   attendance: '',
   venue: '',
-  equipmentRequests: {},
   accessibility: '',
   specialRequirements: '',
   roomLayout: '',
@@ -85,18 +80,6 @@ function withAlpha(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-// A quantity that is negative or exceeds stock is not an "incomplete field"
-// -- it is impossible to fulfil -- so it blocks Save Draft too, unlike the
-// rest of validateForSubmit's checks.
-function hasInvalidEquipment(form, equipmentCatalog) {
-  return equipmentCatalog.some((item) => {
-    const raw = form.equipmentRequests[item.id]
-    if (raw === '' || raw === undefined) return false
-    const q = Number(raw)
-    return q < 0 || q > item.available
-  })
-}
-
 function validateDraft(form) {
   const errors = {}
   if (form.startDate && form.endDate && form.endDate < form.startDate) {
@@ -111,17 +94,10 @@ function validateDraft(form) {
   ) {
     errors.attendance = 'Expected attendance must be a positive whole number.'
   }
-  const invalidEquipment = Object.values(form.equipmentRequests).some((quantity) => {
-    if (quantity === '' || Number(quantity) === 0) return false
-    return !Number.isInteger(Number(quantity)) || Number(quantity) <= 0
-  })
-  if (invalidEquipment) {
-    errors.equipmentRequests = 'Equipment quantities must be positive whole numbers.'
-  }
   return errors
 }
 
-function validateForSubmit(form, equipmentCatalog) {
+function validateForSubmit(form) {
   const errors = validateDraft(form)
   if (!form.name.trim()) errors.name = 'Please enter an event name.'
   if (!form.purpose.trim()) errors.purpose = 'Please describe the purpose of this event.'
@@ -130,11 +106,6 @@ function validateForSubmit(form, equipmentCatalog) {
   if (!form.endDate) errors.endDate = 'Please choose an end date.'
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
   if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
-
-  if (hasInvalidEquipment(form, equipmentCatalog)) {
-    errors.equipmentRequests = 'Fix the equipment quantities before submitting.'
-  }
-
   return errors
 }
 
@@ -448,281 +419,6 @@ function TimeSelect({ id, value, onChange, error, disabled, isOptionDisabled }) 
   )
 }
 
-function EquipmentDetail({ item, quantity, onQuantityChange, disabled }) {
-  const Icon = item.icon
-  const numericValue = Number(quantity)
-  const isNegative = quantity !== '' && numericValue < 0
-  const isOverStock = quantity !== '' && numericValue > item.available
-  const isInvalid = isNegative || isOverStock
-  const errorId = `equip-detail-${item.id}-error`
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div
-        className="w-56 aspect-square rounded-sm flex items-center justify-center"
-        style={{ backgroundColor: C.paperDim }}
-      >
-        <Icon size={96} aria-hidden="true" style={{ color: C.sky }} />
-      </div>
-
-      <div>
-        <h3 className="font-display text-2xl" style={{ color: C.ink }}>
-          {item.label}
-        </h3>
-        <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>
-          {item.available} available
-        </p>
-      </div>
-
-      <p className="font-ui text-sm leading-relaxed max-w-sm" style={{ color: C.inkFaint }}>
-        {item.description}
-      </p>
-
-      <div>
-        <label htmlFor={`equip-detail-${item.id}`} className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
-          Quantity
-        </label>
-        <input
-          id={`equip-detail-${item.id}`}
-          type="number"
-          min="0"
-          max={item.available}
-          placeholder="0"
-          value={quantity}
-          onChange={(e) => onQuantityChange(e.target.value)}
-          disabled={disabled}
-          aria-invalid={isInvalid}
-          aria-describedby={isInvalid ? errorId : undefined}
-          className="csp-input w-24 rounded-sm px-3 py-2 font-ui text-sm"
-        />
-        {isInvalid && (
-          <p id={errorId} role="alert" className="font-ui text-xs mt-1" style={{ color: C.rose }}>
-            {isNegative ? 'Enter 0 or more.' : `Only ${item.available} available.`}
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function EquipmentPanel({ open, onClose, items, quantities, onQuantityChange, disabled }) {
-  const panelRef = useRef(null)
-  const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState(null)
-
-  useEffect(() => {
-    if (open) {
-      setQuery('')
-      setSelectedId(items[0]?.id ?? null)
-    }
-  }, [items, open])
-
-  const focusableSelector =
-    'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-  function getFocusable() {
-    return panelRef.current ? Array.from(panelRef.current.querySelectorAll(focusableSelector)) : []
-  }
-
-  // Runs once per open/close transition only -- deliberately depends on
-  // `open` alone. `onClose` is a new function on every render of the parent
-  // form, and including it here would re-run this on every keystroke
-  // anywhere in the form (e.g. a quantity input), yanking focus back to the
-  // first focusable element -- the search box -- mid-type.
-  useEffect(() => {
-    if (!open) return undefined
-    const focusTimer = setTimeout(() => {
-      getFocusable()[0]?.focus()
-    }, 0)
-    return () => clearTimeout(focusTimer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  // The Tab-trap and Escape listener can safely depend on `onClose` -- all
-  // it does is attach/detach a document listener, which has no visible
-  // effect on focus by itself.
-  useEffect(() => {
-    if (!open) return undefined
-
-    function handleKeyDown(e) {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-        return
-      }
-      if (e.key !== 'Tab') return
-      const items = getFocusable()
-      if (items.length === 0) return
-      const first = items[0]
-      const last = items[items.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  const filtered = items.filter((item) =>
-    item.label.toLowerCase().includes(query.trim().toLowerCase()),
-  )
-  const selectedItem = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null
-
-  const hasInvalidQuantity = items.some((item) => {
-    const raw = quantities[item.id]
-    if (raw === '' || raw === undefined) return false
-    const q = Number(raw)
-    return q < 0 || q > item.available
-  })
-
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-40"
-        style={{ backgroundColor: 'rgba(16,25,43,0.5)' }}
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-        <div
-          ref={panelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add equipment"
-          className="csp-modal-in w-full max-w-4xl rounded-sm border overflow-hidden flex flex-col"
-          style={{ backgroundColor: C.paper, borderColor: C.line, maxHeight: 'calc(100vh - 3rem)' }}
-        >
-          <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: C.line }}>
-            <span className="font-ui text-sm font-medium" style={{ color: C.ink }}>
-              Equipment
-            </span>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close equipment panel"
-              className="csp-icon-btn shrink-0 rounded-sm p-2"
-              style={{ color: C.inkFaint }}
-            >
-              <X size={20} aria-hidden="true" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto md:flex md:overflow-hidden">
-            <div
-              className="border-b md:border-b-0 md:border-r md:w-2/5 flex flex-col md:overflow-hidden"
-              style={{ borderColor: C.line }}
-            >
-              <div className="csp-panel-header sticky top-0 z-10 px-4 py-3 border-b shrink-0">
-                <div className="relative">
-                  <Search
-                    size={16}
-                    aria-hidden="true"
-                    className="absolute left-3 top-1/2 -translate-y-1/2"
-                    style={{ color: C.inkFaint }}
-                  />
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search equipment..."
-                    aria-label="Search equipment"
-                    className="csp-input w-full rounded-sm pl-9 pr-3 py-2 font-ui text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="md:flex-1 md:overflow-y-auto p-3">
-                {filtered.length === 0 ? (
-                  <p className="font-ui text-sm px-2 py-6" style={{ color: C.inkFaint }}>
-                    No equipment matches &ldquo;{query}&rdquo;.
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    {filtered.map((item) => {
-                      const Icon = item.icon
-                      const qty = Number(quantities[item.id]) || 0
-                      const isSelected = selectedItem?.id === item.id
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setSelectedId(item.id)}
-                          aria-pressed={isSelected}
-                          className="csp-catalog-tile relative flex flex-col items-start gap-2 rounded-sm p-2 text-left"
-                          style={isSelected ? { backgroundColor: withAlpha(C.teal, 0.1) } : undefined}
-                        >
-                          <div
-                            className="w-full aspect-square rounded-sm flex items-center justify-center"
-                            style={{ backgroundColor: C.paperDim }}
-                          >
-                            <Icon size={36} aria-hidden="true" style={{ color: C.sky }} />
-                          </div>
-                          <span className="font-ui text-xs font-medium leading-snug" style={{ color: C.ink }}>
-                            {item.label}
-                          </span>
-                          {qty > 0 && (
-                            <span
-                              className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 rounded-full font-ui text-xs font-medium"
-                              style={{ backgroundColor: C.teal, color: C.paper }}
-                            >
-                              {qty}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="md:flex-1 md:overflow-y-auto p-6">
-              {selectedItem ? (
-                <EquipmentDetail
-                  item={selectedItem}
-                  quantity={quantities[selectedItem.id]}
-                  onQuantityChange={(v) => onQuantityChange(selectedItem.id, v)}
-                  disabled={disabled}
-                />
-              ) : (
-                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-                  Select an item to see rental details.
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="px-6 py-4 border-t shrink-0" style={{ borderColor: C.line }}>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={hasInvalidQuantity}
-              className={`w-full flex items-center justify-center px-5 py-3 rounded-sm font-medium font-ui transition-transform duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                hasInvalidQuantity ? '' : 'hover:-translate-y-0.5'
-              }`}
-              style={{ backgroundColor: C.teal, color: C.paper }}
-            >
-              Save
-            </button>
-            {hasInvalidQuantity && (
-              <p className="font-ui text-xs mt-2 text-center" style={{ color: C.rose }}>
-                Fix the highlighted quantities before saving.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}
-
 function StatusBadge({ status }) {
   // 'unsaved' and null/undefined are local UI states, not backend statuses --
   // everything else defers to the same status meta the dashboards use.
@@ -892,7 +588,6 @@ export default function EventRequestForm() {
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [saveState, setSaveState] = useState('idle')
   const [submitState, setSubmitState] = useState('idle')
-  const [equipmentPanelOpen, setEquipmentPanelOpen] = useState(false)
   const [toast, setToast] = useState(null)
 
   function showToast(tone, message) {
@@ -906,7 +601,6 @@ export default function EventRequestForm() {
   }, [toast])
 
   const fieldRefs = useRef({})
-  const equipmentTriggerRef = useRef(null)
   const backLinkRef = useRef(null)
   // The last form state known to match the server (or, for a brand-new
   // request, the empty form) -- compared against live form state to decide
@@ -915,36 +609,12 @@ export default function EventRequestForm() {
   const [savedForm, setSavedForm] = useState(EMPTY_FORM)
   // S-36: the venue requirement option sets, from the events service.
   const [venueOptions, setVenueOptions] = useState({ status: 'loading', options: null })
-  // S-39: equipment is service-owned catalogue data, never a frontend list.
-  const [equipmentOptions, setEquipmentOptions] = useState({ status: 'loading', items: [] })
 
   useEffect(() => {
     let active = true
     getEventOptions()
       .then((options) => { if (active) setVenueOptions({ status: 'ready', options }) })
       .catch(() => { if (active) setVenueOptions({ status: 'error', options: null }) })
-    return () => { active = false }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    listEquipmentSelection()
-      .then((items) => {
-        if (!active) return
-        setEquipmentOptions({
-          status: 'ready',
-          items: items.map((item) => ({
-            id: item.id,
-            label: item.type,
-            available: item.total_quantity,
-            description: item.description || 'No description provided.',
-            icon: Package,
-          })),
-        })
-      })
-      .catch(() => {
-        if (active) setEquipmentOptions({ status: 'error', items: [] })
-      })
     return () => { active = false }
   }, [])
 
@@ -961,11 +631,7 @@ export default function EventRequestForm() {
 
   function applyEvent(event) {
     const nextForm = eventResponseToForm(event)
-    const merged = {
-      ...EMPTY_FORM,
-      ...nextForm,
-      equipmentRequests: { ...nextForm.equipmentRequests },
-    }
+    const merged = { ...EMPTY_FORM, ...nextForm }
     setForm(merged)
     setSavedForm(merged)
     setStatus(event.status)
@@ -986,8 +652,7 @@ export default function EventRequestForm() {
   function focusFirstError(nextErrors) {
     const firstInvalid = Object.keys(nextErrors)[0]
     if (!firstInvalid) return
-    if (firstInvalid === 'equipmentRequests') equipmentTriggerRef.current?.focus()
-    else fieldRefs.current[firstInvalid]?.focus()
+    fieldRefs.current[firstInvalid]?.focus()
   }
 
   function handleApiFailure(error, message = eventErrorMessage(error)) {
@@ -1049,11 +714,6 @@ export default function EventRequestForm() {
   // submitted event as it does to a draft.
   const isDirty = JSON.stringify(form) !== JSON.stringify(savedForm)
 
-  const equipmentCatalog = equipmentOptions.items
-  const selectedEquipment = equipmentCatalog.filter(
-    (item) => Number(form.equipmentRequests[item.id]) > 0,
-  )
-
   function updateField(field, value) {
     // Changing the start date or start time can leave a previously-chosen
     // end date/time invalid (before the new start, or no longer after it on
@@ -1082,48 +742,6 @@ export default function EventRequestForm() {
     if (saveState === 'saved') setSaveState('idle')
   }
 
-  function updateEquipmentQuantity(itemId, value) {
-    setForm((prev) => ({
-      ...prev,
-      equipmentRequests: { ...prev.equipmentRequests, [itemId]: value },
-    }))
-    if (errors.equipmentRequests) {
-      setErrors((prev) => ({ ...prev, equipmentRequests: undefined }))
-    }
-    if (formError) setFormError(null)
-    if (saveState === 'saved') setSaveState('idle')
-  }
-
-  const closeEquipmentPanel = useCallback(() => {
-    // X, Escape and the backdrop all close the panel without going through
-    // the (disabled-while-invalid) Save button, so a negative or over-stock
-    // value the user was mid-typing would otherwise sit in form state
-    // untouched. Rather than guess what they meant (e.g. clamping to the
-    // max), just drop it -- the field goes back to empty, as if nothing
-    // was entered.
-    setForm((prev) => {
-      let changed = false
-      const sanitized = { ...prev.equipmentRequests }
-      for (const item of equipmentCatalog) {
-        const raw = sanitized[item.id]
-        if (raw === '' || raw === undefined) continue
-        const q = Number(raw)
-        if (q < 0 || q > item.available) {
-          sanitized[item.id] = ''
-          changed = true
-        }
-      }
-      return changed ? { ...prev, equipmentRequests: sanitized } : prev
-    })
-    setErrors((prev) => (
-      prev.equipmentRequests
-        ? { ...prev, equipmentRequests: undefined }
-        : prev
-    ))
-    setEquipmentPanelOpen(false)
-    equipmentTriggerRef.current?.focus()
-  }, [equipmentCatalog])
-
   // `redirectTo`, when passed, is where a *successful* save sends the user
   // afterward (the "save and leave" path out of the unsaved-changes dialog)
   // instead of the normal stay-on-page/redirect-to-the-new-id behaviour.
@@ -1138,11 +756,8 @@ export default function EventRequestForm() {
     if (isBusy) return
 
     const validationErrors = requiresStrictValidation
-      ? validateForSubmit(form, equipmentCatalog)
+      ? validateForSubmit(form)
       : validateDraft(form)
-    if (!requiresStrictValidation && hasInvalidEquipment(form, equipmentCatalog)) {
-      validationErrors.equipmentRequests = 'Fix the equipment quantities before saving.'
-    }
     setErrors(validationErrors)
     if (Object.keys(validationErrors).length) {
       focusFirstError(validationErrors)
@@ -1200,7 +815,7 @@ export default function EventRequestForm() {
       return
     }
 
-    const validationErrors = validateForSubmit(form, equipmentCatalog)
+    const validationErrors = validateForSubmit(form)
     setErrors(validationErrors)
 
     if (Object.keys(validationErrors).length) {
@@ -1534,59 +1149,6 @@ export default function EventRequestForm() {
             </div>
 
             <div>
-              <span className="block font-display text-s font-medium mb-1.5" style={{ color: C.ink }}>
-                Equipment
-                <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
-              </span>
-              <button
-                ref={equipmentTriggerRef}
-                type="button"
-                onClick={() => setEquipmentPanelOpen(true)}
-                disabled={equipmentOptions.status !== 'ready'}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-medium font-ui border transition-colors duration-200 disabled:opacity-60"
-                style={{ borderColor: C.ink, color: C.ink }}
-              >
-                <Plus size={16} aria-hidden="true" />
-                Add equipment
-              </button>
-              {equipmentOptions.status === 'loading' && (
-                <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>Loading equipment catalogue…</p>
-              )}
-              {equipmentOptions.status === 'error' && (
-                <p role="alert" className="font-ui text-xs mt-2" style={{ color: C.rose }}>
-                  We couldn&apos;t load equipment options. Reload the page to try again.
-                </p>
-              )}
-              <FieldError
-                id="event-equipment-error"
-                message={errors.equipmentRequests}
-              />
-
-              <div className="mt-4">
-                {selectedEquipment.length === 0 ? (
-                  <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-                    No equipment requested yet.
-                  </p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {selectedEquipment.map((item) => (
-                      <li
-                        key={item.id}
-                        className="flex items-center justify-between font-ui text-sm"
-                        style={{ color: C.ink }}
-                      >
-                        <span>{item.label}</span>
-                        <span style={{ color: C.inkFaint }}>
-                          ×{form.equipmentRequests[item.id]}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            <div>
               <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>
                 Venue requirements
                 <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span>
@@ -1723,14 +1285,6 @@ export default function EventRequestForm() {
           )}
         </div>
       </div>
-
-      <EquipmentPanel
-        open={equipmentPanelOpen}
-        onClose={closeEquipmentPanel}
-        items={equipmentCatalog}
-        quantities={form.equipmentRequests}
-        onQuantityChange={updateEquipmentQuantity}
-      />
 
       {showLeaveConfirm && (
         <UnsavedChangesDialog

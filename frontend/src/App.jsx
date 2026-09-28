@@ -91,6 +91,14 @@ function App() {
           )}
         />
         <Route
+          path="/equipment/:id/edit"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.UPDATE_EQUIPMENT}>
+              <EquipmentForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/coordinator/events/:id"
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_ASSIGNED_EVENTS}>

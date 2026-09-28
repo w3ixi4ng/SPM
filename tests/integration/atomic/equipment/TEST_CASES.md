@@ -1,13 +1,14 @@
 # Test cases — equipment service (integration)
 
-Story: S-39 Add Equipment Item.
+Stories: S-39 Add Equipment Item; S-40 Record Required Equipment; S-41 Update
+Equipment Item Details.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/integration/atomic/equipment` |
-| Last run | 2026-09-27, branch `S-39/add-equipment-item` at `735a84d` |
+| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | `.env.test`, Docker Compose, test Supabase project |
-| Result | 2 passed |
+| Result | 3 passed |
 
 ## Shared pre-conditions
 
@@ -60,3 +61,26 @@ Story: S-39 Add Equipment Item.
   expected successful responses through `/api/equipment`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_kong_routes_every_s39_operation`
+
+## TC-EQUIPMENT-103 — an edit is immediately visible without changing its requirement
+
+- **Scenario:** Prove the complete S-41 persistence, filtering, gateway, and
+  S-40 relationship-preservation boundary.
+- **Pre-conditions:** Shared; a temporary Technical Support user and Event
+  Coordinator exist; one active available item and one requirement referencing
+  it are stored.
+- **Steps:** Record the requirement row; through Kong load the item detail and
+  update its type, description, quantity, and status to `unavailable`; read the
+  management catalogue and Coordinator selection; read the requirement row and
+  embedded catalogue detail; update status to `maintenance` and check selection
+  again; clean up all temporary data.
+- **Test data:** Type changes from `spm-test S41 Microphone <hex>` to
+  `spm-test S41 Radio Microphone <hex>`, description to `Updated by S-41`,
+  quantity from `12` to `18`, and statuses `unavailable` then `maintenance`.
+- **Expected:** Detail and catalogue immediately show every edit. Neither
+  non-available status appears in selection. The requirement keeps exactly the
+  same id, event id, equipment item id, and requested quantity, while its
+  embedded catalogue data shows the current item details.
+- **Actual:** Both edits appeared through Kong and the management catalogue; both statuses stayed out of selection; the same requirement row and quantity remained while its embedded catalogue fields updated.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_updated_item_is_immediate_and_preserves_requirement`

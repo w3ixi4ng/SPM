@@ -78,6 +78,17 @@ services:
           - /api/venue-bookings
         strip_path: true
 
+  - name: equipment-requirements
+    # The browser reaches only this orchestration route. Its equipment atomic
+    # routes are intentionally internal so assignment/status checks cannot be
+    # bypassed through Kong.
+    url: http://equipment_requirements:8102/equipment-requirements
+    routes:
+      - name: equipment-requirements
+        paths:
+          - /api/equipment-requirements
+        strip_path: true
+
   # The frontend, last and least specific. Kong matches the longest path
   # prefix first, so the `/api/...` routes above still win over `/` and
   # this only catches what they did not.

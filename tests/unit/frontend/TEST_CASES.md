@@ -1,7 +1,8 @@
 # Test cases — frontend role access (unit)
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
-`test_venues.mjs`, `test_venue_bookings.mjs` and `test_venue_update.mjs`.
+`test_equipment_requirements.mjs`, `test_venues.mjs`,
+`test_venue_bookings.mjs` and `test_venue_update.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -9,9 +10,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-27, branch `S-35/warn-on-attendance-exceeding-venue-capacity` at `7d6ac09` |
+| Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 38 passed |
+| Result | 46 passed on the recorded S-41 run; combined S-28/main suite not rerun |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -56,8 +57,8 @@ RBAC, and validation remain authoritative.
   an otherwise empty draft.
 - **Expected:** Business fields use backend names and numeric quantities;
   `id`, `organiser_id`, `status`, `created_at`, and `updated_at` are absent;
-  the empty draft contains only `equipment_requests: {}`,
-  `required_facilities: []` and `required_accessibility: []`.
+  the empty draft contains only `required_facilities: []` and
+  `required_accessibility: []`.
 - **Note:** covers `special_requirements` as well, including trimming and the
   blank-to-null rule.
 - **Actual:** As expected.
@@ -102,7 +103,7 @@ RBAC, and validation remain authoritative.
 - **Scenario:** Backend validation fields and HTTP failures produce useful,
   non-misleading form feedback.
 - **Pre-conditions:** The event API error mapping is loaded.
-- **Steps:** Map attendance, equipment, and time-order validation errors; then
+- **Steps:** Map attendance and time-order validation errors; then
   resolve messages for `401`, `403`, `404`, `409`, `422`, and `500`.
 - **Test data:** Backend snake_case field paths and each required status code.
 - **Expected:** Field paths target the current React controls; each status gets
@@ -686,19 +687,101 @@ Acceptance criteria, as reworded by the developer for this scope:
 - **Status:** Pass
 - **Evidence:** `test_venue_bookings.mjs` — `a venue that doesn't suit the event produces a warning listing why`
 
+## S-40 — record required equipment
+
+### TC-FRONTEND-040 — requirement calls use the authenticated composite route
+
+- **Steps:** List one event's requirements, list all for Technical Support,
+  save a quantity, and remove an item.
+- **Expected:** Calls use `/api/equipment-requirements`, include credentials,
+  encode ids, and send only `{required_quantity}` on PUT.
+- **Actual:** All four calls used the composite route, credentials, encoded ids,
+  and the numeric-only write payload.
+- **Status:** Pass
+- **Evidence:** `test_equipment_requirements.mjs` — `requirement API uses the composite route and numeric quantity`
+
+### TC-FRONTEND-041 — only valid positive whole quantities are saved
+
+- **Test data:** Blank, `0`, `-1`, `1.5`, and `6`.
+- **Expected:** The first four are rejected locally; `6` is accepted.
+- **Actual:** Blank, zero, negative and decimal quantities were rejected; the
+  positive whole number was accepted.
+- **Status:** Pass
+- **Evidence:** `test_equipment_requirements.mjs` — `requirement quantity accepts only positive whole numbers`
+
+### TC-FRONTEND-042 — presentation permissions match the composite policy
+
+- **Expected:** Event Coordinator has edit/view; Technical Support has view
+  only; every other role has neither.
+- **Actual:** The permission matrix matched the composite policy for all roles.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `coordinators edit requirements and technical support can only view them`
+
+### TC-FRONTEND-043 — organiser event payloads no longer carry equipment requirements
+
+- **Scenario:** S-40 has one source of truth owned by the equipment service.
+- **Steps:** Map complete organiser event form state to create/update payloads.
+- **Expected:** `equipment_requests` is absent even if stale form state contains
+  it; the events API rejects a direct browser-supplied field.
+- **Actual:** Event mapping omitted the legacy field and the events request
+  model rejected it as an extra field.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` and `test_schemas.py::test_draft_rejects_legacy_organiser_equipment_requests`
+
+## S-41 — update equipment item details
+
+### TC-FRONTEND-044 — the editor maps current and changed catalogue details
+
+- **Scenario:** A stored item can populate the editor and return the complete
+  S-41 update contract.
+- **Steps:** Map an API item to form state, validate it, then map changed form
+  state to an update payload.
+- **Test data:** Renamed microphone, blank optional description, quantity `18`,
+  and each allowed operational status; then blank type, invalid quantities,
+  and an unknown status.
+- **Expected:** Current values populate matching controls; valid fields map to
+  `type`, nullable `description`, numeric `total_quantity`, and
+  `operational_status`; invalid values receive field errors.
+- **Actual:** Stored fields populated the form, all three statuses validated, invalid status failed, and the payload contained exactly the four S-41 fields.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment edit mapping accepts exactly the S-41 fields and statuses`
+
+### TC-FRONTEND-045 — detail and update calls use authenticated Kong routes
+
+- **Steps:** Load and update an item whose id needs URL encoding.
+- **Expected:** Calls use `GET /api/equipment/{id}` and
+  `PUT /api/equipment/{id}`, include credentials, and the update body contains
+  only the four editable fields.
+- **Actual:** Both encoded, credentialed Kong calls used the expected methods and the update body omitted protected fields.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment detail and update use authenticated Kong routes`
+
+### TC-FRONTEND-046 — equipment status labels reflect management state
+
+- **Scenario:** Technical Support still sees unavailable and maintenance items
+  and can distinguish their status.
+- **Steps:** Format all three allowed operational statuses and both existing
+  lifecycle statuses for catalogue rows.
+- **Expected:** Human-readable labels come from the stored values rather than a
+  hardcoded `Available · Active` string.
+- **Actual:** Catalogue labels reflected all tested stored operational and lifecycle combinations.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs` — `equipment catalogue status labels reflect stored state`
+
 ## S-28 approved coverage
 
-ID reconciliation: S-28 used TC-FRONTEND-036 on its branch. It is
-TC-FRONTEND-040 in the combined document because main already uses
-TC-FRONTEND-036 through TC-FRONTEND-039. Earlier S-28 references to 036
-refer to the edit helpers case below, not the equipment case.
+ID reconciliation: main retains TC-FRONTEND-040 through TC-FRONTEND-046
+for S-40 and S-41. The S-28 edit helpers and permissions case is now
+TC-FRONTEND-047 (originally TC-FRONTEND-036, then TC-FRONTEND-040
+on the S-28 branch). Earlier S-28 references to those IDs refer to this
+venue-edit case, not the equipment cases. No case was removed.
 
 The results below were recorded before conflict resolution. The combined
 suite has not been rerun; the header result describes the main-branch run.
 
 Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
 
-### TC-FRONTEND-040 - Edit helpers and permissions
+### TC-FRONTEND-047 - Edit helpers and permissions
 
 - Scenario: Edit helpers and permissions
 - Pre-conditions: Saved venue: location Block A, capacity 250, facilities projector, accessibility wheelchair_access.
@@ -708,4 +791,3 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Actual: All 39 Node tests passed, including five S-28 cases.
 - Status: Pass
 - Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.
-
