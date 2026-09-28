@@ -1,8 +1,8 @@
 # Test cases — frontend role access (unit)
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
-`test_equipment_requirements.mjs`, `test_venues.mjs` and
-`test_venue_bookings.mjs`.
+`test_equipment_requirements.mjs`, `test_venues.mjs`,
+`test_venue_bookings.mjs` and `test_venue_update.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -12,7 +12,7 @@ RBAC, and validation remain authoritative.
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
 | Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 46 passed |
+| Result | 46 passed on the recorded S-41 run; combined S-28/main suite not rerun |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -767,3 +767,27 @@ Acceptance criteria, as reworded by the developer for this scope:
 - **Actual:** Catalogue labels reflected all tested stored operational and lifecycle combinations.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `equipment catalogue status labels reflect stored state`
+
+## S-28 approved coverage
+
+ID reconciliation: main retains TC-FRONTEND-040 through TC-FRONTEND-046
+for S-40 and S-41. The S-28 edit helpers and permissions case is now
+TC-FRONTEND-047 (originally TC-FRONTEND-036, then TC-FRONTEND-040
+on the S-28 branch). Earlier S-28 references to those IDs refer to this
+venue-edit case, not the equipment cases. No case was removed.
+
+The results below were recorded before conflict resolution. The combined
+suite has not been rerun; the header result describes the main-branch run.
+
+Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
+
+### TC-FRONTEND-047 - Edit helpers and permissions
+
+- Scenario: Edit helpers and permissions
+- Pre-conditions: Saved venue: location Block A, capacity 250, facilities projector, accessibility wheelchair_access.
+- Steps: 1. Load form, change capacity to 100, save; check role policy and failures.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Only four fields sent via credentialled PATCH; staff alone has update permission; safe errors.
+- Actual: All 39 Node tests passed, including five S-28 cases.
+- Status: Pass
+- Evidence: `tests/unit/frontend/test_venue_update.mjs`; local execution, no CI run.

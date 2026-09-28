@@ -2,8 +2,9 @@
 
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
-`test_request_venue.py`, `test_capacity_warning.py`,
-`test_record_equipment.py` and `test_update_equipment.py`. A real browser drives the built frontend through Kong,
+`test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
+`test_record_equipment.py` and `test_update_equipment.py`.
+A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
 surviving a page load.
@@ -13,7 +14,7 @@ surviving a page load.
 | Suite | `pytest tests/e2e` |
 | Last run | 2026-09-28, branch `S-41/update-equipment-item-details`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 11 passed |
+| Result | 11 passed on the recorded S-41 run; combined S-28/main suite not rerun |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -302,3 +303,37 @@ contract without a browser.
 - **Actual:** The editor loaded every stored value; saving returned to the dashboard with confirmation and immediately showed the updated name, description, quantity, and Maintenance · Active label. Direct storage inspection matched.
 - **Status:** Pass
 - **Evidence:** `test_update_equipment.py::test_technical_support_updates_equipment_and_sees_it_immediately`
+
+## S-28 approved coverage
+
+ID reconciliation: main retains TC-E2E-210 (S-35 capacity warning),
+TC-E2E-211 (S-39/S-40 equipment journey), and TC-E2E-212 (S-41 equipment edit).
+The S-28 staff-edit case is now TC-E2E-213 (originally TC-E2E-210,
+then TC-E2E-212 on the S-28 branch). The S-28 access-control case is
+now TC-E2E-214 (previously TC-E2E-211 on the S-28 branch).
+Earlier S-28 references retain those meanings; no case was removed.
+These recorded results precede this merge; the combined suite has not been rerun.
+
+Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chromium against freshly recreated `.env.test` Docker stack. Existing add-venue and coordinator read-only journeys also passed.
+
+### TC-E2E-213 - Staff edit refreshes catalogue and persists
+
+- Scenario: Staff edit refreshes catalogue and persists
+- Pre-conditions: Approved test stack and Chromium; venue created by another staff member.
+- Steps: 1. Open Edit; change location to Block B, capacity to 100, facilities/accessibility; save; inspect list without reload then reload.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Only four edit fields shown; updated catalogue immediately and after reload; Cancel leaves saved values unchanged.
+- Actual: Another staff member edited all four fields; catalogue refreshed without manual reload; reload/reopen preserved values; invalid capacity showed error; Cancel discarded unsaved edits.
+- Status: Pass
+- Evidence: `tests/e2e/test_update_venue.py::test_staff_edit_refreshes_catalogue_and_persists[chromium]`; local browser execution.
+
+### TC-E2E-214 - Non-staff cannot edit venues
+
+- Scenario: Non-staff cannot edit venues
+- Pre-conditions: Approved test stack; coordinator account and existing venue.
+- Steps: 1. Open dashboard then navigate directly to venue edit URL.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: No Edit action; redirect to coordinator dashboard.
+- Actual: Coordinator saw no Edit action; direct edit URL redirected to coordinator dashboard. Passed on targeted rerun after an initial session-expired response during catalogue loading.
+- Status: Pass
+- Evidence: `tests/e2e/test_update_venue.py::test_coordinator_cannot_open_edit[chromium]`; local Chromium rerun, 1 passed.

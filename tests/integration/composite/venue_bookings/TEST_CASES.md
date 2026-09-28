@@ -83,3 +83,30 @@ and the gateway route.
 - **Actual:** `422` with `booking_date`, `operating_hours` and `expected_attendance` in `errors`; no row saved.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_an_unsuitable_venue_is_refused_against_real_venue_data`
+
+## S-28 approved coverage
+
+Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; freshly recreated Docker stack using approved `.env.test`. Existing TC-VENUEBOOKINGS-101 also hit the same schema-cache blocker; TC-VENUEBOOKINGS-102 passed.
+
+### TC-VENUEBOOKINGS-103 ? Venue edits preserve history and affect new requests
+
+- Scenario: Venue edits preserve history and affect new requests
+- Pre-conditions: Approved test stack; event attendance 120 requiring projector and wheelchair_access; suitable venue capacity 150.
+- Steps: 1. Submit booking; PATCH venue capacity=100, facilities=[], accessibility=[]; submit again; read old booking.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Edit succeeds; new request 422 for all three mismatches; original booking identical and remains listed.
+- Actual: Initial booking creation returned 502. Bookings logs report PGRST204: accessibility_requirements column missing from schema cache. History assertions could not execute.
+- Status: Blocked
+- Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_venue_edit_preserves_history_and_new_requests_use_saved_values`; local pytest and bookings container logs.
+
+
+### TC-VENUEBOOKINGS-104 ? updated venue values govern new requests
+
+- Scenario: Verify existing suitability without requiring a successful booking insert.
+- Pre-conditions: Approved test stack; world fixture event expects 120, projector and wheelchair_access.
+- Steps: 1. Staff PATCH capacity=100, facilities=[], accessibility=[]. 2. Coordinator submits for 2026-11-12 09:00-12:00.
+- Test data: World fixture venue starts with capacity 150 and both required features.
+- Expected: Update 200; submission 422 naming all three conflicts; no booking stored.
+- Actual: PATCH succeeded; new submission returned 422 for capacity, facilities and accessibility; no booking was stored.
+- Status: Pass
+- Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_new_request_uses_updated_venue_values`; local .env.test execution.

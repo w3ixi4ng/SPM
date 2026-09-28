@@ -66,3 +66,19 @@ Story: S-27 Add Venue with Capacity and Facilities.
 - **Actual:** Health, options, create, list and read all answered as expected through `/api/venues`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_kong_routes_every_venue_operation`
+
+
+## S-28 approved coverage
+
+Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 changes. Environment: Windows/Python 3.14/Node; integration uses freshly recreated `.env.test` Docker stack.
+
+### TC-VENUES-103 ? Persist partial updates through Kong
+
+- Scenario: Persist partial updates through Kong
+- Pre-conditions: Approved .env.test stack; seed venue and two staff sessions plus coordinator.
+- Steps: 1. Second staff PATCH location=Block B, capacity=100, facilities=[], accessibility=[]; read list/detail and database; coordinator attempts PATCH.
+- Test data: Values specified above; existing shared fixtures supply remaining required fields.
+- Expected: Updated values persisted; other fields identical; coordinator 403.
+- Actual: All three venue integration tests passed against .env.test through Kong and Supabase.
+- Status: Pass
+- Evidence: `tests/integration/atomic/venues/test_app.py::test_staff_partial_update_persists_and_preserves_other_fields`; local execution, no CI run.

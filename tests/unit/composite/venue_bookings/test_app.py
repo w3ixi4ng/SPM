@@ -514,3 +514,21 @@ def test_listing_an_events_requests_is_a_502_when_a_service_is_down(client, serv
 
     assert response.status_code == 502
     assert response.json() == {"detail": detail}
+
+
+# TC-VENUEBOOKINGS-031: no new suitability implementation, just regression coverage.
+@pytest.mark.parametrize("changes,key", [
+    ({"capacity": 1}, "expected_attendance"),
+    ({"facilities": []}, "required_facilities"),
+    ({"accessibility": []}, "required_accessibility"),
+])
+def test_submission_rereads_updated_venue(client, services, changes, key):
+    services.set_event(required_facilities=["projector"], required_accessibility=["wheelchair_access"])
+    services.set_venue(facilities=["projector"], accessibility=["wheelchair_access"])
+    assert client.post("/venue-bookings", json=REQUEST).status_code == 201
+    services.bookings.post.reset_mock()
+    services.set_venue(**changes)
+    response = client.post("/venue-bookings", json=REQUEST)
+    assert_refused(response, services, key)
+    assert services.venues.get.call_count == 2
+    assert all(call.args[0] == f"/venues/{VENUE_ID}" for call in services.venues.get.call_args_list)

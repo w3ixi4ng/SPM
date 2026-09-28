@@ -9,7 +9,7 @@ from postgrest.exceptions import APIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
-from authorization import CREATE_PERMISSION, VIEW_PERMISSION, require_permission
+from authorization import CREATE_PERMISSION, VIEW_PERMISSION, UPDATE_PERMISSION, require_permission
 from database import get_db
 from schemas import (
     ACCESSIBILITY_FEATURES,
@@ -19,6 +19,7 @@ from schemas import (
     VenueCreate,
     VenueOptions,
     VenueRead,
+    VenueUpdate,
 )
 from security import clear_session_cookies
 
@@ -116,6 +117,21 @@ def list_venues(
 ):
     operation = db.schema(SCHEMA).table(TABLE).select("*").order("name")
     return _execute(operation).data
+
+
+@app.patch("/venues/{venue_id}", response_model=VenueRead)
+def update_venue(
+    venue_id: UUID,
+    payload: VenueUpdate,
+    user=Depends(require_permission(UPDATE_PERMISSION)),
+    db: Client = Depends(get_db),
+):
+    values = payload.model_dump(mode="json", exclude_unset=True)
+    operation = db.schema(SCHEMA).table(TABLE).update(values).eq("id", str(venue_id))
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Venue not found")
+    return result.data[0]
 
 
 # Declared before /venues/{venue_id}, which would otherwise try to read

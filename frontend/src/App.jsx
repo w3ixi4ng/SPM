@@ -75,6 +75,14 @@ function App() {
           )}
         />
         <Route
+          path="/venues/:id/edit"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.UPDATE_VENUE}>
+              <VenueForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/equipment/new"
           element={(
             <ProtectedRoute permission={PERMISSIONS.CREATE_EQUIPMENT}>

@@ -8,6 +8,7 @@ another service's tables.
 | Method | Path | Permission | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/venues` | `venues:create` | Add a venue. |
+| `PATCH` | `/venues/{venue_id}` | `venues:update` | Update location, capacity, facilities or accessibility. |
 | `GET` | `/venues` | `venues:view` | List every venue, by name A–Z. |
 | `GET` | `/venues/options` | `venues:view` | The fixed facilities, accessibility, room layout and day sets. |
 | `GET` | `/venues/{venue_id}` | `venues:view` | Return one venue. |
@@ -20,7 +21,7 @@ trusted `app_metadata.role`:
 
 | Role | Permissions |
 | --- | --- |
-| `venue_staff` | `venues:create`, `venues:view` |
+| `venue_staff` | `venues:create`, `venues:view`, `venues:update` |
 | `event_coordinator` | `venues:view` |
 | `event_organiser`, `technical_support`, `attendee` | none |
 
@@ -198,3 +199,49 @@ These create and delete real venues and Auth users.
 
 - Unit: [`tests/unit/atomic/venues/TEST_CASES.md`](../../../../tests/unit/atomic/venues/TEST_CASES.md)
 - Integration: [`tests/integration/atomic/venues/TEST_CASES.md`](../../../../tests/integration/atomic/venues/TEST_CASES.md)
+
+
+## Updating a venue (S-28)
+
+All authenticated Venue Staff can `PATCH /venues/{venue_id}`, including venues
+created by another staff member. No ownership filter applies. Other roles receive
+403; a missing/invalid session receives 401. The UUID must identify an existing
+venue (404 otherwise; malformed UUID is 422).
+
+At least one of these fields must be supplied:
+
+| Field | Type | Validation |
+| --- | --- | --- |
+| `location` | string | Trimmed, nonblank |
+| `capacity` | JSON integer | 1 through 2147483647; booleans, strings and fractions rejected |
+| `facilities` | array of facility codes | Existing fixed set; duplicates removed; `[]` allowed |
+| `accessibility` | array of accessibility codes | Existing fixed set; duplicates removed; `[]` allowed |
+
+Omitted fields retain their saved values. Explicit nulls, empty bodies and all
+other fields (including name, hours, layouts, description and metadata) are 422.
+For example:
+
+```json
+{"location": "Block B", "capacity": 100, "facilities": [], "accessibility": []}
+```
+
+Success is 200 with the complete venue JSON shown in Responses, including the
+unchanged ID and creation metadata. Validation failures use the documented 422
+`detail`/`errors` shape, for example:
+
+```json
+{"detail": "Please check the details you entered", "errors": {"capacity": "Input should be greater than or equal to 1"}}
+```
+
+Storage failure is 500 with `{"detail":"Venue storage unavailable"}`. The existing
+401/403/404 bodies above also apply. No SQL change is required.
+
+Editing modifies only `venues.venues`. Existing bookings and their submission
+snapshots remain unchanged, even when capacity is reduced below a pending
+request's attendance. The existing venue-bookings composite fetches venue details
+again for each new submission; it has no S-28 behaviour changes.
+
+Run the update unit and integration cases with the commands in Running above.
+The history/latest-values regression is in
+`pytest tests/integration/composite/venue_bookings` against the same freshly
+started `.env.test` stack.

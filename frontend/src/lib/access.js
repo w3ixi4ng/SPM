@@ -6,6 +6,7 @@ export const PERMISSIONS = Object.freeze({
   UPDATE_OWN_EVENT_DRAFT: 'events:update_own_draft',
   SUBMIT_OWN_EVENT: 'events:submit_own',
   CREATE_VENUE: 'venues:create',
+  UPDATE_VENUE: 'venues:update',
   VIEW_VENUES: 'venues:view',
   VIEW_ASSIGNED_EVENTS: 'events:view_assigned',
   DECIDE_EVENT: 'events:decide',
@@ -62,6 +63,7 @@ export const ROLE_ACCESS = Object.freeze({
     permissions: Object.freeze([
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.CREATE_VENUE,
+      PERMISSIONS.UPDATE_VENUE,
       PERMISSIONS.VIEW_VENUES,
       PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS,
     ]),
