@@ -1,6 +1,8 @@
 """Unit tests for the event_requests composite service -- see TEST_CASES.md."""
 
 import httpx
+import pytest
+from unittest.mock import call
 
 from .conftest import (
     COORDINATOR_A,
@@ -556,3 +558,204 @@ def test_venue_requirements_outside_the_catalogue_are_refused_first(client, user
     assert any(key.startswith("required_facilities") for key in response.json()["errors"])
     users.get.assert_not_called()
     events.post.assert_not_called()
+
+
+SUPPORT_A = "44444444-4444-4444-8444-444444444444"
+SUPPORT_B = "55555555-5555-4555-8555-555555555555"
+
+
+def support_profile(user_id, name):
+    return {"id": user_id, "name": name, "email": f"{name.lower()}@example.com"}
+
+
+def planning_event(**changes):
+    values = {
+        "status": "planning",
+        "assigned_coordinator_id": COORDINATOR_A,
+        "technical_support_required": False,
+        "technical_support_details": None,
+        "assigned_technical_support_id": None,
+        "technical_support_assigned_at": None,
+        **changes,
+    }
+    return event_response(status_code=200, **values)
+
+
+def support_users(pool, role="event_coordinator"):
+    async def _get(path, **kwargs):
+        if path == "/users/me":
+            return organiser_me_response(user_id=COORDINATOR_A, role=role)
+        if path == "/users/technical-support":
+            return fake_response(200, pool)
+        raise AssertionError(f"unexpected users.get({path!r})")
+    return _get
+
+
+def assigned_support_event(staff_id=SUPPORT_A, details="Sound check"):
+    return planning_event(
+        technical_support_required=True,
+        technical_support_details=details,
+        assigned_technical_support_id=staff_id,
+        technical_support_assigned_at="2026-09-29T09:00:00Z",
+    )
+
+
+# --- TC-EVENTREQUESTS-031 --------------------------------------------------
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [("event_organiser", 403), ("technical_support", 403), (None, 403)],
+)
+def test_only_the_assigned_coordinator_requests_support_assignment(client, users, events, role, expected):
+    users.get.side_effect = support_users([], role=role)
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment", json={}
+    )
+
+    assert response.status_code == expected
+    events.get.assert_not_called()
+
+
+def test_unassigned_coordinator_cannot_request_support(client, users, events):
+    users.get.side_effect = support_users([])
+    events.get.return_value = fake_response(404, {"detail": "Event not found"})
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment", json={}
+    )
+
+    assert response.status_code == 404
+    events.post.assert_not_called()
+    events.put.assert_not_called()
+
+
+# --- TC-EVENTREQUESTS-032 --------------------------------------------------
+def test_assignment_runs_only_after_explicit_support_action(client, users, events):
+    users.get.side_effect = support_users([])
+    events.get.return_value = planning_event()
+
+    response = client.get(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment_state"] == "not_required"
+    assert [call.args[0] for call in users.get.call_args_list] == ["/users/me"]
+    events.post.assert_not_called()
+    events.put.assert_not_called()
+
+
+# --- TC-EVENTREQUESTS-033 / 034 / 035 ------------------------------------
+def test_support_assignment_chooses_least_busy_then_lowest_id(client, users, events):
+    pool = [support_profile(SUPPORT_B, "SupportB"), support_profile(SUPPORT_A, "SupportA")]
+    users.get.side_effect = support_users(pool)
+    events.get.return_value = planning_event()
+    events.post.return_value = fake_response(
+        200,
+        [
+            {"staff_id": SUPPORT_B, "conflict": False, "assigned_count": 1},
+            {"staff_id": SUPPORT_A, "conflict": False, "assigned_count": 1},
+        ],
+    )
+    events.put.return_value = assigned_support_event(SUPPORT_A)
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment",
+        json={"support_details": "  Sound check  "},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment_state"] == "assigned"
+    assert response.json()["assigned_staff"]["id"] == SUPPORT_A
+    assert events.put.call_args.kwargs["json"] == {
+        "coordinator_id": COORDINATOR_A,
+        "technical_support_details": "Sound check",
+        "assigned_technical_support_id": SUPPORT_A,
+    }
+
+
+# --- TC-EVENTREQUESTS-036 --------------------------------------------------
+@pytest.mark.parametrize("pool", [[], [support_profile(SUPPORT_A, "SupportA")]])
+def test_no_available_support_staff_is_recorded_honestly(client, users, events, pool):
+    users.get.side_effect = support_users(pool)
+    events.get.return_value = planning_event()
+    events.post.return_value = fake_response(
+        200, [{"staff_id": SUPPORT_A, "conflict": True, "assigned_count": 2}]
+    )
+    events.put.return_value = planning_event(
+        technical_support_required=True,
+        technical_support_details="Sound check",
+    )
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment",
+        json={"support_details": "Sound check"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment_state"] == "unassigned"
+    assert "currently available" in response.json()["message"]
+    assert events.put.call_args.kwargs["json"]["assigned_technical_support_id"] is None
+
+
+# --- TC-EVENTREQUESTS-037 --------------------------------------------------
+def test_existing_support_assignment_is_returned_without_reassignment(client, users, events):
+    pool = [support_profile(SUPPORT_A, "SupportA")]
+    users.get.side_effect = support_users(pool)
+    events.get.return_value = assigned_support_event()
+
+    unchanged = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment",
+        json={"support_details": "Sound check"},
+    )
+
+    assert unchanged.status_code == 200
+    events.post.assert_not_called()
+    events.put.assert_not_called()
+
+    events.put.return_value = assigned_support_event(details="Updated notes")
+    changed = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment",
+        json={"support_details": "Updated notes"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["assigned_technical_support_id"] == SUPPORT_A
+    assert changed.json()["technical_support_assigned_at"] == "2026-09-29T09:00:00Z"
+    events.post.assert_not_called()
+
+
+# --- TC-EVENTREQUESTS-038 --------------------------------------------------
+@pytest.mark.parametrize(
+    "event_status",
+    ["draft", "submitted", "returned", "rejected", "confirmed", "completed", "cancelled"],
+)
+def test_support_assignment_rejects_every_non_planning_target(client, users, events, event_status):
+    users.get.side_effect = support_users([])
+    events.get.return_value = planning_event(status=event_status)
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment", json={}
+    )
+
+    assert response.status_code == 409
+    assert [call.args[0] for call in users.get.call_args_list] == ["/users/me"]
+    events.post.assert_not_called()
+    events.put.assert_not_called()
+
+
+# --- TC-EVENTREQUESTS-039 --------------------------------------------------
+def test_support_assignment_preserves_a_stale_write_conflict(client, users, events):
+    pool = [support_profile(SUPPORT_A, "SupportA")]
+    users.get.side_effect = support_users(pool)
+    events.get.return_value = planning_event()
+    events.post.return_value = fake_response(
+        200, [{"staff_id": SUPPORT_A, "conflict": False, "assigned_count": 0}]
+    )
+    events.put.return_value = fake_response(409, {"detail": "The event changed"})
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment", json={}
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "The event changed"}

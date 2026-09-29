@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-09-24, branch `S-12/event-coordinator-assignment` |
-| Environment | Python 3.14.4, pytest 9.1.1, fastapi 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
-| Result | 31 passed |
+| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Environment | Python 3.12.4, pytest 9.1.1, FastAPI 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
+| Result | 33 passed in this suite; 509 passed across `tests/unit` |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -411,3 +411,35 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_listing_is_empty_when_no_one_holds_the_role`
+
+---
+
+## S-43 — Auto-Assign Technical Support
+
+## TC-USERS-029 — Technical Support listing trusts only Auth app metadata
+
+- **Scenario:** The assignment composite receives only eligible Technical
+  Support Staff profiles.
+- **Pre-conditions:** Paginated Auth admin results contain two users with
+  `app_metadata.role="technical_support"`, plus Coordinator, Organiser, and
+  role-less users; profile rows exist for all of them.
+- **Steps:** `GET /users/technical-support`.
+- **Test data:** The five accounts above, split across two Auth pages.
+- **Expected:** `200`; exactly the two Technical Support profiles are returned
+  with id, name, and email. Neither profile data nor user-editable metadata can
+  grant eligibility, and no secret Auth fields are returned.
+- **Actual:** Only the two trusted Technical Support profiles were returned across the paginated Auth result.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_technical_support_listing_uses_trusted_roles_across_pages`
+
+## TC-USERS-030 — an empty Technical Support pool is a valid result
+
+- **Scenario:** A deployment with no eligible Technical Support account does
+  not turn the users lookup itself into an error.
+- **Pre-conditions:** Auth contains no user whose trusted role is
+  `technical_support`.
+- **Steps:** `GET /users/technical-support`.
+- **Expected:** `200`, `[]`; no profile-table query is issued.
+- **Actual:** `200`, `[]`, with no profile-table query.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_technical_support_listing_is_empty_when_no_one_holds_the_role`

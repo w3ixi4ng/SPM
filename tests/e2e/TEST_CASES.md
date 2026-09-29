@@ -4,7 +4,7 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py` and
-`test_retire_equipment.py`.
+`test_retire_equipment.py`, and `test_assign_technical_support.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -13,9 +13,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 14 passed |
+| Result | 15 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -366,3 +366,25 @@ uses the next unused E2E id.
   quantity input for that item.
 - **Status:** Pass
 - **Evidence:** `test_retire_equipment.py::test_retired_equipment_remains_managed_but_disappears_from_selection`
+
+## S-43 — Auto-Assign Technical Support
+
+## TC-E2E-216 — Coordinator explicitly requests support and sees the automatic assignment
+
+- **Scenario:** S-43's complete browser journey without manual staff selection.
+- **Pre-conditions:** Complete test stack; a planning event assigned to the
+  signed-in Coordinator; two eligible Technical Support Staff users; neither
+  overlaps the event and one is deterministically least busy.
+- **Steps:** Open the assigned planning event; confirm no assignment exists;
+  choose the explicit Technical Support required action; enter support details;
+  submit; observe the assigned staff; reload the page.
+- **Test data:** Details `Wireless microphone setup and sound check` and a
+  target window `2026-11-13 09:00`–`12:00`.
+- **Expected:** The UI offers no staff picker. Submission shows the selected
+  staff member's name and email and the saved details. The same assignment is
+  visible after reload, proving it is persisted rather than local UI state.
+- **Actual:** No staff picker was shown. Submitting the optional details
+  displayed the deterministically selected staff member's name and email, and
+  both the assignment and details remained visible after a page reload.
+- **Status:** Pass
+- **Evidence:** `test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`

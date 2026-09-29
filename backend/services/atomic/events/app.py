@@ -27,7 +27,10 @@ from schemas import (
     EventSubmittedCreate,
     InternalEventCreate,
     InternalEventSubmit,
+    InternalTechnicalSupportAssignment,
     InternalEventUpdate,
+    TechnicalSupportLoad,
+    TechnicalSupportLoadRequest,
 )
 from security import clear_session_cookies
 
@@ -464,6 +467,126 @@ def coordinator_load(payload: CoordinatorLoadRequest, db: Client = Depends(get_d
             }
         )
     return results
+
+
+@app.post(
+    "/events/technical-support-load",
+    response_model=list[TechnicalSupportLoad],
+)
+def technical_support_load(
+    payload: TechnicalSupportLoadRequest,
+    db: Client = Depends(get_db),
+):
+    if not payload.staff_ids:
+        return []
+
+    ids = [str(staff_id) for staff_id in payload.staff_ids]
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(
+            "id,assigned_technical_support_id,start_date,start_time,end_date,end_time"
+        )
+        .in_("assigned_technical_support_id", ids)
+        .in_("status", ["planning", "confirmed"])
+    )
+    rows = _execute(operation).data
+    by_staff: dict[str, list[dict]] = {staff_id: [] for staff_id in ids}
+    for row in rows:
+        staff_id = row.get("assigned_technical_support_id")
+        if staff_id in by_staff:
+            by_staff[staff_id].append(row)
+
+    requested_start, requested_end = _window_bounds(
+        payload.start_date, payload.start_time, payload.end_date, payload.end_time
+    )
+    return [
+        {
+            "staff_id": staff_id,
+            "conflict": any(
+                _windows_overlap(
+                    requested_start,
+                    requested_end,
+                    *_window_bounds(
+                        date.fromisoformat(row["start_date"]),
+                        time.fromisoformat(row["start_time"]),
+                        date.fromisoformat(row["end_date"]),
+                        time.fromisoformat(row["end_time"]),
+                    ),
+                )
+                for row in by_staff[staff_id]
+            ),
+            "assigned_count": len(by_staff[staff_id]),
+        }
+        for staff_id in ids
+    ]
+
+
+@app.put(
+    "/events/{event_id}/technical-support/internal",
+    response_model=EventRead,
+)
+def record_technical_support_assignment(
+    event_id: UUID,
+    payload: InternalTechnicalSupportAssignment,
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(payload.coordinator_id)
+    current = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .eq("status", "planning")
+    )
+    if not current.data:
+        raise HTTPException(
+            status_code=409,
+            detail="Technical Support can only be requested for your planning event",
+        )
+
+    event = current.data[0]
+    existing_staff_id = event.get("assigned_technical_support_id")
+    selected_staff_id = existing_staff_id or (
+        str(payload.assigned_technical_support_id)
+        if payload.assigned_technical_support_id is not None
+        else None
+    )
+    assigned_at = event.get("technical_support_assigned_at")
+    if selected_staff_id is not None and assigned_at is None:
+        assigned_at = datetime.now(timezone.utc).isoformat()
+
+    values = {
+        "technical_support_required": True,
+        "technical_support_details": payload.technical_support_details,
+        "assigned_technical_support_id": selected_staff_id,
+        "technical_support_assigned_at": assigned_at,
+    }
+    if all(event.get(field) == value for field, value in values.items()):
+        return event
+
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .eq("status", "planning")
+    )
+    if existing_staff_id is None:
+        operation = operation.is_("assigned_technical_support_id", "null")
+    else:
+        operation = operation.eq(
+            "assigned_technical_support_id", existing_staff_id
+        )
+    result = _execute(operation.select("*"))
+    if not result.data:
+        raise HTTPException(
+            status_code=409,
+            detail="The event changed before Technical Support could be saved",
+        )
+    return result.data[0]
 
 
 @app.post(

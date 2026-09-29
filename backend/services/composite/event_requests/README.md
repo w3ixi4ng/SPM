@@ -8,7 +8,8 @@ assigned event overlapping the requested date and time.
 
 Story: S-12 — event coordinator assignment. S-14 — coordinator decisions —
 extends this service to also handle resubmitting a request a coordinator
-returned for amendment.
+returned for amendment. S-43 adds explicit, automatic Technical Support
+assignment for planning events.
 
 ## Endpoints
 
@@ -17,6 +18,8 @@ returned for amendment.
 | `POST` | `/event-requests` | Submits a brand-new request (equivalent to the events service's `POST /events`), assigning a coordinator as part of submission. |
 | `POST` | `/event-requests/{event_id}/submit` | Submits a draft for the first time, *or* resubmits a `returned` request (equivalent to `POST /events/{event_id}/submit`) — see [Assignment logic](#assignment-logic). |
 | `PATCH` | `/event-requests/{event_id}` | Edits an owned event (equivalent to `PATCH /events/{event_id}`), rechecking the assigned coordinator when a submitted event's date/time actually changes. |
+| `GET` | `/event-requests/{event_id}/technical-support-assignment` | Returns the assigned Coordinator's persisted Technical Support request state without allocating anyone. |
+| `POST` | `/event-requests/{event_id}/technical-support-assignment` | Explicitly requests Technical Support for the assigned planning event and automatically selects eligible staff when available. |
 | `GET` | `/event-requests/health` | Gateway-compatible liveness alias. |
 | `GET` | `/health` | Liveness check. |
 
@@ -55,6 +58,15 @@ supply only what changes, the same contract as the events service's own
 The caller never supplies `organiser_id` or `assigned_coordinator_id` on any
 of these — both are set by this service, the first from the verified
 session, the second by the assignment logic below.
+
+The Technical Support `POST` accepts only optional notes:
+
+```json
+{"support_details": "Wireless microphone setup and sound check"}
+```
+
+Blank notes become null. There is deliberately no staff-id field: the client
+cannot choose or replace the assignee.
 
 ## Response
 
@@ -106,6 +118,51 @@ part of this service at all — it never touches assignment, so it goes
 straight to the events service. See the events service's
 [Decisions](../../atomic/events/README.md#decisions-s-14).
 
+### Technical Support assignment (S-43)
+
+Only the event's currently assigned Coordinator can read or request this
+assignment, and a new request is accepted only while the event is `planning`.
+Equipment requirements do not trigger it; the Coordinator must explicitly use
+this endpoint.
+
+1. Fetch accounts whose trusted Auth `app_metadata.role` is
+   `technical_support` from the users service.
+2. Ask the events service for each candidate's strict-overlap conflict and
+   total `planning`/`confirmed` assignment count.
+3. Exclude conflicting candidates, then choose the least-loaded remaining
+   candidate; break ties by ascending UUID. The selection function is isolated
+   so a future strategy can replace it without changing the route contract.
+4. Persist the requirement, optional notes, and selected id through the events
+   service. If nobody is eligible and free, persist the requirement and notes
+   with a null assignment and return the successful `unassigned` state.
+
+An existing assignment is fixed and idempotent. Repeating the request does not
+re-run allocation or change its timestamp; changing only the notes preserves
+the same staff id and first-assigned time.
+
+Both GET and POST return:
+
+```json
+{
+  "technical_support_required": true,
+  "support_details": "Wireless microphone setup and sound check",
+  "assigned_technical_support_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "technical_support_assigned_at": "2026-09-29T04:00:00Z",
+  "assignment_state": "assigned",
+  "assigned_staff": {
+    "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "name": "Technical Support One",
+    "email": "support@example.com"
+  },
+  "message": "Technical Support Staff assigned"
+}
+```
+
+`assignment_state` is `not_required`, `assigned`, or `unassigned`.
+`assigned_staff` is null unless an assignment exists. The unassigned response
+is a `200`, not an error: it explicitly says support is required but no
+eligible staff member is currently available.
+
 ### Recheck logic (`PATCH`)
 
 An edit only reaches any of this when the event being edited is currently
@@ -130,9 +187,9 @@ a plain passthrough of the edit.
 | Status | When |
 | --- | --- |
 | `401` | No valid session. |
-| `403` | The session's trusted role is not `event_organiser`. |
-| `404` | The event does not exist or is not owned by the caller. |
-| `409` | No event coordinator is free for the requested window, or the draft has already been submitted. |
+| `403` | The session's trusted role is not permitted for the endpoint: organiser for submission/edit flows, assigned Event Coordinator for S-43. |
+| `404` | The event does not exist, is not owned by the organiser, or is not assigned to the calling Coordinator. |
+| `409` | No event coordinator is free for a submission window; the draft has already been submitted; or Technical Support was requested after the target stopped being the caller's planning event. |
 | `422` | The request body is invalid — checked here, before either downstream service is called. |
 | `502` | The users or events service could not be reached or answered unexpectedly. |
 

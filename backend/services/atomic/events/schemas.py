@@ -17,6 +17,7 @@ class EventStatus(str, Enum):
     # ever the recorded *decision* (DecisionValue), which stays put while the
     # status moves on.
     PLANNING = "planning"
+    CONFIRMED = "confirmed"
     REJECTED = "rejected"
     RETURNED = "returned"
 
@@ -222,6 +223,10 @@ class EventRead(BaseModel):
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
+    technical_support_required: bool = False
+    technical_support_details: str | None = None
+    assigned_technical_support_id: UUID | None = None
+    technical_support_assigned_at: datetime | None = None
     # The coordinator's decision and its record -- all null until decided,
     # and cleared again on resubmit after a return. See
     # POST /events/{event_id}/decision.
@@ -273,6 +278,38 @@ class CoordinatorLoad(BaseModel):
     # This coordinator's total assigned submitted-event count, independent of
     # the requested window -- what "least busy" is measured against.
     assigned_count: int
+
+
+class TechnicalSupportLoadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    staff_ids: list[UUID]
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+
+
+class TechnicalSupportLoad(BaseModel):
+    staff_id: UUID
+    conflict: bool
+    assigned_count: int
+
+
+class InternalTechnicalSupportAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+    technical_support_details: str | None = None
+    assigned_technical_support_id: UUID | None = None
+
+    @field_validator("technical_support_details", mode="before")
+    @classmethod
+    def normalise_details(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
 
 
 # organiser_id and assigned_coordinator_id are never accepted from an

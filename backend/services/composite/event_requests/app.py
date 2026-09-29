@@ -17,13 +17,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from clients import get_events_client, get_users_client
-from schemas import EventRequestSubmit, EventRequestUpdate
+from schemas import EventRequestSubmit, EventRequestUpdate, TechnicalSupportRequest
 
 app = FastAPI(title="Event Requests Service")
 logger = logging.getLogger(__name__)
 
 ORGANISER_ROLE = "event_organiser"
+COORDINATOR_ROLE = "event_coordinator"
 NO_COORDINATOR_AVAILABLE = "No event coordinator is available for the requested date and time"
+NO_SUPPORT_AVAILABLE = "Technical Support is required but no staff member is currently available"
 # The events service's status-guarded submit write matched nothing -- the
 # request stopped being a draft or returned one underneath this call. Same
 # wording as the events service, which cannot be imported across services.
@@ -75,6 +77,97 @@ async def _authenticate_organiser(request: Request, users: httpx.AsyncClient) ->
     if user.get("role") != ORGANISER_ROLE:
         raise HTTPException(status_code=403, detail="Permission denied")
     return user
+
+
+async def _authenticate_coordinator(request: Request, users: httpx.AsyncClient) -> dict:
+    try:
+        response = await users.get("/users/me", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        logger.exception("Users service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Users service unavailable") from exc
+    if response.status_code == status.HTTP_401_UNAUTHORIZED:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Users service unavailable")
+    user = response.json()
+    if user.get("role") != COORDINATOR_ROLE:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return user
+
+
+async def _assigned_event(
+    event_id: UUID,
+    request: Request,
+    events: httpx.AsyncClient,
+) -> dict:
+    try:
+        response = await events.get(
+            f"/events/assigned/{event_id}", cookies=request.cookies
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found or not assigned to you")
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    return response.json()
+
+
+async def _technical_support_pool(users: httpx.AsyncClient) -> list[dict]:
+    try:
+        response = await users.get("/users/technical-support")
+    except httpx.HTTPError as exc:
+        logger.exception("Users service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Users service unavailable") from exc
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Users service unavailable")
+    return response.json()
+
+
+def _select_technical_support(candidates: list[dict], loads: list[dict]) -> dict | None:
+    """Least live workload, then ascending user id; kept replaceable by design."""
+    by_id = {row["staff_id"]: row for row in loads}
+    available = [
+        candidate
+        for candidate in candidates
+        if candidate["id"] in by_id and not by_id[candidate["id"]]["conflict"]
+    ]
+    if not available:
+        return None
+    return min(
+        available,
+        key=lambda candidate: (
+            by_id[candidate["id"]]["assigned_count"],
+            candidate["id"],
+        ),
+    )
+
+
+def _support_response(event: dict, candidates: list[dict]) -> dict:
+    staff_id = event.get("assigned_technical_support_id")
+    staff = next((row for row in candidates if row["id"] == staff_id), None)
+    if staff_id is not None and staff is None:
+        staff = {"id": staff_id, "name": None, "email": None}
+    required = bool(event.get("technical_support_required"))
+    if staff_id is not None:
+        assignment_state = "assigned"
+        message = "Technical Support Staff assigned"
+    elif required:
+        assignment_state = "unassigned"
+        message = NO_SUPPORT_AVAILABLE
+    else:
+        assignment_state = "not_required"
+        message = "Technical Support has not been requested"
+    return {
+        "technical_support_required": required,
+        "support_details": event.get("technical_support_details"),
+        "assigned_technical_support_id": staff_id,
+        "technical_support_assigned_at": event.get("technical_support_assigned_at"),
+        "assignment_state": assignment_state,
+        "assigned_staff": staff,
+        "message": message,
+    }
 
 
 async def _pick_coordinator(
@@ -322,3 +415,94 @@ async def update_event_request(
     if response.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail="Events service unavailable")
     return response.json()
+
+
+@app.get("/event-requests/{event_id}/technical-support-assignment")
+async def get_technical_support_assignment(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    await _authenticate_coordinator(request, users)
+    event = await _assigned_event(event_id, request, events)
+    candidates = (
+        await _technical_support_pool(users)
+        if event.get("assigned_technical_support_id") is not None
+        else []
+    )
+    return _support_response(event, candidates)
+
+
+@app.post("/event-requests/{event_id}/technical-support-assignment")
+async def request_technical_support_assignment(
+    event_id: UUID,
+    payload: TechnicalSupportRequest,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    user = await _authenticate_coordinator(request, users)
+    event = await _assigned_event(event_id, request, events)
+    if event.get("status") != "planning":
+        raise HTTPException(
+            status_code=409,
+            detail="Technical Support can only be requested while the event is in planning",
+        )
+
+    existing_staff_id = event.get("assigned_technical_support_id")
+    candidates: list[dict]
+    selected: dict | None = None
+    if existing_staff_id is not None:
+        candidates = await _technical_support_pool(users)
+        selected = next(
+            (row for row in candidates if row["id"] == existing_staff_id), None
+        )
+        if event.get("technical_support_details") == payload.support_details:
+            return _support_response(event, candidates)
+    else:
+        candidates = await _technical_support_pool(users)
+        if candidates:
+            body = {
+                "staff_ids": [candidate["id"] for candidate in candidates],
+                "start_date": event["start_date"],
+                "start_time": event["start_time"],
+                "end_date": event["end_date"],
+                "end_time": event["end_time"],
+            }
+            try:
+                load_response = await events.post(
+                    "/events/technical-support-load", json=body
+                )
+            except httpx.HTTPError as exc:
+                logger.exception("Events service unavailable", exc_info=exc)
+                raise HTTPException(
+                    status_code=502, detail="Events service unavailable"
+                ) from exc
+            if load_response.status_code != status.HTTP_200_OK:
+                raise HTTPException(status_code=502, detail="Events service unavailable")
+            selected = _select_technical_support(
+                candidates, load_response.json()
+            )
+
+    write_body = {
+        "coordinator_id": user["id"],
+        "technical_support_details": payload.support_details,
+        "assigned_technical_support_id": (
+            existing_staff_id
+            if existing_staff_id is not None
+            else selected["id"] if selected is not None else None
+        ),
+    }
+    try:
+        response = await events.put(
+            f"/events/{event_id}/technical-support/internal", json=write_body
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code == status.HTTP_409_CONFLICT:
+        raise HTTPException(status_code=409, detail=response.json().get("detail"))
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    return _support_response(response.json(), candidates)

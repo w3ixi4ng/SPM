@@ -34,12 +34,15 @@ Paths are bare, the way every service in this repo mounts its routes. The
 `/api/users/...` the frontend calls is the gateway's prefix, not this service's
 — Kong (or the Vite dev proxy) strips it.
 
-**`GET /users/coordinators`** is internal, composite-only — no Kong route, and
-no session required at this layer, because a browser cannot reach it from
-outside the Docker network. The `event_requests` composite
+**`GET /users/coordinators`** and **`GET /users/technical-support`** are
+internal, composite-only routes — no Kong route, and no session required at
+this layer, because a browser cannot reach them from outside the Docker
+network. The `event_requests` composite
 ([`backend/services/composite/event_requests`](../../composite/event_requests/README.md))
-is the only caller, to find who it can route a new event request to. Returns
-every account whose trusted `app_metadata.role` is `event_coordinator`:
+is the only caller. The first route finds candidates for a new event request;
+the second finds candidates for an event's Technical Support assignment. Each
+uses only trusted Supabase Auth `app_metadata.role`, including across all Auth
+pagination pages, and returns the matching profile rows:
 
 ```json
 // 200
@@ -47,6 +50,10 @@ every account whose trusted `app_metadata.role` is `event_coordinator`:
 ```
 
 `[]` when no account currently holds that role.
+
+`GET /users/technical-support` has the same response shape and returns only
+accounts whose trusted role is `technical_support`. A role in editable
+`user_metadata`, or a profile-table value, never makes an account eligible.
 
 ### Request and response
 

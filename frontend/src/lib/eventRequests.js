@@ -102,6 +102,7 @@ const STATUS_META = {
   draft: { label: 'Draft', color: '#4C5A70' },
   submitted: { label: 'Under Review', color: '#B5842B' },
   planning: { label: 'Planning', color: '#3F8F5F' },
+  confirmed: { label: 'Confirmed', color: '#3F8F5F' },
   returned: { label: 'Action Required', color: '#B5842B' },
   rejected: { label: 'Rejected', color: '#B25547' },
 }
