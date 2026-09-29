@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from .conftest import BOOKING, BOOKING_STORED, booking_row, on_insert, on_pending_list, table
+from .conftest import BOOKING, BOOKING_STORED, booking_row, lookups, on_insert, on_pending_list, table
 
 
 def _without(*fields):
@@ -197,12 +197,12 @@ def test_an_unknown_status_filter_is_refused(client, db):
 
 # --- TC-BOOKINGS-013 ------------------------------------------------------
 def test_a_storage_failure_is_reported_not_swallowed(client, db):
+    # S-30: the create checks for overlaps and blocks first; they find none.
+    query = lookups(db)
     table(db).insert.return_value.execute.side_effect = RuntimeError("connection reset")
-    table(db).select.return_value.eq.return_value.order.return_value.execute.side_effect = RuntimeError(
-        "connection reset"
-    )
-
     created = client.post("/bookings", json=BOOKING)
+
+    query.execute.side_effect = RuntimeError("connection reset")
     listed = client.get("/bookings", params={"status": "pending"})
 
     for response in (created, listed):
