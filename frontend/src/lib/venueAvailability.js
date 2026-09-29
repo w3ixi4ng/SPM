@@ -12,12 +12,14 @@ import { optionLabel, WEEK } from './venues.js'
 export const BLOCK_REASONS = Object.freeze(['maintenance', 'renovation', 'safety', 'internal_activity', 'other'])
 
 const ROSE = '#B25547'
-const GREEN = '#3F8F5F'
+const SKY = '#3C6E96'
 const INK_FAINT = '#4C5A70'
 
-// Every state carries a text label; the colour only ever repeats it.
+// Every state carries a text label; the colour only ever repeats it. Each
+// colour is distinct: Booked keeps the green "Confirmed" has elsewhere, so
+// Available takes sky rather than looking booked.
 export const STATE_META = Object.freeze({
-  available: { label: 'Available', color: GREEN },
+  available: { label: 'Available', color: SKY },
   held: { label: 'Tentatively held', color: bookingStatusMeta('pending').color },
   confirmed: { label: 'Booked', color: bookingStatusMeta('confirmed').color },
   blocked: { label: 'Unavailable', color: ROSE },
@@ -68,6 +70,21 @@ function weekdayOf(iso) {
 
 function isOpen(operatingHours, iso) {
   return operatingHours.some((entry) => entry.day === weekdayOf(iso))
+}
+
+// A state's colour as a light fill, so a whole day can be coloured while
+// ink text on it keeps its contrast.
+export function tint(hex, alpha = 0.16) {
+  const [r, g, b] = [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16))
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+// What a day's block says in the month grid: its state, or for a day with
+// both bookings and holds, both of them.
+export function shortDayLabel(day) {
+  if (day.items.length === 0) return STATE_META[day.state].label.replace('Tentatively held', 'Held')
+  const states = new Set(day.items.map((item) => item.state))
+  return [states.has('confirmed') && 'Booked', states.has('held') && 'Held'].filter(Boolean).join(' + ')
 }
 
 export function blockLabel(reason) {

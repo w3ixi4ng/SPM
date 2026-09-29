@@ -18,7 +18,9 @@ import {
   localToday,
   monthGrids,
   removeVenueBlock,
+  shortDayLabel,
   STATE_META,
+  tint,
   validateBlockForm,
   WEEKDAY_HEADINGS,
 } from '../lib/venueAvailability.js'
@@ -43,7 +45,16 @@ const C = {
 const INPUT_CLASS = 'csp-input w-full rounded-sm border px-3 py-2 font-ui text-sm'
 const INPUT_STYLE = { borderColor: C.line, color: C.ink, backgroundColor: C.paper }
 const LEGEND = ['available', 'held', 'confirmed', 'blocked', 'closed']
-const SHORT_LABEL = { available: 'Available', held: 'Held', confirmed: 'Booked', blocked: 'Unavailable', closed: 'Closed' }
+
+// A day's colours: the state's colour as a light fill with a matching edge.
+// Closed is dashed, as closed status is elsewhere.
+function stateStyle(state) {
+  const color = STATE_META[state].color
+  return {
+    backgroundColor: tint(color),
+    border: `1px ${state === 'closed' ? 'dashed' : 'solid'} ${color}`,
+  }
+}
 
 function Label({ htmlFor, children }) {
   return (
@@ -53,14 +64,9 @@ function Label({ htmlFor, children }) {
   )
 }
 
-function Dot({ color, dashed = false }) {
-  return (
-    <span
-      className="w-2 h-2 rounded-full shrink-0 inline-block"
-      style={dashed ? { border: `1px dashed ${color}` } : { backgroundColor: color }}
-      aria-hidden="true"
-    />
-  )
+// A small sample of a state's block, for the legend and the day's detail.
+function Swatch({ state }) {
+  return <span className="w-3.5 h-3.5 rounded-sm shrink-0 inline-block" style={stateStyle(state)} aria-hidden="true" />
 }
 
 function Legend() {
@@ -68,7 +74,7 @@ function Legend() {
     <ul className="flex flex-wrap gap-x-5 gap-y-2 font-ui text-xs mb-5" aria-label="What the colours mean">
       {LEGEND.map((state) => (
         <li key={state} className="inline-flex items-center gap-1.5" style={{ color: C.inkFaint }}>
-          <Dot color={STATE_META[state].color} dashed={state === 'closed'} />
+          <Swatch state={state} />
           {STATE_META[state].label}
         </li>
       ))}
@@ -148,24 +154,23 @@ function DayCell({ cell, day, selected, onSelect }) {
       </button>
     )
   }
+  // The whole block takes the day's colour; the selected day is ringed in
+  // teal on top of it, so its state still shows.
   return (
     <button
       type="button"
       onClick={() => onSelect(cell.date)}
       aria-pressed={selected}
       aria-label={`${longDate(cell.date)}: ${day.label}`}
-      className="csp-day rounded-sm border py-2 px-1.5 font-ui text-sm text-left min-h-16 flex flex-col gap-1"
+      className="csp-day rounded-sm py-2 px-1.5 font-ui text-sm text-left min-h-16 flex flex-col gap-1"
       style={{
-        borderColor: selected ? C.teal : C.line,
-        backgroundColor: selected ? 'rgba(14,124,116,0.08)' : C.paper,
+        ...stateStyle(day.state),
         color: C.ink,
+        boxShadow: selected ? `0 0 0 2px ${C.teal}` : 'none',
       }}
     >
-      <span>{cell.day}</span>
-      <span className="inline-flex items-center gap-1 text-xs" style={{ color: C.inkFaint }}>
-        <Dot color={day.color} dashed={day.state === 'closed'} />
-        <span className="hidden sm:inline truncate">{SHORT_LABEL[day.state]}</span>
-      </span>
+      <span className="font-medium">{cell.day}</span>
+      <span className="block text-xs truncate" style={{ color: C.ink }}>{shortDayLabel(day)}</span>
     </button>
   )
 }
@@ -210,14 +215,14 @@ function DayDetail({ day, canManage, onRemove, removing }) {
         <ul className="grid gap-1.5" aria-label={`Bookings on ${heading}`}>
           {day.items.map((item) => (
             <li key={item.label} className="inline-flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
-              <Dot color={item.color} />
+              <Swatch state={item.state} />
               {item.label}
             </li>
           ))}
         </ul>
       ) : (
         <p className="inline-flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
-          <Dot color={day.color} dashed={day.state === 'closed'} />
+          <Swatch state={day.state} />
           {day.label}
         </p>
       )}

@@ -1153,9 +1153,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
   Held uses the colour `bookingStatusMeta('pending')` already uses (amber).
   Booked uses `bookingStatusMeta('confirmed')` (green). Blocked uses `rose`.
   Every state has a text label, never colour alone.
-- **Actual:** Days and labels as specified; held amber and booked green from `bookingStatusMeta`, blocked rose, including the weekend. Holds-only day reads held, in start order.
+- **Actual:** Days and labels as specified; held amber and booked green from `bookingStatusMeta`, blocked rose, including the weekend. Holds-only day reads held, in start order. Every state's colour is distinct (Available is sky, so it can't be mistaken for Booked), and each day's block names its state, e.g. "Booked + Held".
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — each day gets one state and label, and a block outranks everything`; `tests/unit/frontend/test_venue_availability.mjs — a day with only holds reads as held, and holds sort by start time`
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — every state has its own colour, and each block names its state`; `tests/unit/frontend/test_venue_availability.mjs — each day gets one state and label, and a block outranks everything`; `tests/unit/frontend/test_venue_availability.mjs — a day with only holds reads as held, and holds sort by start time`
 
 ## TC-FRONTEND-069 — days before tomorrow are greyed and disabled, like DateSelect
 
