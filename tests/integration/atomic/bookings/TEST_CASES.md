@@ -133,9 +133,9 @@ its grants.
   client.
 - **Expected:** `201`, then a list containing the block, then `204`, and the
   row is gone. Cleanup removes anything left over.
-- **Actual:** —
-- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
-- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_a_block_can_be_saved_read_back_and_removed` (not run)
+- **Actual:** Block created `201` with the staff id, listed for the range, deleted `204`, and gone from `bookings.blocks`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_a_block_can_be_saved_read_back_and_removed`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
 
 ### TC-BOOKINGS-106 — Two simultaneous overlapping requests produce exactly one hold
 
@@ -149,9 +149,9 @@ its grants.
 - **Expected:** One returns `201`. The other returns `409`, saying the winner
   is "already tentatively held on 12 Nov 2026 from …". Exactly one row exists
   for that venue and date.
-- **Actual:** —
-- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
-- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_two_simultaneous_overlapping_requests_produce_exactly_one_hold` (not run)
+- **Actual:** Of two simultaneous overlapping requests one returned `201` and one `409` "already tentatively held"; exactly one row stored.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_two_simultaneous_overlapping_requests_produce_exactly_one_hold`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
 
 ### TC-BOOKINGS-107 — Rejecting a hold releases the slot
 
@@ -161,6 +161,6 @@ its grants.
   a reason. Then `POST /bookings` for another event at the same venue and time.
 - **Expected:** The reject returns `200` and the new request returns `201`
   `pending`.
-- **Actual:** —
-- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
-- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot` (not run)
+- **Actual:** Rejecting the hold returned `200`; the same slot then returned `201` pending.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.

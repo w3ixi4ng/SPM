@@ -524,9 +524,9 @@ time passes.
   - In the grid, today and earlier are greyed out and cannot be clicked.
   - The page survives the reload, which proves the SPA fallback and the
     session. **Mark unavailable** is not shown to a Coordinator.
-- **Actual:** —
-- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
-- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart` (not run)
+- **Actual:** Opened from the Venues tab and survived a reload; opened on tomorrow's month with Previous disabled and today greyed out; D+2 showed Booked and Tentatively held, D+3 and D+4 Unavailable — Maintenance, D+5 Available; legend complete; no event name or note; no Mark unavailable for the Coordinator.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.
 
 ## TC-E2E-221 — a new hold, a new block and a removed block all show up on the calendar
 
@@ -552,6 +552,6 @@ time passes.
   - Step 4: `D+6` shows "Unavailable — Renovation".
   - Step 5: `D+6` is "Available" again.
   - Cleanup removes every row created.
-- **Actual:** —
-- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
-- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_new_hold_a_new_block_and_a_removed_block_all_show_up` (not run)
+- **Actual:** D+5 went from Available to Tentatively held 10:00–11:00; the second event was refused as already tentatively held; the staff block showed for staff at once and for the Coordinator on Refresh; after Remove, Refresh showed D+6 Available.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_new_hold_a_new_block_and_a_removed_block_all_show_up`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.

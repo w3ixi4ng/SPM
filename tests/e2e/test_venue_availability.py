@@ -73,7 +73,9 @@ def show_month(page, day: date):
     year goes first, so no step lands on a month before the first one."""
     page.get_by_label("Year", exact=True).select_option(str(day.year))
     page.get_by_label("Month", exact=True).select_option(str(day.month))
-    page.get_by_role("region", name=f"{day:%B} {day.year}").wait_for(timeout=20000)
+    # Exact: the selected day's detail is named "Thursday, 1 October 2026",
+    # which contains the month's name too.
+    page.get_by_role("region", name=f"{day:%B} {day.year}", exact=True).wait_for(timeout=20000)
 
 
 def day_cell(page, day: date):

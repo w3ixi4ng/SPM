@@ -167,6 +167,6 @@ in the test project.
   - After step 4: a `blocked` entry with reason `safety` as well.
   - No response includes an event name.
   - Cleanup deletes every row created.
-- **Actual:** —
-- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
-- **Evidence:** `tests/integration/composite/venue_bookings/test_availability.py::test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_kong` (not run)
+- **Actual:** Through Kong: empty calendar, then confirmed + held; C refused `409` while B held and accepted after B was rejected; the safety block appeared with no id or note; no event name in any response.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_availability.py::test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_kong`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
