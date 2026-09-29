@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, CalendarX2, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, CalendarX2, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
@@ -10,26 +10,31 @@ import {
   availabilityErrorMessage,
   BLOCK_REASONS,
   blockErrorMessages,
-  defaultAvailabilityRange,
   earliestFrom,
   earliestTo,
   emptyBlockForm,
   getVenueAvailability,
+  initialMonth,
+  isBeforeMonth,
   localToday,
+  MONTH_NAMES,
   monthGrids,
+  monthRange,
   removeVenueBlock,
+  shiftMonth,
   shortDayLabel,
   STATE_META,
   tint,
   validateBlockForm,
   WEEKDAY_HEADINGS,
+  yearOptions,
 } from '../lib/venueAvailability.js'
 import { bookingDateLabel } from '../lib/venueBookings.js'
 import { optionLabel } from '../lib/venues.js'
 
 // S-30: a venue's availability calendar. Coordinators see when it is free,
 // held, booked or unavailable; Venue Staff also mark days unavailable and
-// clear them. Every open, range change and Refresh fetches what is saved now.
+// clear them. Every open, month change and Refresh fetches what is saved now.
 
 const C = {
   ink: '#10192B',
@@ -82,42 +87,63 @@ function Legend() {
   )
 }
 
-function RangeControls({ range, today, onChange, onRefresh, loading }) {
-  function setFrom(from) {
-    if (!from) return
-    onChange({ from, to: range.to < from ? from : range.to })
-  }
+// One month at a time, moved with the arrows or picked from the Month and
+// Year dropdowns, as DateSelect does. Nothing before the month tomorrow falls
+// in can be reached.
+function MonthControls({ view, earliest, onChange, onRefresh, loading }) {
+  const atEarliest = !isBeforeMonth(earliest, view)
+  const years = yearOptions(earliest)
+  const atLatest = view.year === years[years.length - 1] && view.month === 12
 
-  function setTo(to) {
-    if (!to) return
-    onChange({ ...range, to })
+  function pick(next) {
+    onChange(isBeforeMonth(next, earliest) ? earliest : next)
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end mb-6">
-      <div>
-        <Label htmlFor="availability-from">From</Label>
-        <input
-          id="availability-from"
-          type="date"
-          value={range.from}
-          min={earliestFrom(today)}
-          onChange={(e) => setFrom(e.target.value)}
-          className={INPUT_CLASS}
+    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => pick(shiftMonth(view, -1))}
+          disabled={atEarliest}
+          aria-label="Previous month"
+          className="csp-icon-btn rounded-sm p-2 border disabled:opacity-40"
+          style={{ borderColor: C.line, color: C.ink }}
+        >
+          <ChevronLeft size={16} aria-hidden="true" />
+        </button>
+        <select
+          aria-label="Month"
+          value={view.month}
+          onChange={(e) => pick({ ...view, month: Number(e.target.value) })}
+          className="csp-input rounded-sm border px-3 py-2 font-ui text-sm font-medium"
           style={INPUT_STYLE}
-        />
-      </div>
-      <div>
-        <Label htmlFor="availability-to">To</Label>
-        <input
-          id="availability-to"
-          type="date"
-          value={range.to}
-          min={earliestTo(range.from)}
-          onChange={(e) => setTo(e.target.value)}
-          className={INPUT_CLASS}
+        >
+          {MONTH_NAMES.map((name, index) => (
+            <option key={name} value={index + 1} disabled={isBeforeMonth({ year: view.year, month: index + 1 }, earliest)}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Year"
+          value={view.year}
+          onChange={(e) => pick({ ...view, year: Number(e.target.value) })}
+          className="csp-input rounded-sm border px-3 py-2 font-ui text-sm font-medium"
           style={INPUT_STYLE}
-        />
+        >
+          {years.map((year) => <option key={year} value={year}>{year}</option>)}
+        </select>
+        <button
+          type="button"
+          onClick={() => pick(shiftMonth(view, 1))}
+          disabled={atLatest}
+          aria-label="Next month"
+          className="csp-icon-btn rounded-sm p-2 border disabled:opacity-40"
+          style={{ borderColor: C.line, color: C.ink }}
+        >
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
       </div>
       <button
         type="button"
@@ -180,7 +206,6 @@ function Calendar({ grids, daysByDate, selectedDate, onSelect }) {
     <div className="rise-in grid gap-8">
       {grids.map((grid) => (
         <section key={grid.key} aria-label={grid.label}>
-          <h3 className="font-ui text-base font-medium mb-3" style={{ color: C.ink }}>{grid.label}</h3>
           <div className="grid grid-cols-7 gap-1 mb-1">
             {WEEKDAY_HEADINGS.map((heading) => (
               <span key={heading} className="font-ui text-xs text-center" style={{ color: C.inkFaint }}>{heading}</span>
@@ -399,9 +424,16 @@ export default function VenueAvailability() {
   const { user } = useAuth()
   const canManage = hasPermission(user?.role, PERMISSIONS.MANAGE_VENUE_BLOCKS)
   const today = useMemo(() => localToday(), [])
-  const [range, setRange] = useState(() => defaultAvailabilityRange(today))
+  const earliest = useMemo(() => initialMonth(today), [today])
+  const [view, setView] = useState(earliest)
+  const range = useMemo(() => monthRange(view), [view])
   const [load, setLoad] = useState({ status: 'loading', data: null, error: null })
-  const [selectedDate, setSelectedDate] = useState(range.from)
+  // The first day of the month that can be chosen: tomorrow, in its month.
+  const firstSelectable = (next) => {
+    const { from } = monthRange(next)
+    return from < earliestFrom(today) ? earliestFrom(today) : from
+  }
+  const [selectedDate, setSelectedDate] = useState(() => firstSelectable(earliest))
   const [panelOpen, setPanelOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [removal, setRemoval] = useState({ removing: false, error: '' })
@@ -427,9 +459,9 @@ export default function VenueAvailability() {
     refresh()
   }, [refresh])
 
-  function changeRange(next) {
-    setRange(next)
-    if (selectedDate < next.from || selectedDate > next.to) setSelectedDate(next.from)
+  function changeMonth(next) {
+    setView(next)
+    setSelectedDate(firstSelectable(next))
   }
 
   const closePanel = useCallback(() => {
@@ -515,7 +547,7 @@ export default function VenueAvailability() {
             Choose a day to see its times.
           </p>
 
-          <RangeControls range={range} today={today} onChange={changeRange} onRefresh={refresh} loading={load.status === 'loading'} />
+          <MonthControls view={view} earliest={earliest} onChange={changeMonth} onRefresh={refresh} loading={load.status === 'loading'} />
 
           <div role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</div>
 

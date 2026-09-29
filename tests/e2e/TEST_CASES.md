@@ -512,16 +512,16 @@ time passes.
   1. Sign in as the Coordinator. Open the Venues tab and choose **Availability**
      on the test venue's row, next to where Venue Staff see **Edit**.
   2. Reload on `/venues/:id/availability`.
-  3. Open the From picker.
+  3. Move to each seeded day's month with the Month and Year dropdowns, and
+     try ◀ on the first month. (Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.)
 - **Expected:**
-  - The page has a "Back to dashboard" link. The range defaults to
-    `D+1`–`D+28`.
+  - The page has a "Back to dashboard" link. It opens on the month `D+1` is
+    in, and ◀ is disabled there.
   - `D+2` shows "Booked 09:00–12:00" and "Tentatively held 14:00–16:00".
     `D+3` and `D+4` show "Unavailable — Maintenance". Other days show
     "Available".
   - A legend names each state. No event name appears on the page.
-  - In the grid and the picker, today and earlier are greyed out and cannot
-    be clicked.
+  - In the grid, today and earlier are greyed out and cannot be clicked.
   - The page survives the reload, which proves the SPA fallback and the
     session. **Mark unavailable** is not shown to a Coordinator.
 - **Actual:** —
@@ -535,7 +535,8 @@ time passes.
 - **Pre-conditions:** As TC-E2E-220, with nothing on the venue. A Venue
   Staff account. Two planning events assigned to the Coordinator.
 - **Steps:**
-  1. The Coordinator opens the calendar. `D+5` shows "Available".
+  1. The Coordinator opens the calendar, moving to `D+5`'s month with ▶ if
+     it is not the first month shown. `D+5` shows "Available".
   2. The Coordinator sends a request for `D+5` `10:00`–`11:00` from the first
      event. They reopen the calendar, then try the second event on `D+5`
      `10:30`–`11:30`.

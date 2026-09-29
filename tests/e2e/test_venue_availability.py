@@ -68,6 +68,14 @@ def open_calendar(page, venue_name, dashboard):
     page.get_by_role("heading", name=f"{venue_name} availability").wait_for(timeout=20000)
 
 
+def show_month(page, day: date):
+    """Move the calendar to the month `day` is in, with the dropdowns. The
+    year goes first, so no step lands on a month before the first one."""
+    page.get_by_label("Year", exact=True).select_option(str(day.year))
+    page.get_by_label("Month", exact=True).select_option(str(day.month))
+    page.get_by_role("region", name=f"{day:%B} {day.year}").wait_for(timeout=20000)
+
+
 def day_cell(page, day: date):
     return page.get_by_role("button", name=re.compile(rf"\b{re.escape(day_name(day))}: "))
 
@@ -115,22 +123,25 @@ def test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart(admin, p
     page.get_by_role("heading", name=f"{venue['name']} availability").wait_for(timeout=20000)
     expect(page.get_by_role("link", name="Back to dashboard")).to_be_visible()
 
-    # The range defaults to the four weeks from tomorrow; nothing earlier can be picked.
-    expect(page.get_by_label("From", exact=True)).to_have_value(d(1).isoformat())
-    expect(page.get_by_label("To", exact=True)).to_have_value(d(28).isoformat())
-    expect(page.get_by_label("From", exact=True)).to_have_attribute("min", d(1).isoformat())
+    # It opens on tomorrow's month, and nothing earlier can be reached.
+    expect(page.get_by_label("Month", exact=True)).to_have_value(str(d(1).month))
+    expect(page.get_by_label("Year", exact=True)).to_have_value(str(d(1).year))
+    expect(page.get_by_role("button", name="Previous month")).to_be_disabled()
     if d(0).month == d(1).month:
         # Today's cell is greyed out and cannot be clicked.
         expect(day_cell(page, d(0))).to_be_disabled()
 
+    show_month(page, d(2))
     day_cell(page, d(2)).click()
     detail = day_detail(page, d(2))
     expect(detail).to_contain_text("Booked 09:00–12:00", timeout=20000)
     expect(detail).to_contain_text("Tentatively held 14:00–16:00")
 
     for day in (d(3), d(4)):
+        show_month(page, day)
         day_cell(page, day).click()
         expect(day_detail(page, day)).to_contain_text("Unavailable — Maintenance")
+    show_month(page, d(5))
     day_cell(page, d(5)).click()
     expect(day_detail(page, d(5))).to_contain_text("Available")
 
@@ -156,6 +167,8 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     sign_in(coordinator)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
     open_calendar(page, venue["name"], "/dashboard/event-coordinator")
+    if d(5).month != d(1).month:
+        page.get_by_role("button", name="Next month").click()
     day_cell(page, d(5)).click()
     expect(day_detail(page, d(5))).to_contain_text("Available", timeout=20000)
 
@@ -173,6 +186,7 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     request(first, "10:00", "11:00")
     page.wait_for_url(re.compile(rf"/coordinator/events/{first['id']}$"), timeout=20000)
     open_calendar(page, venue["name"], "/dashboard/event-coordinator")
+    show_month(page, d(5))
     day_cell(page, d(5)).click()
     expect(day_detail(page, d(5))).to_contain_text("Tentatively held 10:00–11:00", timeout=20000)
 
@@ -182,6 +196,7 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     expect(refused).to_contain_text("from 10:00 to 11:00")
 
     open_calendar(page, venue["name"], "/dashboard/event-coordinator")
+    show_month(page, d(6))
 
     # 3. Venue Staff, in their own browser, mark D+6 unavailable.
     staff_context = browser.new_context(base_url=base_url)
@@ -193,6 +208,7 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
         staff_page.click("button[type=submit]")
         staff_page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
         open_calendar(staff_page, venue["name"], "/dashboard/venue-staff")
+        show_month(staff_page, d(6))
 
         staff_page.get_by_role("button", name="Mark unavailable").click()
         panel = staff_page.get_by_role("dialog", name="Mark unavailable")

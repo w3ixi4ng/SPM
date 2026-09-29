@@ -7,11 +7,14 @@ import {
   addVenueBlock,
   availabilityDays,
   availabilityErrorMessage,
-  defaultAvailabilityRange,
   earliestFrom,
-  earliestTo,
   getVenueAvailability,
+  initialMonth,
+  isBeforeMonth,
   monthGrids,
+  monthRange,
+  shiftMonth,
+  yearOptions,
   removeVenueBlock,
   shortDayLabel,
   STATE_META,
@@ -58,8 +61,26 @@ async function recordingFetch(answers, run) {
 }
 
 // --- TC-FRONTEND-067 -------------------------------------------------------
-test('the default range is the four weeks from tomorrow', () => {
-  assert.deepEqual(defaultAvailabilityRange(TODAY), { from: '2026-11-11', to: '2026-12-08' })
+test('the calendar opens on the month tomorrow falls in, and shows a whole month', () => {
+  assert.deepEqual(initialMonth(TODAY), { year: 2026, month: 11 })
+  // On the last day of a month, tomorrow is in the next one.
+  assert.deepEqual(initialMonth('2026-11-30'), { year: 2026, month: 12 })
+  assert.deepEqual(initialMonth('2026-12-31'), { year: 2027, month: 1 })
+
+  assert.deepEqual(monthRange({ year: 2026, month: 11 }), { from: '2026-11-01', to: '2026-11-30' })
+  assert.deepEqual(monthRange({ year: 2028, month: 2 }), { from: '2028-02-01', to: '2028-02-29' })
+})
+
+test('the arrows move one month, across years, and never before the first month', () => {
+  const november = { year: 2026, month: 11 }
+  assert.deepEqual(shiftMonth(november, 1), { year: 2026, month: 12 })
+  assert.deepEqual(shiftMonth(november, 2), { year: 2027, month: 1 })
+  assert.deepEqual(shiftMonth({ year: 2027, month: 1 }, -1), { year: 2026, month: 12 })
+
+  assert.equal(isBeforeMonth(shiftMonth(november, -1), november), true)
+  assert.equal(isBeforeMonth(november, november), false)
+  assert.equal(isBeforeMonth({ year: 2027, month: 3 }, november), false)
+  assert.deepEqual(yearOptions(november), [2026, 2027, 2028, 2029, 2030, 2031])
 })
 
 // --- TC-FRONTEND-068 -------------------------------------------------------
@@ -107,8 +128,8 @@ test('a day with only holds reads as held, and holds sort by start time', () => 
 })
 
 // --- TC-FRONTEND-069 -------------------------------------------------------
-test('days before tomorrow and outside the range are greyed and disabled', () => {
-  const [november] = monthGrids({ from: '2026-11-11', to: '2026-11-20' }, TODAY)
+test('days before tomorrow are greyed and disabled', () => {
+  const [november] = monthGrids(monthRange({ year: 2026, month: 11 }), TODAY)
 
   assert.deepEqual(WEEKDAY_HEADINGS, ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'])
   // 1 Nov 2026 is a Sunday, so the grid starts with no blanks.
@@ -116,18 +137,18 @@ test('days before tomorrow and outside the range are greyed and disabled', () =>
   const days = november.cells.filter(Boolean)
   assert.equal(days.length, 30)
   for (const cell of days) {
-    assert.equal(cell.disabled, cell.day <= 10 || cell.day >= 21, `day ${cell.day}`)
+    assert.equal(cell.disabled, cell.day <= 10, `day ${cell.day}`)
   }
   assert.equal(earliestFrom(TODAY), '2026-11-11')
-  assert.equal(earliestTo('2026-11-15'), '2026-11-15')
 })
 
-test('a range crossing months builds one grid per month, with leading blanks', () => {
-  const grids = monthGrids({ from: '2026-11-11', to: '2026-12-08' }, TODAY)
+test('a later month is fully selectable, with leading blanks before the 1st', () => {
+  const grids = monthGrids(monthRange({ year: 2026, month: 12 }), TODAY)
 
-  assert.deepEqual(grids.map((grid) => grid.label), ['November 2026', 'December 2026'])
+  assert.deepEqual(grids.map((grid) => grid.label), ['December 2026'])
   // 1 Dec 2026 is a Tuesday: two blanks for Sunday and Monday.
-  assert.deepEqual(grids[1].cells.slice(0, 3).map((cell) => cell?.day ?? null), [null, null, 1])
+  assert.deepEqual(grids[0].cells.slice(0, 3).map((cell) => cell?.day ?? null), [null, null, 1])
+  assert.ok(grids[0].cells.filter(Boolean).every((cell) => !cell.disabled))
 })
 
 // --- TC-FRONTEND-070 -------------------------------------------------------

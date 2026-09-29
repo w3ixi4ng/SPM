@@ -621,7 +621,9 @@ The conditions agreed with the developer, and how each fits the existing code:
   exactly like `DateSelect` in `EventRequestForm.jsx`. As elsewhere in the
   services, no server rule enforces "future only".
 - **"Updates"** means fresh data is fetched every time the calendar opens,
-  the range changes, or Refresh is pressed.
+  the month changes, or Refresh is pressed. The page shows one month at a
+  time and asks for that whole month's range (changed by the developer on
+  2026-09-30; it was a From/To range).
 - **One page for both roles.** Coordinators and Venue Staff open the same
   calendar from the shared `VenueList`. Venue Staff also get **Mark
   unavailable** and **Remove**, which fills the "Venue availability"

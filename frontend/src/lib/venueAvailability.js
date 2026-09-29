@@ -59,8 +59,40 @@ export function earliestTo(from) {
   return from
 }
 
-export function defaultAvailabilityRange(today) {
-  return { from: addDays(today, 1), to: addDays(today, 28) }
+// The calendar shows one month at a time, as { year, month } with month
+// 1-12. It opens on the month tomorrow falls in -- the first with a day that
+// can be chosen -- and never goes earlier.
+export function initialMonth(today) {
+  const [year, month] = earliestFrom(today).split('-').map(Number)
+  return { year, month }
+}
+
+export function isBeforeMonth(view, earliest) {
+  return view.year < earliest.year || (view.year === earliest.year && view.month < earliest.month)
+}
+
+export function shiftMonth({ year, month }, delta) {
+  const index = year * 12 + (month - 1) + delta
+  return { year: Math.floor(index / 12), month: (index % 12) + 1 }
+}
+
+// The whole month, which is the range fetched: the days before tomorrow in
+// it are shown greyed out rather than left off.
+export function monthRange({ year, month }) {
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const pad = (value) => String(value).padStart(2, '0')
+  return { from: `${year}-${pad(month)}-01`, to: `${year}-${pad(month)}-${pad(last)}` }
+}
+
+export const MONTH_NAMES = Object.freeze([
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+])
+
+// The Year dropdown: the earliest month's year and the five after it, as
+// DateSelect offers six years.
+export function yearOptions(earliest) {
+  return Array.from({ length: 6 }, (_, index) => earliest.year + index)
 }
 
 function weekdayOf(iso) {

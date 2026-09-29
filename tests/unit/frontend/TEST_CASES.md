@@ -1126,15 +1126,26 @@ browser. "Today" is passed in as a local date, `2026-11-10`, the same way
 `DateSelect` in `EventRequestForm.jsx` reads the browser's own date. Studio B
 is open `mon`–`fri` `08:00`–`18:00`.
 
-## TC-FRONTEND-067 — the default range is the four weeks from tomorrow
+## TC-FRONTEND-067 — the calendar shows one month, opening on tomorrow's, and moves a month at a time
 
-- **Scenario:** The calendar opens on a useful range without the Coordinator
-  choosing one (AC1).
-- **Steps:** Call `defaultAvailabilityRange("2026-11-10")`.
-- **Expected:** `{from: "2026-11-11", to: "2026-12-08"}`, which is 28 days.
-- **Actual:** `{from: "2026-11-11", to: "2026-12-08"}`.
+- **Scenario:** A Coordinator views a venue a month at a time and moves with
+  the arrows or the Month and Year dropdowns (AC1). Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.
+- **Steps:** Call `initialMonth` for today `2026-11-10`, `2026-11-30` and
+  `2026-12-31`. Call `monthRange` for November 2026 and February 2028. Call
+  `shiftMonth` from November 2026 by `+1`, `+2`, and from January 2027 by
+  `-1`. Call `isBeforeMonth` against November 2026, and `yearOptions`.
+- **Expected:**
+  - It opens on the month tomorrow is in: November 2026, December 2026, January 2027.
+  - The range fetched is the whole month: `2026-11-01`–`2026-11-30`, and
+    `2028-02-01`–`2028-02-29` in a leap year.
+  - The arrows cross years: December 2026, January 2027, back to December 2026.
+  - October 2026 is before the first month, so ◀ is disabled there and
+    earlier months are disabled in the dropdown. November 2026 and later
+    months are not.
+  - The Year dropdown offers 2026–2031, the six years `DateSelect` offers.
+- **Actual:** As expected for every call.
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — the default range is the four weeks from tomorrow`
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — the calendar opens on the month tomorrow falls in, and shows a whole month`; `tests/unit/frontend/test_venue_availability.mjs — the arrows move one month, across years, and never before the first month`
 
 ## TC-FRONTEND-068 — each day gets one state and label, and a block outranks everything
 
@@ -1162,16 +1173,16 @@ is open `mon`–`fri` `08:00`–`18:00`.
 ## TC-FRONTEND-069 — days before tomorrow are greyed and disabled, like DateSelect
 
 - **Scenario:** Unselectable dates are greyed out (AC1, as clarified).
-- **Steps:** Build the November 2026 grid for range `2026-11-11..2026-11-20`
-  with today `2026-11-10`. Read each cell's `disabled`.
+- **Steps:** Build the November 2026 grid with today `2026-11-10`, then the
+  December 2026 grid. Read each cell's `disabled`. (Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.)
 - **Expected:** Weeks start on Sunday, as in `DateSelect`
-  (`Su Mo Tu We Th Fr Sa`). `1`–`10 Nov` (today included) and `21`–`30 Nov`
-  are `disabled: true`. `11`–`20 Nov` are enabled. The From and To pickers
-  apply `DateSelect`'s own earliest-selectable rule: From is tomorrow at the
-  earliest, and To is From at the earliest (its `minDate`).
-- **Actual:** Sunday-first grid; 1–10 and 21–30 Nov disabled, 11–20 enabled; earliest From `2026-11-11`, earliest To equals From. December grid had two leading blanks.
+  (`Su Mo Tu We Th Fr Sa`). In November, `1`–`10 Nov` (today included) are
+  `disabled: true` and `11`–`30 Nov` are enabled; the earliest selectable day
+  is `2026-11-11`, `DateSelect`'s own rule. December has two blanks before
+  the 1st (a Tuesday) and every day enabled.
+- **Actual:** Sunday-first grid; 1–10 Nov disabled, 11–30 enabled; December had two leading blanks and no disabled day.
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — days before tomorrow and outside the range are greyed and disabled`; `tests/unit/frontend/test_venue_availability.mjs — a range crossing months builds one grid per month, with leading blanks`
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — days before tomorrow are greyed and disabled`; `tests/unit/frontend/test_venue_availability.mjs — a later month is fully selectable, with leading blanks before the 1st`
 
 ## TC-FRONTEND-070 — closed weekdays read as Closed, not Available
 
