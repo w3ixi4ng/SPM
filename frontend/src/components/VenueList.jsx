@@ -1,4 +1,4 @@
-import { Building2, Clock, MapPin, Users } from 'lucide-react'
+import { Building2, CalendarDays, Clock, MapPin, Pencil, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { DAY_LABELS, optionLabel } from '../lib/venues.js'
 
@@ -28,8 +28,6 @@ function VenueRow({ venue, canEdit, canViewAvailability }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{venue.name}</h3>
-          {canEdit && <Link to={`/venues/${venue.id}/edit`} className="underline" style={{ color: C.teal }} aria-label={`Edit ${venue.name}`}>Edit</Link>}
-          {canViewAvailability && <Link to={`/venues/${venue.id}/availability`} className="underline" style={{ color: C.teal }} aria-label={`Availability for ${venue.name}`}>Availability</Link>}
           <span className="inline-flex items-center gap-1.5 font-ui text-sm" style={{ color: C.inkFaint }}>
             <Users size={14} aria-hidden="true" />
             Capacity {venue.capacity.toLocaleString()}
@@ -67,6 +65,33 @@ function VenueRow({ venue, canEdit, canViewAvailability }) {
           <p className="font-ui text-sm leading-relaxed mt-3 max-w-md" style={{ color: C.inkFaint }}>
             {venue.description}
           </p>
+        )}
+        {(canViewAvailability || canEdit) && (
+          // What can be done with the venue, after what it is.
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 font-ui text-sm font-medium">
+            {canViewAvailability && (
+              <Link
+                to={`/venues/${venue.id}/availability`}
+                className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
+                style={{ color: C.teal }}
+                aria-label={`Availability for ${venue.name}`}
+              >
+                <CalendarDays size={15} aria-hidden="true" />
+                Availability
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                to={`/venues/${venue.id}/edit`}
+                className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
+                style={{ color: C.teal }}
+                aria-label={`Edit ${venue.name}`}
+              >
+                <Pencil size={14} aria-hidden="true" />
+                Edit
+              </Link>
+            )}
+          </div>
         )}
       </div>
     </li>
