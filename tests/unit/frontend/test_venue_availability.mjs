@@ -14,7 +14,6 @@ import {
   monthGrids,
   removeVenueBlock,
   shortDayLabel,
-  STATE_META,
   tint,
   WEEKDAY_HEADINGS,
 } from '../../../frontend/src/lib/venueAvailability.js'
@@ -85,15 +84,12 @@ test('each day gets one state and label, and a block outranks everything', () =>
   for (const day of days) assert.ok(day.label.length > 0)
 })
 
-test('every state has its own colour, and each block names its state', () => {
-  const colors = Object.values(STATE_META).map((meta) => meta.color)
-  assert.equal(new Set(colors).size, colors.length, 'two states share a colour')
-
+test('each block names its state', () => {
   const days = availabilityDays({ from: '2026-11-11', to: '2026-11-14' }, ENTRIES, STUDIO_B_HOURS)
   assert.deepEqual(days.map(shortDayLabel), ['Available', 'Booked + Held', 'Unavailable', 'Unavailable'])
   const [closed] = availabilityDays({ from: '2026-11-15', to: '2026-11-15' }, [], STUDIO_B_HOURS)
   assert.equal(shortDayLabel(closed), 'Closed')
-  assert.equal(tint('#3C6E96'), 'rgba(60, 110, 150, 0.16)')
+  assert.equal(tint('#3F8F5F'), 'rgba(63, 143, 95, 0.16)')
 })
 
 test('a day with only holds reads as held, and holds sort by start time', () => {

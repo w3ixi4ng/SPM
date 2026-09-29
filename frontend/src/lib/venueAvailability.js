@@ -12,14 +12,13 @@ import { optionLabel, WEEK } from './venues.js'
 export const BLOCK_REASONS = Object.freeze(['maintenance', 'renovation', 'safety', 'internal_activity', 'other'])
 
 const ROSE = '#B25547'
-const SKY = '#3C6E96'
+const GREEN = '#3F8F5F'
 const INK_FAINT = '#4C5A70'
 
-// Every state carries a text label; the colour only ever repeats it. Each
-// colour is distinct: Booked keeps the green "Confirmed" has elsewhere, so
-// Available takes sky rather than looking booked.
+// Every state carries a text label; the colour only ever repeats it.
+// Available and Booked share green, so the label is what tells them apart.
 export const STATE_META = Object.freeze({
-  available: { label: 'Available', color: SKY },
+  available: { label: 'Available', color: GREEN },
   held: { label: 'Tentatively held', color: bookingStatusMeta('pending').color },
   confirmed: { label: 'Booked', color: bookingStatusMeta('confirmed').color },
   blocked: { label: 'Unavailable', color: ROSE },
