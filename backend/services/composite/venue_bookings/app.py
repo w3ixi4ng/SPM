@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 import suitability
 from clients import get_bookings_client, get_events_client, get_users_client, get_venues_client
-from schemas import VenueBookingRequest
+from schemas import VenueBookingRequest, BookingDecision
 
 app = FastAPI(title="Venue Bookings Service")
 logger = logging.getLogger(__name__)
@@ -178,3 +178,29 @@ async def list_pending_venue_bookings(
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
     return response.json()
+
+
+@app.post("/venue-bookings/{booking_id}/decision")
+async def decide_venue_booking(
+    booking_id: UUID,
+    payload: BookingDecision,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    response = await _call("Bookings", bookings.post(
+        f"/bookings/{booking_id}/decision",
+        json=payload.model_dump(mode="json"), cookies=request.cookies,
+    ))
+    if response.status_code == 200:
+        return response.json()
+    messages = {
+        401: "Not authenticated", 403: "Permission denied",
+        404: "Booking not found",
+        409: "This booking request has already been decided",
+        422: "Please check the decision and provide a reason or alternative when rejecting",
+    }
+    if response.status_code in messages:
+        raise HTTPException(status_code=response.status_code, detail=messages[response.status_code])
+    raise _unavailable("Bookings")

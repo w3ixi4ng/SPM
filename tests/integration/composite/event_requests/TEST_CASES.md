@@ -103,9 +103,7 @@ Verified runnable twice in a row.
 ## TC-EVENTREQUESTS-104 — editing the date/time reassigns to a free coordinator
 
 - **Scenario:** End-to-end proof that editing a submitted event's date/time
-  moves the assignment when the current coordinator no longer fits, using
-  two coordinators each blocked at a different window so the pick at every
-  step is forced rather than left to the random tie-break.
+  moves the assignment when the current coordinator no longer fits.
 - **Pre-conditions:** As TC-EVENTREQUESTS-101, plus a second seeded
   coordinator; coordinator B has an existing submitted event covering the
   window the request will initially be submitted for; coordinator A has one
@@ -117,9 +115,11 @@ Verified runnable twice in a row.
   one A is blocked at.
 - **Test data:** Initial window `2026-11-05 09:00`–`11:00` (B blocked here);
   edited window `13:00`–`15:00` (A blocked here).
-- **Expected:** Step 2 returns `201` assigned to A (the only one free
-  initially). Step 3 returns `200`, `start_time` updated to `13:00:00`, and
-  `assigned_coordinator_id` now B (the only one free at the new window).
+- **Expected:** Step 2 returns `201` assigned to A. Step 3 returns `200`,
+  `start_time` updated to `13:00:00`, and `assigned_coordinator_id` changed
+  from conflicted A to an existing eligible coordinator. In an isolated pool
+  that is B; another free coordinator added to the shared project after the
+  fixture's blocking snapshot is also a valid assignment.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflicts`

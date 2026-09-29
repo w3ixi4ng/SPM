@@ -3,8 +3,8 @@
 Stores what the venue_bookings composite has already checked, and lists it
 back. It never calls another service and never judges whether a request is
 suitable -- that needs the event and the venue, which makes it composite
-work. No Kong route reaches this service; like the events service's
-/internal routes, it is called only from inside the Docker network.
+work. No Kong route reaches this service. S-37 decisions verify staff
+credentials independently, including calls to the published service port.
 """
 
 import logging
@@ -18,7 +18,8 @@ from fastapi.responses import JSONResponse
 from supabase import Client
 
 from database import get_db
-from schemas import BookingCreate, BookingRead
+from schemas import BookingCreate, BookingRead, BookingDecision
+from security import require_venue_staff
 
 app = FastAPI(title="Bookings Service")
 logger = logging.getLogger(__name__)
@@ -63,6 +64,34 @@ def _execute(operation):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/bookings/{booking_id}/decision", response_model=BookingRead)
+def decide_booking(
+    booking_id: UUID,
+    payload: BookingDecision,
+    staff=Depends(require_venue_staff),
+    db: Client = Depends(get_db),
+):
+    values = {
+        "status": "confirmed" if payload.decision == "approved" else "rejected",
+        "decision_reason": payload.reason,
+        "decision_alternative": payload.alternative,
+        "decided_by": str(staff.id),
+        "decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # One conditional write: concurrent decisions cannot overwrite the winner.
+    # S-38 must protect this pending -> confirmed write against OTHER bookings
+    # for the same venue/slot. This condition alone does not prevent overlaps.
+    result = _execute(db.schema(SCHEMA).table(TABLE).update(values)
+                      .eq("id", str(booking_id)).eq("status", "pending"))
+    if result.data:
+        return result.data[0]
+    existing = _execute(db.schema(SCHEMA).table(TABLE).select("id")
+                        .eq("id", str(booking_id)))
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
 
 @app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)

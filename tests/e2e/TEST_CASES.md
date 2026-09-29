@@ -367,6 +367,34 @@ uses the next unused E2E id.
 - **Status:** Pass
 - **Evidence:** `test_retire_equipment.py::test_retired_equipment_remains_managed_but_disappears_from_selection`
 
+S-37 IDs reconciled after merging S-42 and S-43: TC-E2E-215 -> TC-E2E-216 -> TC-E2E-217. Earlier S-37 references identify the same case.
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-E2E-217 — Staff decide requests and Coordinators see the saved results
+
+- **Scenario:** Staff decide requests and Coordinators see the saved results (AC1, AC2, AC3).
+- **Pre-conditions:** Fresh .env.test stack, developer-applied SQL and Chromium; isolated staff/coordinator fixtures with pending requests.
+- **Steps:** 1. Sign in as staff; approve without reason.
+  2. Reject another with alternative only; verify blank rejection blocked.
+  3. Confirm successful decisions disappear from pending without refresh.
+  4. Sign in as requester; reopen event and read both decisions.
+  5. Exercise failed/conflicting save and a nonstaff dashboard.
+  6. Reload the Coordinator event page and verify the saved result persists.
+- **Test data:** Studio B, 2026-11-12 09:00-12:00; alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
+- **Expected:** Saved Confirmed/Rejected outcome and alternative visible after reopen; no automatic booking of alternative. Failure/conflict gives safe feedback, not success. Nonstaff sees no decision controls. No reassignment exception is added; the existing assignment rule remains in force. Manual supplement: two staff tabs, keyboard operation, narrow screen and reason-plus-alternative display.
+- **Actual:** Venue Staff approved one pending request without a reason and rejected another with an alternative; blank rejection was blocked. The pending list refreshed after each decision. After signing in as the requesting Coordinator and reopening the event, both saved outcomes and the alternative were visible and persisted after reload.
+- **Status:** Pass
+- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; local Chromium execution against the freshly recreated `.env.test` stack.
 ## S-43 — Auto-Assign Technical Support
 
 ## TC-E2E-216 — Coordinator explicitly requests support and sees the automatic assignment

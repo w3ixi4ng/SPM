@@ -102,3 +102,21 @@ Automated browser checks (fresh `.env.test` Docker stack and Chromium required):
 ```bash
 pytest tests/e2e/test_update_venue.py tests/e2e/test_add_venue.py
 ```
+
+## S-37 booking decisions
+
+Venue Staff use the existing Pending booking requests list: choose Approve
+or Reject, optionally enter a reason/alternative, then Save decision. Rejection
+requires at least one nonblank explanation. Successful saves reload the pending
+list automatically. Failures display safe feedback; a stale request returns a
+conflict rather than overwriting a decision. Decisions are final.
+
+The currently assigned Coordinator reopens or refreshes the event and sees
+Confirmed/Rejected and any reason/alternative in Venue requests. Existing event
+access rules remain unchanged; access for the original requester after
+reassignment remains an open requirement. Suggestions never reserve another slot.
+
+Apply the [S-37 SQL block](../backend/sql/bookings.sql) to development and test
+before trying the feature. No frontend environment changes are required.
+This story does not prevent overlapping confirmations: S-38 must protect the
+atomic confirmation operation before a double-booking guarantee can be made.

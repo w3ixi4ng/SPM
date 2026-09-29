@@ -267,6 +267,13 @@ function VenueRequests({ eventId }) {
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
                   {label}
                 </span>
+                {booking.status !== 'pending' && (
+                  <div className="w-full font-ui text-sm space-y-1" style={{ color: C.ink }}>
+                    {booking.decision_reason && <p className="whitespace-pre-wrap">Reason: {booking.decision_reason}</p>}
+                    {booking.decision_alternative && <p className="whitespace-pre-wrap">Alternative: {booking.decision_alternative}</p>}
+                    {booking.decided_at && <p>Decided {new Date(booking.decided_at).toLocaleString()}</p>}
+                  </div>
+                )}
               </li>
             )
           })}

@@ -8,6 +8,7 @@ booking it hands back, so this composite returns that JSON as-is.
 """
 
 from datetime import date, time
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -41,4 +42,25 @@ class VenueBookingRequest(BaseModel):
     def end_must_follow_start(self):
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be after start_time")
+        return self
+
+
+class BookingDecision(BaseModel):
+    """Final decision only; request snapshots and audit fields are server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected"]
+    reason: str | None = None
+    alternative: str | None = None
+
+    @field_validator("reason", "alternative", mode="before")
+    @classmethod
+    def trim_explanation(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def rejection_needs_explanation(self):
+        if self.decision == "rejected" and not (self.reason or self.alternative):
+            raise ValueError("Provide a reason or alternative to reject this request")
         return self

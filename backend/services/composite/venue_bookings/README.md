@@ -19,6 +19,7 @@ Reached through Kong at `/api/venue-bookings`.
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. |
+| `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every pending request, oldest first. Not filtered by who added the venue. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
@@ -132,3 +133,32 @@ docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/composite/venue_bookings
 ```
+
+## S-37 approval and rejection
+
+Venue Staff may POST `/venue-bookings/{id}/decision` with required
+`decision` (`approved` or `rejected`), optional `reason` and `alternative`
+(string/null). Rejection needs at least one nonblank explanation. Approval
+requires neither. Unknown fields return 422. The composite checks the staff
+role and forwards cookies to the atomic service, which independently verifies
+the caller and writes the final decision conditionally on `status=pending`.
+
+200 returns the full saved booking with status `confirmed` or `rejected`,
+`decision_reason`, `decision_alternative`, `decided_by`, and `decided_at`.
+See the [atomic contract](../../atomic/bookings/README.md#s-37-decisions)
+for request/response examples, SQL migration and exact test commands.
+
+Errors use `{"detail":"..."}`: 401 `Not authenticated`; 403 `Permission denied`;
+404 `Booking not found`; 409 `This booking request has already been decided`;
+422 `Please check the decision and provide a reason or alternative when rejecting`
+for downstream validation. Local body validation uses the existing 422
+`detail`/`errors` response. Unavailable downstream services return safe 502
+messages, for example `{"detail":"Bookings service unavailable"}`.
+
+The assigned Coordinator sees the saved result on the existing event request
+list after refreshing. **No reassignment exception:** a previous requester
+who is no longer assigned still gets 404. Their continued access is an open
+team requirement. No new Coordinator permissions are granted.
+
+S-38 must protect the atomic pending-to-confirmed write against overlapping
+bookings. S-37 has no double-booking guarantee or S-33 hold behaviour.

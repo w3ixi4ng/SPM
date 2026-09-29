@@ -11,9 +11,9 @@ and the gateway route.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/venue_bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
-| Result | 2 passed (20 across `tests/integration`), twice consecutively |
+| Last run | 2026-09-29, branch `S-37/approve-reject-booking-with-reason-or-alternative`, pre-commit working tree |
+| Environment | `.env.test` test Supabase project with all repository SQL, including the S-37 decision columns and constraints, applied, granted and exposed; full stack recreated immediately before |
+| Result | 4 venue-bookings integration cases passed; 33 passed across `tests/integration` |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -110,3 +110,28 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; fre
 - Actual: PATCH succeeded; new submission returned 422 for capacity, facilities and accessibility; no booking was stored.
 - Status: Pass
 - Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_new_request_uses_updated_venue_values`; local .env.test execution.
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-VENUEBOOKINGS-105 — Saved decisions reach the permitted Coordinator through real services
+
+- **Scenario:** Saved decisions reach the permitted Coordinator through real services (AC1, AC2, AC3).
+- **Pre-conditions:** Fresh approved test stack with additive SQL; real test users/events/venues/bookings, isolated fixture cleanup.
+- **Steps:** 1. Submit two requests as C1.
+  2. Decide as staff: approve one, reject one with reason and alternative.
+  3. Reload pending and event requests through gateway.
+  4. Reassign test event to C2 using controlled fixture setup; read as C1,C2,C3.
+- **Test data:** reason='Room needs repairs'; alternative='Try Studio C on Friday'; C1 original, C2 new assigned, C3 unrelated.
+- **Expected:** Decided rows leave pending list; Coordinator reads Confirmed/Rejected with exact saved explanation. The original requester loses access after reassignment, as before; currently assigned Coordinators retain access; unrelated Coordinators are denied. Requester access after reassignment remains an open team requirement. Requests and event/venue records are not rewritten by decision.
+- **Actual:** Approval and rejection passed through Kong and the real services; decided requests left the pending list; the permitted Coordinator saw Confirmed and Rejected with the exact saved explanation. Existing reassignment access remained unchanged, and event and venue records were not rewritten.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_saved_decisions_visible_only_under_existing_event_access`; local `.env.test` execution.

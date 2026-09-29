@@ -37,8 +37,7 @@ create table if not exists bookings.bookings (
   coordinator_name           text not null,
   coordinator_email          text not null,
 
-  -- Only 'pending' exists until Venue Staff can approve or reject (the
-  -- Venue Booking Approval story widens this).
+  -- S-37: confirmation is the final state of this original request row.
   status                     text not null default 'pending',
 
   booking_date               date not null,
@@ -58,7 +57,7 @@ create table if not exists bookings.bookings (
   submitted_at               timestamptz not null default now(),
 
   constraint bookings_status_allowed
-    check (status in ('pending')),
+    check (status in ('pending', 'confirmed', 'rejected')),
 
   -- One date, so the end is simply after the start. A venue's opening hours
   -- never cross midnight, so neither can a booking.
@@ -159,4 +158,36 @@ alter table bookings.bookings enable row level security;
 -- ---------------------------------------------------------------------------
 
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.
+-- BEGIN S-37 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- No rows or request snapshot fields are deleted or rewritten.
+begin;
+alter table bookings.bookings
+  add column if not exists decision_reason text,
+  add column if not exists decision_alternative text,
+  add column if not exists decided_by uuid,
+  add column if not exists decided_at timestamptz;
+
+alter table bookings.bookings drop constraint if exists bookings_status_allowed;
+alter table bookings.bookings add constraint bookings_status_allowed
+  check (status in ('pending', 'confirmed', 'rejected'));
+
+alter table bookings.bookings drop constraint if exists bookings_decision_valid;
+alter table bookings.bookings add constraint bookings_decision_valid check (
+  (decision_reason is null or decision_reason ~ '[^[:space:]]')
+  and (decision_alternative is null or decision_alternative ~ '[^[:space:]]')
+  and (
+    (status = 'pending' and decided_by is null and decided_at is null
+      and decision_reason is null and decision_alternative is null)
+    or (status in ('confirmed', 'rejected') and decided_by is not null
+      and decided_at is not null
+      and (status = 'confirmed' or decision_reason is not null
+           or decision_alternative is not null))
+  )
+);
+notify pgrst, 'reload schema';
+commit;
+-- END S-37 DATA-PRESERVING MIGRATION
+-- S-38 release dependency: this schema does NOT prevent overlapping
+-- confirmed rows. S-38 must enforce that invariant at the confirmation write.
 notify pgrst, 'reload schema';

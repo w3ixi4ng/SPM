@@ -13,6 +13,7 @@ export const PERMISSIONS = Object.freeze({
   ASSIGN_TECHNICAL_SUPPORT: 'events:assign_technical_support',
   REQUEST_VENUE_BOOKING: 'venue_bookings:create',
   VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
+  DECIDE_VENUE_BOOKING: 'venue_bookings:decide',
   CREATE_EQUIPMENT: 'equipment:create',
   UPDATE_EQUIPMENT: 'equipment:update',
   RETIRE_EQUIPMENT: 'equipment:retire',
@@ -69,6 +70,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.UPDATE_VENUE,
       PERMISSIONS.VIEW_VENUES,
       PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS,
+      PERMISSIONS.DECIDE_VENUE_BOOKING,
     ]),
   }),
   technical_support: Object.freeze({

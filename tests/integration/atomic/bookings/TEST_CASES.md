@@ -8,9 +8,9 @@ the table, the grants, the schema exposure and the connection all at once.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
-| Environment | `.env.test` test Supabase project; `users`, `events` (with every S-36 migration, including dropping the accessibility notes), `venues` and `bookings` (with the cabaret removal and the `special_requirements` rename) applied, granted and exposed; full stack recreated with `docker compose --env-file .env.test up -d --build --wait` immediately before, containers confirmed on the test project |
-| Result | 1 passed (20 across `tests/integration`), twice consecutively |
+| Last run | 2026-09-29, branch `S-37/approve-reject-booking-with-reason-or-alternative`, pre-commit working tree |
+| Environment | `.env.test` test Supabase project with all repository SQL, including the S-37 decision columns and constraints, applied, granted and exposed; full stack recreated immediately before |
+| Result | 4 booking integration cases passed; 33 passed across `tests/integration` |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -40,3 +40,39 @@ the table, the grants, the schema exposure and the connection all at once.
 - **Actual:** `201` pending with `submitted_at`; listed as pending; one row in `bookings.bookings` with the options as sent; removed on teardown.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_booking_saved_through_the_service_is_listed_as_pending`
+
+## S-37 confirmed specifications
+
+Confirmed by the developer on 2026-09-28, with no reassignment exception.
+S-37 execution: 2026-09-29; base c4934e9 merged with S-37 plus conflict-resolution changes on
+S-37/approve-reject-booking-with-reason-or-alternative.
+Windows, Python 3.14, Node.js; existing results above describe earlier coverage.
+Approval stores `status=confirmed`; rejection stores `status=rejected`.
+Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `decided_at`.
+B means the saved booking fixture; S means the authenticated deciding staff UUID.
+No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
+
+### TC-BOOKINGS-102 — Decisions persist while original requests remain intact
+
+- **Scenario:** Decisions persist while original requests remain intact (AC1, AC2).
+- **Pre-conditions:** Fresh .env.test stack only; additive SQL applied by developer; test staff and two pending fixtures exist. Cleanup removes only test-created rows.
+- **Steps:** 1. Capture both requests.
+  2. Approve one and reject the other with alternative only.
+  3. Read through API and test database; repeat decision; call directly as nonstaff.
+- **Test data:** Venue Studio B; date 2026-11-12; 09:00-12:00; capacity snapshot 100; alternative='Try Studio C at 14:00'.
+- **Expected:** Confirmed/rejected status and correct staff/server timestamp persist; explanations persist; every original field unchanged; no extra booking created; no decided row in pending list. Repeat=409; direct nonstaff mutation denied.
+- **Actual:** Approval and rejection persisted the expected final status, deciding staff and server timestamp; the alternative was preserved, original request fields were unchanged, decided rows left the pending list, repeated decisions returned 409, and non-staff mutation was denied.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_decisions_persist_without_rewriting_requests`; local `.env.test` execution, 2 parameterized cases passed.
+
+### TC-BOOKINGS-103 — Concurrent decisions on the same request have one winner
+
+- **Scenario:** Concurrent decisions on the same request have one winner (AC1, AC2).
+- **Pre-conditions:** Approved test environment and migrated schema; one pending fixture; two authenticated staff.
+- **Steps:** 1. Send simultaneous approval and rejection.
+  2. Read final row; attempt another decision.
+- **Test data:** Same booking UUID; S1 approves; S2 rejects with reason='Repairs'.
+- **Expected:** Exactly one 200 and one 409; stored metadata belongs entirely to the winner; later attempt 409. This proves same-request concurrency only, not S-38 overlap protection across different requests.
+- **Actual:** The simultaneous requests produced exactly one 200 and one 409; the saved row contained only the winning decision, and a later attempt also returned 409.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_concurrent_decisions_have_one_winner`; local `.env.test` execution.
