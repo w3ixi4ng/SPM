@@ -1,4 +1,4 @@
-"""TC-BOOKINGS-102..104. Run after the S-37/S-38 SQL on .env.test."""
+"""TC-BOOKINGS-102..104. Run after the S-37, S-38 and S-30 SQL on .env.test."""
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -96,46 +96,39 @@ def test_concurrent_decisions_have_one_winner(admin, booking_ids, actors):
                       json={'decision': 'approved'}, timeout=15).status_code == 409
 
 
-@pytest.mark.skip(reason='TC-BOOKINGS-104 is superseded by S-30: two overlapping pending requests '
-                         'can no longer exist. TC-BOOKINGS-106 covers the database guarantee.')
-def test_concurrent_overlapping_confirmations_have_one_winner(admin, booking_ids, actors):
-    _, first_staff = actors('venue_staff')
-    _, second_staff = actors('venue_staff')
+def _direct_row(booking, **changes):
+    """A bookings.bookings row written with the admin client, going around
+    the API and every check it makes."""
+    row = {key: booking[key] for key in (
+        'event_id', 'venue_id', 'coordinator_id', 'coordinator_name', 'coordinator_email',
+        'booking_date', 'event_name', 'event_purpose', 'expected_attendance', 'venue_name',
+    )}
+    row['event_id'] = str(uuid.uuid4())
+    row.update(changes)
+    return row
+
+
+# TC-BOOKINGS-104 (rewritten for S-30): S-38's rule, that the database never
+# holds two overlapping confirmed bookings, checked at the database itself.
+def test_the_database_refuses_a_second_overlapping_confirmed_booking(admin, booking_ids, actors):
+    staff_id, staff = actors('venue_staff')
     venue_id = str(uuid.uuid4())
     first = create_booking(booking_ids, venue_id=venue_id, start_time='09:00', end_time='12:00')
-    second = create_booking(booking_ids, venue_id=venue_id, start_time='11:00', end_time='13:00')
-    barrier = Barrier(2)
+    approved = httpx.post(f"{BASE_URL}/bookings/{first['id']}/decision", headers=staff,
+                          json={'decision': 'approved'}, timeout=15)
+    assert approved.status_code == 200, approved.text
+    confirmed = {'status': 'confirmed', 'decided_by': staff_id, 'decided_at': '2026-10-01T00:00:00+00:00'}
+    table = admin.schema('bookings').table('bookings')
 
-    def approve(booking, headers):
-        barrier.wait(timeout=10)
-        return httpx.post(
-            f"{BASE_URL}/bookings/{booking['id']}/decision",
-            headers=headers,
-            json={'decision': 'approved'},
-            timeout=20,
-        )
+    with pytest.raises(Exception) as refused:
+        table.insert(_direct_row(first, start_time='11:00', end_time='13:00', **confirmed)).execute()
+    assert getattr(refused.value, 'code', None) == '23P01', f'expected an exclusion violation, got {refused.value!r}'
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        one = pool.submit(approve, first, first_staff)
-        two = pool.submit(approve, second, second_staff)
-        responses = [one.result(), two.result()]
+    # [start, end): a booking starting exactly when the first ends is not an overlap.
+    back_to_back = table.insert(_direct_row(first, start_time='12:00', end_time='14:00', **confirmed)).execute()
+    booking_ids.append(back_to_back.data[0]['id'])
 
-    assert sorted(response.status_code for response in responses) == [200, 409]
-    conflict = next(response for response in responses if response.status_code == 409)
-    assert 'Studio B is already confirmed on 12 Nov 2026' in conflict.json()['detail']
-    rows = (
-        admin.schema('bookings').table('bookings').select('*')
-        .in_('id', [first['id'], second['id']]).execute().data
-    )
-    assert sorted(row['status'] for row in rows) == ['confirmed', 'pending']
-    winner = next(row for row in rows if row['status'] == 'confirmed')
-    loser = next(row for row in rows if row['status'] == 'pending')
-    assert loser['decided_by'] is None and loser['decided_at'] is None
-    retry = httpx.post(
-        f"{BASE_URL}/bookings/{loser['id']}/decision",
-        headers=first_staff,
-        json={'decision': 'approved'},
-        timeout=15,
-    )
-    assert retry.status_code == 409
-    assert winner['start_time'][:5] in retry.json()['detail']
+    rows = table.select('status,start_time,end_time').eq('venue_id', venue_id).order('start_time').execute().data
+    assert [(row['status'], row['start_time'][:5], row['end_time'][:5]) for row in rows] == [
+        ('confirmed', '09:00', '12:00'), ('confirmed', '12:00', '14:00'),
+    ]
