@@ -13,15 +13,16 @@ export const BLOCK_REASONS = Object.freeze(['maintenance', 'renovation', 'safety
 
 const ROSE = '#B25547'
 const GREEN = '#3F8F5F'
+const SKY = '#3C6E96'
 const INK_FAINT = '#4C5A70'
 
-// Every state carries a text label; the colour only ever repeats it.
-// Available and Booked share green, so the label is what tells them apart.
+// Every state carries a text label; the colour only ever repeats it, and no
+// two states share one. Booked is red -- taken -- so it never reads as free.
 export const STATE_META = Object.freeze({
   available: { label: 'Available', color: GREEN },
   held: { label: 'Tentatively held', color: bookingStatusMeta('pending').color },
-  confirmed: { label: 'Booked', color: bookingStatusMeta('confirmed').color },
-  blocked: { label: 'Unavailable', color: ROSE },
+  confirmed: { label: 'Booked', color: ROSE },
+  blocked: { label: 'Unavailable', color: SKY },
   closed: { label: 'Closed', color: INK_FAINT },
 })
 
@@ -104,7 +105,7 @@ function entryItem(entry) {
 function dayOf(iso, entries, operatingHours) {
   const block = entries.find((entry) => entry.state === 'blocked' && entry.start_date <= iso && iso <= entry.end_date)
   if (block) {
-    return { date: iso, state: 'blocked', label: blockLabel(block.reason), color: ROSE, items: [], block }
+    return { date: iso, state: 'blocked', label: blockLabel(block.reason), color: STATE_META.blocked.color, items: [], block }
   }
   const items = entries
     .filter((entry) => entry.state !== 'blocked' && entry.start_date === iso)

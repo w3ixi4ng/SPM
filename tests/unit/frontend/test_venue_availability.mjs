@@ -14,6 +14,7 @@ import {
   monthGrids,
   removeVenueBlock,
   shortDayLabel,
+  STATE_META,
   tint,
   WEEKDAY_HEADINGS,
 } from '../../../frontend/src/lib/venueAvailability.js'
@@ -79,8 +80,10 @@ test('each day gets one state and label, and a block outranks everything', () =>
 
   const [booked, held] = days[1].items
   assert.equal(held.color, bookingStatusMeta('pending').color)
-  assert.equal(booked.color, bookingStatusMeta('confirmed').color)
-  assert.equal(days[2].color, '#B25547')
+  assert.equal(booked.color, '#B25547')
+  assert.equal(days[2].color, '#3C6E96')
+  const colors = Object.values(STATE_META).map((meta) => meta.color)
+  assert.equal(new Set(colors).size, colors.length, 'two states share a colour')
   for (const day of days) assert.ok(day.label.length > 0)
 })
 

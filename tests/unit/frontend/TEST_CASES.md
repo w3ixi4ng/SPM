@@ -1150,10 +1150,12 @@ is open `mon`–`fri` `08:00`–`18:00`.
     closed
   - `17 Nov` (tue) → `available`
 
-  Held uses the colour `bookingStatusMeta('pending')` already uses (amber).
-  Booked uses `bookingStatusMeta('confirmed')` (green). Blocked uses `rose`.
+  Available is `green`. Held uses the colour `bookingStatusMeta('pending')`
+  already uses (amber). Booked is `rose` (red). Blocked is `sky`. Closed is
+  `inkFaint`. No two states share a colour (changed by the developer on
+  2026-09-30, so Booked never looks like Available).
   Every state has a text label, never colour alone.
-- **Actual:** Days and labels as specified; held amber and booked green from `bookingStatusMeta`, blocked rose, including the weekend. Holds-only day reads held, in start order. Each day's block names its state, e.g. "Booked + Held".
+- **Actual:** Days and labels as specified; available green, held amber, booked rose, blocked sky including the weekend, every colour distinct. Holds-only day reads held, in start order. Each day's block names its state, e.g. "Booked + Held".
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — each block names its state`; `tests/unit/frontend/test_venue_availability.mjs — each day gets one state and label, and a block outranks everything`; `tests/unit/frontend/test_venue_availability.mjs — a day with only holds reads as held, and holds sort by start time`
 
