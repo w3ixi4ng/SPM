@@ -159,14 +159,14 @@ function names(filters) {
   return filterVenues(FILTER_VENUES, { ...emptyVenueFilters(), ...filters }).map((venue) => venue.name)
 }
 
-// --- TC-FRONTEND-056 -------------------------------------------------------
+// --- TC-FRONTEND-057 -------------------------------------------------------
 test('no filters shows every venue, in order', () => {
   const before = FILTER_VENUES.map((venue) => venue.name)
   assert.deepEqual(names({}), ['Harbour Hall', 'Studio B', 'Anson Suite'])
   assert.deepEqual(FILTER_VENUES.map((venue) => venue.name), before)
 })
 
-// --- TC-FRONTEND-057 -------------------------------------------------------
+// --- TC-FRONTEND-058 -------------------------------------------------------
 test('the text search matches location or name, ignoring case', () => {
   assert.deepEqual(names({ query: 'anson' }), ['Studio B', 'Anson Suite'])
   assert.deepEqual(names({ query: '  HARBOUR ' }), ['Harbour Hall'])
@@ -174,14 +174,14 @@ test('the text search matches location or name, ignoring case', () => {
   assert.deepEqual(names({ query: 'nowhere' }), [])
 })
 
-// --- TC-FRONTEND-058 -------------------------------------------------------
+// --- TC-FRONTEND-059 -------------------------------------------------------
 test('"holds at least" keeps venues with enough capacity', () => {
   assert.deepEqual(names({ attendance: '150' }), ['Harbour Hall', 'Anson Suite'])
   assert.deepEqual(names({ attendance: '151' }), ['Harbour Hall'])
   assert.deepEqual(names({ attendance: '' }), ['Harbour Hall', 'Studio B', 'Anson Suite'])
 })
 
-// --- TC-FRONTEND-059 -------------------------------------------------------
+// --- TC-FRONTEND-060 -------------------------------------------------------
 test('facilities and accessibility need every one ticked', () => {
   assert.deepEqual(names({ facilities: ['projector'] }), ['Harbour Hall', 'Studio B'])
   assert.deepEqual(names({ facilities: ['projector', 'stage'] }), ['Harbour Hall'])
@@ -189,7 +189,7 @@ test('facilities and accessibility need every one ticked', () => {
   assert.deepEqual(names({ accessibility: ['lift', 'hearing_loop'] }), ['Anson Suite'])
 })
 
-// --- TC-FRONTEND-060 -------------------------------------------------------
+// --- TC-FRONTEND-061 -------------------------------------------------------
 test('date and time keep venues open then', () => {
   assert.deepEqual(names({ date: '2026-11-12' }), ['Harbour Hall', 'Studio B'])
   assert.deepEqual(names({ date: '2026-11-12', startTime: '09:00', endTime: '19:00' }), ['Harbour Hall', 'Studio B'])
@@ -198,7 +198,7 @@ test('date and time keep venues open then', () => {
   assert.deepEqual(names({ startTime: '09:00', endTime: '12:00' }), ['Harbour Hall', 'Studio B', 'Anson Suite'])
 })
 
-// --- TC-FRONTEND-061 -------------------------------------------------------
+// --- TC-FRONTEND-062 -------------------------------------------------------
 test('results match every applied filter at once', () => {
   const all = {
     query: 'anson', attendance: '100', layout: 'theatre', facilities: ['stage'],
@@ -208,7 +208,7 @@ test('results match every applied filter at once', () => {
   assert.deepEqual(names({ ...all, date: '2026-11-12' }), [])
 })
 
-// --- TC-FRONTEND-062 -------------------------------------------------------
+// --- TC-FRONTEND-063 -------------------------------------------------------
 test("the request screen's filters start from the event", () => {
   const event = {
     expected_attendance: 100,
@@ -232,7 +232,7 @@ test("the request screen's filters start from the event", () => {
   assert.equal(venueFiltersFromEvent({ ...event, room_layout: null }).layout, '')
 })
 
-// --- TC-FRONTEND-063 -------------------------------------------------------
+// --- TC-FRONTEND-064 -------------------------------------------------------
 test('the room layout filter keeps venues that offer it', () => {
   assert.deepEqual(names({ layout: 'theatre' }), ['Harbour Hall', 'Anson Suite'])
   assert.deepEqual(names({ layout: 'boardroom' }), ['Studio B'])

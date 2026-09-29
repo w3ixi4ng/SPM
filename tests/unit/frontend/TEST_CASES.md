@@ -947,11 +947,11 @@ full venue list. Decisions confirmed with the developer:
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| AC1: A Coordinator can filter venues by date, time, expected attendance, location, capacity, accessibility, and facilities | TC-FRONTEND-056 to 060, TC-FRONTEND-063, TC-E2E-218 |
-| AC2: Search results only include venues matching all applied filter criteria | TC-FRONTEND-061, TC-E2E-218 step 5 |
-| AC3: Results update when filter criteria are changed | TC-E2E-218 steps 2–6 |
+| AC1: A Coordinator can filter venues by date, time, expected attendance, location, capacity, accessibility, and facilities | TC-FRONTEND-057 to 061, TC-FRONTEND-064, TC-E2E-219 |
+| AC2: Search results only include venues matching all applied filter criteria | TC-FRONTEND-062, TC-E2E-219 step 5 |
+| AC3: Results update when filter criteria are changed | TC-E2E-219 steps 2–6 |
 
-Shared test data for TC-FRONTEND-056 to 063, in this order:
+Shared test data for TC-FRONTEND-057 to 064, in this order:
 
 ```
 Harbour Hall   location "1 Harbourfront Walk", capacity 250,
@@ -970,7 +970,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 
 `2026-11-12` is a Thursday; `2026-11-14` a Saturday.
 
-## TC-FRONTEND-056 — no filters shows every venue, in order
+## TC-FRONTEND-057 — no filters shows every venue, in order
 
 - **Steps:** `filterVenues(venues, emptyVenueFilters())`.
 - **Test data:** Shared.
@@ -980,7 +980,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-057 — the text search matches location or name, ignoring case
+## TC-FRONTEND-058 — the text search matches location or name, ignoring case
 
 - **Steps:** Filter with `query` set to each value below.
 - **Test data:** `"anson"`; `"  HARBOUR "`; `"studio"`; `"nowhere"`.
@@ -992,7 +992,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-058 — "holds at least" keeps venues with enough capacity
+## TC-FRONTEND-059 — "holds at least" keeps venues with enough capacity
 
 - **Steps:** Filter with `attendance` set to each value below.
 - **Test data:** `"150"`; `"151"`; `""`.
@@ -1003,7 +1003,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-059 — facilities and accessibility need every one ticked
+## TC-FRONTEND-060 — facilities and accessibility need every one ticked
 
 - **Steps:** Filter by each selection below.
 - **Test data:** facilities `["projector"]`; facilities
@@ -1017,7 +1017,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-060 — date and time keep venues open then
+## TC-FRONTEND-061 — date and time keep venues open then
 
 - **Steps:** Filter by each date and time below.
 - **Test data:**
@@ -1038,7 +1038,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-061 — results match every applied filter at once
+## TC-FRONTEND-062 — results match every applied filter at once
 
 - **Scenario:** AC2.
 - **Steps:** Filter with every criterion set together.
@@ -1052,7 +1052,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-062 — the request screen's filters start from the event
+## TC-FRONTEND-063 — the request screen's filters start from the event
 
 - **Steps:** `venueFiltersFromEvent(event)`.
 - **Test data:** Event `expected_attendance: 100`, `room_layout: "theatre"`,
@@ -1068,7 +1068,7 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Status:** Not Executed
 - **Evidence:**
 
-## TC-FRONTEND-063 — the room layout filter keeps venues that offer it
+## TC-FRONTEND-064 — the room layout filter keeps venues that offer it
 
 - **Steps:** Filter with `layout` set to each value below.
 - **Test data:** `"theatre"`; `"boardroom"`; `"banquet"`; `""`.

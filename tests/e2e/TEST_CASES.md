@@ -446,10 +446,10 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.
 
-## TC-E2E-218 — a Coordinator narrows the Venues tab with filters, and results follow each change
+## TC-E2E-219 — a Coordinator narrows the Venues tab with filters, and results follow each change
 
 - **Scenario:** S-34, AC1–AC3 in a real browser. The matching rules are
-  TC-FRONTEND-056 to 061; this proves the filters are wired to the list on
+  TC-FRONTEND-057 to 062; this proves the filters are wired to the list on
   the dashboard, update it on every change, and can be cleared.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
   removes afterwards, an `event_coordinator` with `make_user` and the three

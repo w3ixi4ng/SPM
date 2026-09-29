@@ -1,6 +1,6 @@
-"""TC-E2E-218 -- a Coordinator narrows the Venues tab with filters (S-34).
+"""TC-E2E-219 -- a Coordinator narrows the Venues tab with filters (S-34).
 
-The matching rules are TC-FRONTEND-056 to 063. This proves the filters are
+The matching rules are TC-FRONTEND-057 to 064. This proves the filters are
 wired to the list on the dashboard, update it on every change, and clear.
 """
 
@@ -16,7 +16,7 @@ def _hours(day, open_, close):
     return {"day": day, "open": f"{open_}:00", "close": f"{close}:00"}
 
 
-# --- TC-E2E-218 -----------------------------------------------------------
+# --- TC-E2E-219 -----------------------------------------------------------
 def test_a_coordinator_narrows_the_venues_tab_with_filters(admin, page, make_user, sign_in):
     coordinator = make_user("event_coordinator")
     staff = make_user("venue_staff")
