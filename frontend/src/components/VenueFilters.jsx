@@ -43,8 +43,17 @@ function Checklist({ legend, codes, selected, onToggle }) {
 // venue request screen. Controlled: the page owns `filters` and filters the
 // list itself (filterVenues), so the results follow every change. On the
 // request screen the date and time are the booking's own fields, so
-// `showDateTime` is off there.
-export default function VenueFilters({ idPrefix, filters, onChange, options, showDateTime = true }) {
+// `showDateTime` is off there and a checkbox (`openThen`) switches the
+// open-at-the-booking's-time filter instead.
+export default function VenueFilters({
+  idPrefix,
+  filters,
+  onChange,
+  options,
+  showDateTime = true,
+  openThen = false,
+  onOpenThenChange,
+}) {
   function set(field, value) {
     onChange({ ...filters, [field]: value })
   }
@@ -55,11 +64,11 @@ export default function VenueFilters({ idPrefix, filters, onChange, options, sho
       : [...filters[field], code])
   }
 
+  // Clears everything, so every venue shows -- on the request screen that
+  // includes the open-then filter, which the checkbox turns back on.
   function clear() {
-    // Keep the date and time when this panel does not own them.
-    onChange(showDateTime
-      ? emptyVenueFilters()
-      : { ...emptyVenueFilters(), date: filters.date, startTime: filters.startTime, endTime: filters.endTime })
+    onChange(emptyVenueFilters())
+    onOpenThenChange?.(false)
   }
 
   return (
@@ -149,6 +158,17 @@ export default function VenueFilters({ idPrefix, filters, onChange, options, sho
             />
           </Field>
         </div>
+      )}
+
+      {!showDateTime && onOpenThenChange && (
+        <label className="flex items-center gap-2 font-ui text-sm mb-4" style={{ color: C.ink }}>
+          <input
+            type="checkbox"
+            checked={openThen}
+            onChange={(e) => onOpenThenChange(e.target.checked)}
+          />
+          Only venues open at the booking&apos;s date and time
+        </label>
       )}
 
       {options && (

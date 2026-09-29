@@ -85,8 +85,8 @@ function hoursSummary(operatingHours) {
     .join(', ')
 }
 
-function VenueOption({ venue, event, selected, onSelect }) {
-  const problems = venueFit(event, venue)
+function VenueOption({ venue, event, when, selected, onSelect }) {
+  const problems = venueFit(event, venue, when)
   const fits = problems.length === 0
   return (
     <li style={{ borderColor: C.line }}>
@@ -104,20 +104,18 @@ function VenueOption({ venue, event, selected, onSelect }) {
           aria-describedby={`venue-${venue.id}-fit`}
         />
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-baseline justify-between gap-2">
-            <span className="font-ui text-base font-medium" style={{ color: C.ink }}>{venue.name}</span>
+          <span className="block font-ui text-base font-medium" style={{ color: C.ink }}>{venue.name}</span>
+          <span
+            id={`venue-${venue.id}-fit`}
+            className="flex items-start gap-1.5 font-ui text-xs mt-0.5"
+            style={{ color: fits ? C.green : C.amber }}
+          >
             <span
-              id={`venue-${venue.id}-fit`}
-              className="inline-flex items-center gap-1.5 font-ui text-xs"
-              style={{ color: fits ? C.green : C.amber }}
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: fits ? C.green : C.amber }}
-                aria-hidden="true"
-              />
-              {fits ? 'Fits' : problems.join(' · ')}
-            </span>
+              className="w-1.5 h-1.5 rounded-full shrink-0 mt-1"
+              style={{ backgroundColor: fits ? C.green : C.amber }}
+              aria-hidden="true"
+            />
+            {fits ? 'Fits' : problems.join(' · ')}
           </span>
           <span className="block font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
             {venue.location} · Holds {venue.capacity} · {labels(venue.room_layouts)}
@@ -147,8 +145,10 @@ function RequestForm({ event, onSent }) {
   const [venues, setVenues] = useState({ status: 'loading', list: [] })
   const [sendState, setSendState] = useState({ status: 'idle', errors: [] })
   // S-34: the filters start from what the event needs. Their date and time
-  // are the booking's own fields below, so they are not kept here.
+  // are the booking's own fields, so the panel only switches "open then" on
+  // or off (on to start; Clear filters turns it off).
   const [filters, setFilters] = useState(() => venueFiltersFromEvent(event))
+  const [openThen, setOpenThen] = useState(true)
   const [options, setOptions] = useState(null)
 
   useEffect(() => {
@@ -162,15 +162,14 @@ function RequestForm({ event, onSent }) {
     return () => { active = false }
   }, [])
 
+  const when = { date: form.bookingDate, startTime: form.startTime, endTime: form.endTime }
   const shown = filterVenues(venues.list, {
     ...filters,
-    date: form.bookingDate,
-    startTime: form.startTime,
-    endTime: form.endTime,
+    ...(openThen ? when : { date: '', startTime: '', endTime: '' }),
   })
 
   const selectedVenue = venues.list.find((venue) => venue.id === form.venueId) ?? null
-  const warning = venueWarning(event, selectedVenue)
+  const warning = venueWarning(event, selectedVenue, when)
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -245,6 +244,8 @@ function RequestForm({ event, onSent }) {
             onChange={setFilters}
             options={options}
             showDateTime={false}
+            openThen={openThen}
+            onOpenThenChange={setOpenThen}
           />
         )}
         {venues.status === 'loading' && (
@@ -270,6 +271,7 @@ function RequestForm({ event, onSent }) {
                 key={venue.id}
                 venue={venue}
                 event={event}
+                when={when}
                 selected={form.venueId === venue.id}
                 onSelect={(venueId) => update('venueId', venueId)}
               />
