@@ -196,3 +196,65 @@ export function venueUpdateErrorMessage(error) {
   if (!error.status || error.status >= 500) return 'We could not confirm that your changes were saved. Reload the venue before trying again.'
   return venueErrorMessage(error)
 }
+
+// --- S-34: search and filter venues ----------------------------------------
+//
+// Filtering happens in the browser over the full list from GET /venues. A
+// venue is kept only when it matches every filter that is set; an unset
+// filter (blank text, no ticks) keeps everything.
+
+export function emptyVenueFilters() {
+  return {
+    query: '',
+    attendance: '',
+    layout: '',
+    facilities: [],
+    accessibility: [],
+    date: '',
+    startTime: '',
+    endTime: '',
+  }
+}
+
+// The request screen's starting filters: what the event needs, on its date.
+export function venueFiltersFromEvent(event) {
+  return {
+    ...emptyVenueFilters(),
+    attendance: event.expected_attendance != null ? String(event.expected_attendance) : '',
+    layout: event.room_layout ?? '',
+    facilities: [...(event.required_facilities ?? [])],
+    accessibility: [...(event.required_accessibility ?? [])],
+    date: event.start_date ?? '',
+    startTime: event.start_time?.slice(0, 5) ?? '',
+    endTime: event.end_time?.slice(0, 5) ?? '',
+  }
+}
+
+function weekdayOf(isoDate) {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  // getUTCDay counts from Sunday; WEEK starts on Monday.
+  return WEEK[(new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7]
+}
+
+// Open on that date and, when both times are given, for the whole of them.
+// Times without a date say nothing about which day, so they are ignored.
+function openThen(venue, { date, startTime, endTime }) {
+  if (!date) return true
+  const hours = venue.operating_hours.find((entry) => entry.day === weekdayOf(date))
+  if (!hours) return false
+  if (!startTime || !endTime) return true
+  return hours.open.slice(0, 5) <= startTime && endTime <= hours.close.slice(0, 5)
+}
+
+export function filterVenues(venues, filters) {
+  const query = filters.query.trim().toLowerCase()
+  const atLeast = Number(filters.attendance)
+  return venues.filter((venue) => (
+    (!query || venue.name.toLowerCase().includes(query) || venue.location.toLowerCase().includes(query))
+    && (!(atLeast > 0) || venue.capacity >= atLeast)
+    && (!filters.layout || venue.room_layouts.includes(filters.layout))
+    && filters.facilities.every((code) => venue.facilities.includes(code))
+    && filters.accessibility.every((code) => venue.accessibility.includes(code))
+    && openThen(venue, filters)
+  ))
+}

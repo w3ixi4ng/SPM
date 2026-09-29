@@ -12,7 +12,16 @@ import {
   venueBookingErrorMessages,
   venueFit,
 } from '../lib/venueBookings.js'
-import { DAY_LABELS, listVenues, optionLabel, WEEK } from '../lib/venues.js'
+import VenueFilters from '../components/VenueFilters.jsx'
+import {
+  DAY_LABELS,
+  filterVenues,
+  getVenueOptions,
+  listVenues,
+  optionLabel,
+  venueFiltersFromEvent,
+  WEEK,
+} from '../lib/venues.js'
 
 const C = {
   ink: '#10192B',
@@ -137,14 +146,28 @@ function RequestForm({ event, onSent }) {
   }))
   const [venues, setVenues] = useState({ status: 'loading', list: [] })
   const [sendState, setSendState] = useState({ status: 'idle', errors: [] })
+  // S-34: the filters start from what the event needs. Their date and time
+  // are the booking's own fields below, so they are not kept here.
+  const [filters, setFilters] = useState(() => venueFiltersFromEvent(event))
+  const [options, setOptions] = useState(null)
 
   useEffect(() => {
     let active = true
     listVenues()
       .then((list) => { if (active) setVenues({ status: 'ready', list }) })
       .catch(() => { if (active) setVenues({ status: 'error', list: [] }) })
+    getVenueOptions()
+      .then((loaded) => { if (active) setOptions(loaded) })
+      .catch(() => { if (active) setOptions(null) })
     return () => { active = false }
   }, [])
+
+  const shown = filterVenues(venues.list, {
+    ...filters,
+    date: form.bookingDate,
+    startTime: form.startTime,
+    endTime: form.endTime,
+  })
 
   const selectedVenue = venues.list.find((venue) => venue.id === form.venueId) ?? null
   const warning = venueWarning(event, selectedVenue)
@@ -175,36 +198,6 @@ function RequestForm({ event, onSent }) {
 
   return (
     <form onSubmit={handleSubmit} noValidate>
-      <fieldset className="border-0 p-0 m-0 mb-8">
-        <legend className="font-display text-xl mb-3" style={{ color: C.ink }}>Choose a venue</legend>
-        {venues.status === 'loading' && (
-          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venues…</p>
-        )}
-        {venues.status === 'error' && (
-          <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>
-            We couldn&apos;t load the venue list. Reload the page to try again.
-          </p>
-        )}
-        {venues.status === 'ready' && venues.list.length === 0 && (
-          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-            No venues have been added yet. Venue Staff add them from their dashboard.
-          </p>
-        )}
-        {venues.status === 'ready' && venues.list.length > 0 && (
-          <ul className="divide-y" aria-label="Venues">
-            {venues.list.map((venue) => (
-              <VenueOption
-                key={venue.id}
-                venue={venue}
-                event={event}
-                selected={form.venueId === venue.id}
-                onSelect={(venueId) => update('venueId', venueId)}
-              />
-            ))}
-          </ul>
-        )}
-      </fieldset>
-
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div>
           <Label htmlFor="venue-request-date">Date</Label>
@@ -242,6 +235,48 @@ function RequestForm({ event, onSent }) {
           />
         </div>
       </div>
+
+      <fieldset className="border-0 p-0 m-0 mb-8">
+        <legend className="font-display text-xl mb-3" style={{ color: C.ink }}>Choose a venue</legend>
+        {venues.status === 'ready' && venues.list.length > 0 && (
+          <VenueFilters
+            idPrefix="request-filter"
+            filters={filters}
+            onChange={setFilters}
+            options={options}
+            showDateTime={false}
+          />
+        )}
+        {venues.status === 'loading' && (
+          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venues…</p>
+        )}
+        {venues.status === 'error' && (
+          <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>
+            We couldn&apos;t load the venue list. Reload the page to try again.
+          </p>
+        )}
+        {venues.status === 'ready' && venues.list.length === 0 && (
+          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+            No venues have been added yet. Venue Staff add them from their dashboard.
+          </p>
+        )}
+        {venues.status === 'ready' && venues.list.length > 0 && shown.length === 0 && (
+          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venues match these filters.</p>
+        )}
+        {shown.length > 0 && (
+          <ul className="divide-y" aria-label="Venues">
+            {shown.map((venue) => (
+              <VenueOption
+                key={venue.id}
+                venue={venue}
+                event={event}
+                selected={form.venueId === venue.id}
+                onSelect={(venueId) => update('venueId', venueId)}
+              />
+            ))}
+          </ul>
+        )}
+      </fieldset>
 
       <div className="mb-8">
         <Label htmlFor="venue-request-notes">Notes for Venue Staff (optional)</Label>

@@ -79,7 +79,15 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     assert warning.count() == 0
     assert send.is_enabled()
 
+    # S-34: the list opens filtered to what the event needs, so only the
+    # venue that fits is shown until the filters are cleared.
     venue_list = page.get_by_role("list", name="Venues")
+    venue_list.get_by_role("listitem").filter(has_text=large).wait_for(timeout=20000)
+    assert venue_list.get_by_role("listitem").filter(has_text=small).count() == 0
+    assert venue_list.get_by_role("listitem").filter(has_text=bare).count() == 0
+    page.get_by_role("button", name="Clear filters").click()
+    venue_list.get_by_role("listitem").filter(has_text=small).wait_for(timeout=20000)
+    venue_list.get_by_role("listitem").filter(has_text=bare).wait_for(timeout=20000)
 
     def choose(name):
         venue_list.get_by_role("listitem").filter(has_text=name).get_by_role("radio").check()

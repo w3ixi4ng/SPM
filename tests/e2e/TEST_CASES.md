@@ -3,9 +3,9 @@
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
-`test_record_equipment.py`, `test_update_equipment.py` and
-`test_retire_equipment.py`, `test_assign_technical_support.py`, and
-`test_prevent_overlapping_confirmation.py`.
+`test_record_equipment.py`, `test_update_equipment.py`,
+`test_retire_equipment.py`, `test_assign_technical_support.py`,
+`test_prevent_overlapping_confirmation.py` and `test_filter_venues.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
