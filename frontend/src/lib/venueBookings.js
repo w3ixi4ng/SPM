@@ -136,6 +136,7 @@ export function bookingDecisionErrorMessage(error) {
   if (error.status === 401) return 'Your session has expired. Please sign in again.'
   if (error.status === 403) return 'Only Venue Staff can decide booking requests.'
   if (error.status === 404) return 'This booking request could not be found. Reload the list.'
+  if (error.status === 409 && error.message?.includes('already confirmed')) return error.message
   if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
   if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
   return 'We could not confirm whether your decision was saved. Reload the list before trying again.'

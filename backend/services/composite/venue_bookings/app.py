@@ -195,6 +195,10 @@ async def decide_venue_booking(
     ))
     if response.status_code == 200:
         return response.json()
+    if response.status_code == 409:
+        detail = response.json().get("detail", "")
+        if " is already confirmed on " in detail and " from " in detail and " to " in detail:
+            raise HTTPException(status_code=409, detail=detail)
     messages = {
         401: "Not authenticated", 403: "Permission denied",
         404: "Booking not found",

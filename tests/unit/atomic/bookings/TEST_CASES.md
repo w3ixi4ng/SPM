@@ -15,9 +15,9 @@ including direct calls to the published port; these checks are tested below.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/bookings` |
-| Last run | 2026-09-27, branch `S-36/submit-venue-booking-request` at `665c7b3` |
-| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 32 passed |
+| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
+| Environment | Python 3.14; no network, database, or Docker |
+| Result | 64 booking unit cases passed; 561 passed across `tests/unit` |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -359,3 +359,43 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_storage_failure_safe; test_decision_preserves_request`.
+
+## S-38 confirmed specifications
+
+Story: S-38 Prevent Overlapping Booking Confirmation.
+Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
+
+### TC-BOOKINGS-023 — Confirmation rejects every overlap with an existing confirmed booking
+
+- **Scenario:** A venue cannot acquire two confirmed bookings whose date and
+  time ranges overlap (AC1, AC2, AC3).
+- **Pre-conditions:** Authenticated Venue Staff; pending booking B; storage
+  reports an existing confirmed booking C for the same venue and date.
+- **Steps:** Attempt to approve B for each interval relationship below, then
+  inspect the response and attempted storage mutation.
+- **Test data:** C is Studio B on `2026-11-12`, `10:00`–`12:00`. B is on the
+  same date at `10:30`–`11:30`, `09:00`–`11:00`, `11:00`–`13:00`, or
+  `09:00`–`13:00`.
+- **Expected:** Every attempt returns `409`. The message identifies Studio B,
+  `2026-11-12`, and `10:00`–`12:00` as the conflicting confirmed booking.
+  B remains pending with no decision metadata, and C is unchanged.
+- **Actual:** All four overlap shapes returned the identified `409`; no update was attempted.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_confirmation_reports_existing_overlap`
+
+### TC-BOOKINGS-024 — Non-overlapping boundaries and unrelated venue slots can be confirmed
+
+- **Scenario:** Availability blocks only an actual overlap for the same venue
+  on the same date (AC1, AC3).
+- **Pre-conditions:** Authenticated Venue Staff; confirmed C as in
+  TC-BOOKINGS-023; a separate pending booking for each test row.
+- **Steps:** Approve each pending booking and inspect its saved status.
+- **Test data:** Studio B on `2026-11-12` at `08:00`–`10:00` and
+  `12:00`–`14:00`; Studio B on `2026-11-13` at `10:30`–`11:30`; Studio C on
+  `2026-11-12` at `10:30`–`11:30`.
+- **Expected:** Each approval returns `200` and stores `confirmed`. A booking
+  ending exactly when C starts, or starting exactly when C ends, is available;
+  another date or venue is independent.
+- **Actual:** The lookup used same venue/date, `start < requested end`, and `end > requested start`; a no-conflict result confirmed successfully.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_overlap_lookup_uses_half_open_same_venue_and_date_window`

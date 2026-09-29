@@ -1,4 +1,4 @@
-"""S-37: TC-BOOKINGS-017..022, isolated storage and authentication."""
+"""S-37/S-38 booking decisions, isolated storage and authentication."""
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -20,7 +20,19 @@ def auth():
     app.dependency_overrides.pop(database_module.get_auth, None)
 
 
-def prepare(db):
+def prepare(db, *, booking=None, conflicts=None):
+    booking = booking_row() if booking is None else booking
+    query = table(db).select.return_value
+    query.eq.return_value = query
+    query.neq.return_value = query
+    query.lt.return_value = query
+    query.gt.return_value = query
+    query.order.return_value = query
+    query.limit.return_value = query
+    query.execute.side_effect = [
+        SimpleNamespace(data=[] if booking is False else [booking]),
+        SimpleNamespace(data=conflicts or []),
+    ]
     update = table(db).update.return_value
     update.eq.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[booking_row(**table(db).update.call_args.args[0])])
@@ -70,13 +82,11 @@ def test_invalid_decision_never_writes(client, db, auth, payload):
 
 @pytest.mark.parametrize('exists, code', [(True, 409), (False, 404)])
 def test_no_conditional_match_is_conflict_or_missing(client, db, auth, exists, code):
-    update = prepare(db)
-    update.execute.side_effect = None
-    update.execute.return_value = SimpleNamespace(data=[])
-    table(db).select.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[{'id': BOOKING_ID}] if exists else [])
+    booking = booking_row(status='confirmed') if exists else False
+    update = prepare(db, booking=booking)
     response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
     assert response.status_code == code
-    table(db).update.assert_called_once()
+    table(db).update.assert_not_called()
 
 
 @pytest.mark.parametrize('role', ['event_coordinator', 'event_organiser', 'technical_support', 'attendee', 'unknown', None])
@@ -99,3 +109,63 @@ def test_storage_failure_safe(client, db, auth):
     response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
     assert response.status_code == 500
     assert 'private' not in response.text
+
+
+@pytest.mark.parametrize('start_time,end_time', [
+    ('10:30:00', '11:30:00'),
+    ('09:00:00', '11:00:00'),
+    ('11:00:00', '13:00:00'),
+    ('09:00:00', '13:00:00'),
+])
+def test_confirmation_reports_existing_overlap(client, db, auth, start_time, end_time):
+    conflict = booking_row(
+        id='55555555-5555-4555-8555-555555555555',
+        status='confirmed',
+        start_time='10:00:00',
+        end_time='12:00:00',
+    )
+    prepare(db, booking=booking_row(start_time=start_time, end_time=end_time), conflicts=[conflict])
+
+    response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
+
+    assert response.status_code == 409
+    assert response.json()['detail'] == 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
+    table(db).update.assert_not_called()
+
+
+def test_overlap_lookup_uses_half_open_same_venue_and_date_window(client, db, auth):
+    prepare(db, conflicts=[])
+
+    response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
+
+    assert response.status_code == 200
+    query = table(db).select.return_value
+    assert ('venue_id', booking_row()['venue_id']) in [call.args for call in query.eq.call_args_list]
+    assert ('booking_date', booking_row()['booking_date']) in [call.args for call in query.eq.call_args_list]
+    assert ('status', 'confirmed') in [call.args for call in query.eq.call_args_list]
+    query.lt.assert_called_once_with('start_time', booking_row()['end_time'])
+    query.gt.assert_called_once_with('end_time', booking_row()['start_time'])
+
+
+def test_database_overlap_race_returns_identified_conflict(client, db, auth):
+    class ExclusionViolation(Exception):
+        code = '23P01'
+
+    conflict = booking_row(
+        id='55555555-5555-4555-8555-555555555555',
+        status='confirmed',
+        start_time='10:00:00',
+        end_time='12:00:00',
+    )
+    update = prepare(db)
+    table(db).select.return_value.execute.side_effect = [
+        SimpleNamespace(data=[booking_row()]),
+        SimpleNamespace(data=[]),
+        SimpleNamespace(data=[conflict]),
+    ]
+    update.execute.side_effect = ExclusionViolation('private constraint detail')
+
+    response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
+
+    assert response.status_code == 409
+    assert response.json()['detail'] == 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'

@@ -4,7 +4,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py` and
-`test_retire_equipment.py`, and `test_assign_technical_support.py`.
+`test_retire_equipment.py`, `test_assign_technical_support.py`, and
+`test_prevent_overlapping_confirmation.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -13,9 +14,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 15 passed |
+| Result | 17 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -416,3 +417,28 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   both the assignment and details remained visible after a page reload.
 - **Status:** Pass
 - **Evidence:** `test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`
+
+## S-38 confirmed specifications
+
+Story: S-38 Prevent Overlapping Booking Confirmation.
+Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
+
+## TC-E2E-218 — Confirmed venue time becomes unavailable to another event
+
+- **Scenario:** Venue Staff cannot confirm an overlapping request after the
+  venue slot has been confirmed for another event (AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack with S-38 SQL applied, granted
+  and exposed; Chromium; one Venue Staff account; two planning events have
+  pending requests for Studio B on the same date with overlapping times.
+- **Steps:** Sign in as Venue Staff; confirm the first request; attempt to
+  confirm the second request; reload the pending list and both Coordinators'
+  event views.
+- **Test data:** Event A requests Studio B on `2026-11-12`, `09:00`–`12:00`;
+  Event B requests Studio B on `2026-11-12`, `11:00`–`13:00`.
+- **Expected:** Event A becomes Confirmed and remains confirmed after reload.
+  Event B is not confirmed; the page identifies Studio B, `12 Nov 2026`, and
+  `09:00`–`12:00` as the conflict. Event B remains Pending after reload, and
+  its Coordinator never sees a confirmed booking for that unavailable slot.
+- **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
+- **Status:** Pass
+- **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.

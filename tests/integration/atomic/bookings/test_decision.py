@@ -1,4 +1,4 @@
-"""TC-BOOKINGS-102/103. Run only after S-37 SQL is confirmed on .env.test."""
+"""TC-BOOKINGS-102..104. Run after the S-37/S-38 SQL on .env.test."""
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -32,12 +32,12 @@ def actors(admin):
             admin.auth.admin.delete_user(user_id)
 
 
-def create_booking(booking_ids):
+def create_booking(booking_ids, *, venue_id=None, start_time='09:00', end_time='12:00'):
     response = httpx.post(f'{BASE_URL}/bookings', json={
-        'event_id': str(uuid.uuid4()), 'venue_id': str(uuid.uuid4()),
+        'event_id': str(uuid.uuid4()), 'venue_id': venue_id or str(uuid.uuid4()),
         'coordinator_id': str(uuid.uuid4()), 'coordinator_name': 'Test Coordinator',
         'coordinator_email': 'coordinator@example.com', 'booking_date': '2026-11-12',
-        'start_time': '09:00', 'end_time': '12:00', 'event_name': 'spm-test S-37',
+        'start_time': start_time, 'end_time': end_time, 'event_name': 'spm-test booking decision',
         'event_purpose': 'Decision testing', 'expected_attendance': 100, 'venue_name': 'Studio B',
     }, timeout=15)
     assert response.status_code == 201, response.text
@@ -94,3 +94,46 @@ def test_concurrent_decisions_have_one_winner(admin, booking_ids, actors):
         assert row['status'] == 'rejected' and row['decided_by'] == second_id and row['decision_reason'] == 'Repairs'
     assert httpx.post(f"{BASE_URL}/bookings/{booking['id']}/decision", headers=first,
                       json={'decision': 'approved'}, timeout=15).status_code == 409
+
+
+def test_concurrent_overlapping_confirmations_have_one_winner(admin, booking_ids, actors):
+    _, first_staff = actors('venue_staff')
+    _, second_staff = actors('venue_staff')
+    venue_id = str(uuid.uuid4())
+    first = create_booking(booking_ids, venue_id=venue_id, start_time='09:00', end_time='12:00')
+    second = create_booking(booking_ids, venue_id=venue_id, start_time='11:00', end_time='13:00')
+    barrier = Barrier(2)
+
+    def approve(booking, headers):
+        barrier.wait(timeout=10)
+        return httpx.post(
+            f"{BASE_URL}/bookings/{booking['id']}/decision",
+            headers=headers,
+            json={'decision': 'approved'},
+            timeout=20,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        one = pool.submit(approve, first, first_staff)
+        two = pool.submit(approve, second, second_staff)
+        responses = [one.result(), two.result()]
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    conflict = next(response for response in responses if response.status_code == 409)
+    assert 'Studio B is already confirmed on 12 Nov 2026' in conflict.json()['detail']
+    rows = (
+        admin.schema('bookings').table('bookings').select('*')
+        .in_('id', [first['id'], second['id']]).execute().data
+    )
+    assert sorted(row['status'] for row in rows) == ['confirmed', 'pending']
+    winner = next(row for row in rows if row['status'] == 'confirmed')
+    loser = next(row for row in rows if row['status'] == 'pending')
+    assert loser['decided_by'] is None and loser['decided_at'] is None
+    retry = httpx.post(
+        f"{BASE_URL}/bookings/{loser['id']}/decision",
+        headers=first_staff,
+        json={'decision': 'approved'},
+        timeout=15,
+    )
+    assert retry.status_code == 409
+    assert winner['start_time'][:5] in retry.json()['detail']

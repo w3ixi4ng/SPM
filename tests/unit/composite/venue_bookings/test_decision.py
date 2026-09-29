@@ -45,6 +45,17 @@ def test_safe_downstream_errors(client, services, code):
     assert 'private diagnostic' not in result.text
 
 
+def test_identified_overlap_conflict_survives_orchestration(client, services):
+    services.user = me('venue_staff')
+    detail = 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
+    services.bookings.post = AsyncMock(return_value=fake_response(409, {'detail': detail}))
+
+    result = client.post(PATH, json={'decision': 'approved'})
+
+    assert result.status_code == 409
+    assert result.json() == {'detail': detail}
+
+
 def test_timeout_is_safe(client, services):
     services.user = me('venue_staff')
     services.bookings.post = AsyncMock(side_effect=httpx.ReadTimeout('private diagnostic'))

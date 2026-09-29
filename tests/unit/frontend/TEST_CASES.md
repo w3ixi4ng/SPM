@@ -2,7 +2,7 @@
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
-`test_venue_bookings.mjs`, `test_venue_update.mjs`, and
+`test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`, and
 `test_technical_support_assignment.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
@@ -11,9 +11,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 59 passed |
+| Result | 64 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -906,3 +906,24 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Actual:** Every tested failure mapped to safe feedback and none reported assignment success.
 - **Status:** Pass
 - **Evidence:** `test_technical_support_assignment.mjs` — `support assignment failures are safe and actionable`
+
+## S-38 confirmed specifications
+
+Story: S-38 Prevent Overlapping Booking Confirmation.
+Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
+
+### TC-FRONTEND-056 — An overlapping confirmation displays the identified conflict
+
+- **Scenario:** Venue Staff receive actionable conflict feedback and no false
+  confirmation (AC2, AC3).
+- **Pre-conditions:** The booking decision helper receives a `409` response
+  containing the conflicting venue name, date, start time and end time.
+- **Steps:** Map the response to decision feedback and the pending-list state.
+- **Test data:** Studio B, `2026-11-12`, `10:00`–`12:00`.
+- **Expected:** The displayed message says the booking cannot be confirmed and
+  identifies Studio B, `12 Nov 2026`, and `10:00`–`12:00`. No success notice
+  appears, and the attempted request remains Pending so staff can reject it or
+  choose another action.
+- **Actual:** The identified conflict was shown verbatim and never mapped to a success message.
+- **Status:** Pass
+- **Evidence:** `test_booking_decision.mjs` — `overlap conflict identifies the unavailable venue slot`; full Node suite: 64 passed.
