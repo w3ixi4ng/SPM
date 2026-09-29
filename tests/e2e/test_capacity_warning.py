@@ -93,6 +93,8 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     for hidden in (small, bare, weekend):
         assert row(hidden).count() == 0
 
+    # The filters start collapsed; open them to reach the checkbox.
+    page.get_by_role("button", name=re.compile(r"^Filters")).click()
     open_then = page.get_by_label("Only venues open at the booking's date and time")
     assert open_then.is_checked()
     page.get_by_role("button", name="Clear filters").click()

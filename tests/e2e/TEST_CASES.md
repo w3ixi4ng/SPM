@@ -252,7 +252,8 @@ contract without a browser.
   1. Sign in as the coordinator and open
      `/coordinator/events/{id}/request-venue`.
   2. Look at the list and **Send request** before choosing a venue, then
-     click **Clear filters**, then tick **Only venues open at the booking's
+     open **Filters** (collapsed to start), click **Clear filters**, then tick
+     **Only venues open at the booking's
      date and time** again, then click **Clear filters** once more.
   3. Choose the Small venue.
   4. Choose the Bare venue.
@@ -464,7 +465,8 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
   venues from the frontend cases' shared data, each name suffixed with
   `<hex>` so other venues in the project can be told apart.
 - **Steps:**
-  1. Sign in as the coordinator and open the **Venues** tab.
+  1. Sign in as the coordinator, open the **Venues** tab, and open
+     **Filters**.
   2. Type `anson` in **Search by name or location**.
   3. Set **Holds at least** to `100`.
   4. Tick **Stage** under facilities.
@@ -472,8 +474,10 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
   6. Click **Clear filters**.
 - **Test data:** As above.
 - **Expected:**
+  - Step 1: before opening, the collapsed panel reads **Filters · none
+    applied**.
   - Step 2: of the three, Studio B and Anson Suite are listed.
-  - Step 3: Anson Suite only.
+  - Step 3: Anson Suite only, and the panel reads **2 applied**.
   - Step 4: Anson Suite only.
   - Step 5: none of the three, and `"No venues match these filters."`
   - Step 6: all three listed again, and the search box is empty.

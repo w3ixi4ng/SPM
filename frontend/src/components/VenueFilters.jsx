@@ -1,3 +1,5 @@
+import { ChevronDown } from 'lucide-react'
+import { useState } from 'react'
 import { emptyVenueFilters, optionLabel } from '../lib/venues.js'
 
 const C = {
@@ -54,6 +56,18 @@ export default function VenueFilters({
   openThen = false,
   onOpenThenChange,
 }) {
+  // Collapsed to start on both screens; the header still says how many
+  // filters are narrowing the list, and Clear filters works without opening.
+  const [open, setOpen] = useState(false)
+  const applied = [
+    filters.query.trim(),
+    Number(filters.attendance) > 0,
+    filters.layout,
+    filters.facilities.length > 0,
+    filters.accessibility.length > 0,
+    showDateTime ? filters.date : openThen,
+  ].filter(Boolean).length
+
   function set(field, value) {
     onChange({ ...filters, [field]: value })
   }
@@ -79,11 +93,42 @@ export default function VenueFilters({
     >
       <style>{`
         .csp-filter-input:focus-visible,
+        .csp-filter-toggle:focus-visible,
         .csp-filter-clear:focus-visible {
           outline: 2px solid ${C.teal};
           outline-offset: 2px;
         }
       `}</style>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          aria-controls={`${idPrefix}-body`}
+          className="csp-filter-toggle inline-flex items-center gap-2 font-ui text-sm font-medium rounded-sm"
+          style={{ color: C.ink }}
+        >
+          <ChevronDown
+            size={16}
+            aria-hidden="true"
+            style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+          />
+          Filters
+          <span className="font-normal" style={{ color: C.inkFaint }}>
+            · {applied > 0 ? `${applied} applied` : 'none applied'}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={clear}
+          className="csp-filter-clear px-4 py-2 rounded-sm font-ui text-sm font-medium border transition-colors duration-200"
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          Clear filters
+        </button>
+      </div>
+
+      <div id={`${idPrefix}-body`} hidden={!open} className="mt-4">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <Field id={`${idPrefix}-query`} label="Search by name or location">
           <input
@@ -188,14 +233,7 @@ export default function VenueFilters({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={clear}
-        className="csp-filter-clear px-4 py-2 rounded-sm font-ui text-sm font-medium border transition-colors duration-200"
-        style={{ borderColor: C.ink, color: C.ink }}
-      >
-        Clear filters
-      </button>
+      </div>
     </section>
   )
 }

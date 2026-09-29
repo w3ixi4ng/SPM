@@ -55,6 +55,12 @@ def test_a_coordinator_narrows_the_venues_tab_with_filters(admin, page, make_use
     panel = page.locator("#panel-venues")
     ours = (harbour, studio, suite)
 
+    # The filters start collapsed, saying none are applied.
+    toggle = panel.get_by_role("button", name=re.compile(r"^Filters"))
+    assert "none applied" in toggle.inner_text()
+    assert toggle.get_attribute("aria-expanded") == "false"
+    toggle.click()
+
     def shown():
         # Other venues may exist in the test project; only ours are compared.
         items = panel.get_by_role("list", name="Venues").get_by_role("listitem")
@@ -78,6 +84,7 @@ def test_a_coordinator_narrows_the_venues_tab_with_filters(admin, page, make_use
 
     panel.get_by_label("Holds at least").fill("100")
     expect((suite,))
+    assert "2 applied" in toggle.inner_text()
 
     panel.get_by_role("group", name="Facilities").get_by_label("Stage", exact=True).check()
     expect((suite,))

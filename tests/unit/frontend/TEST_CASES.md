@@ -1082,7 +1082,12 @@ Anson Suite    location "12 Anson Road", capacity 150,
 **Clear filters** there now clears everything, including "open at the
 booking's date and time", so every venue can be seen. The panel's **Only venues open
 at the booking's date and time** checkbox, ticked by default, turns that
-filter back on. A venue closed at the booking's date and
+filter back on.
+
+On both screens the filter panel starts **collapsed**, its header showing
+**Filters** with how many are applied and a **Clear filters** button; opening
+it shows the fields (confirmed with the developer, covered by TC-E2E-219 and
+TC-E2E-210). A venue closed at the booking's date and
 time is marked, and choosing it shows the S-35 warning and disables **Send
 request**, like any other mismatch. Each venue's mark sits under its name.
 
