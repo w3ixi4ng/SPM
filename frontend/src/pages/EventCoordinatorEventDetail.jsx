@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Building2, Check, RotateCcw, X } from 'lucide-react'
+import { ArrowLeft, Building2, Check, Headphones, RotateCcw, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
@@ -20,6 +20,12 @@ import {
   listVenueBookingsForEvent,
   shortTime,
 } from '../lib/venueBookings.js'
+import {
+  canRequestTechnicalSupport,
+  getTechnicalSupportAssignment,
+  requestTechnicalSupportAssignment,
+  technicalSupportAssignmentErrorMessage,
+} from '../lib/technicalSupportAssignments.js'
 
 const C = {
   ink: '#10192B',
@@ -277,6 +283,107 @@ function VenueRequests({ eventId }) {
   )
 }
 
+function TechnicalSupportAssignment({ eventId, eventStatus }) {
+  const [state, setState] = useState({ status: 'loading', assignment: null, error: null })
+  const [details, setDetails] = useState('')
+
+  useEffect(() => {
+    let active = true
+    getTechnicalSupportAssignment(eventId)
+      .then((assignment) => {
+        if (!active) return
+        setDetails(assignment.support_details ?? '')
+        setState({ status: 'ready', assignment, error: null })
+      })
+      .catch((error) => {
+        if (active) setState({ status: 'error', assignment: null, error: technicalSupportAssignmentErrorMessage(error) })
+      })
+    return () => {
+      active = false
+    }
+  }, [eventId])
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setState((current) => ({ ...current, status: 'saving', error: null }))
+    try {
+      const assignment = await requestTechnicalSupportAssignment(eventId, details)
+      setDetails(assignment.support_details ?? '')
+      setState({ status: 'ready', assignment, error: null })
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        status: 'ready',
+        error: technicalSupportAssignmentErrorMessage(error),
+      }))
+    }
+  }
+
+  const assignment = state.assignment
+  const editable = canRequestTechnicalSupport(eventStatus)
+
+  return (
+    <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }} aria-labelledby="technical-support-heading">
+      <div className="flex items-center gap-2 mb-2">
+        <Headphones size={18} aria-hidden="true" style={{ color: C.teal }} />
+        <h2 id="technical-support-heading" className="font-display text-2xl" style={{ color: C.ink }}>
+          Technical support
+        </h2>
+      </div>
+      {state.status === 'loading' && <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading Technical Support assignment…</p>}
+      {state.status === 'error' && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
+      {assignment && (
+        <>
+          {assignment.assignment_state === 'assigned' && (
+            <div className="mb-5">
+              <p role="status" className="font-ui text-sm font-medium" style={{ color: C.green }}>Technical Support assigned</p>
+              <p className="font-ui text-sm mt-1" style={{ color: C.ink }}>
+                {assignment.assigned_staff?.name || assignment.assigned_technical_support_id}
+                {assignment.assigned_staff?.email && ` · ${assignment.assigned_staff.email}`}
+              </p>
+            </div>
+          )}
+          {assignment.assignment_state === 'unassigned' && (
+            <p role="status" className="font-ui text-sm mb-5" style={{ color: C.amber }}>{assignment.message}</p>
+          )}
+          {assignment.assignment_state === 'not_required' && (
+            <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>Technical Support has not been requested for this event.</p>
+          )}
+          {editable && (
+            <form onSubmit={handleSubmit}>
+              <label htmlFor="technical-support-details" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
+                Support details (optional)
+              </label>
+              <textarea
+                id="technical-support-details"
+                value={details}
+                onChange={(event) => setDetails(event.target.value)}
+                rows={3}
+                className="w-full rounded-sm border px-3 py-2 font-ui text-sm mb-4"
+                style={{ borderColor: C.line, color: C.ink }}
+                placeholder="Describe the on-site support needed"
+              />
+              {state.error && <p role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>{state.error}</p>}
+              <button
+                type="submit"
+                disabled={state.status === 'saving'}
+                className="px-5 py-3 rounded-sm font-ui font-medium text-sm disabled:opacity-60"
+                style={{ backgroundColor: C.teal, color: C.paper }}
+              >
+                {state.status === 'saving'
+                  ? 'Saving…'
+                  : assignment.assignment_state === 'not_required'
+                    ? 'Request technical support'
+                    : 'Update support notes'}
+              </button>
+            </form>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function EventCoordinatorEventDetail() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -312,6 +419,7 @@ export default function EventCoordinatorEventDetail() {
 
   const form = state.event ? eventResponseToForm(state.event) : null
   const isCoordinator = hasPermission(user?.role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS)
+  const canAssignTechnicalSupport = hasPermission(user?.role, PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT)
   const showVenueRequest = state.event && isCoordinator && canRequestVenue(state.event.status)
 
   return (
@@ -407,6 +515,13 @@ export default function EventCoordinatorEventDetail() {
                 editable={isCoordinator}
               />
             </section>
+
+            {canAssignTechnicalSupport && (
+              <TechnicalSupportAssignment
+                eventId={state.event.id}
+                eventStatus={state.event.status}
+              />
+            )}
           </>
         )}
       </div>

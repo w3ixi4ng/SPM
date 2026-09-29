@@ -59,6 +59,14 @@ create table if not exists events.events (
   -- truth for.
   assigned_coordinator_id    uuid,
 
+  -- S-43: requested by the assigned Coordinator during planning. The staff
+  -- id is opaque: users remains the source of truth and no cross-schema
+  -- foreign key is created.
+  technical_support_required     boolean not null default false,
+  technical_support_details      text,
+  assigned_technical_support_id  uuid,
+  technical_support_assigned_at  timestamptz,
+
   -- The assigned coordinator's decision on a submitted request. Null until
   -- decided; then one of the three outcomes below. Holds only the *latest*
   -- decision -- a return-then-resubmit cycle overwrites it, on purpose (see
@@ -92,7 +100,7 @@ create table if not exists events.events (
   -- underway. There is no 'approved' status; approved is only ever the
   -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'planning', 'rejected', 'returned')),
+    check (status in ('draft', 'submitted', 'planning', 'confirmed', 'rejected', 'returned')),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -174,7 +182,7 @@ create table if not exists events.events (
   constraint events_decision_matches_status
     check (
       (status in ('draft', 'submitted') and decision is null)
-      or (status in ('planning', 'rejected', 'returned') and decision is not null)
+      or (status in ('planning', 'confirmed', 'rejected', 'returned') and decision is not null)
     ),
 
   constraint events_decision_allowed
@@ -205,8 +213,78 @@ create table if not exists events.events (
     check (
       (decision is null and decided_at is null)
       or (decision is not null and decided_at is not null)
+    ),
+
+  constraint events_technical_support_details_not_blank
+    check (
+      technical_support_details is null
+      or btrim(technical_support_details) <> ''
+    ),
+
+  constraint events_technical_support_state_consistent
+    check (
+      (
+        technical_support_required = false
+        and technical_support_details is null
+        and assigned_technical_support_id is null
+        and technical_support_assigned_at is null
+      )
+      or (
+        technical_support_required = true
+        and (
+          (assigned_technical_support_id is null and technical_support_assigned_at is null)
+          or (assigned_technical_support_id is not null and technical_support_assigned_at is not null)
+        )
+      )
     )
 );
+
+-- S-43 upgrade path for an existing events table. These statements are
+-- intentionally idempotent so this canonical file can be applied to both an
+-- existing project and a fresh one.
+alter table events.events
+  add column if not exists technical_support_required boolean not null default false,
+  add column if not exists technical_support_details text,
+  add column if not exists assigned_technical_support_id uuid,
+  add column if not exists technical_support_assigned_at timestamptz;
+
+alter table events.events drop constraint if exists events_status_allowed;
+alter table events.events add constraint events_status_allowed
+  check (status in ('draft', 'submitted', 'planning', 'confirmed', 'rejected', 'returned'));
+
+alter table events.events drop constraint if exists events_decision_matches_status;
+alter table events.events add constraint events_decision_matches_status
+  check (
+    (status in ('draft', 'submitted') and decision is null)
+    or (status in ('planning', 'confirmed', 'rejected', 'returned') and decision is not null)
+  );
+
+alter table events.events
+  drop constraint if exists events_technical_support_details_not_blank;
+alter table events.events add constraint events_technical_support_details_not_blank
+  check (
+    technical_support_details is null
+    or btrim(technical_support_details) <> ''
+  );
+
+alter table events.events
+  drop constraint if exists events_technical_support_state_consistent;
+alter table events.events add constraint events_technical_support_state_consistent
+  check (
+    (
+      technical_support_required = false
+      and technical_support_details is null
+      and assigned_technical_support_id is null
+      and technical_support_assigned_at is null
+    )
+    or (
+      technical_support_required = true
+      and (
+        (assigned_technical_support_id is null and technical_support_assigned_at is null)
+        or (assigned_technical_support_id is not null and technical_support_assigned_at is not null)
+      )
+    )
+  );
 
 -- Event access is scoped by the authenticated organiser, so this supports
 -- owner-filtered reads and updates without scanning the full table.
@@ -221,6 +299,11 @@ create index if not exists events_events_organiser_id_idx
 create index if not exists events_events_assigned_coordinator_id_idx
   on events.events (assigned_coordinator_id)
   where status in ('submitted', 'planning');
+
+create index if not exists events_events_assigned_technical_support_id_idx
+  on events.events (assigned_technical_support_id)
+  where status in ('planning', 'confirmed')
+    and assigned_technical_support_id is not null;
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.

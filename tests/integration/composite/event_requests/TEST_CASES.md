@@ -8,9 +8,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
+| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | 6 passed in this suite; 24 passed across `tests/integration` |
+| Result | 7 passed in this suite; 30 passed across `tests/integration` |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -170,3 +170,27 @@ Verified runnable twice in a row.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was`
+
+## TC-EVENTREQUESTS-107 — support is assigned, persisted, and visible through the gateway
+
+- **Scenario:** Prove S-43 across Kong, Auth trusted roles, the users and events
+  services, the composite, and the real events schema.
+- **Pre-conditions:** Shared test stack; a planning event assigned to the
+  signed-in Coordinator; eligible Technical Support A and B; A has more live
+  assignments, neither overlaps the target window.
+- **Steps:** Through Kong, read the initial support state; POST the explicit
+  assignment action with details; GET the state again; read the event directly
+  from the events service and database; repeat the POST; clean up all rows and
+  temporary users.
+- **Test data:** Details `Wireless microphone setup and sound check`; target
+  `2026-11-13 09:00`–`12:00`.
+- **Expected:** Initial state is not required and unassigned. The action chooses
+  least-busy B without a manually supplied id, persists required/details/B,
+  assignment timestamp, and returns `assignment_state="assigned"` with B's
+  name and email. GET and direct storage agree. A repeat with changed notes
+  updates the details but preserves B and the assignment timestamp.
+- **Actual:** The least-busy eligible staff member was assigned through Kong;
+  GET, the events service, and direct storage agreed. Updating the notes kept
+  the staff id and parsed assignment instant unchanged.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_assignment_is_persisted_visible_and_idempotent`

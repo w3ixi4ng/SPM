@@ -2,7 +2,8 @@
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
-`test_venue_bookings.mjs` and `test_venue_update.mjs`.
+`test_venue_bookings.mjs`, `test_venue_update.mjs`, and
+`test_technical_support_assignment.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -10,9 +11,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-28, branch `S-42/retire-equipment-item`, pre-commit working tree |
+| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
 | Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 55 passed |
+| Result | 59 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -833,7 +834,7 @@ next unused frontend id.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `retirement failures are safe and actionable`
 
-S-37 IDs reconciled after merging S-42: TC-FRONTEND-048 -> TC-FRONTEND-051, TC-FRONTEND-049 -> TC-FRONTEND-052. Earlier S-37 references identify the same cases.
+S-37 IDs reconciled after merging S-42 and S-43: TC-FRONTEND-048 -> TC-FRONTEND-051 -> TC-FRONTEND-054, and TC-FRONTEND-049 -> TC-FRONTEND-052 -> TC-FRONTEND-055. Earlier S-37 references identify the same cases.
 
 ## S-37 confirmed specifications
 
@@ -846,7 +847,7 @@ Decision metadata: `decision_reason`, `decision_alternative`, `decided_by`, `dec
 B means the saved booking fixture; S means the authenticated deciding staff UUID.
 No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 
-### TC-FRONTEND-051 — Decision form validation and permissions match backend policy
+### TC-FRONTEND-054 — Decision form validation and permissions match backend policy
 
 - **Scenario:** Decision form validation and permissions match backend policy (AC1, AC2).
 - **Pre-conditions:** Pure frontend helpers loaded; no network.
@@ -858,7 +859,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_booking_decision.mjs`; local execution, no CI run. Node IDs/test names: `only venue staff have booking decision permission; approval needs no reason and rejection needs reason or alternative`.
 
-### TC-FRONTEND-052 — Decision API and saved status presentation
+### TC-FRONTEND-055 — Decision API and saved status presentation
 
 - **Scenario:** Decision API and saved status presentation (AC1, AC2, AC3).
 - **Pre-conditions:** Mock fetch records requests and returns saved booking or error.
@@ -869,3 +870,39 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_booking_decision.mjs`; local execution, no CI run. Node IDs/test names: `decision call uses credentialled gateway route and only permitted fields; saved booking statuses have distinct labels and safe failure messages`.
+## S-43 — Auto-Assign Technical Support
+
+### TC-FRONTEND-051 — support assignment uses the explicit authenticated action
+
+- **Steps:** Read an event's support state, then request assignment for an id
+  requiring URL encoding with padded optional details.
+- **Expected:** Credentialed GET and POST use
+  `/api/event-requests/{id}/technical-support-assignment`. POST sends only
+  normalized `support_details`; it never sends a staff id, role, status, or
+  assignment field.
+- **Actual:** The encoded GET and notes-only POST used the authenticated composite route; no protected assignment field was sent.
+- **Status:** Pass
+- **Evidence:** `test_technical_support_assignment.mjs` — `support assignment uses the explicit authenticated action`
+
+### TC-FRONTEND-052 — only planning Coordinators see assignment controls and persisted state
+
+- **Steps:** Check the presentation permission for all roles and action
+  visibility for every event status; format unrequested, assigned, and
+  required-but-unavailable states.
+- **Expected:** Only Event Coordinators have the presentation permission and
+  only planning events expose the action. An assignment shows staff name and
+  email after reload; an unavailable result has explicit `unassigned` state
+  and says nobody is currently available; no individual staff picker exists.
+- **Actual:** Permission, planning-only action visibility, and all three persisted presentation states matched the specification.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — `only coordinators can request technical support assignment`; `test_technical_support_assignment.mjs` — `support assignment controls and states follow the event`
+
+### TC-FRONTEND-053 — support assignment errors never claim success
+
+- **Steps:** Map `401`, `403`, `404`, `409`, and dependency/server failures.
+- **Expected:** Feedback distinguishes expired session, forbidden role,
+  missing/unassigned event, non-planning/stale event, and unavailable service.
+  Failures never display an assigned staff member.
+- **Actual:** Every tested failure mapped to safe feedback and none reported assignment success.
+- **Status:** Pass
+- **Evidence:** `test_technical_support_assignment.mjs` — `support assignment failures are safe and actionable`

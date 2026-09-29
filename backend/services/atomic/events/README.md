@@ -27,6 +27,8 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/events/coordinator-load` | Conflict and current load for a set of coordinators against a requested window. Takes an optional `exclude_event_id` so rechecking an existing event never conflicts with itself. |
+| `POST` | `/events/technical-support-load` | Conflict and current live workload for candidate Technical Support Staff against a requested window. |
+| `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
@@ -169,6 +171,10 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "required_facilities": ["projector"],
   "required_accessibility": ["wheelchair_access"],
   "assigned_coordinator_id": null,
+  "technical_support_required": false,
+  "technical_support_details": null,
+  "assigned_technical_support_id": null,
+  "technical_support_assigned_at": null,
   "decision": null,
   "decision_reason": null,
   "decision_comment": null,
@@ -181,6 +187,12 @@ Create endpoints return `201`; list, get, update, and submit-existing return
 `assigned_coordinator_id` is null until the `event_requests` composite
 assigns a coordinator on submission; an organiser's own request can never set
 it. See [Internal routes](#internal-routes-composite-only).
+
+The four `technical_support_*` fields are controlled by the S-43 assignment
+flow. They record whether support was explicitly requested, the optional
+Coordinator notes, the automatically selected staff member, and the first
+assignment time. Clients cannot set these fields through normal event create
+or update payloads.
 
 `decision`, `decision_reason`, `decision_comment`, and `decided_at` are all
 null until the assigned coordinator decides (S-14) — see
@@ -195,7 +207,7 @@ matches the verified user. An organiser with no requests receives `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14, S-36)
+## Status model (S-14, S-36, S-43)
 
 ```
 draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
@@ -204,8 +216,9 @@ draft ──submit──> submitted ──approve──> planning   (venue/equip
                     └──edit + resubmit──────┘
 ```
 
-`confirmed`, `completed` and `cancelled` follow `planning` in the agreed
-flow; they arrive with the stories that move an event into them.
+`confirmed` is now a valid stored state because S-43 must include confirmed
+events when checking Technical Support commitments. S-43 does not introduce a
+transition into it. `completed` and `cancelled` remain later workflow states.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
@@ -215,6 +228,9 @@ flow; they arrive with the stories that move an event into them.
   `decision=approved`). Venue booking requests are made against events in
   this status. No further submit action; edits still go through the same
   `PATCH`.
+- **confirmed** — a live commitment for Technical Support workload and
+  overlap checks. This story defines how it is counted, not how an event
+  moves from planning to confirmed.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.
@@ -254,7 +270,7 @@ recorded. `404` if the caller is not the assigned coordinator.
 
 ## Internal routes (composite-only)
 
-These four exist for the `event_requests` composite service
+These six exist for the `event_requests` composite service
 ([`backend/services/composite/event_requests`](../../composite/event_requests/README.md)),
 which is the only caller — there is no Kong route for any of them, and they
 carry no session-derived authorization of their own. A browser cannot reach
@@ -294,6 +310,28 @@ never appear in either figure — see [Status model](#status-model-s-14).
 window and this assignment stored: without it, the event would always
 conflict with its own row.
 
+### `POST /events/technical-support-load`
+
+Takes `staff_ids` and the same four date/time fields as coordinator load. For
+each candidate it reports `staff_id`, strict-overlap `conflict`, and
+`assigned_count`. Only existing `planning` and `confirmed` assignments count;
+draft, submitted, returned, rejected, completed and cancelled events do not.
+An event ending exactly when another begins is not a conflict.
+
+### `PUT /events/{event_id}/technical-support/internal`
+
+Takes `coordinator_id`, optional `technical_support_details`, and an optional
+automatically selected `assigned_technical_support_id`. The event must still
+be in `planning` and assigned to that Coordinator. The write always records
+`technical_support_required=true`; a null staff id records the successful
+"required but currently unassigned" state.
+
+Once assigned, the staff id is fixed. Calling the route again never replaces
+it, and an unchanged request performs no storage update. Updating the notes
+preserves both the staff id and the original
+`technical_support_assigned_at`. Conditional update filters reject a stale
+event or concurrent assignment with `409` rather than silently overwriting it.
+
 ### `POST /events/internal` and `POST /events/{event_id}/submit/internal`
 
 Same body as the public `POST /events` / `POST /events/{event_id}/submit`,
@@ -324,7 +362,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 
