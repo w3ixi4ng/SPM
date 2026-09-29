@@ -234,7 +234,7 @@ contract without a browser.
 
 ## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
 
-- **Scenario:** Revised for S-34: the list now opens filtered to the event, so the unsuitable venues are reached through **Clear filters**. S-35 in a real browser. Only a browser shows the warning
+- **Scenario:** Revised for S-34, twice: **Clear filters** now shows every venue, including one closed at the booking's time, which is marked and blocked like any other mismatch. Before that: the list now opens filtered to the event, so the unsuitable venues are reached through **Clear filters**. S-35 in a real browser. Only a browser shows the warning
   appearing on selection and **Send request** being disabled and re-enabled;
   TC-FRONTEND-039 covers the wording.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
@@ -245,27 +245,35 @@ contract without a browser.
   and open Thursday `08:00`–`20:00`:
   - `"spm-e2e Small <hex>"`: capacity `80`, facility `projector`;
   - `"spm-e2e Bare <hex>"`: capacity `150`, no facilities;
-  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`.
+  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`;
+  - `"spm-e2e Weekend <hex>"`: capacity `150`, facility `projector`, open
+    Saturday `10:00`–`16:00` only.
 - **Steps:**
   1. Sign in as the coordinator and open
      `/coordinator/events/{id}/request-venue`.
   2. Look at the list and **Send request** before choosing a venue, then
-     click **Clear filters**.
+     click **Clear filters**, then tick **Only venues open at the booking's
+     date and time** again, then click **Clear filters** once more.
   3. Choose the Small venue.
   4. Choose the Bare venue.
-  5. Choose the Large venue.
-  6. Set `09:00`–`12:00` and click **Send request**.
+  5. Choose the Weekend venue.
+  6. Choose the Large venue.
+  7. Set `09:00`–`12:00` and click **Send request**.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: the list opens filtered to the event, so only the Large venue
     shows; no warning; **Send request** is enabled. After **Clear filters**
-    all three venues show.
+    all four venues show, the Weekend venue marked `"Closed on Thursdays"`
+    under its name, and the checkbox is unticked. Ticking it hides the
+    Weekend venue again; clearing once more shows all four.
   - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
     expects 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
     **Send request** is still disabled.
-  - Step 5: no warning, and **Send request** is enabled.
-  - Step 6: the browser returns to `/coordinator/events/{id}` with
+  - Step 5: the warning names the Weekend venue and `"Closed on
+    Thursdays"`; **Send request** is still disabled.
+  - Step 6: no warning, and **Send request** is enabled.
+  - Step 7: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
 - **Actual:**
 - **Status:** Not Executed

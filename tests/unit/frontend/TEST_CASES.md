@@ -1077,3 +1077,36 @@ Anson Suite    location "12 Anson Road", capacity 150,
 - **Actual:**
 - **Status:** Not Executed
 - **Evidence:**
+
+**Opening hours on the request screen (revised with the developer).**
+**Clear filters** there now clears everything, including "open at the
+booking's date and time", so every venue can be seen. The panel's **Only venues open
+at the booking's date and time** checkbox, ticked by default, turns that
+filter back on. A venue closed at the booking's date and
+time is marked, and choosing it shows the S-35 warning and disables **Send
+request**, like any other mismatch. Each venue's mark sits under its name.
+
+## TC-FRONTEND-065 — a venue closed at the booking's date and time is marked
+
+- **Steps:** Call `venueFit(event, venue, when)` with `when` set to each
+  booking below.
+- **Test data:** Event with no requirements, `expected_attendance: 10`.
+  Venue capacity `100`, open `thu 08:00-20:00` only. Bookings:
+  `2026-11-12` `09:00`–`12:00`; `2026-11-12` `07:00`–`10:00`;
+  `2026-11-14` `10:00`–`12:00`; no `when` at all.
+- **Expected:** Thursday inside hours → `[]`. Thursday `07:00`–`10:00` →
+  `["Open 08:00–20:00 on Thursdays"]`. Saturday → `["Closed on
+  Saturdays"]`. No `when` → `[]`, as TC-FRONTEND-035.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-066 — a closed venue produces the S-35 warning
+
+- **Steps:** `venueWarning(event, venue, when)` for the Saturday booking in
+  TC-FRONTEND-065, with the venue named `Studio B`.
+- **Expected:** `"Studio B doesn't suit this event: Closed on Saturdays.
+  Choose a venue that fits."`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
