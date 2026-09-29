@@ -3,9 +3,9 @@
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
-`test_record_equipment.py`, `test_update_equipment.py` and
-`test_retire_equipment.py`, `test_assign_technical_support.py`, and
-`test_prevent_overlapping_confirmation.py`.
+`test_record_equipment.py`, `test_update_equipment.py`,
+`test_retire_equipment.py`, `test_assign_technical_support.py`,
+`test_prevent_overlapping_confirmation.py` and `test_filter_venues.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -234,7 +234,7 @@ contract without a browser.
 
 ## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
 
-- **Scenario:** S-35 in a real browser. Only a browser shows the warning
+- **Scenario:** Revised for S-34, twice: **Clear filters** now shows every venue, including one closed at the booking's time, which is marked and blocked like any other mismatch. Before that: the list now opens filtered to the event, so the unsuitable venues are reached through **Clear filters**. S-35 in a real browser. Only a browser shows the warning
   appearing on selection and **Send request** being disabled and re-enabled;
   TC-FRONTEND-039 covers the wording.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
@@ -245,27 +245,39 @@ contract without a browser.
   and open Thursday `08:00`–`20:00`:
   - `"spm-e2e Small <hex>"`: capacity `80`, facility `projector`;
   - `"spm-e2e Bare <hex>"`: capacity `150`, no facilities;
-  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`.
+  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`;
+  - `"spm-e2e Weekend <hex>"`: capacity `150`, facility `projector`, open
+    Saturday `10:00`–`16:00` only.
 - **Steps:**
   1. Sign in as the coordinator and open
      `/coordinator/events/{id}/request-venue`.
-  2. Look at **Send request** before choosing a venue.
+  2. Look at the list and **Send request** before choosing a venue, then
+     open **Filters** (collapsed to start), click **Clear filters**, then tick
+     **Only venues open at the booking's
+     date and time** again, then click **Clear filters** once more.
   3. Choose the Small venue.
   4. Choose the Bare venue.
-  5. Choose the Large venue.
-  6. Set `09:00`–`12:00` and click **Send request**.
+  5. Choose the Weekend venue.
+  6. Choose the Large venue.
+  7. Set `09:00`–`12:00` and click **Send request**.
 - **Test data:** As above.
 - **Expected:**
-  - Step 2: no warning; **Send request** is enabled.
+  - Step 2: the list opens filtered to the event, so only the Large venue
+    shows; no warning; **Send request** is enabled. After **Clear filters**
+    all four venues show, the Weekend venue marked `"Closed on Thursdays"`
+    under its name, and the checkbox is unticked. Ticking it hides the
+    Weekend venue again; clearing once more shows all four.
   - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
     expects 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
     **Send request** is still disabled.
-  - Step 5: no warning, and **Send request** is enabled.
-  - Step 6: the browser returns to `/coordinator/events/{id}` with
+  - Step 5: the warning names the Weekend venue and `"Closed on
+    Thursdays"`; **Send request** is still disabled.
+  - Step 6: no warning, and **Send request** is enabled.
+  - Step 7: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
-- **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
 
 ## TC-E2E-211 — equipment moves from catalogue to planning requirement to Technical Support view
@@ -442,3 +454,34 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.
+
+## TC-E2E-219 — a Coordinator narrows the Venues tab with filters, and results follow each change
+
+- **Scenario:** S-34, AC1–AC3 in a real browser. The matching rules are
+  TC-FRONTEND-057 to 062; this proves the filters are wired to the list on
+  the dashboard, update it on every change, and can be cleared.
+- **Pre-conditions:** Stack and project as the header. The test creates, and
+  removes afterwards, an `event_coordinator` with `make_user` and the three
+  venues from the frontend cases' shared data, each name suffixed with
+  `<hex>` so other venues in the project can be told apart.
+- **Steps:**
+  1. Sign in as the coordinator, open the **Venues** tab, and open
+     **Filters**.
+  2. Type `anson` in **Search by name or location**.
+  3. Set **Holds at least** to `100`.
+  4. Tick **Stage** under facilities.
+  5. Set the date to `2026-11-12`.
+  6. Click **Clear filters**.
+- **Test data:** As above.
+- **Expected:**
+  - Step 1: before opening, the collapsed panel reads **Filters · none
+    applied**.
+  - Step 2: of the three, Studio B and Anson Suite are listed.
+  - Step 3: Anson Suite only, and the panel reads **2 applied**.
+  - Step 4: Anson Suite only.
+  - Step 5: none of the three, and `"No venues match these filters."`
+  - Step 6: all three listed again, and the search box is empty.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

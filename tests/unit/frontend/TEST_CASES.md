@@ -927,3 +927,191 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** The identified conflict was shown verbatim and never mapped to a success message.
 - **Status:** Pass
 - **Evidence:** `test_booking_decision.mjs` — `overlap conflict identifies the unavailable venue slot`; full Node suite: 64 passed.
+
+## S-34 — search and filter venues
+
+Coordinators filter venues in two places: the **Venues** tab on their
+dashboard (filters start empty) and the venue request screen for an event
+(filters start from the event: its attendance, facilities and accessibility,
+and the booking's date and time). Filtering happens in the browser over the
+full venue list. Decisions confirmed with the developer:
+
+- **Date and time** means the venue is *open* then — its opening hours for
+  that weekday cover the times. Whether it is already booked is the Booking
+  Conflict Detection story.
+- **Expected attendance** means *holds at least* that many; it also covers
+  capacity, so there is no separate capacity filter.
+- **Location** is a text search over the venue's location and name.
+- **Room layout** was added by the developer: one layout at a time, and a
+  venue matches if it offers it.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: A Coordinator can filter venues by date, time, expected attendance, location, capacity, accessibility, and facilities | TC-FRONTEND-057 to 061, TC-FRONTEND-064, TC-E2E-219 |
+| AC2: Search results only include venues matching all applied filter criteria | TC-FRONTEND-062, TC-E2E-219 step 5 |
+| AC3: Results update when filter criteria are changed | TC-E2E-219 steps 2–6 |
+
+Shared test data for TC-FRONTEND-057 to 064, in this order:
+
+```
+Harbour Hall   location "1 Harbourfront Walk", capacity 250,
+               layouts [theatre, banquet],
+               facilities [projector, stage], accessibility [lift],
+               open mon 09:00-18:00, thu 08:00-20:00
+Studio B       location "10 Anson Road", capacity 80,
+               layouts [classroom, boardroom],
+               facilities [projector], accessibility [],
+               open thu 08:00-20:00
+Anson Suite    location "12 Anson Road", capacity 150,
+               layouts [theatre, cocktail],
+               facilities [stage], accessibility [lift, hearing_loop],
+               open sat 10:00-16:00
+```
+
+`2026-11-12` is a Thursday; `2026-11-14` a Saturday.
+
+## TC-FRONTEND-057 — no filters shows every venue, in order
+
+- **Steps:** `filterVenues(venues, emptyVenueFilters())`.
+- **Test data:** Shared.
+- **Expected:** All three, in the order given. The input list is unchanged.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-058 — the text search matches location or name, ignoring case
+
+- **Steps:** Filter with `query` set to each value below.
+- **Test data:** `"anson"`; `"  HARBOUR "`; `"studio"`; `"nowhere"`.
+- **Expected:** `"anson"` → Studio B and Anson Suite (location);
+  `"  HARBOUR "` → Harbour Hall; `"studio"` → Studio B (name); `"nowhere"`
+  → none.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-059 — "holds at least" keeps venues with enough capacity
+
+- **Steps:** Filter with `attendance` set to each value below.
+- **Test data:** `"150"`; `"151"`; `""`.
+- **Expected:** `"150"` → Harbour Hall and Anson Suite (equal counts);
+  `"151"` → Harbour Hall; `""` → all three.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-060 — facilities and accessibility need every one ticked
+
+- **Steps:** Filter by each selection below.
+- **Test data:** facilities `["projector"]`; facilities
+  `["projector", "stage"]`; accessibility `["lift"]`; accessibility
+  `["lift", "hearing_loop"]`.
+- **Expected:** `["projector"]` → Harbour Hall and Studio B;
+  `["projector", "stage"]` → Harbour Hall; `["lift"]` → Harbour Hall and
+  Anson Suite; `["lift", "hearing_loop"]` → Anson Suite.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-061 — date and time keep venues open then
+
+- **Steps:** Filter by each date and time below.
+- **Test data:**
+  - `2026-11-12`, no times;
+  - `2026-11-12`, `09:00`–`19:00`;
+  - `2026-11-12`, `07:00`–`10:00`;
+  - `2026-11-14`, `10:00`–`16:00`;
+  - no date, `09:00`–`12:00`.
+- **Expected:**
+  - Thursday, no times → Harbour Hall and Studio B (open that day).
+  - Thursday `09:00`–`19:00` → Harbour Hall and Studio B (inside
+    `08:00`–`20:00`).
+  - Thursday `07:00`–`10:00` → none (before opening).
+  - Saturday `10:00`–`16:00` → Anson Suite (exactly its hours).
+  - Times with no date → all three: times only apply with a date.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-062 — results match every applied filter at once
+
+- **Scenario:** AC2.
+- **Steps:** Filter with every criterion set together.
+- **Test data:** `query "anson"`, `attendance "100"`, `layout "theatre"`,
+  facilities `["stage"]`, accessibility `["lift"]`, date `2026-11-14`,
+  `10:00`–`12:00`.
+- **Expected:** Anson Suite only. Changing the date to `2026-11-12` gives
+  none.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-063 — the request screen's filters start from the event
+
+- **Steps:** `venueFiltersFromEvent(event)`.
+- **Test data:** Event `expected_attendance: 100`, `room_layout: "theatre"`,
+  `required_facilities: ["stage"]`, `required_accessibility: ["lift"]`,
+  `start_date: "2026-11-14"`, `start_time: "10:00:00"`,
+  `end_time: "12:00:00"`.
+- **Expected:** `{query: "", attendance: "100", layout: "theatre",
+  facilities: ["stage"], accessibility: ["lift"], date: "2026-11-14",
+  startTime: "10:00", endTime: "12:00"}`. An event with no layout gives
+  `layout: ""`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-064 — the room layout filter keeps venues that offer it
+
+- **Steps:** Filter with `layout` set to each value below.
+- **Test data:** `"theatre"`; `"boardroom"`; `"banquet"`; `""`.
+- **Expected:** `"theatre"` → Harbour Hall and Anson Suite; `"boardroom"` →
+  Studio B; `"banquet"` → Harbour Hall; `""` → all three.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+**Opening hours on the request screen (revised with the developer).**
+**Clear filters** there now clears everything, including "open at the
+booking's date and time", so every venue can be seen. The panel's **Only venues open
+at the booking's date and time** checkbox, ticked by default, turns that
+filter back on.
+
+On both screens the filter panel starts **collapsed**, its header showing
+**Filters** with how many are applied and a **Clear filters** button; opening
+it shows the fields (confirmed with the developer, covered by TC-E2E-219 and
+TC-E2E-210). A venue closed at the booking's date and
+time is marked, and choosing it shows the S-35 warning and disables **Send
+request**, like any other mismatch. Each venue's mark sits under its name.
+
+## TC-FRONTEND-065 — a venue closed at the booking's date and time is marked
+
+- **Steps:** Call `venueFit(event, venue, when)` with `when` set to each
+  booking below.
+- **Test data:** Event with no requirements, `expected_attendance: 10`.
+  Venue capacity `100`, open `thu 08:00-20:00` only. Bookings:
+  `2026-11-12` `09:00`–`12:00`; `2026-11-12` `07:00`–`10:00`;
+  `2026-11-14` `10:00`–`12:00`; no `when` at all.
+- **Expected:** Thursday inside hours → `[]`. Thursday `07:00`–`10:00` →
+  `["Open 08:00–20:00 on Thursdays"]`. Saturday → `["Closed on
+  Saturdays"]`. No `when` → `[]`, as TC-FRONTEND-035.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-066 — a closed venue produces the S-35 warning
+
+- **Steps:** `venueWarning(event, venue, when)` for the Saturday booking in
+  TC-FRONTEND-065, with the venue named `Studio B`.
+- **Expected:** `"Studio B doesn't suit this event: Closed on Saturdays.
+  Choose a venue that fits."`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

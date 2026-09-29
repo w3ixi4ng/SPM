@@ -13,14 +13,14 @@ from .conftest import requires_env
 pytestmark = requires_env
 
 
-def _venue(name, capacity, facilities, created_by):
+def _venue(name, capacity, facilities, created_by, hours=None):
     return {
         "name": name,
         "location": "10 Anson Road",
         "capacity": capacity,
         "facilities": facilities,
         "room_layouts": ["theatre"],
-        "operating_hours": [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
+        "operating_hours": hours or [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
         "created_by": created_by,
     }
 
@@ -34,6 +34,7 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     small = f"spm-e2e Small {suffix}"
     bare = f"spm-e2e Bare {suffix}"
     large = f"spm-e2e Large {suffix}"
+    weekend = f"spm-e2e Weekend {suffix}"
 
     # Attributed to the staff member and the organiser, so make_user's
     # teardown deletes them; the booking goes with the coordinator.
@@ -41,6 +42,9 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     venues.insert(_venue(small, 80, ["projector"], staff["id"])).execute()
     venues.insert(_venue(bare, 150, [], staff["id"])).execute()
     venues.insert(_venue(large, 150, ["projector"], staff["id"])).execute()
+    venues.insert(
+        _venue(weekend, 150, ["projector"], staff["id"], [{"day": "sat", "open": "10:00:00", "close": "16:00:00"}])
+    ).execute()
     event = (
         admin.schema("events")
         .table("events")
@@ -79,7 +83,31 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     assert warning.count() == 0
     assert send.is_enabled()
 
+    # S-34: the list opens filtered to what the event needs, so only the
+    # venue that fits is shown until the filters are cleared.
     venue_list = page.get_by_role("list", name="Venues")
+    def row(name):
+        return venue_list.get_by_role("listitem").filter(has_text=name)
+
+    row(large).wait_for(timeout=20000)
+    for hidden in (small, bare, weekend):
+        assert row(hidden).count() == 0
+
+    # The filters start collapsed; open them to reach the checkbox.
+    page.get_by_role("button", name=re.compile(r"^Filters")).click()
+    open_then = page.get_by_label("Only venues open at the booking's date and time")
+    assert open_then.is_checked()
+    page.get_by_role("button", name="Clear filters").click()
+    for name in (small, bare, weekend):
+        row(name).wait_for(timeout=20000)
+    assert not open_then.is_checked()
+    assert "Closed on Thursdays" in row(weekend).inner_text()
+
+    # Ticking it again reapplies the open-then filter.
+    open_then.check()
+    row(weekend).wait_for(state="detached", timeout=20000)
+    page.get_by_role("button", name="Clear filters").click()
+    row(weekend).wait_for(timeout=20000)
 
     def choose(name):
         venue_list.get_by_role("listitem").filter(has_text=name).get_by_role("radio").check()
@@ -93,6 +121,11 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     choose(bare)
     warning.filter(has_text=bare).wait_for(timeout=20000)
     assert "Missing: Projector" in warning.inner_text()
+    assert send.is_disabled()
+
+    choose(weekend)
+    warning.filter(has_text=weekend).wait_for(timeout=20000)
+    assert "Closed on Thursdays" in warning.inner_text()
     assert send.is_disabled()
 
     choose(large)
