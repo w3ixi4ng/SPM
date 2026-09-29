@@ -431,3 +431,47 @@ def test_coordinator_listing_is_empty_when_no_one_holds_the_role(client, db):
     assert response.status_code == 200
     assert response.json() == []
     db.schema.return_value.table.return_value.select.assert_not_called()
+
+
+# --- TC-USERS-029 ---------------------------------------------------------
+def test_technical_support_listing_uses_trusted_roles_across_pages(client, db):
+    support_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    support_2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    first_page = [auth_admin_user(support_1, "technical_support")]
+    first_page.extend(
+        auth_admin_user(f"{number:08x}-0000-4000-8000-000000000000", "event_organiser")
+        for number in range(199)
+    )
+    db.auth.admin.list_users.side_effect = [
+        first_page,
+        [
+            auth_admin_user(support_2, "technical_support"),
+            auth_admin_user("cccccccc-cccc-4ccc-8ccc-cccccccccccc", None),
+        ],
+    ]
+    profiles = [
+        {"id": support_1, "name": "Support One", "email": "one@example.com"},
+        {"id": support_2, "name": "Support Two", "email": "two@example.com"},
+    ]
+    on_in(db, profiles)
+
+    response = client.get("/users/technical-support")
+
+    assert response.status_code == 200
+    assert response.json() == profiles
+    queried_ids = db.schema.return_value.table.return_value.select.return_value.in_.call_args.args[1]
+    assert queried_ids == [support_1, support_2]
+    assert db.auth.admin.list_users.call_count == 2
+
+
+# --- TC-USERS-030 ---------------------------------------------------------
+def test_technical_support_listing_is_empty_when_no_one_holds_the_role(client, db):
+    db.auth.admin.list_users.return_value = [
+        auth_admin_user("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "event_coordinator")
+    ]
+
+    response = client.get("/users/technical-support")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    db.schema.return_value.table.return_value.select.assert_not_called()

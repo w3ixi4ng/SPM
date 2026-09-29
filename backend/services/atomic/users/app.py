@@ -28,6 +28,7 @@ SCHEMA = "users"
 TABLE = "users"
 PUBLIC_SIGNUP_ROLE = "event_organiser"
 COORDINATOR_ROLE = "event_coordinator"
+TECHNICAL_SUPPORT_ROLE = "technical_support"
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -268,4 +269,14 @@ def list_coordinators(db: Client = Depends(get_db)):
         return []
 
     res = db.schema(SCHEMA).table(TABLE).select("*").in_("id", coordinator_ids).execute()
+    return res.data
+
+
+@app.get("/users/technical-support", response_model=list[UserRead])
+def list_technical_support(db: Client = Depends(get_db)):
+    staff_ids = _list_user_ids_with_role(db, TECHNICAL_SUPPORT_ROLE)
+    if not staff_ids:
+        return []
+
+    res = db.schema(SCHEMA).table(TABLE).select("*").in_("id", staff_ids).execute()
     return res.data

@@ -128,3 +128,17 @@ class EventRequestUpdate(BaseModel):
     def end_must_follow_start(self):
         _check_end_after_start(self.start_date, self.start_time, self.end_date, self.end_time)
         return self
+
+
+class TechnicalSupportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    support_details: str | None = None
+
+    @field_validator("support_details", mode="before")
+    @classmethod
+    def normalise_details(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value

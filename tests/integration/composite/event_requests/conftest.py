@@ -160,6 +160,35 @@ def coordinator_session(admin, auth_client):
 
 
 @pytest.fixture
+def technical_support_users(admin):
+    users = [_make_user(admin, "technical_support") for _ in range(2)]
+    try:
+        yield users
+    finally:
+        for user in users:
+            admin.auth.admin.delete_user(user["id"])
+
+
+def all_technical_support_ids(admin) -> set[str]:
+    page_size = 200
+    ids: set[str] = set()
+    page = 1
+    while True:
+        batch = admin.auth.admin.list_users(page=page, per_page=page_size)
+        if not batch:
+            break
+        ids.update(
+            user.id
+            for user in batch
+            if (user.app_metadata or {}).get("role") == "technical_support"
+        )
+        if len(batch) < page_size:
+            break
+        page += 1
+    return ids
+
+
+@pytest.fixture
 def second_coordinator(admin):
     """A second seeded event_coordinator account, for reassignment cases."""
     user = _make_user(admin, "event_coordinator")

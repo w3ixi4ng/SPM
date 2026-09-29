@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from .conftest import EventDraftCreate, EventDraftUpdate, EventSubmittedCreate
+from .conftest import EventDraftCreate, EventDraftUpdate, EventRead, EventSubmittedCreate, event_row
 
 
 SUBMITTED = {
@@ -220,3 +220,31 @@ def test_the_venue_requirements_default_to_none():
     assert event.room_layout is None
     assert event.required_facilities == []
     assert event.required_accessibility == []
+
+
+# --- TC-EVENTS-095 --------------------------------------------------------
+def test_support_assignment_fields_are_server_managed():
+    protected = {
+        "technical_support_required": True,
+        "technical_support_details": "Sound check",
+        "assigned_technical_support_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "technical_support_assigned_at": "2026-09-29T09:00:00Z",
+    }
+    for field, value in protected.items():
+        with pytest.raises(ValidationError):
+            EventSubmittedCreate(**SUBMITTED, **{field: value})
+
+    confirmed = EventRead.model_validate(
+        event_row(
+            **SUBMITTED,
+            status="confirmed",
+            decision="approved",
+            submitted_at="2026-09-28T08:00:00Z",
+            technical_support_required=True,
+            technical_support_details="Sound check",
+            assigned_technical_support_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            technical_support_assigned_at="2026-09-29T09:00:00Z",
+        )
+    )
+    assert confirmed.status.value == "confirmed"
+    assert confirmed.technical_support_required is True

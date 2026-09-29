@@ -223,11 +223,12 @@ def users():
 
 @pytest.fixture
 def events():
-    """Fakes the events-service AsyncClient: .get()/.post()/.patch() are AsyncMocks."""
+    """Fakes the events-service AsyncClient methods with AsyncMocks."""
     client = MagicMock()
     client.get = AsyncMock()
     client.post = AsyncMock()
     client.patch = AsyncMock()
+    client.put = AsyncMock()
     return client
 
 

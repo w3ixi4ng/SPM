@@ -1,5 +1,6 @@
 """Unit tests for the events service endpoints -- see TEST_CASES.md."""
 
+from types import SimpleNamespace
 from unittest.mock import call
 
 import pytest
@@ -1214,3 +1215,157 @@ def test_other_roles_cannot_get_the_option_lists(client, auth, role):
     response = client.get("/events/options")
 
     assert response.status_code == 403
+
+
+SUPPORT_A = "44444444-4444-4444-8444-444444444444"
+SUPPORT_B = "55555555-5555-4555-8555-555555555555"
+
+
+def _support_event(staff_id, **changes):
+    return {
+        "id": changes.pop("id", EVENT_ID),
+        "assigned_technical_support_id": staff_id,
+        "start_date": changes.pop("start_date", "2026-11-13"),
+        "start_time": changes.pop("start_time", "09:30:00"),
+        "end_date": changes.pop("end_date", "2026-11-13"),
+        "end_time": changes.pop("end_time", "10:30:00"),
+        **changes,
+    }
+
+
+# --- TC-EVENTS-096 / 097 / 098 ------------------------------------------
+def test_support_load_counts_only_planning_and_confirmed_events(client, db):
+    operation = (
+        db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value
+    )
+    operation.execute.return_value = SimpleNamespace(
+        data=[
+            _support_event(SUPPORT_A),
+            _support_event(SUPPORT_A, id="66666666-6666-4666-8666-666666666666", start_time="13:00:00", end_time="14:00:00"),
+            _support_event(SUPPORT_B, start_time="08:00:00", end_time="09:00:00"),
+        ]
+    )
+
+    response = client.post(
+        "/events/technical-support-load",
+        json={
+            "staff_ids": [SUPPORT_A, SUPPORT_B],
+            "start_date": "2026-11-13",
+            "start_time": "09:00",
+            "end_date": "2026-11-13",
+            "end_time": "12:00",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"staff_id": SUPPORT_A, "conflict": True, "assigned_count": 2},
+        {"staff_id": SUPPORT_B, "conflict": False, "assigned_count": 1},
+    ]
+    first_in = db.schema.return_value.table.return_value.select.return_value.in_
+    first_in.assert_called_once_with("assigned_technical_support_id", [SUPPORT_A, SUPPORT_B])
+    first_in.return_value.in_.assert_called_once_with("status", ["planning", "confirmed"])
+
+
+def _support_target_select(db):
+    return (
+        db.schema.return_value.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
+    )
+
+
+def _planning_support_row(**changes):
+    return event_row(
+        **SUBMITTED,
+        status="planning",
+        decision="approved",
+        decided_at="2026-09-28T08:30:00Z",
+        submitted_at="2026-09-28T08:00:00Z",
+        assigned_coordinator_id=COORDINATOR_A,
+        **changes,
+    )
+
+
+# --- TC-EVENTS-099 --------------------------------------------------------
+def test_internal_support_action_records_requirement_and_assignment(client, db):
+    current = _planning_support_row()
+    _support_target_select(db).execute.return_value = SimpleNamespace(data=[current])
+    updated = _planning_support_row(
+        technical_support_required=True,
+        technical_support_details="Sound check",
+        assigned_technical_support_id=SUPPORT_A,
+        technical_support_assigned_at="2026-09-29T09:00:00Z",
+    )
+    write = (
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.is_.return_value.select.return_value
+    )
+    write.execute.return_value = SimpleNamespace(data=[updated])
+
+    response = client.put(
+        f"/events/{EVENT_ID}/technical-support/internal",
+        json={
+            "coordinator_id": COORDINATOR_A,
+            "technical_support_details": "  Sound check  ",
+            "assigned_technical_support_id": SUPPORT_A,
+        },
+    )
+
+    assert response.status_code == 200
+    values = db.schema.return_value.table.return_value.update.call_args.args[0]
+    assert values["technical_support_required"] is True
+    assert values["technical_support_details"] == "Sound check"
+    assert values["assigned_technical_support_id"] == SUPPORT_A
+    assert values["technical_support_assigned_at"] is not None
+    assert set(values) == {
+        "technical_support_required", "technical_support_details",
+        "assigned_technical_support_id", "technical_support_assigned_at",
+    }
+
+
+# --- TC-EVENTS-100 --------------------------------------------------------
+def test_internal_support_action_preserves_unassigned_requirement(client, db):
+    current = _planning_support_row()
+    _support_target_select(db).execute.return_value = SimpleNamespace(data=[current])
+    updated = _planning_support_row(
+        technical_support_required=True,
+        technical_support_details="Sound check",
+    )
+    write = (
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.is_.return_value.select.return_value
+    )
+    write.execute.return_value = SimpleNamespace(data=[updated])
+
+    response = client.put(
+        f"/events/{EVENT_ID}/technical-support/internal",
+        json={"coordinator_id": COORDINATOR_A, "technical_support_details": "Sound check"},
+    )
+
+    assert response.status_code == 200
+    values = db.schema.return_value.table.return_value.update.call_args.args[0]
+    assert values["assigned_technical_support_id"] is None
+    assert values["technical_support_assigned_at"] is None
+
+
+# --- TC-EVENTS-101 --------------------------------------------------------
+def test_internal_support_action_requires_current_planning_assignment(client, db):
+    _support_target_select(db).execute.return_value = SimpleNamespace(data=[])
+
+    response = client.put(
+        f"/events/{EVENT_ID}/technical-support/internal",
+        json={"coordinator_id": COORDINATOR_A, "assigned_technical_support_id": SUPPORT_A},
+    )
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+def test_internal_support_action_storage_failure_is_safe(client, db):
+    _support_target_select(db).execute.side_effect = RuntimeError("database secret")
+
+    response = client.put(
+        f"/events/{EVENT_ID}/technical-support/internal",
+        json={"coordinator_id": COORDINATOR_A},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Event storage unavailable"}
+    assert "database secret" not in response.text

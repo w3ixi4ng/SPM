@@ -129,3 +129,14 @@ test('only technical support can retire equipment', () => {
     )
   }
 })
+
+// --- TC-FRONTEND-052 -----------------------------------------------------
+test('only coordinators can request technical support assignment', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    assert.equal(
+      hasPermission(role, PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT),
+      role === 'event_coordinator',
+      role,
+    )
+  }
+})

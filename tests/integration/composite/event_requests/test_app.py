@@ -7,6 +7,8 @@ just as eligible as a fixture's, and would otherwise make the assignment
 non-deterministic. See conftest.py's `block_other_coordinators`.
 """
 
+from datetime import datetime
+
 import httpx
 
 from .conftest import (
@@ -14,6 +16,7 @@ from .conftest import (
     EVENTS_BASE_URL,
     GATEWAY_BASE_URL,
     all_coordinator_ids,
+    all_technical_support_ids,
     block_other_coordinators,
     request_with_retry,
     requires_env,
@@ -265,3 +268,111 @@ def test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was(
         assert after.json()["status"] == "returned"
         assert after.json()["start_time"] == "09:00:00"
         assert after.json()["expected_attendance"] == 120
+
+
+# --- TC-EVENTREQUESTS-107 ---------------------------------------------------
+def test_support_assignment_is_persisted_visible_and_idempotent(
+    coordinator_session, technical_support_users, admin
+):
+    coordinator_id = coordinator_session["user_id"]
+    headers = {"Cookie": f"sb_access_token={coordinator_session['access_token']}"}
+    preferred = technical_support_users[1]
+    created_event_ids: list[str] = []
+
+    def insert_planning(name, start_time, end_time, **extra):
+        row = (
+            admin.schema("events")
+            .table("events")
+            .insert(
+                {
+                    "organiser_id": coordinator_id,
+                    "status": "planning",
+                    "assigned_coordinator_id": coordinator_id,
+                    "name": name,
+                    "purpose": "S-43 integration coverage",
+                    "start_date": "2026-11-13",
+                    "start_time": start_time,
+                    "end_date": "2026-11-13",
+                    "end_time": end_time,
+                    "expected_attendance": 20,
+                    "decision": "approved",
+                    "decided_at": "2026-09-29T08:30:00+00:00",
+                    "submitted_at": "2026-09-29T08:00:00+00:00",
+                    **extra,
+                }
+            )
+            .execute()
+            .data[0]
+        )
+        created_event_ids.append(row["id"])
+        return row
+
+    try:
+        for staff_id in all_technical_support_ids(admin) - {preferred["id"]}:
+            insert_planning(
+                f"Existing support assignment {staff_id}",
+                "13:00",
+                "14:00",
+                technical_support_required=True,
+                assigned_technical_support_id=staff_id,
+                technical_support_assigned_at="2026-09-29T09:00:00+00:00",
+            )
+        target = insert_planning("S-43 target", "09:00", "12:00")
+
+        with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0, headers=headers) as api:
+            initial = request_with_retry(
+                api,
+                "GET",
+                f"/event-requests/{target['id']}/technical-support-assignment",
+            )
+            assert initial.status_code == 200, initial.text
+            assert initial.json()["assignment_state"] == "not_required"
+
+            assigned = request_with_retry(
+                api,
+                "POST",
+                f"/event-requests/{target['id']}/technical-support-assignment",
+                json={"support_details": "Wireless microphone setup and sound check"},
+            )
+            assert assigned.status_code == 200, assigned.text
+            first = assigned.json()
+            assert first["assignment_state"] == "assigned"
+            assert first["assigned_technical_support_id"] == preferred["id"]
+            assert first["assigned_staff"]["email"] == preferred["email"]
+            assigned_at = first["technical_support_assigned_at"]
+
+            changed = request_with_retry(
+                api,
+                "POST",
+                f"/event-requests/{target['id']}/technical-support-assignment",
+                json={"support_details": "Updated support notes"},
+            )
+            assert changed.status_code == 200, changed.text
+            assert changed.json()["assigned_technical_support_id"] == preferred["id"]
+            assert changed.json()["technical_support_assigned_at"] == assigned_at
+
+            fetched = request_with_retry(
+                api,
+                "GET",
+                f"/event-requests/{target['id']}/technical-support-assignment",
+            )
+            assert fetched.status_code == 200, fetched.text
+            assert fetched.json()["support_details"] == "Updated support notes"
+
+        stored = (
+            admin.schema("events")
+            .table("events")
+            .select("*")
+            .eq("id", target["id"])
+            .execute()
+            .data[0]
+        )
+        assert stored["technical_support_required"] is True
+        assert stored["assigned_technical_support_id"] == preferred["id"]
+        assert datetime.fromisoformat(
+            stored["technical_support_assigned_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(assigned_at.replace("Z", "+00:00"))
+        assert stored["technical_support_details"] == "Updated support notes"
+    finally:
+        for event_id in created_event_ids:
+            admin.schema("events").table("events").delete().eq("id", event_id).execute()

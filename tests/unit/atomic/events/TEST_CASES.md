@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
-| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 102 passed |
+| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Environment | Python 3.12.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 108 passed in this suite; 509 passed across `tests/unit` |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -1292,3 +1292,122 @@ Shared test data for these cases: the standard submitted payload, plus
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_organisers_get_the_option_lists`, `test_app.py::test_other_roles_cannot_get_the_option_lists`
+
+---
+
+## S-43 — Auto-Assign Technical Support
+
+The event owns four new current-state fields:
+`technical_support_required`, `technical_support_details`, and
+`assigned_technical_support_id`, plus server-managed
+`technical_support_assigned_at`. The user id is opaque; there is no
+cross-schema foreign key. The composite, not this atomic service, chooses the
+staff member.
+
+## TC-EVENTS-095 — support assignment fields are server-managed event state
+
+- **Scenario:** Organisers cannot request support or choose an assigned staff
+  member through draft/submission payloads.
+- **Pre-conditions:** Standard event schemas.
+- **Steps:** Validate each organiser payload with, in turn,
+  `technical_support_required`, `technical_support_details`, and
+  `assigned_technical_support_id`, and `technical_support_assigned_at`;
+  validate an event read containing their stored values.
+- **Expected:** Every organiser payload is rejected as extra input. Event reads
+  expose `false/null/null/null` by default and stored support state when
+  present. `confirmed` is a readable status, but S-43 creates no status
+  transition into it.
+- **Actual:** All four fields were rejected from organiser payloads and accepted in stored event reads; `confirmed` parsed successfully.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_support_assignment_fields_are_server_managed`
+
+## TC-EVENTS-096 — only planning and confirmed assignments contribute to support load
+
+- **Scenario:** Availability ignores events that do not occupy Technical
+  Support Staff under the confirmed S-43 rule.
+- **Pre-conditions:** The fake returns assignments for all supported lifecycle
+  labels.
+- **Steps:** `POST /events/technical-support-load` with two staff ids and a
+  requested window.
+- **Test data:** Assigned events in `planning`, `confirmed`, `draft`,
+  `submitted`, `returned`, `rejected`, `completed`, and `cancelled`.
+- **Expected:** The storage query requests only `planning` and `confirmed`.
+  Only those rows contribute to `assigned_count` or an overlap conflict;
+  submitted/under-review does not block availability.
+- **Actual:** The query and response included only planning and confirmed assignments.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_load_counts_only_planning_and_confirmed_events`
+
+## TC-EVENTS-097 — support overlap uses the complete date/time window
+
+- **Scenario:** Any real overlap makes a staff member unavailable, while
+  back-to-back events remain valid.
+- **Pre-conditions:** One staff member has stored planning assignments.
+- **Steps:** Check containment, partial overlap, cross-midnight overlap, and
+  both touching-boundary directions.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`, plus the windows
+  described above.
+- **Expected:** Every positive-duration overlap reports `conflict=true`.
+  An assignment ending at `09:00` or starting at `12:00` does not conflict.
+- **Actual:** Every real overlap conflicted and both touching-boundary cases remained available.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_load_detects_overlap`, `test_app.py::test_support_load_allows_back_to_back_events`
+
+## TC-EVENTS-098 — support load reports each candidate's live workload
+
+- **Scenario:** The composite can implement least-busy selection without
+  reading event storage itself.
+- **Pre-conditions:** Candidates A, B, and C have respectively two, one, and
+  zero planning/confirmed assignments; none overlaps the requested window.
+- **Steps:** Request support load for A, B, and C.
+- **Expected:** The response keeps all requested ids and reports counts
+  `2`, `1`, and `0`, with `conflict=false` for each.
+- **Actual:** Every requested candidate was returned with the expected live count and conflict flag.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_load_reports_each_candidates_live_workload`
+
+## TC-EVENTS-099 — the internal action records support need and assignment atomically
+
+- **Scenario:** A verified composite write changes only S-43 event state.
+- **Pre-conditions:** A planning event assigned to Coordinator A; the internal
+  payload supplies Coordinator A, optional normalized details, and Staff B.
+- **Steps:** `PUT /events/{id}/technical-support/internal`.
+- **Expected:** The update is guarded by event id, `status="planning"`, and
+  `assigned_coordinator_id=A`; it sets required true, details, and Staff B in
+  one update and sets `technical_support_assigned_at` server-side. Dates,
+  event coordinator, equipment requirements, and other event fields are
+  unchanged.
+- **Actual:** The guarded update changed only the four S-43 fields and generated the first-assignment timestamp.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_support_action_records_requirement_and_assignment`
+
+## TC-EVENTS-100 — a required event may remain honestly unassigned
+
+- **Scenario:** No available staff does not create a false assignment or lose
+  the Coordinator's explicit support requirement.
+- **Pre-conditions:** The same planning event; the composite supplies no staff
+  id.
+- **Steps:** Call the internal support action with details and
+  `assigned_technical_support_id=null`.
+- **Expected:** `200`; required becomes true and details persist, while the
+  assignment and assignment timestamp stay null. No placeholder user id is
+  stored.
+- **Actual:** Required and details were stored while both assignment fields remained null.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_support_action_preserves_unassigned_requirement`
+
+## TC-EVENTS-101 — stale or failed support writes never report success
+
+- **Scenario:** The target must still be the same Coordinator's planning event
+  when the atomic write happens.
+- **Pre-conditions:** In turn, the conditional update returns no row for target
+  statuses `draft`, `submitted`, `returned`, `rejected`, `confirmed`,
+  `completed`, and `cancelled`, for reassignment to another Coordinator, or
+  raises a storage exception.
+- **Steps:** Attempt the internal support action in every case.
+- **Expected:** Every stale/non-planning or ownership case returns `409` and
+  changes nothing. Storage failure returns the normal safe `500` without
+  internal details.
+- **Actual:** Every stale target returned `409`; the simulated storage failure returned the safe `500` response.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_support_action_requires_current_planning_assignment`, `test_app.py::test_internal_support_action_storage_failure_is_safe`

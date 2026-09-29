@@ -10,9 +10,9 @@ Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-09-27, branch `S-40/record-required-equipment`, pre-commit working tree |
-| Environment | Python 3.12.5, pytest 9.1.1, FastAPI 0.116.1, Pydantic 2.11.7, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 30 passed |
+| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Environment | Python 3.12.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
+| Result | 47 passed in this suite; 509 passed across `tests/unit` |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -475,3 +475,126 @@ event's venue requirements and no venue.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_venue_requirements_outside_the_catalogue_are_refused_first`
+
+---
+
+## S-43 — Auto-Assign Technical Support
+
+The existing composite already owns the `users` + `events` boundary. S-43 uses
+an explicit `POST /event-requests/{event_id}/technical-support-assignment`
+action whose optional body field is `support_details`; the action itself is
+the Coordinator's explicit indication that support is required. A companion
+GET returns the persisted requirement and the assigned profile after reload.
+
+## TC-EVENTREQUESTS-031 — only the currently assigned Coordinator can request assignment
+
+- **Pre-conditions:** Anonymous user, every wrong authenticated role, an
+  Event Coordinator not assigned to the event, then its assigned Coordinator.
+- **Steps:** Call the S-43 POST action as each identity.
+- **Expected:** Anonymous returns `401`; all wrong roles return `403`; an
+  unassigned Coordinator receives `404`; only the current assigned Coordinator
+  proceeds to availability lookup. No client-supplied staff id is accepted.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_the_assigned_coordinator_requests_support_assignment`
+
+## TC-EVENTREQUESTS-032 — assignment runs only after the explicit support action
+
+- **Scenario:** Equipment requirements alone never imply on-site support.
+- **Pre-conditions:** A planning event may have S-40 requirements but its
+  support fields are still false/null/null.
+- **Steps:** Read the support state, then call the explicit POST action with
+  details `Wireless microphone setup and sound check`.
+- **Expected:** The GET before the action makes no staff/load/write calls and
+  reports support not required. Only the POST obtains candidates and records
+  required=true with the normalized details.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_assignment_runs_only_after_explicit_support_action`
+
+## TC-EVENTREQUESTS-033 — the sole available Technical Support Staff member is assigned
+
+- **Pre-conditions:** The trusted pool contains Staff A; load reports no
+  conflict.
+- **Steps:** Request assignment for a planning event.
+- **Expected:** The composite sends Staff A to the guarded events write and
+  returns the saved requirement plus A's id, name, and email.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_the_sole_available_support_staff_member_is_assigned`
+
+## TC-EVENTREQUESTS-034 — overlapping live work removes a candidate
+
+- **Pre-conditions:** Load reports Staff A conflicts with another planning or
+  confirmed event, while Staff B is free.
+- **Steps:** Request assignment.
+- **Expected:** Staff B is assigned. Submitted/under-review work is already
+  excluded by the events load boundary and cannot remove a candidate.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_overlapping_live_support_work_removes_a_candidate`
+
+## TC-EVENTREQUESTS-035 — least busy selection and ties are deterministic
+
+- **Pre-conditions:** First, free staff A/B/C have live assignment counts
+  `2/0/1`. Then A and B are both free with count `0`, and B's UUID sorts first.
+- **Steps:** Request assignment for each load response.
+- **Expected:** The first request chooses B as least busy. The tied request
+  chooses the lexicographically lowest UUID every time; no randomness is used.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_assignment_chooses_least_busy_then_lowest_id`
+
+## TC-EVENTREQUESTS-036 — no available staff records required but unassigned
+
+- **Pre-conditions:** In turn, the trusted pool is empty and every candidate
+  reports an overlap.
+- **Steps:** Request support assignment with details.
+- **Expected:** The guarded event write still records required=true and the
+  details with a null staff id. The response contains no fabricated profile
+  and returns `200` with `assignment_state="unassigned"` and a clear statement
+  that no Technical Support Staff member is currently available.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_no_available_support_staff_is_recorded_honestly`
+
+## TC-EVENTREQUESTS-037 — an existing assignment is stable on repeated requests
+
+- **Pre-conditions:** The event is already required and assigned to Staff A
+  with a stored assignment timestamp.
+- **Steps:** Repeat the assignment POST first with unchanged notes, then with
+  changed notes.
+- **Expected:** Both responses keep Staff A and the same assignment timestamp;
+  candidate/load calls are skipped. Unchanged notes issue no write. Changed
+  notes update only the support details without reallocating staff or changing
+  the assignment timestamp.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_existing_support_assignment_is_returned_without_reassignment`
+
+## TC-EVENTREQUESTS-038 — only a planning target can start S-43
+
+- **Pre-conditions:** The assigned event is returned with each non-planning
+  status in turn.
+- **Steps:** Request support assignment for `draft`, `submitted`, `returned`,
+  `rejected`, `confirmed`, `completed`, and `cancelled`.
+- **Expected:** Every request returns `409`; no pool/load/write call occurs.
+  A confirmed event can block a staff member's availability for another event,
+  but cannot itself start a new S-43 assignment because the target rule is
+  planning-only.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_assignment_rejects_every_non_planning_target`
+
+## TC-EVENTREQUESTS-039 — downstream failures and races are safe
+
+- **Pre-conditions:** Users lookup, load lookup, and event write each fail in
+  turn; separately, the conditional write returns `409` after a status or
+  Coordinator race.
+- **Steps:** Request assignment in every case.
+- **Expected:** Dependency failures return a service-specific safe `502` and
+  never claim assignment. The events `409` is preserved and no stale success
+  response is shown.
+- **Actual:** As expected in the full unit run.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_assignment_dependency_failures_are_safe`, `test_app.py::test_support_assignment_preserves_a_stale_write_conflict`
