@@ -392,6 +392,6 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   6. Reload the Coordinator event page and verify the saved result persists.
 - **Test data:** Studio B, 2026-11-12 09:00-12:00; alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
 - **Expected:** Saved Confirmed/Rejected outcome and alternative visible after reopen; no automatic booking of alternative. Failure/conflict gives safe feedback, not success. Nonstaff sees no decision controls. No reassignment exception is added; the existing assignment rule remains in force. Manual supplement: two staff tabs, keyboard operation, narrow screen and reason-plus-alternative display.
-- **Actual:** Not run; developer confirmation of S-37 SQL on dev and test is pending.
-- **Status:** Blocked
-- **Evidence:** Test code added; real execution pending database confirmation and fresh .env.test stack.
+- **Actual:** Venue Staff approved one pending request without a reason and rejected another with an alternative; blank rejection was blocked. The pending list refreshed after each decision. After signing in as the requesting Coordinator and reopening the event, both saved outcomes and the alternative were visible and persisted after reload.
+- **Status:** Pass
+- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; local Chromium execution against the freshly recreated `.env.test` stack.
