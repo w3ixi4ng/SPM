@@ -404,11 +404,11 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   4. Sign in as requester; reopen event and read both decisions.
   5. Exercise failed/conflicting save and a nonstaff dashboard.
   6. Reload the Coordinator event page and verify the saved result persists.
-- **Test data:** Studio B, 2026-11-12 09:00-12:00; alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
+- **Test data:** Studio B, 2026-11-12, three requests at 09:00-12:00, 12:00-15:00 and 15:00-18:00 (separate slots since S-30 made pending requests exclusive holds); alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
 - **Expected:** Saved Confirmed/Rejected outcome and alternative visible after reopen; no automatic booking of alternative. Failure/conflict gives safe feedback, not success. Nonstaff sees no decision controls. No reassignment exception is added; the existing assignment rule remains in force. Manual supplement: two staff tabs, keyboard operation, narrow screen and reason-plus-alternative display.
 - **Actual:** Venue Staff approved one pending request without a reason and rejected another with an alternative; blank rejection was blocked. The pending list refreshed after each decision. After signing in as the requesting Coordinator and reopening the event, both saved outcomes and the alternative were visible and persisted after reload.
 - **Status:** Pass
-- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; local Chromium execution against the freshly recreated `.env.test` stack.
+- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; rerun 2026-09-30 on branch `S-30/view-venue-availability-calendar` after giving the three requests separate slots; local Chromium against a freshly recreated `.env.test` stack: 1 passed.
 ## S-43 — Auto-Assign Technical Support
 
 ## TC-E2E-216 — Coordinator explicitly requests support and sees the automatic assignment
