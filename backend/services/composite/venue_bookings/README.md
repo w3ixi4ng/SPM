@@ -149,7 +149,9 @@ See the [atomic contract](../../atomic/bookings/README.md#s-37-decisions)
 for request/response examples, SQL migration and exact test commands.
 
 Errors use `{"detail":"..."}`: 401 `Not authenticated`; 403 `Permission denied`;
-404 `Booking not found`; 409 `This booking request has already been decided`;
+404 `Booking not found`; 409 `This booking request has already been decided`,
+or an S-38 conflict such as `Studio B is already confirmed on 12 Nov 2026
+from 10:00 to 12:00.`;
 422 `Please check the decision and provide a reason or alternative when rejecting`
 for downstream validation. Local body validation uses the existing 422
 `detail`/`errors` response. Unavailable downstream services return safe 502

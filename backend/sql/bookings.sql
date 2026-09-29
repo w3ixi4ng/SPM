@@ -188,6 +188,30 @@ alter table bookings.bookings add constraint bookings_decision_valid check (
 notify pgrst, 'reload schema';
 commit;
 -- END S-37 DATA-PRESERVING MIGRATION
--- S-38 release dependency: this schema does NOT prevent overlapping
--- confirmed rows. S-38 must enforce that invariant at the confirmation write.
+-- BEGIN S-38 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- It fails safely if overlapping confirmed rows already exist; resolve those
+-- rows with the team before retrying. Pending and rejected rows never block.
+begin;
+create extension if not exists btree_gist with schema extensions;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'bookings_no_confirmed_overlap'
+      and conrelid = 'bookings.bookings'::regclass
+  ) then
+    alter table bookings.bookings
+      add constraint bookings_no_confirmed_overlap
+      exclude using gist (
+        venue_id with =,
+        (tsrange(booking_date + start_time, booking_date + end_time, '[)')) with &&
+      ) where (status = 'confirmed');
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-38 DATA-PRESERVING MIGRATION
 notify pgrst, 'reload schema';

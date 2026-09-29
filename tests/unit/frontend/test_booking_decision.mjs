@@ -41,3 +41,9 @@ test('saved booking statuses have distinct labels and safe failure messages', ()
   assert.match(bookingDecisionErrorMessage({ status: 409 }), /already been decided/)
   assert.match(bookingDecisionErrorMessage({ status: 0 }), /could not confirm/)
 })
+
+test('overlap conflict identifies the unavailable venue slot', () => {
+  const detail = 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
+  assert.equal(bookingDecisionErrorMessage({ status: 409, message: detail }), detail)
+  assert.doesNotMatch(bookingDecisionErrorMessage({ status: 409, message: detail }), /decision saved/i)
+})

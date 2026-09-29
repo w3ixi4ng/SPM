@@ -18,7 +18,7 @@ internal-service contract. Atomic services never call the users service.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/bookings` | Store a checked booking request as `pending`. |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending request. |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending request; overlapping confirmation is blocked. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/health` | Liveness check. |
@@ -156,7 +156,7 @@ Auth app metadata; time comes from the server. No request snapshot is rewritten.
 | 401 | `{"detail":"Not authenticated"}` — sign in again, including after an expired access token |
 | 403 | `{"detail":"Permission denied"}` — only Venue Staff may decide |
 | 404 | `{"detail":"Booking not found"}` |
-| 409 | `{"detail":"This booking request has already been decided"}` |
+| 409 | Already decided: `{"detail":"This booking request has already been decided"}`. Overlap: `{"detail":"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00."}` |
 | 422 | `{"detail":"Please check the details you entered","errors":{"body":"Value error, Provide a reason or alternative to reject this request"}}` — body validation; field/path errors vary |
 | 500 | `{"detail":"Booking storage unavailable"}` — database failure; unexpected failures use `{"detail":"Internal server error"}` |
 
@@ -164,7 +164,7 @@ The composite maps downstream 500/network failures to 502 and sanitizes error
 messages. On uncertain network failure, reload before retrying: the write may
 have succeeded. Final requests cannot be decided again.
 
-### Database setup and release dependency
+### Database setup
 
 Existing projects: copy the entire block between
 `BEGIN S-37 DATA-PRESERVING MIGRATION` and
@@ -180,13 +180,19 @@ usage/table grants are present. No new schema, port, secret or browser grant is
 required. Docker now passes the existing SUPABASE_ANON_KEY into bookings for
 session verification. Confirm both setups before real integration/browser tests.
 
-**S-38 release dependency:** the conditional update in `decide_booking`:
-`UPDATE bookings.bookings SET status='confirmed', ... WHERE id=? AND status='pending'`
-must be protected against overlapping confirmations of different requests for
-the same venue/date/time. S-37 prevents two decisions on the same request only.
-It does not check or reserve venue availability, create another booking row,
-change the venue record, or implement S-33 holds. Do not release with a
-double-booking guarantee until S-38 enforces it atomically.
+For S-38, copy the entire block between `BEGIN S-38 DATA-PRESERVING MIGRATION`
+and `END S-38 DATA-PRESERVING MIGRATION` into the SQL Editor of both projects.
+It installs `btree_gist` and adds a partial exclusion constraint over confirmed
+rows. The range is `[start,end)`, so back-to-back bookings are allowed. Pending
+and rejected requests do not reserve a slot. If existing confirmed rows already
+overlap, the transaction fails without changing the schema; resolve those rows
+with the team and rerun it.
+
+S-38 checks availability when Venue Staff confirm, then relies on that database
+constraint as the final authority. This prevents two concurrent confirmations
+from both winning. A blocked request stays pending. S-38 does not create holds,
+change venue records, or stop Coordinators from submitting competing pending
+requests.
 
 ### S-37 verification
 

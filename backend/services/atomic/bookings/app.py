@@ -61,6 +61,44 @@ def _execute(operation):
         ) from exc
 
 
+def _booking(db: Client, booking_id: UUID):
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(booking_id))
+    )
+    return result.data[0] if result.data else None
+
+
+def _overlap(db: Client, booking: dict):
+    operation = (
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,venue_name,booking_date,start_time,end_time")
+        .eq("venue_id", booking["venue_id"])
+        .eq("booking_date", booking["booking_date"])
+        .eq("status", "confirmed")
+        .neq("id", booking["id"])
+        .lt("start_time", booking["end_time"])
+        .gt("end_time", booking["start_time"])
+        .order("start_time")
+        .limit(1)
+    )
+    result = _execute(operation)
+    return result.data[0] if result.data else None
+
+
+def _conflict_detail(conflict: dict) -> str:
+    booking_date = datetime.fromisoformat(str(conflict["booking_date"])).strftime("%d %b %Y")
+    start = str(conflict["start_time"])[:5]
+    end = str(conflict["end_time"])[:5]
+    return (
+        f'{conflict["venue_name"]} is already confirmed on {booking_date} '
+        f"from {start} to {end}."
+    )
+
+
+def _raise_overlap(conflict: dict):
+    raise HTTPException(status_code=409, detail=_conflict_detail(conflict))
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -73,6 +111,17 @@ def decide_booking(
     staff=Depends(require_venue_staff),
     db: Client = Depends(get_db),
 ):
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] != "pending":
+        raise HTTPException(status_code=409, detail="This booking request has already been decided")
+
+    if payload.decision == "approved":
+        conflict = _overlap(db, booking)
+        if conflict:
+            _raise_overlap(conflict)
+
     values = {
         "status": "confirmed" if payload.decision == "approved" else "rejected",
         "decision_reason": payload.reason,
@@ -80,17 +129,22 @@ def decide_booking(
         "decided_by": str(staff.id),
         "decided_at": datetime.now(timezone.utc).isoformat(),
     }
-    # One conditional write: concurrent decisions cannot overwrite the winner.
-    # S-38 must protect this pending -> confirmed write against OTHER bookings
-    # for the same venue/slot. This condition alone does not prevent overlaps.
-    result = _execute(db.schema(SCHEMA).table(TABLE).update(values)
-                      .eq("id", str(booking_id)).eq("status", "pending"))
+    # The conditional update protects this request from two decisions. The
+    # database exclusion constraint protects different requests for the same
+    # venue/slot, including simultaneous confirmations after the check above.
+    try:
+        result = db.schema(SCHEMA).table(TABLE).update(values).eq(
+            "id", str(booking_id)
+        ).eq("status", "pending").execute()
+    except Exception as exc:
+        if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
+            conflict = _overlap(db, booking)
+            if conflict:
+                _raise_overlap(conflict)
+        logger.exception("Booking storage operation failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
         return result.data[0]
-    existing = _execute(db.schema(SCHEMA).table(TABLE).select("id")
-                        .eq("id", str(booking_id)))
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Booking not found")
     raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
 

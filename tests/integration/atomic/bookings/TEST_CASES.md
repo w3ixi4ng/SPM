@@ -8,9 +8,9 @@ the table, the grants, the schema exposure and the connection all at once.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/bookings` |
-| Last run | 2026-09-29, branch `S-37/approve-reject-booking-with-reason-or-alternative`, pre-commit working tree |
-| Environment | `.env.test` test Supabase project with all repository SQL, including the S-37 decision columns and constraints, applied, granted and exposed; full stack recreated immediately before |
-| Result | 4 booking integration cases passed; 33 passed across `tests/integration` |
+| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
+| Environment | `.env.test` test Supabase project with all repository SQL, including the S-38 exclusion constraint, applied, granted and exposed; full stack recreated immediately before |
+| Result | 5 booking integration cases passed; 35 passed across `tests/integration` |
 
 **Story:** S-36 Submit venue booking request.
 
@@ -76,3 +76,27 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Actual:** The simultaneous requests produced exactly one 200 and one 409; the saved row contained only the winning decision, and a later attempt also returned 409.
 - **Status:** Pass
 - **Evidence:** `test_decision.py::test_concurrent_decisions_have_one_winner`; local `.env.test` execution.
+
+## S-38 confirmed specifications
+
+Story: S-38 Prevent Overlapping Booking Confirmation.
+Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
+
+### TC-BOOKINGS-104 — Concurrent overlapping confirmations have exactly one winner
+
+- **Scenario:** The database-backed confirmation boundary prevents a race from
+  double-booking one venue (AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack; S-38 SQL applied, granted and
+  exposed in the test project; two different pending bookings exist for the
+  same venue and overlapping slot; two authenticated Venue Staff sessions.
+- **Steps:** Send both approvals simultaneously; read both rows through the
+  API and directly from `bookings.bookings`; then retry the blocked approval.
+- **Test data:** Studio B on `2026-11-12`: B1 `09:00`–`12:00`, B2
+  `11:00`–`13:00`.
+- **Expected:** Exactly one request returns `200` and becomes `confirmed`.
+  The other returns `409`, remains `pending`, and identifies the winning
+  booking's venue/date/time as the conflict. The retry is also blocked. At no
+  point do two overlapping confirmed rows exist.
+- **Actual:** Simultaneous approvals produced one Confirmed row and one still-Pending row; the loser received an identified `409`, and retry remained blocked.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_concurrent_overlapping_confirmations_have_one_winner`; full `.env.test` integration suite: 35 passed.
