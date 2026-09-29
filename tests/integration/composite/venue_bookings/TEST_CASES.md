@@ -135,3 +135,38 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Actual:** Approval and rejection passed through Kong and the real services; decided requests left the pending list; the permitted Coordinator saw Confirmed and Rejected with the exact saved explanation. Existing reassignment access remained unchanged, and event and venue records were not rewritten.
 - **Status:** Pass
 - **Evidence:** `test_decision.py::test_saved_decisions_visible_only_under_existing_event_access`; local `.env.test` execution.
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+**Blocked** until the S-30 section of `backend/sql/bookings.sql` has been run
+in the test project.
+
+### TC-VENUEBOOKINGS-106 — The calendar reflects a hold, a confirmed booking and a block through Kong
+
+- **Scenario:** The real services and the gateway route agree on the
+  calendar (AC1, AC2, AC3).
+- **Pre-conditions:** A fresh `.env.test` stack. A Coordinator with three
+  planning events whose windows cover `2026-11-12` `08:00`–`18:00`. A Venue
+  Staff account. A test venue open `mon`–`fri` `08:00`–`18:00`.
+- **Steps:**
+  1. As the Coordinator, `GET /api/venue-bookings/availability` for
+     `2026-11-11`–`2026-11-30`. It returns no entries.
+  2. Submit A (`2026-11-12` `09:00`–`12:00`) and B (`14:00`–`16:00`). Staff
+     confirm A.
+  3. Submit C (`15:00`–`17:00`). Staff reject B, then C is submitted again.
+  4. Staff `POST /api/venue-bookings/blocks` for `2026-11-13`–`2026-11-16`,
+     reason `safety`.
+  5. Call the availability endpoint again after each step.
+- **Expected:**
+  - After step 2: one `confirmed` and one `held` entry.
+  - Step 3: C first gets `409` "… is already tentatively held on 12 Nov 2026
+    from 14:00 to 16:00." After B is rejected, C returns `201`, and the
+    calendar shows `confirmed` A and `held` C.
+  - After step 4: a `blocked` entry with reason `safety` as well.
+  - No response includes an event name.
+  - Cleanup deletes every row created.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

@@ -437,6 +437,10 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
 ## TC-E2E-218 — Confirmed venue time becomes unavailable to another event
 
+> **Superseded by S-30.** Holds are exclusive now, so the second overlapping
+> request is refused when it is sent, and there is nothing left to confirm.
+> TC-E2E-221 covers the refusal. The last result is kept below as a record.
+
 - **Scenario:** Venue Staff cannot confirm an overlapping request after the
   venue slot has been confirmed for another event (AC1, AC2, AC3).
 - **Pre-conditions:** Fresh `.env.test` stack with S-38 SQL applied, granted
@@ -485,3 +489,67 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:**
 - **Status:** Not Executed
 - **Evidence:**
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+Both cases are **Blocked** until the S-30 section of `backend/sql/bookings.sql`
+has been run in the test project. Dates are relative to the day of the run:
+`D+n` means n days after the browser's today, so the suite keeps working as
+time passes.
+
+## TC-E2E-220 — a Coordinator opens a venue's calendar and sees booked, held, unavailable and past days apart
+
+- **Scenario:** Kong, the SPA route and the calendar render every state
+  (AC1, AC2).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. A test venue
+  open every day `08:00`–`18:00`. Seeded through the API: a confirmed request
+  on `D+2` `09:00`–`12:00`, a pending request on `D+2` `14:00`–`16:00`, and a
+  block on `D+3`–`D+4`, `maintenance`.
+- **Steps:**
+  1. Sign in as the Coordinator. Open the Venues tab and choose **Availability**
+     on the test venue's row, next to where Venue Staff see **Edit**.
+  2. Reload on `/venues/:id/availability`.
+  3. Open the From picker.
+- **Expected:**
+  - The page has a "Back to dashboard" link. The range defaults to
+    `D+1`–`D+28`.
+  - `D+2` shows "Booked 09:00–12:00" and "Tentatively held 14:00–16:00".
+    `D+3` and `D+4` show "Unavailable — Maintenance". Other days show
+    "Available".
+  - A legend names each state. No event name appears on the page.
+  - In the grid and the picker, today and earlier are greyed out and cannot
+    be clicked.
+  - The page survives the reload, which proves the SPA fallback and the
+    session. **Mark unavailable** is not shown to a Coordinator.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-E2E-221 — a new hold, a new block and a removed block all show up on the calendar
+
+- **Scenario:** Changes made elsewhere appear on the next open or Refresh
+  (AC3).
+- **Pre-conditions:** As TC-E2E-220, with nothing on the venue. A Venue
+  Staff account. Two planning events assigned to the Coordinator.
+- **Steps:**
+  1. The Coordinator opens the calendar. `D+5` shows "Available".
+  2. The Coordinator sends a request for `D+5` `10:00`–`11:00` from the first
+     event. They reopen the calendar, then try the second event on `D+5`
+     `10:30`–`11:30`.
+  3. Venue Staff open the same venue's **Availability** and choose **Mark
+     unavailable**. In the slide-over they block `D+6`–`D+6`, reason
+     "Renovation".
+  4. The Coordinator presses **Refresh**.
+  5. Staff press **Remove** on the block. The Coordinator presses **Refresh**.
+- **Expected:**
+  - Step 2: `D+5` shows "Tentatively held 10:00–11:00". The second request
+    shows "… is already tentatively held on … from 10:00 to 11:00."
+  - Step 3: staff see the block on their calendar straight away.
+  - Step 4: `D+6` shows "Unavailable — Renovation".
+  - Step 5: `D+6` is "Available" again.
+  - Cleanup removes every row created.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

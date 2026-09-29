@@ -399,3 +399,196 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** The lookup used same venue/date, `start < requested end`, and `end > requested start`; a no-conflict result confirmed successfully.
 - **Status:** Pass
 - **Evidence:** `test_decision.py::test_overlap_lookup_uses_half_open_same_venue_and_date_window`
+
+---
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+S-30 extends this service in four ways, each following an existing pattern:
+
+- **Holds.** A `pending` request becomes an exclusive tentative hold. The
+  S-38 overlap check (`_overlap`, and the exclusion constraint behind it) now
+  covers `pending` as well as `confirmed` rows, and runs on `POST /bookings`
+  as well as on approval.
+- **Blocks.** A new `bookings.blocks` table records whole-day periods Venue
+  Staff mark a venue unavailable. Adding or removing a block checks the staff
+  session in this service, as S-37 decisions do (`require_venue_staff`).
+- **Conflict messages.** These use S-38's `_conflict_detail` format.
+- **Listing.** A venue plus a date range is one more filter on the existing
+  always-filtered `GET /bookings`. `GET /blocks` takes the same filter.
+
+**Shared test data.** Studio B is `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb` and
+Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
+`abababab-abab-4bab-8bab-abababababab`. The existing booking is on Studio B,
+`2026-11-12`, `10:00`–`12:00`.
+
+### TC-BOOKINGS-025 — A request overlapping a confirmed booking is refused
+
+- **Scenario:** A new request cannot take a slot that is already confirmed.
+- **Pre-conditions:** The fake's overlap lookup returns the existing booking
+  with status `confirmed`.
+- **Steps:** `POST /bookings` with the shared body, changing only the times
+  per row. Check the response and whether an insert was attempted.
+- **Test data:** `10:30`–`11:30`, `09:00`–`11:00`, `11:00`–`13:00`,
+  `09:00`–`13:00`.
+- **Expected:** Each returns `409`
+  `{"detail":"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00."}`,
+  the S-38 message unchanged. No insert is attempted.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-026 — A request overlapping a tentative hold is refused
+
+- **Scenario:** Holds are exclusive.
+- **Pre-conditions:** As TC-BOOKINGS-025, but the existing booking is
+  `pending`.
+- **Steps / Test data:** As TC-BOOKINGS-025.
+- **Expected:** Each returns `409`
+  `{"detail":"Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00."}`.
+  No insert is attempted. The lookup filters status to `pending` and
+  `confirmed`, uses the same venue and date, and matches `start < requested end`
+  and `end > requested start`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-027 — Back-to-back, rejected, other-date and other-venue slots do not conflict
+
+- **Scenario:** Only a real overlap with a live hold or booking blocks a
+  request. Rejecting a request releases its hold.
+- **Pre-conditions:** The existing booking is `confirmed`. A `rejected`
+  Studio B booking also exists on `2026-11-12` from `13:00` to `15:00`. There
+  are no blocks.
+- **Steps:** `POST /bookings` for each row.
+- **Test data:** Studio B `2026-11-12` `08:00`–`10:00`; Studio B `12:00`–`14:00`
+  (overlaps only the rejected one); Studio B `2026-11-13` `10:30`–`11:30`;
+  Studio C `2026-11-12` `10:30`–`11:30`.
+- **Expected:** Each returns `201` with `status` `pending`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-028 — A request on a blocked day is refused
+
+- **Scenario:** A venue marked unavailable cannot be requested.
+- **Pre-conditions:** No bookings. One Studio B block from `2026-11-13` to
+  `2026-11-16`, reason `maintenance`.
+- **Steps:** `POST /bookings` for Studio B, `09:00`–`12:00`, on `2026-11-13`,
+  then `2026-11-16`, then `2026-11-17`.
+- **Expected:** `2026-11-13` and `2026-11-16` (the block includes its first
+  and last days) return `409`
+  `{"detail":"Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026."}`
+  with no insert. `2026-11-17` returns `201`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-029 — A pending request on a blocked day cannot be confirmed
+
+- **Scenario:** A block added after a request was sent stops that request
+  from being confirmed.
+- **Pre-conditions:** Authenticated Venue Staff. Pending booking B for
+  Studio B on `2026-11-13` `09:00`–`12:00`. The block from TC-BOOKINGS-028.
+- **Steps:** `POST /bookings/{B}/decision` with `{"decision":"approved"}`.
+  Then again with `{"decision":"rejected","reason":"Venue under maintenance"}`.
+- **Expected:** The approval returns `409` with the TC-BOOKINGS-028 detail,
+  and B stays `pending` with no decision fields. The rejection returns `200`
+  with `status` `rejected`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-030 — Venue Staff add a block
+
+- **Scenario:** A valid block is stored and returned.
+- **Pre-conditions:** The session check returns Venue Staff. The fake insert
+  echoes the row with an id.
+- **Steps:** `POST /blocks` with the `sb_access_token` cookie.
+- **Test data:**
+  `{"venue_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","venue_name":"Studio B","start_date":"2026-11-13","end_date":"2026-11-16","reason":"maintenance","note":"  Ceiling repair  "}`
+- **Expected:** `201` with those fields, `note` trimmed to
+  `"Ceiling repair"`, plus `id`, `created_by` (the verified staff id, never
+  from the body), and `created_at` (set by the server). A one-day block
+  (`start_date` = `end_date`) also returns `201`. A blank `note` is stored as
+  `null`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-031 — A block may cover existing holds and confirmed bookings
+
+- **Scenario:** In an emergency, Venue Staff can block a venue that is
+  already held or booked. Nothing is changed or reassigned automatically.
+- **Pre-conditions:** As TC-BOOKINGS-030, plus a confirmed and a pending
+  Studio B booking on `2026-11-13`.
+- **Steps:** `POST /blocks` as in TC-BOOKINGS-030.
+- **Expected:** `201`. No update is attempted on `bookings.bookings`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-032 — Invalid or unauthorised block requests are refused
+
+- **Scenario:** A block needs a valid range and a known reason, and only
+  Venue Staff may add one.
+- **Steps:** `POST /blocks` with the TC-BOOKINGS-030 body, changing one thing
+  per row.
+- **Test data / Expected:** No row makes an insert.
+  - `end_date` `2026-11-12`, before `start_date` → `422`, `errors.body` "Value error, end_date must be on or after start_date"
+  - `reason` `"flood"` → `422` on `errors.reason`. The allowed reasons are
+    `maintenance`, `renovation`, `safety`, `internal_activity`, `other`
+  - `reason` `"other"` with `note` `"  "` → `422`, `errors.body` "Value error, Add a note when the reason is other"
+  - `created_by` in the body → `422` (forbidden field)
+  - no cookie → `401` `{"detail":"Not authenticated"}`
+  - an `event_coordinator` session → `403` `{"detail":"Permission denied"}`
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-033 — Bookings are listed for one venue and date range
+
+- **Scenario:** The calendar's bookings, as one more filter on the existing
+  list endpoint (AC1).
+- **Pre-conditions:** Studio B rows: confirmed `2026-11-12` `09:00`–`12:00`;
+  pending `2026-11-12` `14:00`–`16:00`; rejected `2026-11-12` `16:00`–`17:00`;
+  confirmed `2026-12-20`. A Studio C row on `2026-11-12`.
+- **Steps:** `GET /bookings?venue_id=<Studio B>&from=2026-11-11&to=2026-12-08`.
+  Then again with `from` or `to` left out.
+- **Expected:** `200`, a list of the three Studio B rows dated `2026-11-12`
+  with every status (the same as the `event_id` filter), ordered by date, then
+  start time. Leaving out `from` or `to` → `422`: a venue filter always needs
+  a range, so nothing lists a venue's whole history. The existing
+  `status`/`event_id` filters are unchanged.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-034 — Blocks are listed for one venue and date range
+
+- **Scenario:** The calendar's blocks (AC1, AC2).
+- **Pre-conditions:** Studio B blocks: `2026-11-09`–`2026-11-11`,
+  `2026-11-13`–`2026-11-16`, `2026-12-20`–`2026-12-21`. One Studio C block.
+- **Steps:** `GET /blocks?venue_id=<Studio B>&from=2026-11-11&to=2026-12-08`.
+  Then `GET /blocks` with no filter.
+- **Expected:** `200` with the first two blocks in start-date order. A block
+  that only partly overlaps the range is included. With no filter → `422`
+  `{"detail":"Filter by venue_id with from and to"}`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-BOOKINGS-035 — Venue Staff remove a block
+
+- **Scenario:** Staff clear a block by hand.
+- **Pre-conditions:** Studio B block X exists.
+- **Steps:** As Venue Staff, `DELETE /blocks/{X}` twice. Then `DELETE /blocks/{X}`
+  as a Coordinator, and with no cookie.
+- **Expected:** `204`, then `404` `{"detail":"Block not found"}`. The
+  Coordinator gets `403` and no cookie gets `401`; neither attempts a delete.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

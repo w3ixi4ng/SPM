@@ -1115,3 +1115,123 @@ request**, like any other mismatch. Each venue's mark sits under its name.
 - **Actual:**
 - **Status:** Not Executed
 - **Evidence:**
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+These cases cover a new `frontend/src/lib/venueAvailability.js` and additions
+to `venueBookings.js` and `access.js`. They are pure functions, tested with no
+browser. "Today" is passed in as a local date, `2026-11-10`, the same way
+`DateSelect` in `EventRequestForm.jsx` reads the browser's own date. Studio B
+is open `mon`–`fri` `08:00`–`18:00`.
+
+## TC-FRONTEND-067 — the default range is the four weeks from tomorrow
+
+- **Scenario:** The calendar opens on a useful range without the Coordinator
+  choosing one (AC1).
+- **Steps:** Call `defaultAvailabilityRange("2026-11-10")`.
+- **Expected:** `{from: "2026-11-11", to: "2026-12-08"}`, which is 28 days.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-068 — each day gets one state and label, and a block outranks everything
+
+- **Scenario:** Confirmed, held and blocked days are clearly distinct (AC2).
+- **Pre-conditions:** The entries from TC-VENUEBOOKINGS-035.
+- **Steps:** Call `availabilityDays({from: "2026-11-11", to: "2026-11-17"}, entries, operating_hours)`.
+- **Expected:** Seven days:
+  - `11 Nov` (wed) → `available`, "Available"
+  - `12 Nov` → entries "Booked 09:00–12:00" and "Tentatively held 14:00–16:00",
+    in start order
+  - `13`–`16 Nov` → `blocked`, "Unavailable — Maintenance" (reason through
+    `optionLabel`), **including** the weekend days, because a block outranks
+    closed
+  - `17 Nov` (tue) → `available`
+
+  Held uses the colour `bookingStatusMeta('pending')` already uses (amber).
+  Booked uses `bookingStatusMeta('confirmed')` (green). Blocked uses `rose`.
+  Every state has a text label, never colour alone.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-069 — days before tomorrow are greyed and disabled, like DateSelect
+
+- **Scenario:** Unselectable dates are greyed out (AC1, as clarified).
+- **Steps:** Build the November 2026 grid for range `2026-11-11..2026-11-20`
+  with today `2026-11-10`. Read each cell's `disabled`.
+- **Expected:** Weeks start on Sunday, as in `DateSelect`
+  (`Su Mo Tu We Th Fr Sa`). `1`–`10 Nov` (today included) and `21`–`30 Nov`
+  are `disabled: true`. `11`–`20 Nov` are enabled. The From and To pickers
+  apply `DateSelect`'s own earliest-selectable rule: From is tomorrow at the
+  earliest, and To is From at the earliest (its `minDate`).
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-070 — closed weekdays read as Closed, not Available
+
+- **Scenario:** A day outside the venue's opening hours is not shown as free
+  (AC2).
+- **Steps:** Build days for `2026-11-14`..`2026-11-16` with no entries.
+- **Expected:** `14 Nov` (sat) and `15 Nov` (sun) → `closed`, "Closed",
+  found by the same `WEEK` day-key lookup as `venues.js`. `16 Nov` (mon) →
+  `available`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-071 — the API helpers call the composite fresh each time and surface failures
+
+- **Scenario:** Opening, changing the range, or pressing Refresh always
+  refetches (AC3).
+- **Steps:** With a fake `fetch`, call
+  `getVenueAvailability(venueId, "2026-11-11", "2026-12-08")` twice, then
+  `addVenueBlock(form)` and `removeVenueBlock(id)`. Pass the errors each
+  answer produces to `availabilityErrorMessage`.
+- **Expected:** Both reads issue
+  `GET /api/venue-bookings/availability?venue_id=…&from=2026-11-11&to=2026-12-08`
+  through `requestJSON`, with credentials included, so two calls make two
+  requests. The add is a `POST /api/venue-bookings/blocks` with the JSON body;
+  a blank note is sent as `null`. The remove is a
+  `DELETE /api/venue-bookings/blocks/{id}`, and its `204` resolves to `null`.
+  The messages:
+  - `401` → "Your session has expired. Please sign in again."
+  - `403` → "Your role is not permitted to view venue availability."
+  - `404` → the server's detail
+  - anything else → "We couldn't load this venue's availability. Try again
+    in a moment."
+
+  A failure never resolves to an empty calendar.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-072 — hold and block conflicts are shown in the server's words
+
+- **Scenario:** A Coordinator refused by a hold or block, or staff refused by
+  a block, see why.
+- **Steps:** Pass `ApiError`s with status `409` and each TC-BOOKINGS-025,
+  026 and 028 detail to `venueBookingErrorMessages`. Pass the TC-BOOKINGS-028
+  detail to `bookingDecisionErrorMessage`.
+- **Expected:** Each returns the detail exactly. The request helper already
+  does this for every `409`. The decision helper, which today recognises only
+  "already confirmed", now also recognises "is unavailable from". Other `409`s
+  still say "This request has already been decided…".
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-073 — Coordinators and Venue Staff see the calendar, and only staff manage blocks
+
+- **Scenario:** `access.js` agrees with the composite's role checks (AC1).
+- **Steps:** Call `hasPermission(role, …)` for each role.
+- **Expected:** `PERMISSIONS.VIEW_VENUE_AVAILABILITY`
+  (`venue_bookings:view_availability`) is granted to `event_coordinator` and
+  `venue_staff` only. `PERMISSIONS.MANAGE_VENUE_BLOCKS`
+  (`venue_bookings:manage_blocks`) is granted to `venue_staff` only.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
