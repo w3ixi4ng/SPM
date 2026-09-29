@@ -234,7 +234,7 @@ contract without a browser.
 
 ## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
 
-- **Scenario:** S-35 in a real browser. Only a browser shows the warning
+- **Scenario:** Revised for S-34: the list now opens filtered to the event, so the unsuitable venues are reached through **Clear filters**. S-35 in a real browser. Only a browser shows the warning
   appearing on selection and **Send request** being disabled and re-enabled;
   TC-FRONTEND-039 covers the wording.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
@@ -249,14 +249,17 @@ contract without a browser.
 - **Steps:**
   1. Sign in as the coordinator and open
      `/coordinator/events/{id}/request-venue`.
-  2. Look at **Send request** before choosing a venue.
+  2. Look at the list and **Send request** before choosing a venue, then
+     click **Clear filters**.
   3. Choose the Small venue.
   4. Choose the Bare venue.
   5. Choose the Large venue.
   6. Set `09:00`–`12:00` and click **Send request**.
 - **Test data:** As above.
 - **Expected:**
-  - Step 2: no warning; **Send request** is enabled.
+  - Step 2: the list opens filtered to the event, so only the Large venue
+    shows; no warning; **Send request** is enabled. After **Clear filters**
+    all three venues show.
   - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
     expects 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
@@ -264,8 +267,8 @@ contract without a browser.
   - Step 5: no warning, and **Send request** is enabled.
   - Step 6: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
-- **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
 
 ## TC-E2E-211 — equipment moves from catalogue to planning requirement to Technical Support view
@@ -442,3 +445,31 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.
+
+## TC-E2E-218 — a Coordinator narrows the Venues tab with filters, and results follow each change
+
+- **Scenario:** S-34, AC1–AC3 in a real browser. The matching rules are
+  TC-FRONTEND-056 to 061; this proves the filters are wired to the list on
+  the dashboard, update it on every change, and can be cleared.
+- **Pre-conditions:** Stack and project as the header. The test creates, and
+  removes afterwards, an `event_coordinator` with `make_user` and the three
+  venues from the frontend cases' shared data, each name suffixed with
+  `<hex>` so other venues in the project can be told apart.
+- **Steps:**
+  1. Sign in as the coordinator and open the **Venues** tab.
+  2. Type `anson` in **Search by name or location**.
+  3. Set **Holds at least** to `100`.
+  4. Tick **Stage** under facilities.
+  5. Set the date to `2026-11-12`.
+  6. Click **Clear filters**.
+- **Test data:** As above.
+- **Expected:**
+  - Step 2: of the three, Studio B and Anson Suite are listed.
+  - Step 3: Anson Suite only.
+  - Step 4: Anson Suite only.
+  - Step 5: none of the three, and `"No venues match these filters."`
+  - Step 6: all three listed again, and the search box is empty.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
