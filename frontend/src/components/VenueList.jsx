@@ -1,10 +1,11 @@
 import { Building2, CalendarDays, Clock, MapPin, Pencil, Users } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DAY_LABELS, optionLabel } from '../lib/venues.js'
 
 const C = {
   ink: '#10192B',
   inkFaint: '#4C5A70',
+  paperDim: '#F1EEE6',
   line: '#E3DFD3',
   teal: '#0E7C74',
   sky: '#3C6E96',
@@ -22,8 +23,28 @@ function listLabels(codes) {
 }
 
 function VenueRow({ venue, canEdit, canViewAvailability }) {
+  const navigate = useNavigate()
+  const availabilityPath = `/venues/${venue.id}/availability`
+
+  // The whole row opens the venue's availability, as a larger target for the
+  // Availability link -- which stays the way in for keyboard and screen
+  // reader users. A click on a link inside (Edit) goes where that link goes,
+  // and selecting text, to copy an address, opens nothing.
+  function openAvailability(event) {
+    if (event.target.closest('a, button')) return
+    if (window.getSelection()?.toString()) return
+    navigate(availabilityPath)
+  }
+
+  const clickable = canViewAvailability
   return (
-    <li className="py-5 first:pt-0 last:pb-0 flex items-start gap-4" style={{ borderColor: C.line }}>
+    <li
+      onClick={clickable ? openAvailability : undefined}
+      className={clickable
+        ? 'csp-venue-row py-5 px-3 -mx-3 rounded-sm flex items-start gap-4 cursor-pointer transition-colors duration-200'
+        : 'py-5 first:pt-0 last:pb-0 flex items-start gap-4'}
+      style={{ borderColor: C.line }}
+    >
       <Building2 size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
       <div className="min-w-0 flex-1">
         {/* What the venue is on the left; its size, and what can be done with
@@ -45,7 +66,7 @@ function VenueRow({ venue, canEdit, canViewAvailability }) {
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-ui text-sm font-medium">
                 {canViewAvailability && (
                   <Link
-                    to={`/venues/${venue.id}/availability`}
+                    to={availabilityPath}
                     className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
                     style={{ color: C.teal }}
                     aria-label={`Availability for ${venue.name}`}
@@ -132,10 +153,15 @@ export default function VenueList({
   }
 
   return (
-    <ul className="divide-y" aria-label="Venues">
-      {venues.map((venue) => (
-        <VenueRow key={venue.id} venue={venue} canEdit={canEdit} canViewAvailability={canViewAvailability} />
-      ))}
-    </ul>
+    <>
+      <style>{`
+        .csp-venue-row:hover { background-color: ${C.paperDim}; }
+      `}</style>
+      <ul className="divide-y" aria-label="Venues">
+        {venues.map((venue) => (
+          <VenueRow key={venue.id} venue={venue} canEdit={canEdit} canViewAvailability={canViewAvailability} />
+        ))}
+      </ul>
+    </>
   )
 }
