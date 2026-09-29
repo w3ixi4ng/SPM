@@ -21,7 +21,7 @@ function listLabels(codes) {
   return codes.map(optionLabel).join(', ')
 }
 
-function VenueRow({ venue, canEdit }) {
+function VenueRow({ venue, canEdit, canViewAvailability }) {
   return (
     <li className="py-5 first:pt-0 last:pb-0 flex items-start gap-4" style={{ borderColor: C.line }}>
       <Building2 size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
@@ -29,6 +29,7 @@ function VenueRow({ venue, canEdit }) {
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{venue.name}</h3>
           {canEdit && <Link to={`/venues/${venue.id}/edit`} className="underline" style={{ color: C.teal }} aria-label={`Edit ${venue.name}`}>Edit</Link>}
+          {canViewAvailability && <Link to={`/venues/${venue.id}/availability`} className="underline" style={{ color: C.teal }} aria-label={`Availability for ${venue.name}`}>Availability</Link>}
           <span className="inline-flex items-center gap-1.5 font-ui text-sm" style={{ color: C.inkFaint }}>
             <Users size={14} aria-hidden="true" />
             Capacity {venue.capacity.toLocaleString()}
@@ -73,7 +74,9 @@ function VenueRow({ venue, canEdit }) {
 }
 
 // Read-only venue list, shared by the venue staff and coordinator dashboards.
-export default function VenueList({ venues, loading, error, onRetry, emptyMessage, canEdit = false }) {
+export default function VenueList({
+  venues, loading, error, onRetry, emptyMessage, canEdit = false, canViewAvailability = false,
+}) {
   if (loading) {
     return <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venues…</p>
   }
@@ -100,7 +103,9 @@ export default function VenueList({ venues, loading, error, onRetry, emptyMessag
 
   return (
     <ul className="divide-y" aria-label="Venues">
-      {venues.map((venue) => <VenueRow key={venue.id} venue={venue} canEdit={canEdit} />)}
+      {venues.map((venue) => (
+        <VenueRow key={venue.id} venue={venue} canEdit={canEdit} canViewAvailability={canViewAvailability} />
+      ))}
     </ul>
   )
 }

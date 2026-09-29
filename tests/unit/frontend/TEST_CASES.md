@@ -2,8 +2,8 @@
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
-`test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`, and
-`test_technical_support_assignment.mjs`.
+`test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
+`test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -1132,9 +1132,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
   choosing one (AC1).
 - **Steps:** Call `defaultAvailabilityRange("2026-11-10")`.
 - **Expected:** `{from: "2026-11-11", to: "2026-12-08"}`, which is 28 days.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `{from: "2026-11-11", to: "2026-12-08"}`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — the default range is the four weeks from tomorrow`
 
 ## TC-FRONTEND-068 — each day gets one state and label, and a block outranks everything
 
@@ -1153,9 +1153,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
   Held uses the colour `bookingStatusMeta('pending')` already uses (amber).
   Booked uses `bookingStatusMeta('confirmed')` (green). Blocked uses `rose`.
   Every state has a text label, never colour alone.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Days and labels as specified; held amber and booked green from `bookingStatusMeta`, blocked rose, including the weekend. Holds-only day reads held, in start order.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — each day gets one state and label, and a block outranks everything`; `tests/unit/frontend/test_venue_availability.mjs — a day with only holds reads as held, and holds sort by start time`
 
 ## TC-FRONTEND-069 — days before tomorrow are greyed and disabled, like DateSelect
 
@@ -1167,9 +1167,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
   are `disabled: true`. `11`–`20 Nov` are enabled. The From and To pickers
   apply `DateSelect`'s own earliest-selectable rule: From is tomorrow at the
   earliest, and To is From at the earliest (its `minDate`).
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Sunday-first grid; 1–10 and 21–30 Nov disabled, 11–20 enabled; earliest From `2026-11-11`, earliest To equals From. December grid had two leading blanks.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — days before tomorrow and outside the range are greyed and disabled`; `tests/unit/frontend/test_venue_availability.mjs — a range crossing months builds one grid per month, with leading blanks`
 
 ## TC-FRONTEND-070 — closed weekdays read as Closed, not Available
 
@@ -1179,9 +1179,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
 - **Expected:** `14 Nov` (sat) and `15 Nov` (sun) → `closed`, "Closed",
   found by the same `WEEK` day-key lookup as `venues.js`. `16 Nov` (mon) →
   `available`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Sat and Sun `closed`/"Closed"; Mon `available`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — closed weekdays read as Closed, not Available`
 
 ## TC-FRONTEND-071 — the API helpers call the composite fresh each time and surface failures
 
@@ -1205,9 +1205,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
     in a moment."
 
   A failure never resolves to an empty calendar.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Four requests with the specified URLs, methods and credentials; blank note sent as null; `204` resolved to null. Each failure rejected with an `ApiError` mapped to the specified message.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — the API helpers call the composite fresh each time`; `tests/unit/frontend/test_venue_availability.mjs — a failed load rejects with a message and never an empty calendar`
 
 ## TC-FRONTEND-072 — hold and block conflicts are shown in the server's words
 
@@ -1220,9 +1220,9 @@ is open `mon`–`fri` `08:00`–`18:00`.
   does this for every `409`. The decision helper, which today recognises only
   "already confirmed", now also recognises "is unavailable from". Other `409`s
   still say "This request has already been decided…".
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** All three details returned exactly; the decision helper returned the block and S-38 details, and the generic message otherwise.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — hold and block conflicts are shown in the server's words`
 
 ## TC-FRONTEND-073 — Coordinators and Venue Staff see the calendar, and only staff manage blocks
 
@@ -1232,6 +1232,6 @@ is open `mon`–`fri` `08:00`–`18:00`.
   (`venue_bookings:view_availability`) is granted to `event_coordinator` and
   `venue_staff` only. `PERMISSIONS.MANAGE_VENUE_BLOCKS`
   (`venue_bookings:manage_blocks`) is granted to `venue_staff` only.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Only Coordinator and Venue Staff had `view_availability`; only Venue Staff had `manage_blocks`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — Coordinators and Venue Staff see the calendar, and only staff manage blocks`

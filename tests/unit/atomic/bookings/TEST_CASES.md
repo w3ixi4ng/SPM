@@ -1,6 +1,7 @@
 # Test cases — bookings service (unit)
 
-Covers `tests/unit/atomic/bookings/test_app.py`: the atomic service that owns
+Covers `tests/unit/atomic/bookings/test_app.py`, `test_decision.py` and
+`test_availability.py` (S-30): the atomic service that owns
 venue booking requests (`bookings.bookings`). It stores and lists them and
 records final decisions for S-37; deletion is not exposed. It never
 calls another service, and it never judges whether a request is suitable.
@@ -437,9 +438,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
 - **Expected:** Each returns `409`
   `{"detail":"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00."}`,
   the S-38 message unchanged. No insert is attempted.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** All four overlap shapes returned the S-38 `409` detail unchanged; no insert.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_a_request_overlapping_a_confirmed_booking_is_refused`
 
 ### TC-BOOKINGS-026 — A request overlapping a tentative hold is refused
 
@@ -452,9 +453,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   No insert is attempted. The lookup filters status to `pending` and
   `confirmed`, uses the same venue and date, and matches `start < requested end`
   and `end > requested start`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** All four returned the "already tentatively held" `409`; no insert. The lookup filtered venue, date, status in (pending, confirmed), start < end and end > start.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_a_request_overlapping_a_tentative_hold_is_refused`
 
 ### TC-BOOKINGS-027 — Back-to-back, rejected, other-date and other-venue slots do not conflict
 
@@ -468,9 +469,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   (overlaps only the rejected one); Studio B `2026-11-13` `10:30`–`11:30`;
   Studio C `2026-11-12` `10:30`–`11:30`.
 - **Expected:** Each returns `201` with `status` `pending`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Each row returned `201` pending when the half-open, pending/confirmed-only lookup found nothing. A simultaneous request refused by the exclusion constraint (`23P01`) got the identified `409`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_slots_that_do_not_overlap_a_live_booking_are_accepted`; `tests/unit/atomic/bookings/test_availability.py::test_a_simultaneous_request_that_loses_the_race_is_told_why`
 
 ### TC-BOOKINGS-028 — A request on a blocked day is refused
 
@@ -483,9 +484,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   and last days) return `409`
   `{"detail":"Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026."}`
   with no insert. `2026-11-17` returns `201`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** First and last blocked days returned the "is unavailable from" `409` with no insert; the lookup used start_date ≤ day ≤ end_date. The day after returned `201`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_a_request_on_a_blocked_day_is_refused`; `tests/unit/atomic/bookings/test_availability.py::test_the_day_after_a_block_can_be_requested`
 
 ### TC-BOOKINGS-029 — A pending request on a blocked day cannot be confirmed
 
@@ -498,9 +499,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
 - **Expected:** The approval returns `409` with the TC-BOOKINGS-028 detail,
   and B stays `pending` with no decision fields. The rejection returns `200`
   with `status` `rejected`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Approval returned the block `409` with no update; rejection returned `200` rejected.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_a_pending_request_on_a_blocked_day_cannot_be_confirmed`; `tests/unit/atomic/bookings/test_availability.py::test_a_pending_request_on_a_blocked_day_can_still_be_rejected`
 
 ### TC-BOOKINGS-030 — Venue Staff add a block
 
@@ -515,9 +516,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   from the body), and `created_at` (set by the server). A one-day block
   (`start_date` = `end_date`) also returns `201`. A blank `note` is stored as
   `null`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `201` with trimmed note, verified `created_by` and a server `created_at`, written to `blocks`. One-day block and blank note (stored null) both `201`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_venue_staff_add_a_block`; `tests/unit/atomic/bookings/test_availability.py::test_one_day_blocks_and_blank_notes`
 
 ### TC-BOOKINGS-031 — A block may cover existing holds and confirmed bookings
 
@@ -527,9 +528,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   Studio B booking on `2026-11-13`.
 - **Steps:** `POST /blocks` as in TC-BOOKINGS-030.
 - **Expected:** `201`. No update is attempted on `bookings.bookings`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `201`; no update and no bookings lookup attempted.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_a_block_may_cover_existing_bookings_without_changing_them`
 
 ### TC-BOOKINGS-032 — Invalid or unauthorised block requests are refused
 
@@ -545,9 +546,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   - `created_by` in the body → `422` (forbidden field)
   - no cookie → `401` `{"detail":"Not authenticated"}`
   - an `event_coordinator` session → `403` `{"detail":"Permission denied"}`
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Each invalid body returned `422` on the expected key with no insert; no cookie `401`; Coordinator `403`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_invalid_blocks_are_refused_with_a_field_error`; `tests/unit/atomic/bookings/test_availability.py::test_a_block_needs_a_venue`; `tests/unit/atomic/bookings/test_availability.py::test_only_venue_staff_add_blocks`
 
 ### TC-BOOKINGS-033 — Bookings are listed for one venue and date range
 
@@ -563,9 +564,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   start time. Leaving out `from` or `to` → `422`: a venue filter always needs
   a range, so nothing lists a venue's whole history. The existing
   `status`/`event_id` filters are unchanged.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `200` with every status, filtered by venue and booking_date range, ordered by date then start time. Missing range parts returned `422` without touching storage.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_bookings_are_listed_for_one_venue_and_range`; `tests/unit/atomic/bookings/test_availability.py::test_a_venue_filter_always_needs_a_range`
 
 ### TC-BOOKINGS-034 — Blocks are listed for one venue and date range
 
@@ -577,9 +578,9 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
 - **Expected:** `200` with the first two blocks in start-date order. A block
   that only partly overlaps the range is included. With no filter → `422`
   `{"detail":"Filter by venue_id with from and to"}`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `200` with overlapping blocks (start_date ≤ to, end_date ≥ from) by start date; no filter `422` with the stated detail.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_blocks_are_listed_for_one_venue_and_range`; `tests/unit/atomic/bookings/test_availability.py::test_blocks_need_a_filter`
 
 ### TC-BOOKINGS-035 — Venue Staff remove a block
 
@@ -589,6 +590,6 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   as a Coordinator, and with no cookie.
 - **Expected:** `204`, then `404` `{"detail":"Block not found"}`. The
   Coordinator gets `403` and no cookie gets `401`; neither attempts a delete.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `204`, then `404` `Block not found`; Coordinator `403` and no cookie `401` with no delete attempted.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_venue_staff_remove_a_block`; `tests/unit/atomic/bookings/test_availability.py::test_only_venue_staff_remove_blocks`

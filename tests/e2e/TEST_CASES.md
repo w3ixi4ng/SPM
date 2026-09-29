@@ -5,7 +5,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
-`test_prevent_overlapping_confirmation.py` and `test_filter_venues.py`.
+`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py` and
+`test_venue_availability.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -524,8 +525,8 @@ time passes.
   - The page survives the reload, which proves the SPA fallback and the
     session. **Mark unavailable** is not shown to a Coordinator.
 - **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart` (not run)
 
 ## TC-E2E-221 — a new hold, a new block and a removed block all show up on the calendar
 
@@ -551,5 +552,5 @@ time passes.
   - Step 5: `D+6` is "Available" again.
   - Cleanup removes every row created.
 - **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_new_hold_a_new_block_and_a_removed_block_all_show_up` (not run)

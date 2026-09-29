@@ -1,6 +1,7 @@
 # Test cases — venue_bookings service (unit)
 
-Covers `tests/unit/composite/venue_bookings/test_app.py`: the composite that
+Covers `tests/unit/composite/venue_bookings/test_app.py`, `test_decision.py`
+and `test_availability.py` (S-30): the composite that
 stands between the browser and three atomic services for venue booking
 requests. For a Coordinator's request it checks the session (`users`), the
 event (`events`) and the venue (`venues`), then writes the request
@@ -659,9 +660,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   is left out. The body contains no event name, coordinator name or email,
   booking or event id, or block note. The calls to `users` and `venues`
   forward the caller's cookies, as `_fetch` already does.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `200` with exactly the specified body; no private field present; cookies forwarded to venues; bookings and blocks queried with the range.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_a_coordinator_gets_a_venues_availability_for_a_range`
 
 ### TC-VENUEBOOKINGS-036 — Venue Staff get the same calendar plus what they need to remove a block
 
@@ -671,9 +672,9 @@ open `mon`–`fri` `08:00`–`18:00`.
 - **Expected:** `200` with the same entries. Blocked entries also carry
   `id` and `note`. Booking entries still carry no event or coordinator
   details.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Same entries; the blocked entry also carried `id` and `note`; no event details.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_venue_staff_also_get_what_they_need_to_remove_a_block`
 
 ### TC-VENUEBOOKINGS-037 — Only Coordinators and Venue Staff can view it, and a range is required
 
@@ -689,9 +690,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   - `to` before `from` → `422`, with an error on `to` saying "The end date
     must be on or after the start date"
   - No `422` calls `bookings`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Organiser, technical support and admin `403`, no session `401`, without calling venues or bookings. Malformed or missing query and `to` before `from` returned `422` without calling bookings.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_other_roles_cannot_view_the_calendar`; `tests/unit/composite/venue_bookings/test_availability.py::test_no_session_cannot_view_the_calendar`; `tests/unit/composite/venue_bookings/test_availability.py::test_a_malformed_range_is_refused`; `tests/unit/composite/venue_bookings/test_availability.py::test_the_end_date_must_not_be_before_the_start_date`
 
 ### TC-VENUEBOOKINGS-038 — Unknown venue and downstream failures are never an empty calendar
 
@@ -704,9 +705,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   - `venues` or `users` fails → `502` naming that service, as `_call` and
     `_fetch` already do
   - Never `200` with `"entries": []`
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Unknown venue `404` without calling bookings; bookings or blocks failure `502` `Bookings service unavailable`; unreachable venues `502` naming Venues.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_an_unknown_venue_is_a_404`; `tests/unit/composite/venue_bookings/test_availability.py::test_a_bookings_failure_is_a_502_never_an_empty_calendar`; `tests/unit/composite/venue_bookings/test_availability.py::test_an_unreachable_venues_service_is_named`
 
 ### TC-VENUEBOOKINGS-039 — A venue with nothing on it returns no entries
 
@@ -714,9 +715,9 @@ open `mon`–`fri` `08:00`–`18:00`.
 - **Pre-conditions:** `bookings` returns `[]` for both lists.
 - **Expected:** `200` with `"entries": []` and the venue's `operating_hours`.
   The frontend works out "Available" and "Closed" from these.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `200` with `entries: []` and the venue's operating hours.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_a_venue_with_nothing_on_it_returns_no_entries`
 
 ### TC-VENUEBOOKINGS-040 — A conflicting request's 409 reaches the Coordinator unchanged
 
@@ -731,9 +732,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   and now also " is already tentatively held on " and " is unavailable from ".
   Any other non-`201` from `bookings` is still `502`
   `{"detail":"Bookings service unavailable"}`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** All three details passed through as `409`; an unidentified `409` stayed `502`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_a_conflicting_requests_409_reaches_the_coordinator_unchanged`; `tests/unit/composite/venue_bookings/test_availability.py::test_an_unidentified_409_from_bookings_is_still_a_502`
 
 ### TC-VENUEBOOKINGS-041 — A decision refused by a block reaches Venue Staff unchanged
 
@@ -745,9 +746,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   `{"decision":"approved"}`.
 - **Expected:** `409` with that detail, not "This booking request has already
   been decided".
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `409` with the block detail.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_a_decision_refused_by_a_block_reaches_venue_staff_unchanged`
 
 ### TC-VENUEBOOKINGS-042 — Venue Staff add a block
 
@@ -760,9 +761,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   adds `venue_name: "Studio B"`, taken from the venues service, and forwards
   the caller's cookies. A body carrying `created_by` or `venue_name` → `422`
   (`extra="forbid"`), and nothing is forwarded.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `201`; forwarded body added `venue_name` from venues, with cookies. `created_by`/`venue_name` in the body `422`, nothing forwarded.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_venue_staff_add_a_block`; `tests/unit/composite/venue_bookings/test_availability.py::test_a_block_cannot_carry_server_owned_fields`
 
 ### TC-VENUEBOOKINGS-043 — Only Venue Staff manage blocks
 
@@ -774,9 +775,9 @@ open `mon`–`fri` `08:00`–`18:00`.
   without a session. `bookings` is never called. An unknown venue on create →
   `404` `{"detail":"Venue not found"}`. A `422` from `bookings` (TC-BOOKINGS-032)
   is passed through with its `errors`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Non-staff `403`, no session `401`, bookings never called; unknown venue `404`; bookings `422` passed through.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_only_venue_staff_manage_blocks`; `tests/unit/composite/venue_bookings/test_availability.py::test_no_session_cannot_manage_blocks`; `tests/unit/composite/venue_bookings/test_availability.py::test_a_block_on_an_unknown_venue_is_a_404`; `tests/unit/composite/venue_bookings/test_availability.py::test_the_bookings_field_errors_are_passed_through`
 
 ### TC-VENUEBOOKINGS-044 — Venue Staff remove a block
 
@@ -785,6 +786,6 @@ open `mon`–`fri` `08:00`–`18:00`.
   `bookings` answering `204` then `404`.
 - **Expected:** `204`, then `404` `{"detail":"Block not found"}`. Cookies are
   forwarded.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `204`, then `404` `Block not found`; cookies forwarded.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_availability.py::test_venue_staff_remove_a_block`

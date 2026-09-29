@@ -1,7 +1,8 @@
 # Bookings service
 
 Atomic FastAPI service for venue booking requests (S-36). It owns
-`bookings.bookings` and never queries another service's tables.
+`bookings.bookings`, and since S-30 `bookings.blocks` (days Venue Staff mark
+a venue unavailable). It never queries another service's tables.
 
 It stores and lists requests and records final staff decisions. Whether a venue can take a
 request is decided by the [`venue_bookings`](../../composite/venue_bookings/README.md)
@@ -17,10 +18,14 @@ internal-service contract. Atomic services never call the users service.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/bookings` | Store a checked booking request as `pending`. |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending request; overlapping confirmation is blocked. |
+| `POST` | `/bookings` | Store a checked booking request as `pending` — a tentative hold. Refused with `409` if it overlaps another hold, a confirmed booking or a block (S-30). |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending request; confirmation overlapping a confirmed booking or on a blocked day is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
+| `GET` | `/bookings?venue_id={id}&from={date}&to={date}` | S-30: one venue's requests dated in the range, every status, by date then start time. |
+| `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
+| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's blocks touching the range, by start date. |
+| `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -60,11 +65,16 @@ The option sets are the venue catalogue's (see
 
 | Query | Required | Values |
 | --- | --- | --- |
-| `status` | one of the two | `pending` |
-| `event_id` | one of the two | UUID |
+| `status` | one filter is | `pending` |
+| `event_id` | one filter is | UUID |
+| `venue_id`, `from`, `to` | all three together | UUID, date `YYYY-MM-DD`, date `YYYY-MM-DD` (inclusive) |
 
-Both may be given together. With neither, the answer is `422`
-`{"detail": "Filter by status or event_id"}` — nothing lists every booking.
+`status` and `event_id` may be given together. With no filter, the answer is
+`422` `{"detail": "Filter by status or event_id"}` — nothing lists every
+booking. A venue filter always needs its range: `venue_id`, `from` or `to`
+alone is `422` `{"detail": "Filter by venue_id with from and to"}`, and `to`
+before `from` is `422`
+`{"detail": "The end date must be on or after the start date"}`.
 
 ## Responses
 
@@ -98,6 +108,7 @@ the same shape (`[]` when there are none).
 
 | Status | Meaning |
 | --- | --- |
+| `409` | `POST /bookings` only (S-30): the slot is taken. One of `{"detail": "Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00."}`, `{"detail": "Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00."}` or `{"detail": "Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026."}` |
 | `422` | The body or query failed validation. `{"detail": "Please check the details you entered", "errors": {"<field>": "<message>"}}` |
 | `500` | `{"detail": "Booking storage unavailable"}` — Supabase could not be reached, or refused the write. |
 
@@ -190,9 +201,8 @@ with the team and rerun it.
 
 S-38 checks availability when Venue Staff confirm, then relies on that database
 constraint as the final authority. This prevents two concurrent confirmations
-from both winning. A blocked request stays pending. S-38 does not create holds,
-change venue records, or stop Coordinators from submitting competing pending
-requests.
+from both winning. A blocked request stays pending. S-38 did not create holds;
+S-30 since has — see below.
 
 ### S-37 verification
 
@@ -212,3 +222,95 @@ python -m pytest tests/e2e/test_decide_booking.py -q
 ```
 For development, after dev SQL setup: `docker compose up -d --build --wait`.
 Open Kong, or run `npm.cmd run dev` from frontend for hot reload.
+
+## S-30 holds and blocks
+
+**Holds.** A `pending` request is a tentative hold, and holds are exclusive.
+`POST /bookings` refuses, with the `409`s above, a request that overlaps a
+pending or confirmed request for the same venue and date, or that falls on a
+blocked day. The range is `[start,end)`, so back-to-back requests are fine;
+rejected requests hold nothing. The database constraint
+`bookings_no_live_overlap` is the final authority, so of two simultaneous
+overlapping requests exactly one is stored. Rejecting a request releases its
+hold. A hold has no expiry.
+
+**Blocks.** Whole days, inclusive at both ends, a venue cannot be used. A
+block may cover existing holds and bookings; none of them is changed —
+Venue Staff reassign those events offline. A pending request on a blocked day
+can still be rejected, but approving it is `409` with the
+"is unavailable from" detail.
+
+### `POST /blocks`
+
+Venue Staff only, with the `sb_access_token` cookie; the session is verified
+here as for decisions. The gateway equivalent is `POST /api/venue-bookings/blocks`.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `venue_id` | UUID | yes | |
+| `venue_name` | string | yes | A snapshot from the venues service, for messages. Trimmed; not blank. |
+| `start_date` | date `YYYY-MM-DD` | yes | First unavailable day. |
+| `end_date` | date `YYYY-MM-DD` | yes | Last unavailable day; on or after `start_date`. |
+| `reason` | string | yes | `maintenance`, `renovation`, `safety`, `internal_activity` or `other`. |
+| `note` | string or null | no | Trimmed; blank becomes null. Required when `reason` is `other`. |
+
+`created_by` (the verified staff id) and `created_at` are set by the service;
+sending either, or any other unknown field, is `422`.
+
+`201`:
+
+```json
+{
+  "id": "77777777-7777-4777-8777-777777777777",
+  "venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "venue_name": "Studio B",
+  "start_date": "2026-11-13",
+  "end_date": "2026-11-16",
+  "reason": "maintenance",
+  "note": "Ceiling repair",
+  "created_by": "abababab-abab-4bab-8bab-abababababab",
+  "created_at": "2026-11-10T01:00:00+00:00"
+}
+```
+
+### `GET /blocks`
+
+`venue_id`, `from` and `to` are all required, with the same `422`s as the
+venue filter on `GET /bookings`. `200` with a list of blocks shaped as above,
+every block overlapping the range (one that only partly does included), by
+start date.
+
+### `DELETE /blocks/{id}`
+
+Venue Staff only, with the cookie. `204` with no body; `404`
+`{"detail": "Block not found"}` if there is no such block.
+
+| Status | Meaning (block writes) |
+| --- | --- |
+| `401` | `{"detail": "Not authenticated"}` — no or expired session |
+| `403` | `{"detail": "Permission denied"}` — not Venue Staff |
+| `422` | Validation; field errors as above |
+| `500` | `{"detail": "Booking storage unavailable"}` |
+
+### S-30 database setup
+
+Copy the entire block between `BEGIN S-30 DATA-PRESERVING MIGRATION` and
+`END S-30 DATA-PRESERVING MIGRATION` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects. It replaces S-38's confirmed-only constraint with one over
+pending and confirmed rows, and creates `bookings.blocks` with its grant and
+RLS. If overlapping pending requests already exist it fails without changing
+anything; the block's comment has the query that finds them. No new schema,
+port or secret: `bookings` is already exposed.
+
+### S-30 verification
+
+```bash
+pytest tests/unit/atomic/bookings tests/unit/composite/venue_bookings
+node --test tests/unit/frontend/test_*.mjs
+
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings
+pytest tests/e2e/test_venue_availability.py
+```

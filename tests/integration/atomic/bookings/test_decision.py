@@ -96,6 +96,8 @@ def test_concurrent_decisions_have_one_winner(admin, booking_ids, actors):
                       json={'decision': 'approved'}, timeout=15).status_code == 409
 
 
+@pytest.mark.skip(reason='TC-BOOKINGS-104 is superseded by S-30: two overlapping pending requests '
+                         'can no longer exist. TC-BOOKINGS-106 covers the database guarantee.')
 def test_concurrent_overlapping_confirmations_have_one_winner(admin, booking_ids, actors):
     _, first_staff = actors('venue_staff')
     _, second_staff = actors('venue_staff')

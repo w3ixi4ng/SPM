@@ -168,5 +168,5 @@ in the test project.
   - No response includes an event name.
   - Cleanup deletes every row created.
 - **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
+- **Evidence:** `tests/integration/composite/venue_bookings/test_availability.py::test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_kong` (not run)

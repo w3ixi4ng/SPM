@@ -127,8 +127,8 @@ its grants.
 - **Expected:** `201`, then a list containing the block, then `204`, and the
   row is gone. Cleanup removes anything left over.
 - **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_a_block_can_be_saved_read_back_and_removed` (not run)
 
 ### TC-BOOKINGS-106 — Two simultaneous overlapping requests produce exactly one hold
 
@@ -143,8 +143,8 @@ its grants.
   is "already tentatively held on 12 Nov 2026 from …". Exactly one row exists
   for that venue and date.
 - **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_two_simultaneous_overlapping_requests_produce_exactly_one_hold` (not run)
 
 ### TC-BOOKINGS-107 — Rejecting a hold releases the slot
 
@@ -155,5 +155,5 @@ its grants.
 - **Expected:** The reject returns `200` and the new request returns `201`
   `pending`.
 - **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Status:** Blocked — The S-30 section of `backend/sql/bookings.sql` has not been applied to the test project yet, so this case cannot run.
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot` (not run)
