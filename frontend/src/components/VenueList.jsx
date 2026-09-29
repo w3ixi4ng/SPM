@@ -26,17 +26,49 @@ function VenueRow({ venue, canEdit, canViewAvailability }) {
     <li className="py-5 first:pt-0 last:pb-0 flex items-start gap-4" style={{ borderColor: C.line }}>
       <Building2 size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.sky }} />
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{venue.name}</h3>
-          <span className="inline-flex items-center gap-1.5 font-ui text-sm" style={{ color: C.inkFaint }}>
-            <Users size={14} aria-hidden="true" />
-            Capacity {venue.capacity.toLocaleString()}
-          </span>
+        {/* What the venue is on the left; its size, and what can be done with
+            it, on the right under the capacity. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0">
+            <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{venue.name}</h3>
+            <p className="font-ui text-sm mt-1 flex items-center gap-1.5" style={{ color: C.inkFaint }}>
+              <MapPin size={14} aria-hidden="true" className="shrink-0" />
+              {venue.location}
+            </p>
+          </div>
+          <div className="flex flex-col items-start sm:items-end gap-1.5">
+            <span className="inline-flex items-center gap-1.5 font-ui text-sm" style={{ color: C.inkFaint }}>
+              <Users size={14} aria-hidden="true" />
+              Capacity {venue.capacity.toLocaleString()}
+            </span>
+            {(canViewAvailability || canEdit) && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-ui text-sm font-medium">
+                {canViewAvailability && (
+                  <Link
+                    to={`/venues/${venue.id}/availability`}
+                    className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
+                    style={{ color: C.teal }}
+                    aria-label={`Availability for ${venue.name}`}
+                  >
+                    <CalendarDays size={15} aria-hidden="true" />
+                    Availability
+                  </Link>
+                )}
+                {canEdit && (
+                  <Link
+                    to={`/venues/${venue.id}/edit`}
+                    className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
+                    style={{ color: C.teal }}
+                    aria-label={`Edit ${venue.name}`}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                    Edit
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-        <p className="font-ui text-sm mt-1 flex items-center gap-1.5" style={{ color: C.inkFaint }}>
-          <MapPin size={14} aria-hidden="true" className="shrink-0" />
-          {venue.location}
-        </p>
         <dl className="font-ui text-sm mt-3 grid gap-1" style={{ color: C.inkFaint }}>
           <div className="flex gap-2">
             <dt className="font-medium shrink-0" style={{ color: C.ink }}>Layouts</dt>
@@ -65,33 +97,6 @@ function VenueRow({ venue, canEdit, canViewAvailability }) {
           <p className="font-ui text-sm leading-relaxed mt-3 max-w-md" style={{ color: C.inkFaint }}>
             {venue.description}
           </p>
-        )}
-        {(canViewAvailability || canEdit) && (
-          // What can be done with the venue, after what it is.
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 font-ui text-sm font-medium">
-            {canViewAvailability && (
-              <Link
-                to={`/venues/${venue.id}/availability`}
-                className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
-                style={{ color: C.teal }}
-                aria-label={`Availability for ${venue.name}`}
-              >
-                <CalendarDays size={15} aria-hidden="true" />
-                Availability
-              </Link>
-            )}
-            {canEdit && (
-              <Link
-                to={`/venues/${venue.id}/edit`}
-                className="inline-flex items-center gap-1.5 rounded-sm transition-colors duration-200"
-                style={{ color: C.teal }}
-                aria-label={`Edit ${venue.name}`}
-              >
-                <Pencil size={14} aria-hidden="true" />
-                Edit
-              </Link>
-            )}
-          </div>
         )}
       </div>
     </li>
