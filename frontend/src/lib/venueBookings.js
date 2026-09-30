@@ -129,6 +129,7 @@ export function listVenueBookingsForEvent(eventId) {
 
 const BOOKING_STATUS_META = {
   pending: { label: 'Pending', color: '#B5842B' },
+  held: { label: 'Tentatively held', color: '#B5842B' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
   rejected: { label: 'Rejected', color: '#B25547' },
 }
@@ -151,6 +152,22 @@ export function decideVenueBooking(id, { decision, reason = '', alternative = ''
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ decision, reason: reason.trim() || null, alternative: alternative.trim() || null }),
   })
+}
+
+export function placeVenueHold(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/hold`, { method: 'POST' })
+}
+
+export function releaseVenueHold(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/release`, { method: 'POST' })
+}
+
+export function holdActionErrorMessage(error) {
+  if (error.status === 401) return 'Your session has expired. Please sign in again.'
+  if (error.status === 403) return 'Only Venue Staff can manage tentative holds.'
+  if (error.status === 404) return 'This booking request could not be found. Reload the list.'
+  if (error.status === 409) return error.message
+  return "We couldn't update the tentative hold. Reload the list before trying again."
 }
 
 export function bookingDecisionErrorMessage(error) {

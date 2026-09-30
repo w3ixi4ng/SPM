@@ -41,7 +41,8 @@ RoomLayout = Literal[
 ]
 
 # S-36 creates pending requests; S-37 records final staff decisions.
-BookingStatus = Literal["pending", "confirmed", "rejected"]
+BookingStatus = Literal["pending", "held", "confirmed", "rejected"]
+HoldReleaseReason = Literal["staff_released", "event_rejected", "event_cancelled", "booking_replaced"]
 
 
 def _unique_in_order(values: list) -> list:
@@ -110,6 +111,10 @@ class BookingRead(BaseModel):
     decision_alternative: str | None = None
     decided_by: UUID | None = None
     decided_at: datetime | None = None
+    held_by: UUID | None = None
+    held_at: datetime | None = None
+    hold_released_at: datetime | None = None
+    hold_release_reason: HoldReleaseReason | None = None
     id: UUID
     event_id: UUID
     venue_id: UUID
@@ -205,3 +210,12 @@ class BookingDecision(BaseModel):
         if self.decision == "rejected" and not (self.reason or self.alternative):
             raise ValueError("Provide a reason or alternative to reject this request")
         return self
+
+
+class HoldRelease(BaseModel):
+    """Why an active hold is released. The caller and timestamp are trusted
+    service data and therefore cannot be supplied in this payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: HoldReleaseReason

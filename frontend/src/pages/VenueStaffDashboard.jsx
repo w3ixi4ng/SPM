@@ -9,8 +9,12 @@ import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   bookingDateLabel,
+  bookingStatusMeta,
+  holdActionErrorMessage,
   listPendingVenueBookings,
+  placeVenueHold,
   pendingListErrorMessage,
+  releaseVenueHold,
   shortTime,
 } from '../lib/venueBookings.js'
 import { optionLabel } from '../lib/venues.js'
@@ -73,7 +77,25 @@ function listLabel(codes) {
   return codes.length > 0 ? codes.map(optionLabel).join(', ') : null
 }
 
-function PendingBooking({ booking, canDecide, onDecided }) {
+function PendingBooking({ booking, canDecide, canManageHolds, onDecided }) {
+  const [holdSaving, setHoldSaving] = useState(false)
+  const [holdError, setHoldError] = useState(null)
+  const status = bookingStatusMeta(booking.status)
+
+  async function changeHold() {
+    setHoldSaving(true)
+    setHoldError(null)
+    try {
+      const updated = booking.status === 'held'
+        ? await releaseVenueHold(booking.id)
+        : await placeVenueHold(booking.id)
+      onDecided(updated)
+    } catch (failure) {
+      setHoldError(holdActionErrorMessage(failure))
+      setHoldSaving(false)
+    }
+  }
+
   return (
     <li className="py-5 first:pt-0 last:pb-0" style={{ borderColor: C.line }}>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
@@ -82,9 +104,9 @@ function PendingBooking({ booking, canDecide, onDecided }) {
           <span style={{ color: C.inkFaint }}> at </span>
           {booking.venue_name}
         </h3>
-        <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1" style={{ color: C.amber }}>
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
-          Pending
+        <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1" style={{ color: status.color }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} aria-hidden="true" />
+          {status.label}
         </span>
       </div>
       <p className="font-ui text-sm mb-2" style={{ color: C.ink }}>
@@ -103,12 +125,22 @@ function PendingBooking({ booking, canDecide, onDecided }) {
       <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>
         Requested by {booking.coordinator_name} ({booking.coordinator_email})
       </p>
+      {canManageHolds && (
+        <div className="mt-4">
+          <button type="button" disabled={holdSaving} onClick={changeHold}
+            className="px-4 py-2 rounded-sm border font-ui text-sm disabled:opacity-60"
+            style={{ borderColor: C.amber, color: C.amber }}>
+            {holdSaving ? 'Saving…' : booking.status === 'held' ? 'Release hold' : 'Place hold'}
+          </button>
+          {holdError && <p role="alert" className="font-ui text-sm mt-2" style={{ color: C.rose }}>{holdError}</p>}
+        </div>
+      )}
       {canDecide && <BookingDecisionForm booking={booking} onDecided={onDecided} />}
     </li>
   )
 }
 
-function PendingBookings({ bookings, loading, error, onRetry, canDecide, onDecided }) {
+function PendingBookings({ bookings, loading, error, onRetry, canDecide, canManageHolds, onDecided }) {
   if (loading) {
     return <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading booking requests…</p>
   }
@@ -131,7 +163,7 @@ function PendingBookings({ bookings, loading, error, onRetry, canDecide, onDecid
   }
   return (
     <ul className="divide-y" aria-label="Pending booking requests">
-      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} canDecide={canDecide} onDecided={onDecided} />)}
+      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} canDecide={canDecide} canManageHolds={canManageHolds} onDecided={onDecided} />)}
     </ul>
   )
 }
@@ -231,6 +263,7 @@ export default function VenueStaffDashboard({ role }) {
               error={pending.error}
               onRetry={pending.reload}
               canDecide={hasPermission(role, PERMISSIONS.DECIDE_VENUE_BOOKING)}
+              canManageHolds={hasPermission(role, PERMISSIONS.MANAGE_VENUE_HOLDS)}
               onDecided={() => { setNotice('Booking decision saved.'); pending.reload() }}
             />
           </section>

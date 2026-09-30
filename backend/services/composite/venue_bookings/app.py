@@ -155,6 +155,34 @@ async def submit_venue_booking(
     if problems:
         return JSONResponse(status_code=422, content={"detail": UNSUITABLE, "errors": problems})
 
+    # Read existing requests before writing so an identical retry is
+    # idempotent and a successful replacement can release the old hold.
+    previous_response = await _call(
+        "Bookings", bookings.get("/bookings", params={"event_id": str(payload.event_id)})
+    )
+    if previous_response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    previous_holds = [row for row in previous_response.json() if row.get("status") == "held"]
+
+    def slot(row):
+        return (
+            str(row["venue_id"]),
+            str(row["booking_date"]),
+            str(row["start_time"])[:5],
+            str(row["end_time"])[:5],
+        )
+
+    replacement_slot = slot(payload.model_dump(mode="json"))
+    existing = next(
+        (
+            row for row in previous_response.json()
+            if row.get("status") in ("pending", "held") and slot(row) == replacement_slot
+        ),
+        None,
+    )
+    if existing:
+        return JSONResponse(status_code=status.HTTP_201_CREATED, content=existing)
+
     body = _booking_body(payload, user, event, venue)
     response = await _call("Bookings", bookings.post("/bookings", json=body))
     # S-30: the slot is held, booked or blocked -- say which, as the bookings
@@ -164,7 +192,17 @@ async def submit_venue_booking(
         raise HTTPException(status_code=409, detail=conflict)
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
-    return response.json()
+    created = response.json()
+    for old in previous_holds:
+        if slot(old) == replacement_slot:
+            continue
+        released = await _call("Bookings", bookings.post(
+            f'/bookings/{old["id"]}/release',
+            json={"reason": "booking_replaced"}, cookies=request.cookies,
+        ))
+        if released.status_code != status.HTTP_200_OK:
+            raise _unavailable("Bookings")
+    return created
 
 
 @app.get("/venue-bookings")
@@ -191,15 +229,56 @@ async def list_venue_bookings_for_event(
 async def list_pending_venue_bookings(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     # Every Venue Staff member sees every pending request -- no filter by
     # who added the venue.
     await _authenticate(request, users, VENUE_STAFF_ROLE)
-    response = await _call("Bookings", bookings.get("/bookings", params={"status": "pending"}))
+    response = await _call("Bookings", bookings.get("/bookings", params={"status": "actionable"}))
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    return response.json()
+    return await _release_terminal_holds(response.json(), events, bookings, request.cookies)
+
+
+@app.post("/venue-bookings/{booking_id}/hold")
+async def hold_venue_booking(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    response = await _call(
+        "Bookings", bookings.post(f"/bookings/{booking_id}/hold", cookies=request.cookies)
+    )
+    if response.status_code == 200:
+        return response.json()
+    conflict = _identified_conflict(response)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
+    if response.status_code in (401, 403, 404, 409):
+        raise HTTPException(status_code=response.status_code, detail=(response.json() or {}).get("detail"))
+    raise _unavailable("Bookings")
+
+
+@app.post("/venue-bookings/{booking_id}/release")
+async def release_venue_booking(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    response = await _call("Bookings", bookings.post(
+        f"/bookings/{booking_id}/release",
+        json={"reason": "staff_released"}, cookies=request.cookies,
+    ))
+    if response.status_code == 200:
+        return response.json()
+    if response.status_code in (401, 403, 404, 409):
+        raise HTTPException(status_code=response.status_code, detail=(response.json() or {}).get("detail"))
+    raise _unavailable("Bookings")
 
 
 @app.post("/venue-bookings/{booking_id}/decision")
@@ -238,6 +317,39 @@ async def _list(bookings: httpx.AsyncClient, path: str, params: dict) -> list[di
     return response.json()
 
 
+async def _release_terminal_holds(rows, events, bookings, cookies):
+    """Release a hold once Venue Staff observe that its authoritative event
+    is rejected or cancelled. A dependency failure is conservative: the
+    calendar/request list fails rather than claiming the slot is available."""
+    current = []
+    for row in rows:
+        if row.get("status") != "held":
+            current.append(row)
+            continue
+        event = await _call(
+            "Events", events.get(f'/events/booking-status/{row["event_id"]}', cookies=cookies)
+        )
+        if event.status_code == 404:
+            current.append(row)
+            continue
+        if event.status_code != 200:
+            raise _unavailable("Events")
+        event_status = event.json().get("status")
+        if event_status not in ("rejected", "cancelled"):
+            current.append(row)
+            continue
+        released = await _call("Bookings", bookings.post(
+            f'/bookings/{row["id"]}/release',
+            json={"reason": f"event_{event_status}"}, cookies=cookies,
+        ))
+        if released.status_code != 200:
+            raise _unavailable("Bookings")
+        # A terminal event must disappear from the actionable list as soon as
+        # its hold is released; returning it as pending would allow re-holding
+        # a rejected or cancelled event.
+    return current
+
+
 @app.get("/venue-bookings/availability")
 async def venue_availability(
     venue_id: UUID,
@@ -245,6 +357,7 @@ async def venue_availability(
     from_date: date = Query(alias="from"),
     to_date: date = Query(alias="to"),
     users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
@@ -263,6 +376,8 @@ async def venue_availability(
     venue = await _fetch("Venues", venues, f"/venues/{venue_id}", request.cookies, "Venue not found")
     params = {"venue_id": str(venue_id), "from": from_date.isoformat(), "to": to_date.isoformat()}
     booked = await _list(bookings, "/bookings", params)
+    if user["role"] == VENUE_STAFF_ROLE:
+        booked = await _release_terminal_holds(booked, events, bookings, request.cookies)
     blocked = await _list(bookings, "/blocks", params)
 
     return {

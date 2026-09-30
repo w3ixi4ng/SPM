@@ -37,8 +37,12 @@ create table if not exists bookings.bookings (
   coordinator_name           text not null,
   coordinator_email          text not null,
 
-  -- S-37: confirmation is the final state of this original request row.
+  -- S-33: pending requests may be tentatively held before a final decision.
   status                     text not null default 'pending',
+  held_by                    uuid,
+  held_at                    timestamptz,
+  hold_released_at           timestamptz,
+  hold_release_reason        text,
 
   booking_date               date not null,
   start_time                 time without time zone not null,
@@ -57,7 +61,21 @@ create table if not exists bookings.bookings (
   submitted_at               timestamptz not null default now(),
 
   constraint bookings_status_allowed
-    check (status in ('pending', 'confirmed', 'rejected')),
+    check (status in ('pending', 'held', 'confirmed', 'rejected')),
+
+  constraint bookings_hold_valid check (
+    (status = 'held' and held_by is not null and held_at is not null
+      and hold_released_at is null and hold_release_reason is null)
+    or (status <> 'held'
+      and ((hold_released_at is null and hold_release_reason is null)
+        or (hold_released_at is not null and hold_release_reason is not null)))
+  ),
+
+  constraint bookings_hold_release_reason_allowed check (
+    hold_release_reason is null or hold_release_reason in (
+      'staff_released', 'event_rejected', 'event_cancelled', 'booking_replaced'
+    )
+  ),
 
   -- One date, so the end is simply after the start. A venue's opening hours
   -- never cross midnight, so neither can a booking.
@@ -298,3 +316,67 @@ notify pgrst, 'reload schema';
 commit;
 -- END S-30 DATA-PRESERVING MIGRATION
 notify pgrst, 'reload schema';
+
+-- BEGIN S-33 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- Existing pending rows were displayed as S-30 holds, so migrate them to the
+-- explicit held state rather than silently making their slots available.
+begin;
+
+alter table bookings.bookings
+  add column if not exists held_by uuid,
+  add column if not exists held_at timestamptz,
+  add column if not exists hold_released_at timestamptz,
+  add column if not exists hold_release_reason text;
+
+alter table bookings.bookings drop constraint if exists bookings_no_live_overlap;
+alter table bookings.bookings drop constraint if exists bookings_status_allowed;
+alter table bookings.bookings drop constraint if exists bookings_decision_valid;
+alter table bookings.bookings drop constraint if exists bookings_hold_valid;
+alter table bookings.bookings drop constraint if exists bookings_hold_release_reason_allowed;
+
+-- The coordinator who created an old pending request is the best available
+-- audit identity for the automatic S-30 hold being migrated.
+update bookings.bookings
+set status = 'held', held_by = coordinator_id, held_at = submitted_at
+where status = 'pending';
+
+alter table bookings.bookings add constraint bookings_status_allowed
+  check (status in ('pending', 'held', 'confirmed', 'rejected'));
+
+alter table bookings.bookings add constraint bookings_decision_valid check (
+  (decision_reason is null or decision_reason ~ '[^[:space:]]')
+  and (decision_alternative is null or decision_alternative ~ '[^[:space:]]')
+  and (
+    (status in ('pending', 'held') and decided_by is null and decided_at is null
+      and decision_reason is null and decision_alternative is null)
+    or (status in ('confirmed', 'rejected') and decided_by is not null
+      and decided_at is not null
+      and (status = 'confirmed' or decision_reason is not null
+           or decision_alternative is not null))
+  )
+);
+
+alter table bookings.bookings add constraint bookings_hold_release_reason_allowed
+  check (hold_release_reason is null or hold_release_reason in (
+    'staff_released', 'event_rejected', 'event_cancelled', 'booking_replaced'
+  ));
+
+alter table bookings.bookings add constraint bookings_hold_valid check (
+  (status = 'held' and held_by is not null and held_at is not null
+    and hold_released_at is null and hold_release_reason is null)
+  or (status <> 'held'
+    and ((hold_released_at is null and hold_release_reason is null)
+      or (hold_released_at is not null and hold_release_reason is not null)))
+);
+
+alter table bookings.bookings
+  add constraint bookings_no_live_overlap
+  exclude using gist (
+    venue_id with =,
+    (tsrange(booking_date + start_time, booking_date + end_time, '[)')) with &&
+  ) where (status in ('held', 'confirmed'));
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-33 DATA-PRESERVING MIGRATION

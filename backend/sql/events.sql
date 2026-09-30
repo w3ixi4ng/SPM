@@ -100,7 +100,7 @@ create table if not exists events.events (
   -- underway. There is no 'approved' status; approved is only ever the
   -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'planning', 'confirmed', 'rejected', 'returned')),
+    check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned')),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -182,7 +182,7 @@ create table if not exists events.events (
   constraint events_decision_matches_status
     check (
       (status in ('draft', 'submitted') and decision is null)
-      or (status in ('planning', 'confirmed', 'rejected', 'returned') and decision is not null)
+      or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
     ),
 
   constraint events_decision_allowed
@@ -250,13 +250,13 @@ alter table events.events
 
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
-  check (status in ('draft', 'submitted', 'planning', 'confirmed', 'rejected', 'returned'));
+  check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned'));
 
 alter table events.events drop constraint if exists events_decision_matches_status;
 alter table events.events add constraint events_decision_matches_status
   check (
     (status in ('draft', 'submitted') and decision is null)
-    or (status in ('planning', 'confirmed', 'rejected', 'returned') and decision is not null)
+    or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
   );
 
 alter table events.events

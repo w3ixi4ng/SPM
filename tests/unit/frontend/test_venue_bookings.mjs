@@ -4,13 +4,29 @@ import test from 'node:test'
 import { ApiError } from '../../../frontend/src/lib/api.js'
 import {
   canRequestVenue,
+  holdActionErrorMessage,
   listPendingVenueBookings,
   listVenueBookingsForEvent,
+  placeVenueHold,
+  releaseVenueHold,
   submitVenueBooking,
   venueBookingErrorMessages,
   venueFit,
   venueWarning,
 } from '../../../frontend/src/lib/venueBookings.js'
+
+test('hold actions use authenticated gateway routes and safe errors', async () => {
+  const calls = await recordingFetch(async () => {
+    await placeVenueHold('b 1/2')
+    await releaseVenueHold('b 1/2')
+  })
+  assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
+    ['/api/venue-bookings/b%201%2F2/hold', 'POST'],
+    ['/api/venue-bookings/b%201%2F2/release', 'POST'],
+  ])
+  assert.equal(holdActionErrorMessage(new ApiError('conflict', 409)), 'conflict')
+  assert.match(holdActionErrorMessage(new ApiError('down', 500)), /Reload the list/)
+})
 
 const FULL_FORM = {
   eventId: 'e1',

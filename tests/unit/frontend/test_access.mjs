@@ -92,6 +92,16 @@ test('only coordinators request venues and only venue staff see pending requests
   }
 })
 
+test('only venue staff manage tentative holds', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    assert.equal(
+      hasPermission(role, PERMISSIONS.MANAGE_VENUE_HOLDS),
+      role === 'venue_staff',
+      role,
+    )
+  }
+})
+
 // --- TC-FRONTEND-042 -------------------------------------------------------
 test('coordinators edit requirements and technical support can only view them', () => {
   const expected = {

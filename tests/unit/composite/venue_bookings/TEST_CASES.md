@@ -590,7 +590,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.
-Confirmed by the developer on 2026-09-30. Not yet executed.
+Confirmed by the developer on 2026-09-30. Executed locally on 2026-09-30.
 
 **Acceptance criteria → cases (all layers)**
 
@@ -804,9 +804,9 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** Place a hold, list availability by venue/date range, and release a hold through the composite routes.
 - **Test data:** Booking B; venue V; `2026-11-01` through `2026-11-30`; release reason supplied internally rather than by the browser.
 - **Expected:** Missing session returns `401`; nonstaff returns `403`; Venue Staff calls are forwarded with verified session. The browser cannot forge hold/release staff, timestamps or release reason. Safe downstream failures never report success.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Only Venue Staff could place or release holds; cookies were forwarded and browser-controlled audit fields were absent.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py`
 
 ### TC-VENUEBOOKINGS-046 — Event state and replacement requests release holds through orchestration
 
@@ -815,6 +815,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** Synchronise E when its authoritative status is `rejected`, `cancelled`, and each nonterminal status; submit a replacement venue request with a changed venue, date or time; repeat the same request unchanged.
 - **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacements change venue to Studio C, date to `2026-11-13`, or time to `13:00`–`16:00`.
 - **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Rejected/cancelled events released and disappeared from actionable results; changed requests released the old hold, while identical retries returned the existing row.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py`

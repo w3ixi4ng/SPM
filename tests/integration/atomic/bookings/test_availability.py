@@ -58,25 +58,32 @@ def test_a_block_can_be_saved_read_back_and_removed(admin, block_ids, actors):
 
 
 # --- TC-BOOKINGS-106 ------------------------------------------------------
-def test_two_simultaneous_overlapping_requests_produce_exactly_one_hold(admin, booking_ids):
+def test_two_simultaneous_overlapping_requests_produce_exactly_one_hold(admin, booking_ids, actors):
     venue_id = str(uuid.uuid4())
     barrier = Barrier(2)
+    _, staff = actors('venue_staff')
 
-    def submit(start_time, end_time):
+    pending = [
+        httpx.post(f'{BASE_URL}/bookings', json=booking_body(venue_id, '09:00', '12:00'), timeout=20),
+        httpx.post(f'{BASE_URL}/bookings', json=booking_body(venue_id, '11:00', '13:00'), timeout=20),
+    ]
+    assert all(response.status_code == 201 for response in pending)
+    booking_ids.extend(response.json()['id'] for response in pending)
+
+    def hold(booking_id):
         barrier.wait(timeout=10)
-        return httpx.post(f'{BASE_URL}/bookings', json=booking_body(venue_id, start_time, end_time), timeout=20)
+        return httpx.post(f'{BASE_URL}/bookings/{booking_id}/hold', headers=staff, timeout=20)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        one = pool.submit(submit, '09:00', '12:00')
-        two = pool.submit(submit, '11:00', '13:00')
+        one = pool.submit(hold, pending[0].json()['id'])
+        two = pool.submit(hold, pending[1].json()['id'])
         responses = [one.result(), two.result()]
 
-    booking_ids.extend(response.json()['id'] for response in responses if response.status_code == 201)
-    assert sorted(response.status_code for response in responses) == [201, 409]
+    assert sorted(response.status_code for response in responses) == [200, 409]
     conflict = next(response for response in responses if response.status_code == 409)
     assert 'Studio B is already tentatively held on 12 Nov 2026 from ' in conflict.json()['detail']
-    rows = admin.schema('bookings').table('bookings').select('id').eq('venue_id', venue_id).execute().data
-    assert len(rows) == 1
+    rows = admin.schema('bookings').table('bookings').select('status').eq('venue_id', venue_id).execute().data
+    assert sorted(row['status'] for row in rows) == ['held', 'pending']
 
 
 # --- TC-BOOKINGS-107 ------------------------------------------------------

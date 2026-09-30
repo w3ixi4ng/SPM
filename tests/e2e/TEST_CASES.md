@@ -494,7 +494,7 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.
-Confirmed by the developer on 2026-09-30. Not yet executed.
+Confirmed by the developer on 2026-09-30. Executed locally on 2026-09-30.
 Both cases are **Blocked** until the S-30 section of `backend/sql/bookings.sql`
 has been run in the test project. Dates are relative to the day of the run:
 `D+n` means n days after the browser's today, so the suite keeps working as
@@ -602,9 +602,9 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** Sign in as Venue Staff; place the hold; inspect availability; verify an overlapping request is blocked; sign in as the Coordinator and submit a replacement at a different time; return as Venue Staff and inspect availability without a full page reload; place a hold in the freed old slot.
 - **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacement `13:00`–`16:00`; competing request `10:00`–`11:00`.
 - **Expected:** Original request stays actionable and is labelled Held. Calendar shows `Tentative hold` distinctly from a Confirmed fixture. Overlap is blocked with the identified held slot. Replacement removes the old calendar entry immediately and permits another hold at `09:00`–`12:00`; the replacement remains Pending until staff place its hold.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Venue Staff placed the hold and saw Tentatively held in the dashboard/calendar; the Coordinator's changed request released the original row with `booking_replaced`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_tentative_hold.py::test_tentative_hold_is_distinct_and_replacement_releases_it[chromium]`.
 
 ## TC-E2E-224 — Rejected or cancelled event releases its tentative hold
 
@@ -613,6 +613,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** Open availability; trigger each authoritative event-state change through the supported service boundary; refresh/synchronise the workspace; inspect availability and attempt an overlapping hold.
 - **Test data:** Studio B `2026-11-12` `09:00`–`12:00`; release states `rejected`, `cancelled`.
 - **Expected:** Each state releases its hold with the matching reason, removes Tentative from the calendar immediately after the state is observed, and allows another event to hold the same slot. No cancellation button is introduced by S-33.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Both rejected and cancelled event states released the held booking with the matching audit reason; the request disappeared and its calendar day returned to Available.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_tentative_hold.py::test_terminal_event_releases_hold_when_staff_refreshes[chromium-rejected]` and `[chromium-cancelled]`.

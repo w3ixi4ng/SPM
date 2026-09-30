@@ -74,7 +74,7 @@ def test_a_request_overlapping_a_confirmed_booking_is_refused(client, db, start,
 # --- TC-BOOKINGS-026 ------------------------------------------------------
 @pytest.mark.parametrize('start, end', OVERLAPS)
 def test_a_request_overlapping_a_tentative_hold_is_refused(client, db, start, end):
-    query = lookups(db, [existing('pending')], [])
+    query = lookups(db, [existing('held')], [])
 
     response = client.post('/bookings', json={**BOOKING, 'start_time': start, 'end_time': end})
 
@@ -86,7 +86,7 @@ def test_a_request_overlapping_a_tentative_hold_is_refused(client, db, start, en
     eq_calls = [call.args for call in query.eq.call_args_list]
     assert ('venue_id', STUDIO_B) in eq_calls
     assert ('booking_date', '2026-11-12') in eq_calls
-    query.in_.assert_called_once_with('status', ['pending', 'confirmed'])
+    query.in_.assert_called_once_with('status', ['held', 'confirmed'])
     query.lt.assert_called_once_with('start_time', f'{end}:00')
     query.gt.assert_called_once_with('end_time', f'{start}:00')
 
@@ -114,7 +114,7 @@ def test_a_simultaneous_request_that_loses_the_race_is_told_why(client, db):
     class ExclusionViolation(Exception):
         code = '23P01'
 
-    lookups(db, [], [], [existing('pending', '09:00:00', '12:00:00')])
+    lookups(db, [], [], [existing('held', '09:00:00', '12:00:00')])
     table(db).insert.return_value.execute.side_effect = ExclusionViolation('private detail')
 
     response = client.post('/bookings', json=BOOKING)
@@ -163,6 +163,7 @@ def test_a_pending_request_on_a_blocked_day_can_still_be_rejected(client, db, au
     lookups(db, [booking])
     update = table(db).update.return_value
     update.eq.return_value = update
+    update.in_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(
         data=[booking_row(booking_date='2026-11-13', **table(db).update.call_args.args[0])]
     )

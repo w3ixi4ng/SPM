@@ -233,6 +233,22 @@ def get_assigned_event(
     return _get_assigned_event(event_id, str(user.id), db)
 
 
+@app.get("/events/booking-status/{event_id}")
+def get_booking_status(
+    event_id: UUID,
+    user=Depends(require_permission("events:view_booking_status")),
+    db: Client = Depends(get_db),
+):
+    """Minimal event state for Venue Staff hold synchronisation. No event
+    details are exposed across the role boundary."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).select("id,status").eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
+
+
 @app.get("/events/{event_id}", response_model=EventRead)
 def get_event(
     event_id: UUID,

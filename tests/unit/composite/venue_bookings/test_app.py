@@ -406,7 +406,7 @@ def test_any_venue_staff_member_sees_every_pending_request(client, services):
     assert response.json() == pending
     services.bookings.get.assert_called_once()
     assert services.bookings.get.call_args.args[0] == "/bookings"
-    assert services.bookings.get.call_args.kwargs["params"] == {"status": "pending"}
+    assert services.bookings.get.call_args.kwargs["params"] == {"status": "actionable"}
 
 
 # --- TC-VENUEBOOKINGS-024 --------------------------------------------------

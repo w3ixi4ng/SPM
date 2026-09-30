@@ -11,7 +11,7 @@ which they need to remove it. Rejected requests are not on the calendar.
 
 # The booking status each calendar state comes from. Anything else -- a
 # rejected request -- is left off.
-STATES = {"pending": "held", "confirmed": "confirmed"}
+STATES = {"held": "held", "confirmed": "confirmed"}
 
 
 def _booking_entry(booking: dict) -> dict:

@@ -18,6 +18,7 @@ class EventStatus(str, Enum):
     # status moves on.
     PLANNING = "planning"
     CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
     REJECTED = "rejected"
     RETURNED = "returned"
 

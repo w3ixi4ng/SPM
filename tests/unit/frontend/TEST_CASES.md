@@ -1119,7 +1119,7 @@ request**, like any other mismatch. Each venue's mark sits under its name.
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.
-Confirmed by the developer on 2026-09-30. Not yet executed.
+Confirmed by the developer on 2026-09-30. Executed locally on 2026-09-30.
 These cases cover a new `frontend/src/lib/venueAvailability.js` and additions
 to `venueBookings.js` and `access.js`. They are pure functions, tested with no
 browser. "Today" is passed in as a local date, `2026-11-10`, the same way
@@ -1334,9 +1334,9 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** Check every role; place a hold; map `401`, `403`, `404`, `409`, `422`, `500` and network failures.
 - **Test data:** Booking B; identified Held/Confirmed conflict responses.
 - **Expected:** Only Venue Staff receive the hold permission. The authenticated action sends no protected metadata. Success renders Held and keeps Confirm/Reject actions. Conflict names the blocking slot; failures never show success or Confirmed.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Venue Staff alone received the permission; hold/release used credentialled routes with safe success and error mapping.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_access.mjs` and `tests/unit/frontend/test_venue_bookings.mjs`
 
 ### TC-FRONTEND-080 — Availability calendar distinguishes Tentative and Confirmed slots
 
@@ -1345,6 +1345,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** Load a venue/month; map entries to calendar presentation; apply a release response without reloading the page.
 - **Test data:** Studio B in November 2026: Held `09:00`–`12:00`, Confirmed `13:00`–`16:00`, Released `17:00`–`18:00`.
 - **Expected:** The request is credentialled and scoped to venue/date range. Held displays `Tentative hold` with a distinct label/colour from `Confirmed`. Released is absent. After release, the Tentative entry disappears immediately and the slot displays as available.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Held entries map to Tentative while Confirmed remains distinct, and released Pending rows do not appear on the calendar.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_bookings.mjs` and existing calendar presentation tests; full Node suite, 93 passed.

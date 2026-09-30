@@ -18,8 +18,8 @@ from fastapi.responses import JSONResponse
 from supabase import Client
 
 from database import get_db
-from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision
-from security import require_venue_staff
+from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision, HoldRelease
+from security import require_user, require_venue_staff
 
 app = FastAPI(title="Bookings Service")
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ BLOCKS = "blocks"
 
 # S-30: a pending request is a tentative hold, and holds are exclusive, so a
 # new request must not overlap either of these.
-LIVE_STATUSES = ["pending", "confirmed"]
+LIVE_STATUSES = ["held", "confirmed"]
 
 
 @app.exception_handler(RequestValidationError)
@@ -132,7 +132,7 @@ def _conflict_detail(conflict: dict) -> str:
     booking_date = _date_label(conflict["booking_date"])
     start = str(conflict["start_time"])[:5]
     end = str(conflict["end_time"])[:5]
-    taken = "tentatively held" if conflict.get("status") == "pending" else "confirmed"
+    taken = "tentatively held" if conflict.get("status") == "held" else "confirmed"
     return (
         f'{conflict["venue_name"]} is already {taken} on {booking_date} '
         f"from {start} to {end}."
@@ -168,11 +168,11 @@ def decide_booking(
     booking = _booking(db, booking_id)
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if booking["status"] != "pending":
+    if booking["status"] not in ("pending", "held"):
         raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
     if payload.decision == "approved":
-        conflict = _overlap(db, booking)
+        conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
         if conflict:
             _raise_overlap(conflict)
         # S-30: a block added after the request was sent stops it being
@@ -194,7 +194,7 @@ def decide_booking(
     try:
         result = db.schema(SCHEMA).table(TABLE).update(values).eq(
             "id", str(booking_id)
-        ).eq("status", "pending").execute()
+    ).in_("status", ["pending", "held"]).execute()
     except Exception as exc:
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
             conflict = _overlap(db, booking)
@@ -207,6 +207,87 @@ def decide_booking(
     raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
 
+@app.post("/bookings/{booking_id}/hold", response_model=BookingRead)
+def place_hold(
+    booking_id: UUID,
+    staff=Depends(require_venue_staff),
+    db: Client = Depends(get_db),
+):
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] == "held":
+        return booking
+    if booking["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
+
+    conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+    if conflict:
+        _raise_overlap(conflict)
+    block = _block_on(db, booking["venue_id"], booking["booking_date"])
+    if block:
+        _raise_blocked(block)
+
+    values = {
+        "status": "held",
+        "held_by": str(staff.id),
+        "held_at": datetime.now(timezone.utc).isoformat(),
+        "hold_released_at": None,
+        "hold_release_reason": None,
+    }
+    try:
+        result = db.schema(SCHEMA).table(TABLE).update(values).eq(
+            "id", str(booking_id)
+        ).eq("status", "pending").execute()
+    except Exception as exc:
+        if getattr(exc, "code", None) == "23P01":
+            conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+            if conflict:
+                _raise_overlap(conflict)
+        logger.exception("Booking storage operation failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
+    if result.data:
+        return result.data[0]
+    raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
+
+
+@app.post("/bookings/{booking_id}/release", response_model=BookingRead)
+def release_hold(
+    booking_id: UUID,
+    payload: HoldRelease,
+    user=Depends(require_user),
+    db: Client = Depends(get_db),
+):
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    role = (getattr(user, "app_metadata", None) or {}).get("role")
+    if role == "event_coordinator":
+        if payload.reason != "booking_replaced" or str(user.id) != str(booking["coordinator_id"]):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    elif role == "venue_staff":
+        pass
+    else:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    if booking["status"] == "pending" and booking.get("hold_release_reason") == payload.reason:
+        return booking
+    if booking["status"] != "held":
+        raise HTTPException(status_code=409, detail="Only a tentative hold can be released")
+
+    values = {
+        "status": "pending",
+        "hold_released_at": datetime.now(timezone.utc).isoformat(),
+        "hold_release_reason": payload.reason,
+    }
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(booking_id)).eq("status", "held")
+    )
+    if result.data:
+        return result.data[0]
+    raise HTTPException(status_code=409, detail="Only a tentative hold can be released")
+
+
 @app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)
 def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
     values = payload.model_dump(mode="json")
@@ -215,17 +296,14 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
     # backdated ahead of others in Venue Staff's queue.
     values["submitted_at"] = datetime.now(timezone.utc).isoformat()
 
-    # S-30: the request becomes a tentative hold, so it must not overlap
-    # another hold, a confirmed booking, or a block on that day.
+    # A new request is pending and does not itself reserve the slot, but it
+    # may not be submitted into a slot already held, confirmed or blocked.
     conflict = _live_overlap(db, values)
     if conflict:
         _raise_overlap(conflict)
     block = _block_on(db, values["venue_id"], values["booking_date"])
     if block:
         _raise_blocked(block)
-
-    # The exclusion constraint is the final authority: two simultaneous
-    # requests can both pass the check above, and only one insert wins.
     try:
         result = db.schema(SCHEMA).table(TABLE).insert(values).execute()
     except Exception as exc:
@@ -254,7 +332,7 @@ def _date_range(venue_id, from_date, to_date):
 
 @app.get("/bookings", response_model=list[BookingRead])
 def list_bookings(
-    booking_status: Literal["pending"] | None = Query(default=None, alias="status"),
+    booking_status: Literal["pending", "held", "actionable"] | None = Query(default=None, alias="status"),
     event_id: UUID | None = None,
     venue_id: UUID | None = None,
     from_date: date | None = Query(default=None, alias="from"),
@@ -278,7 +356,9 @@ def list_bookings(
         raise HTTPException(status_code=422, detail="Filter by status or event_id")
 
     operation = db.schema(SCHEMA).table(TABLE).select("*")
-    if booking_status is not None:
+    if booking_status == "actionable":
+        operation = operation.in_("status", ["pending", "held"])
+    elif booking_status is not None:
         operation = operation.eq("status", booking_status)
     if event_id is not None:
         operation = operation.eq("event_id", str(event_id))
