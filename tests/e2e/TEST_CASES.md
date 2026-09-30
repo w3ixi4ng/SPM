@@ -586,6 +586,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
   - Step 4: "1 of 10 available", "9 reserved", and a checked-at time no
     earlier than before.
   - Cleanup removes every row created.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Reached from the dashboard and survived a reload; Start date min was today; "3 of 10 available", "7 reserved", "Not enough — 3 available" and "Checked at …"; the expanded list showed the event, 10:00–11:00 and Planning; after the second hold, "1 of 10 available" and "9 reserved".
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_check_equipment_availability.py::test_technical_support_checks_a_window_and_rechecks_after_a_change[chromium]`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; 1 passed.

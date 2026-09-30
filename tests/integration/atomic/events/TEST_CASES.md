@@ -115,6 +115,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Steps:** `POST /events/overlapping` for 2031-03-04 09:00–12:00.
 - **Expected:** `200` with exactly the `planning` 10:00 and `confirmed` 11:30
   events among those seeded. Cleanup deletes every seeded event.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `200`; of the seeded events, exactly the planning 10:00 and confirmed 11:30 events were returned; rejected and back-to-back were not.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_overlapping.py::test_the_overlapping_events_query_works_against_the_real_table`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; 4 passed across the S-44 integration run.

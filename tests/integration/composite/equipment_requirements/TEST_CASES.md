@@ -61,6 +61,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
   left out), `available 5`, `sufficient true`, reservations P and C only.
   Step 2: `reserved 6`, `available 4`, `sufficient false`. Cleanup deletes
   every event, requirement and item created.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Through Kong: reserved 5 (planning + confirmed), available 5, sufficient true, reservations P and C only; after the extra 1-unit hold, reserved 6, available 4, sufficient false.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/equipment_requirements/test_availability.py::test_the_availability_check_through_kong_reflects_live_events_and_requirements`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/events/test_overlapping.py tests/integration/composite/equipment_requirements`: 4 passed.
