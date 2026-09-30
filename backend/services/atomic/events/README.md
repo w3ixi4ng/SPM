@@ -28,6 +28,7 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | --- | --- | --- |
 | `POST` | `/events/coordinator-load` | Conflict and current load for a set of coordinators against a requested window. Takes an optional `exclude_event_id` so rechecking an existing event never conflicts with itself. |
 | `POST` | `/events/technical-support-load` | Conflict and current live workload for candidate Technical Support Staff against a requested window. |
+| `POST` | `/events/overlapping` | S-44: the `planning` and `confirmed` events overlapping a window, for the `equipment_requirements` composite's availability check. |
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
@@ -317,6 +318,27 @@ each candidate it reports `staff_id`, strict-overlap `conflict`, and
 `assigned_count`. Only existing `planning` and `confirmed` assignments count;
 draft, submitted, returned, rejected, completed and cancelled events do not.
 An event ending exactly when another begins is not a conflict.
+
+### `POST /events/overlapping`
+
+S-44, called by the `equipment_requirements` composite (not `event_requests`).
+Takes exactly `start_date`, `start_time`, `end_date` and `end_time`; the end
+must be after the start, or it is `422`. The window may span days.
+
+```json
+{"start_date": "2026-11-12", "start_time": "09:00", "end_date": "2026-11-12", "end_time": "12:00"}
+```
+
+`200` with the overlapping events in start order, each shaped:
+
+```json
+{"id": "…", "name": "Alumni talk", "status": "planning", "start_date": "2026-11-12", "start_time": "10:00:00", "end_date": "2026-11-12", "end_time": "11:00:00"}
+```
+
+Only `planning` and `confirmed` events are returned: their equipment
+requirements reserve equipment. An event ending exactly when the window
+starts, or starting exactly when it ends, is not an overlap. `500` with the
+usual safe detail if storage fails.
 
 ### `PUT /events/{event_id}/technical-support/internal`
 

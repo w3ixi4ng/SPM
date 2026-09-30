@@ -1248,3 +1248,76 @@ is open `mon`–`fri` `08:00`–`18:00`.
 - **Actual:** Only Coordinator and Venue Staff had `view_availability`; only Venue Staff had `manage_blocks`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — Coordinators and Venue Staff see the calendar, and only staff manage blocks`
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+These cases cover a new `frontend/src/lib/equipmentAvailability.js` and an
+addition to `access.js`. Today is passed in as `2026-11-10`.
+
+## TC-FRONTEND-074 — the check's form is validated before anything is sent
+
+- **Scenario:** Useful messages before a request (S-44 AC1).
+- **Steps:** Call `validateAvailabilityForm` with: everything blank; start
+  `2026-11-12 12:00` and end `2026-11-12 12:00`; end date before start date;
+  quantity `0`, `-2` and `1.5`; a valid window with a blank type and quantity.
+- **Expected:** Blank → "Choose a start date and time." and "Choose an end
+  date and time."; equal or reversed → "The end must be after the start.";
+  bad quantities → "Enter a whole number of 1 or more, or leave it blank.";
+  the last → no errors (type and quantity are optional).
+- **Actual:** All the specified messages; a valid window with blank type and quantity had none.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — the check form is validated before anything is sent`
+
+## TC-FRONTEND-075 — each item reads as available, short, unavailable or over-reserved
+
+- **Scenario:** The result's wording (S-44 AC1, AC2).
+- **Steps:** Call `availabilitySummary(item)` for the items in
+  TC-EQUIPMENTREQUIREMENTS-012 and 014, with and without a quantity.
+- **Expected:**
+  - Microphone → "2 of 12 available", with the reserved "10 reserved".
+  - With quantity 2 → "Enough" (green); with 3 → "Not enough — 2 available" (rose).
+  - Projector (maintenance) → "0 of 4 available — Maintenance" (amber),
+    and "Not enough" whenever a quantity is given.
+  - Over-reserved → "0 of 12 available — over-reserved by 2".
+
+  Each status has a text label, never colour alone.
+- **Actual:** "2 of 12 available", "10 reserved", "Enough" (green), "Not enough — 2 available" (rose), "0 of 4 available — Maintenance" (amber), "over-reserved by 2".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — each item reads as available, short, unavailable or over-reserved`
+
+## TC-FRONTEND-076 — the API helper sends only what was filled in
+
+- **Steps:** Call `checkEquipmentAvailability(form)` with a fake `fetch`: once
+  with type " Mic " and quantity "3", once with both blank.
+- **Expected:** `GET /api/equipment-requirements/availability?start_date=2026-11-12&start_time=09:00&end_date=2026-11-12&end_time=12:00&type=Mic&quantity=3`
+  through `requestJSON` with credentials; the second omits `type` and
+  `quantity`. Two calls make two requests.
+- **Actual:** Two requests to the specified path through `requestJSON` with credentials; blank type and quantity omitted. The times' `:` is sent URL-encoded as `%3A`, which the service reads as the same value.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — the API helper sends only what was filled in`
+
+## TC-FRONTEND-077 — only Technical Support can open the check
+
+- **Steps:** Call `hasPermission(role, PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY)`
+  for each role.
+- **Expected:** `equipment:check_availability`, granted to
+  `technical_support` only.
+- **Actual:** Only `technical_support` has `equipment:check_availability`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — only Technical Support can open the check`
+
+## TC-FRONTEND-078 — failures are shown, never an empty result, and the check time is shown
+
+- **Steps:** Pass `ApiError`s with 401, 403, 422 (with field errors) and 502
+  to `availabilityErrorMessages`. Call `checkedAtLabel("2026-11-10T06:32:10Z")`
+  in UTC.
+- **Expected:** 401 → "Your session has expired. Please sign in again.";
+  403 → "Only Technical Support can check equipment availability."; 422 → the
+  field messages; 502 → "We couldn't check availability. Nothing is shown
+  until it works — try again in a moment." The label reads
+  "Checked at 06:32".
+- **Actual:** Each status gave the specified message; the label read "Checked at 06:32".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — failures are shown, never an empty result, and the check time is shown`

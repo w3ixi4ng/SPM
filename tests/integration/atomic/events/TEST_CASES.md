@@ -101,3 +101,20 @@ project.
 - **Actual:** `201`; the row had `venue` null and the three requirement columns as sent.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_an_event_with_venue_requirements_and_no_venue_is_stored`
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+### TC-EVENTS-108 — the overlapping-events query works against the real table
+
+- **Pre-conditions:** A fresh `.env.test` stack. Events seeded directly on a
+  date far from other tests' data (2031-03-04): `planning` 10:00–11:00,
+  `confirmed` 11:30–13:00, `rejected` 10:00–11:00, `planning` 12:00–13:00.
+- **Steps:** `POST /events/overlapping` for 2031-03-04 09:00–12:00.
+- **Expected:** `200` with exactly the `planning` 10:00 and `confirmed` 11:30
+  events among those seeded. Cleanup deletes every seeded event.
+- **Actual:** `200`; of the seeded events, exactly the planning 10:00 and confirmed 11:30 events were returned; rejected and back-to-back were not.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_overlapping.py::test_the_overlapping_events_query_works_against_the_real_table`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; 4 passed across the S-44 integration run.

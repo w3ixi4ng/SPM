@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import EventCoordinatorDashboard from './pages/EventCoordinatorDashboard.jsx'
 import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
+import EquipmentAvailability from './pages/EquipmentAvailability.jsx'
 import EquipmentForm from './pages/EquipmentForm.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Login from './pages/Login.jsx'
@@ -88,6 +89,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_VENUE_AVAILABILITY}>
               <VenueAvailability />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/equipment/availability"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY}>
+              <EquipmentAvailability />
             </ProtectedRoute>
           )}
         />
