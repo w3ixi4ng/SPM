@@ -100,3 +100,18 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** Simultaneous approvals produced one Confirmed row and one still-Pending row; the loser received an identified `409`, and retry remained blocked.
 - **Status:** Pass
 - **Evidence:** `test_decision.py::test_concurrent_overlapping_confirmations_have_one_winner`; full `.env.test` integration suite: 35 passed.
+
+## S-33 specifications awaiting developer confirmation
+
+Story: S-33 Place Tentative Venue Hold.
+
+### TC-BOOKINGS-105 — Concurrent slot claims have one database-backed winner and release restores availability
+
+- **Scenario:** Real storage prevents simultaneous Held/Confirmed overlap and frees the range after release (AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack with S-33 SQL applied, granted and exposed; two overlapping pending requests; two authenticated Venue Staff sessions.
+- **Steps:** Attempt simultaneous holds; verify availability; confirm the winner while attempting to hold/confirm the loser; release the winner with `booking_replaced`; hold the loser; read storage directly after each step.
+- **Test data:** Studio B on `2026-11-12`: B1 `09:00`–`12:00`, B2 `11:00`–`13:00`.
+- **Expected:** Exactly one simultaneous claim succeeds. Availability shows one Tentative entry, then one Confirmed entry after converting that same request. Competing overlap stays Pending with identified `409`. Release removes the active range immediately and allows B2 to become Held. At no point do overlapping active Held/Confirmed rows exist.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —

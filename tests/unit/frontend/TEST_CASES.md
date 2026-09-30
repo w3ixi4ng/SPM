@@ -927,3 +927,29 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** The identified conflict was shown verbatim and never mapped to a success message.
 - **Status:** Pass
 - **Evidence:** `test_booking_decision.mjs` — `overlap conflict identifies the unavailable venue slot`; full Node suite: 64 passed.
+
+## S-33 specifications awaiting developer confirmation
+
+Story: S-33 Place Tentative Venue Hold.
+
+### TC-FRONTEND-057 — Hold actions and errors follow Venue Staff permissions
+
+- **Scenario:** A Venue Staff member can hold a Pending request without the browser claiming a booking is confirmed (AC1).
+- **Pre-conditions:** Frontend access and booking helpers loaded; mocked fetch.
+- **Steps:** Check every role; place a hold; map `401`, `403`, `404`, `409`, `422`, `500` and network failures.
+- **Test data:** Booking B; identified Held/Confirmed conflict responses.
+- **Expected:** Only Venue Staff receive the hold permission. The authenticated action sends no protected metadata. Success renders Held and keeps Confirm/Reject actions. Conflict names the blocking slot; failures never show success or Confirmed.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-FRONTEND-058 — Availability calendar distinguishes Tentative and Confirmed slots
+
+- **Scenario:** Venue Staff can visually distinguish active holds from final bookings (AC2, AC4).
+- **Pre-conditions:** Availability helper receives Held, Confirmed and Released rows.
+- **Steps:** Load a venue/month; map entries to calendar presentation; apply a release response without reloading the page.
+- **Test data:** Studio B in November 2026: Held `09:00`–`12:00`, Confirmed `13:00`–`16:00`, Released `17:00`–`18:00`.
+- **Expected:** The request is credentialled and scoped to venue/date range. Held displays `Tentative hold` with a distinct label/colour from `Confirmed`. Released is absent. After release, the Tentative entry disappears immediately and the slot displays as available.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —

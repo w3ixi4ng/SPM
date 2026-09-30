@@ -583,3 +583,29 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_reassigned_requester_still_denied; test_assigned_coordinator_sees_saved_decision; test_app.py::test_listing_an_events_requests_is_a_502_when_a_service_is_down`.
+
+## S-33 specifications awaiting developer confirmation
+
+Story: S-33 Place Tentative Venue Hold.
+
+### TC-VENUEBOOKINGS-035 — Hold and availability routes preserve role and atomic-service policy
+
+- **Scenario:** Only Venue Staff manage holds and view the venue availability calendar (AC1, AC2).
+- **Pre-conditions:** Mock users and bookings services; all supported roles and missing session.
+- **Steps:** Place a hold, list availability by venue/date range, and release a hold through the composite routes.
+- **Test data:** Booking B; venue V; `2026-11-01` through `2026-11-30`; release reason supplied internally rather than by the browser.
+- **Expected:** Missing session returns `401`; nonstaff returns `403`; Venue Staff calls are forwarded with verified session. The browser cannot forge hold/release staff, timestamps or release reason. Safe downstream failures never report success.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —
+
+### TC-VENUEBOOKINGS-036 — Event state and replacement requests release holds through orchestration
+
+- **Scenario:** Holds are released when their event closes or their requested slot is replaced (AC3, AC4).
+- **Pre-conditions:** Event E has one active hold; events and bookings clients are mocked.
+- **Steps:** Synchronise E when its authoritative status is `rejected`, `cancelled`, and each nonterminal status; submit a replacement venue request with a changed venue, date or time; repeat the same request unchanged.
+- **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacements change venue to Studio C, date to `2026-11-13`, or time to `13:00`–`16:00`.
+- **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —

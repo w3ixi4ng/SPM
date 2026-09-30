@@ -442,3 +442,29 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.
+
+## S-33 specifications awaiting developer confirmation
+
+Story: S-33 Place Tentative Venue Hold.
+
+## TC-E2E-219 — Tentative hold appears distinctly and releases for a replacement request
+
+- **Scenario:** Venue Staff place and observe a hold, then the Coordinator's changed request frees the old slot immediately (AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack with S-33 SQL applied, granted and exposed; Chromium; one Venue Staff member; assigned Coordinator; planning event with a Pending Studio B request.
+- **Steps:** Sign in as Venue Staff; place the hold; inspect availability; verify an overlapping request is blocked; sign in as the Coordinator and submit a replacement at a different time; return as Venue Staff and inspect availability without a full page reload; place a hold in the freed old slot.
+- **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacement `13:00`–`16:00`; competing request `10:00`–`11:00`.
+- **Expected:** Original request stays actionable and is labelled Held. Calendar shows `Tentative hold` distinctly from a Confirmed fixture. Overlap is blocked with the identified held slot. Replacement removes the old calendar entry immediately and permits another hold at `09:00`–`12:00`; the replacement remains Pending until staff place its hold.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-E2E-220 — Rejected or cancelled event releases its tentative hold
+
+- **Scenario:** Closed event states never leave a venue slot reserved (AC3, AC4).
+- **Pre-conditions:** Same approved stack; separate Held requests whose authoritative events can be moved to `rejected` and `cancelled` by the test fixture. S-33 adds no Cancel Event UI.
+- **Steps:** Open availability; trigger each authoritative event-state change through the supported service boundary; refresh/synchronise the workspace; inspect availability and attempt an overlapping hold.
+- **Test data:** Studio B `2026-11-12` `09:00`–`12:00`; release states `rejected`, `cancelled`.
+- **Expected:** Each state releases its hold with the matching reason, removes Tentative from the calendar immediately after the state is observed, and allows another event to hold the same slot. No cancellation button is introduced by S-33.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** —
