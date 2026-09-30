@@ -7,16 +7,18 @@ write ends up in ``bookings.bookings`` by way of the bookings service.
 """
 
 import logging
+from datetime import date
 from uuid import UUID
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+import availability
 import suitability
 from clients import get_bookings_client, get_events_client, get_users_client, get_venues_client
-from schemas import VenueBookingRequest, BookingDecision
+from schemas import BlockRequest, VenueBookingRequest, BookingDecision
 
 app = FastAPI(title="Venue Bookings Service")
 logger = logging.getLogger(__name__)
@@ -25,6 +27,21 @@ COORDINATOR_ROLE = "event_coordinator"
 VENUE_STAFF_ROLE = "venue_staff"
 NOT_IN_PLANNING = "A venue can only be requested for an event in planning"
 UNSUITABLE = "This venue can't take this booking"
+
+# The bookings service's identified 409s: a slot taken by a confirmed booking
+# (S-38) or a hold, or a day blocked by Venue Staff (S-30). These name only the
+# venue, date and times, so they are safe to pass to the caller. Any other 409
+# detail is not.
+CONFLICT_PHRASES = (" is already confirmed on ", " is already tentatively held on ", " is unavailable from ")
+
+
+def _identified_conflict(response) -> str | None:
+    if response.status_code != status.HTTP_409_CONFLICT:
+        return None
+    detail = (response.json() or {}).get("detail", "")
+    if isinstance(detail, str) and any(phrase in detail for phrase in CONFLICT_PHRASES):
+        return detail
+    return None
 
 
 @app.exception_handler(RequestValidationError)
@@ -69,7 +86,7 @@ async def _call(service: str, send):
         raise _unavailable(service) from exc
 
 
-async def _authenticate(request: Request, users: httpx.AsyncClient, role: str) -> dict:
+async def _authenticate(request: Request, users: httpx.AsyncClient, *roles: str) -> dict:
     response = await _call("Users", users.get("/users/me", cookies=request.cookies))
     if response.status_code == status.HTTP_401_UNAUTHORIZED:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -77,7 +94,7 @@ async def _authenticate(request: Request, users: httpx.AsyncClient, role: str) -
         raise _unavailable("Users")
 
     user = response.json()
-    if user.get("role") != role:
+    if user.get("role") not in roles:
         raise HTTPException(status_code=403, detail="Permission denied")
     return user
 
@@ -140,6 +157,11 @@ async def submit_venue_booking(
 
     body = _booking_body(payload, user, event, venue)
     response = await _call("Bookings", bookings.post("/bookings", json=body))
+    # S-30: the slot is held, booked or blocked -- say which, as the bookings
+    # service worded it.
+    conflict = _identified_conflict(response)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
     return response.json()
@@ -195,10 +217,9 @@ async def decide_venue_booking(
     ))
     if response.status_code == 200:
         return response.json()
-    if response.status_code == 409:
-        detail = response.json().get("detail", "")
-        if " is already confirmed on " in detail and " from " in detail and " to " in detail:
-            raise HTTPException(status_code=409, detail=detail)
+    conflict = _identified_conflict(response)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
     messages = {
         401: "Not authenticated", 403: "Permission denied",
         404: "Booking not found",
@@ -208,3 +229,98 @@ async def decide_venue_booking(
     if response.status_code in messages:
         raise HTTPException(status_code=response.status_code, detail=messages[response.status_code])
     raise _unavailable("Bookings")
+
+
+async def _list(bookings: httpx.AsyncClient, path: str, params: dict) -> list[dict]:
+    response = await _call("Bookings", bookings.get(path, params=params))
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    return response.json()
+
+
+@app.get("/venue-bookings/availability")
+async def venue_availability(
+    venue_id: UUID,
+    request: Request,
+    from_date: date = Query(alias="from"),
+    to_date: date = Query(alias="to"),
+    users: httpx.AsyncClient = Depends(get_users_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-30: a venue's holds, confirmed bookings and blocks across a range.
+    Failures are never an empty calendar, which would read as "available"."""
+    user = await _authenticate(request, users, COORDINATOR_ROLE, VENUE_STAFF_ROLE)
+    if to_date < from_date:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Please check the details you entered",
+                "errors": {"to": "The end date must be on or after the start date"},
+            },
+        )
+
+    venue = await _fetch("Venues", venues, f"/venues/{venue_id}", request.cookies, "Venue not found")
+    params = {"venue_id": str(venue_id), "from": from_date.isoformat(), "to": to_date.isoformat()}
+    booked = await _list(bookings, "/bookings", params)
+    blocked = await _list(bookings, "/blocks", params)
+
+    return {
+        "venue_id": venue["id"],
+        "venue_name": venue["name"],
+        "from": from_date.isoformat(),
+        "to": to_date.isoformat(),
+        "operating_hours": venue["operating_hours"],
+        "entries": availability.entries(booked, blocked, staff=user["role"] == VENUE_STAFF_ROLE),
+    }
+
+
+BLOCK_MESSAGES = {401: "Not authenticated", 403: "Permission denied", 404: "Block not found"}
+
+
+def _block_failure(response):
+    """Maps the bookings service's answer for a block write. A 422 keeps its
+    field errors; anything unexpected is a 502, never a false success."""
+    if response.status_code == 422:
+        return JSONResponse(status_code=422, content=response.json())
+    if response.status_code in BLOCK_MESSAGES:
+        raise HTTPException(status_code=response.status_code, detail=BLOCK_MESSAGES[response.status_code])
+    raise _unavailable("Bookings")
+
+
+@app.post("/venue-bookings/blocks", status_code=status.HTTP_201_CREATED)
+async def add_venue_block(
+    payload: BlockRequest,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-30: Venue Staff mark a venue unavailable. The bookings service checks
+    the session again, so the cookies go with it."""
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    venue = await _fetch("Venues", venues, f"/venues/{payload.venue_id}", request.cookies, "Venue not found")
+
+    body = {**payload.model_dump(mode="json"), "venue_name": venue["name"]}
+    response = await _call("Bookings", bookings.post("/blocks", json=body, cookies=request.cookies))
+    if response.status_code == status.HTTP_201_CREATED:
+        return response.json()
+    return _block_failure(response)
+
+
+@app.delete(
+    "/venue-bookings/blocks/{block_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def remove_venue_block(
+    block_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    response = await _call("Bookings", bookings.delete(f"/blocks/{block_id}", cookies=request.cookies))
+    if response.status_code == status.HTTP_204_NO_CONTENT:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return _block_failure(response)

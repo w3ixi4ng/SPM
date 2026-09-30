@@ -29,6 +29,8 @@ from schemas import (
     InternalEventSubmit,
     InternalTechnicalSupportAssignment,
     InternalEventUpdate,
+    OverlappingEvent,
+    OverlappingEventsRequest,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
 )
@@ -467,6 +469,38 @@ def coordinator_load(payload: CoordinatorLoadRequest, db: Client = Depends(get_d
             }
         )
     return results
+
+
+@app.post("/events/overlapping", response_model=list[OverlappingEvent])
+def overlapping_events(payload: OverlappingEventsRequest, db: Client = Depends(get_db)):
+    """S-44: the live events whose time overlaps a window -- the ones whose
+    equipment requirements reserve equipment then. Planning and confirmed
+    events are committed; draft, submitted, returned and rejected are not."""
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("id,name,status,start_date,start_time,end_date,end_time")
+        .in_("status", ["planning", "confirmed"])
+        # Coarse date filter in the query; the exact time overlap below.
+        .lte("start_date", payload.end_date.isoformat())
+        .gte("end_date", payload.start_date.isoformat())
+    )
+    rows = _execute(operation).data
+
+    requested_start, requested_end = _window_bounds(
+        payload.start_date, payload.start_time, payload.end_date, payload.end_time
+    )
+
+    def bounds(row):
+        return _window_bounds(
+            date.fromisoformat(row["start_date"]),
+            time.fromisoformat(row["start_time"]),
+            date.fromisoformat(row["end_date"]),
+            time.fromisoformat(row["end_time"]),
+        )
+
+    overlapping = [row for row in rows if _windows_overlap(requested_start, requested_end, *bounds(row))]
+    return sorted(overlapping, key=bounds)
 
 
 @app.post(

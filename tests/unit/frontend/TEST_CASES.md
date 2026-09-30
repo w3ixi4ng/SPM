@@ -2,8 +2,8 @@
 
 Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
-`test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`, and
-`test_technical_support_assignment.mjs`.
+`test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
+`test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -928,11 +928,406 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Status:** Pass
 - **Evidence:** `test_booking_decision.mjs` — `overlap conflict identifies the unavailable venue slot`; full Node suite: 64 passed.
 
-## S-33 specifications awaiting developer confirmation
+## S-34 — search and filter venues
+
+Coordinators filter venues in two places: the **Venues** tab on their
+dashboard (filters start empty) and the venue request screen for an event
+(filters start from the event: its attendance, facilities and accessibility,
+and the booking's date and time). Filtering happens in the browser over the
+full venue list. Decisions confirmed with the developer:
+
+- **Date and time** means the venue is *open* then — its opening hours for
+  that weekday cover the times. Whether it is already booked is the Booking
+  Conflict Detection story.
+- **Expected attendance** means *holds at least* that many; it also covers
+  capacity, so there is no separate capacity filter.
+- **Location** is a text search over the venue's location and name.
+- **Room layout** was added by the developer: one layout at a time, and a
+  venue matches if it offers it.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: A Coordinator can filter venues by date, time, expected attendance, location, capacity, accessibility, and facilities | TC-FRONTEND-057 to 061, TC-FRONTEND-064, TC-E2E-219 |
+| AC2: Search results only include venues matching all applied filter criteria | TC-FRONTEND-062, TC-E2E-219 step 5 |
+| AC3: Results update when filter criteria are changed | TC-E2E-219 steps 2–6 |
+
+Shared test data for TC-FRONTEND-057 to 064, in this order:
+
+```
+Harbour Hall   location "1 Harbourfront Walk", capacity 250,
+               layouts [theatre, banquet],
+               facilities [projector, stage], accessibility [lift],
+               open mon 09:00-18:00, thu 08:00-20:00
+Studio B       location "10 Anson Road", capacity 80,
+               layouts [classroom, boardroom],
+               facilities [projector], accessibility [],
+               open thu 08:00-20:00
+Anson Suite    location "12 Anson Road", capacity 150,
+               layouts [theatre, cocktail],
+               facilities [stage], accessibility [lift, hearing_loop],
+               open sat 10:00-16:00
+```
+
+`2026-11-12` is a Thursday; `2026-11-14` a Saturday.
+
+## TC-FRONTEND-057 — no filters shows every venue, in order
+
+- **Steps:** `filterVenues(venues, emptyVenueFilters())`.
+- **Test data:** Shared.
+- **Expected:** All three, in the order given. The input list is unchanged.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-058 — the text search matches location or name, ignoring case
+
+- **Steps:** Filter with `query` set to each value below.
+- **Test data:** `"anson"`; `"  HARBOUR "`; `"studio"`; `"nowhere"`.
+- **Expected:** `"anson"` → Studio B and Anson Suite (location);
+  `"  HARBOUR "` → Harbour Hall; `"studio"` → Studio B (name); `"nowhere"`
+  → none.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-059 — "holds at least" keeps venues with enough capacity
+
+- **Steps:** Filter with `attendance` set to each value below.
+- **Test data:** `"150"`; `"151"`; `""`.
+- **Expected:** `"150"` → Harbour Hall and Anson Suite (equal counts);
+  `"151"` → Harbour Hall; `""` → all three.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-060 — facilities and accessibility need every one ticked
+
+- **Steps:** Filter by each selection below.
+- **Test data:** facilities `["projector"]`; facilities
+  `["projector", "stage"]`; accessibility `["lift"]`; accessibility
+  `["lift", "hearing_loop"]`.
+- **Expected:** `["projector"]` → Harbour Hall and Studio B;
+  `["projector", "stage"]` → Harbour Hall; `["lift"]` → Harbour Hall and
+  Anson Suite; `["lift", "hearing_loop"]` → Anson Suite.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-061 — date and time keep venues open then
+
+- **Steps:** Filter by each date and time below.
+- **Test data:**
+  - `2026-11-12`, no times;
+  - `2026-11-12`, `09:00`–`19:00`;
+  - `2026-11-12`, `07:00`–`10:00`;
+  - `2026-11-14`, `10:00`–`16:00`;
+  - no date, `09:00`–`12:00`.
+- **Expected:**
+  - Thursday, no times → Harbour Hall and Studio B (open that day).
+  - Thursday `09:00`–`19:00` → Harbour Hall and Studio B (inside
+    `08:00`–`20:00`).
+  - Thursday `07:00`–`10:00` → none (before opening).
+  - Saturday `10:00`–`16:00` → Anson Suite (exactly its hours).
+  - Times with no date → all three: times only apply with a date.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-062 — results match every applied filter at once
+
+- **Scenario:** AC2.
+- **Steps:** Filter with every criterion set together.
+- **Test data:** `query "anson"`, `attendance "100"`, `layout "theatre"`,
+  facilities `["stage"]`, accessibility `["lift"]`, date `2026-11-14`,
+  `10:00`–`12:00`.
+- **Expected:** Anson Suite only. Changing the date to `2026-11-12` gives
+  none.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-063 — the request screen's filters start from the event
+
+- **Steps:** `venueFiltersFromEvent(event)`.
+- **Test data:** Event `expected_attendance: 100`, `room_layout: "theatre"`,
+  `required_facilities: ["stage"]`, `required_accessibility: ["lift"]`,
+  `start_date: "2026-11-14"`, `start_time: "10:00:00"`,
+  `end_time: "12:00:00"`.
+- **Expected:** `{query: "", attendance: "100", layout: "theatre",
+  facilities: ["stage"], accessibility: ["lift"], date: "2026-11-14",
+  startTime: "10:00", endTime: "12:00"}`. An event with no layout gives
+  `layout: ""`.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-064 — the room layout filter keeps venues that offer it
+
+- **Steps:** Filter with `layout` set to each value below.
+- **Test data:** `"theatre"`; `"boardroom"`; `"banquet"`; `""`.
+- **Expected:** `"theatre"` → Harbour Hall and Anson Suite; `"boardroom"` →
+  Studio B; `"banquet"` → Harbour Hall; `""` → all three.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+**Opening hours on the request screen (revised with the developer).**
+**Clear filters** there now clears everything, including "open at the
+booking's date and time", so every venue can be seen. The panel's **Only venues open
+at the booking's date and time** checkbox, ticked by default, turns that
+filter back on.
+
+On both screens the filter panel starts **collapsed**, its header showing
+**Filters** with how many are applied and a **Clear filters** button; opening
+it shows the fields (confirmed with the developer, covered by TC-E2E-219 and
+TC-E2E-210). A venue closed at the booking's date and
+time is marked, and choosing it shows the S-35 warning and disables **Send
+request**, like any other mismatch. Each venue's mark sits under its name.
+
+## TC-FRONTEND-065 — a venue closed at the booking's date and time is marked
+
+- **Steps:** Call `venueFit(event, venue, when)` with `when` set to each
+  booking below.
+- **Test data:** Event with no requirements, `expected_attendance: 10`.
+  Venue capacity `100`, open `thu 08:00-20:00` only. Bookings:
+  `2026-11-12` `09:00`–`12:00`; `2026-11-12` `07:00`–`10:00`;
+  `2026-11-14` `10:00`–`12:00`; no `when` at all.
+- **Expected:** Thursday inside hours → `[]`. Thursday `07:00`–`10:00` →
+  `["Open 08:00–20:00 on Thursdays"]`. Saturday → `["Closed on
+  Saturdays"]`. No `when` → `[]`, as TC-FRONTEND-035.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-066 — a closed venue produces the S-35 warning
+
+- **Steps:** `venueWarning(event, venue, when)` for the Saturday booking in
+  TC-FRONTEND-065, with the venue named `Studio B`.
+- **Expected:** `"Studio B doesn't suit this event: Closed on Saturdays.
+  Choose a venue that fits."`
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+These cases cover a new `frontend/src/lib/venueAvailability.js` and additions
+to `venueBookings.js` and `access.js`. They are pure functions, tested with no
+browser. "Today" is passed in as a local date, `2026-11-10`, the same way
+`DateSelect` in `EventRequestForm.jsx` reads the browser's own date. Studio B
+is open `mon`–`fri` `08:00`–`18:00`.
+
+## TC-FRONTEND-067 — the calendar shows one month, opening on tomorrow's, and moves a month at a time
+
+- **Scenario:** A Coordinator views a venue a month at a time and moves with
+  the arrows or the Month and Year dropdowns (AC1). Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.
+- **Steps:** Call `initialMonth` for today `2026-11-10`, `2026-11-30` and
+  `2026-12-31`. Call `monthRange` for November 2026 and February 2028. Call
+  `shiftMonth` from November 2026 by `+1`, `+2`, and from January 2027 by
+  `-1`. Call `isBeforeMonth` against November 2026, and `yearOptions`.
+- **Expected:**
+  - It opens on the month tomorrow is in: November 2026, December 2026, January 2027.
+  - The range fetched is the whole month: `2026-11-01`–`2026-11-30`, and
+    `2028-02-01`–`2028-02-29` in a leap year.
+  - The arrows cross years: December 2026, January 2027, back to December 2026.
+  - October 2026 is before the first month, so ◀ is disabled there and
+    earlier months are disabled in the dropdown. November 2026 and later
+    months are not.
+  - The Year dropdown offers 2026–2031, the six years `DateSelect` offers.
+- **Actual:** As expected for every call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — the calendar opens on the month tomorrow falls in, and shows a whole month`; `tests/unit/frontend/test_venue_availability.mjs — the arrows move one month, across years, and never before the first month`
+
+## TC-FRONTEND-068 — each day gets one state and label, and a block outranks everything
+
+- **Scenario:** Confirmed, held and blocked days are clearly distinct (AC2).
+- **Pre-conditions:** The entries from TC-VENUEBOOKINGS-035.
+- **Steps:** Call `availabilityDays({from: "2026-11-11", to: "2026-11-17"}, entries, operating_hours)`.
+- **Expected:** Seven days:
+  - `11 Nov` (wed) → `available`, "Available"
+  - `12 Nov` → entries "Booked 09:00–12:00" and "Tentatively held 14:00–16:00",
+    in start order
+  - `13`–`16 Nov` → `blocked`, "Unavailable — Maintenance" (reason through
+    `optionLabel`), **including** the weekend days, because a block outranks
+    closed
+  - `17 Nov` (tue) → `available`
+
+  Available is `green`. Held uses the colour `bookingStatusMeta('pending')`
+  already uses (amber). Booked is `rose` (red). Blocked is `sky`. Closed is
+  `inkFaint`. No two states share a colour (changed by the developer on
+  2026-09-30, so Booked never looks like Available).
+  Every state has a text label, never colour alone.
+- **Actual:** Days and labels as specified; available green, held amber, booked rose, blocked sky including the weekend, every colour distinct. Holds-only day reads held, in start order. Each day's block names its state, e.g. "Booked + Held".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — each block names its state`; `tests/unit/frontend/test_venue_availability.mjs — each day gets one state and label, and a block outranks everything`; `tests/unit/frontend/test_venue_availability.mjs — a day with only holds reads as held, and holds sort by start time`
+
+## TC-FRONTEND-069 — days before tomorrow are greyed and disabled, like DateSelect
+
+- **Scenario:** Unselectable dates are greyed out (AC1, as clarified).
+- **Steps:** Build the November 2026 grid with today `2026-11-10`, then the
+  December 2026 grid. Read each cell's `disabled`. (Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.)
+- **Expected:** Weeks start on Sunday, as in `DateSelect`
+  (`Su Mo Tu We Th Fr Sa`). In November, `1`–`10 Nov` (today included) are
+  `disabled: true` and `11`–`30 Nov` are enabled; the earliest selectable day
+  is `2026-11-11`, `DateSelect`'s own rule. December has two blanks before
+  the 1st (a Tuesday) and every day enabled.
+- **Actual:** Sunday-first grid; 1–10 Nov disabled, 11–30 enabled; December had two leading blanks and no disabled day.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — days before tomorrow are greyed and disabled`; `tests/unit/frontend/test_venue_availability.mjs — a later month is fully selectable, with leading blanks before the 1st`
+
+## TC-FRONTEND-070 — closed weekdays read as Closed, not Available
+
+- **Scenario:** A day outside the venue's opening hours is not shown as free
+  (AC2).
+- **Steps:** Build days for `2026-11-14`..`2026-11-16` with no entries.
+- **Expected:** `14 Nov` (sat) and `15 Nov` (sun) → `closed`, "Closed",
+  found by the same `WEEK` day-key lookup as `venues.js`. `16 Nov` (mon) →
+  `available`.
+- **Actual:** Sat and Sun `closed`/"Closed"; Mon `available`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — closed weekdays read as Closed, not Available`
+
+## TC-FRONTEND-071 — the API helpers call the composite fresh each time and surface failures
+
+- **Scenario:** Opening, changing the range, or pressing Refresh always
+  refetches (AC3).
+- **Steps:** With a fake `fetch`, call
+  `getVenueAvailability(venueId, "2026-11-11", "2026-12-08")` twice, then
+  `addVenueBlock(form)` and `removeVenueBlock(id)`. Pass the errors each
+  answer produces to `availabilityErrorMessage`.
+- **Expected:** Both reads issue
+  `GET /api/venue-bookings/availability?venue_id=…&from=2026-11-11&to=2026-12-08`
+  through `requestJSON`, with credentials included, so two calls make two
+  requests. The add is a `POST /api/venue-bookings/blocks` with the JSON body;
+  a blank note is sent as `null`. The remove is a
+  `DELETE /api/venue-bookings/blocks/{id}`, and its `204` resolves to `null`.
+  The messages:
+  - `401` → "Your session has expired. Please sign in again."
+  - `403` → "Your role is not permitted to view venue availability."
+  - `404` → the server's detail
+  - anything else → "We couldn't load this venue's availability. Try again
+    in a moment."
+
+  A failure never resolves to an empty calendar.
+- **Actual:** Four requests with the specified URLs, methods and credentials; blank note sent as null; `204` resolved to null. Each failure rejected with an `ApiError` mapped to the specified message.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — the API helpers call the composite fresh each time`; `tests/unit/frontend/test_venue_availability.mjs — a failed load rejects with a message and never an empty calendar`
+
+## TC-FRONTEND-072 — hold and block conflicts are shown in the server's words
+
+- **Scenario:** A Coordinator refused by a hold or block, or staff refused by
+  a block, see why.
+- **Steps:** Pass `ApiError`s with status `409` and each TC-BOOKINGS-025,
+  026 and 028 detail to `venueBookingErrorMessages`. Pass the TC-BOOKINGS-028
+  detail to `bookingDecisionErrorMessage`.
+- **Expected:** Each returns the detail exactly. The request helper already
+  does this for every `409`. The decision helper, which today recognises only
+  "already confirmed", now also recognises "is unavailable from". Other `409`s
+  still say "This request has already been decided…".
+- **Actual:** All three details returned exactly; the decision helper returned the block and S-38 details, and the generic message otherwise.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — hold and block conflicts are shown in the server's words`
+
+## TC-FRONTEND-073 — Coordinators and Venue Staff see the calendar, and only staff manage blocks
+
+- **Scenario:** `access.js` agrees with the composite's role checks (AC1).
+- **Steps:** Call `hasPermission(role, …)` for each role.
+- **Expected:** `PERMISSIONS.VIEW_VENUE_AVAILABILITY`
+  (`venue_bookings:view_availability`) is granted to `event_coordinator` and
+  `venue_staff` only. `PERMISSIONS.MANAGE_VENUE_BLOCKS`
+  (`venue_bookings:manage_blocks`) is granted to `venue_staff` only.
+- **Actual:** Only Coordinator and Venue Staff had `view_availability`; only Venue Staff had `manage_blocks`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — Coordinators and Venue Staff see the calendar, and only staff manage blocks`
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+These cases cover a new `frontend/src/lib/equipmentAvailability.js` and an
+addition to `access.js`. Today is passed in as `2026-11-10`.
+
+## TC-FRONTEND-074 — the check's form is validated before anything is sent
+
+- **Scenario:** Useful messages before a request (S-44 AC1).
+- **Steps:** Call `validateAvailabilityForm` with: everything blank; start
+  `2026-11-12 12:00` and end `2026-11-12 12:00`; end date before start date;
+  quantity `0`, `-2` and `1.5`; a valid window with a blank type and quantity.
+- **Expected:** Blank → "Choose a start date and time." and "Choose an end
+  date and time."; equal or reversed → "The end must be after the start.";
+  bad quantities → "Enter a whole number of 1 or more, or leave it blank.";
+  the last → no errors (type and quantity are optional).
+- **Actual:** All the specified messages; a valid window with blank type and quantity had none.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — the check form is validated before anything is sent`
+
+## TC-FRONTEND-075 — each item reads as available, short, unavailable or over-reserved
+
+- **Scenario:** The result's wording (S-44 AC1, AC2).
+- **Steps:** Call `availabilitySummary(item)` for the items in
+  TC-EQUIPMENTREQUIREMENTS-012 and 014, with and without a quantity.
+- **Expected:**
+  - Microphone → "2 of 12 available", with the reserved "10 reserved".
+  - With quantity 2 → "Enough" (green); with 3 → "Not enough — 2 available" (rose).
+  - Projector (maintenance) → "0 of 4 available — Maintenance" (amber),
+    and "Not enough" whenever a quantity is given.
+  - Over-reserved → "0 of 12 available — over-reserved by 2".
+
+  Each status has a text label, never colour alone.
+- **Actual:** "2 of 12 available", "10 reserved", "Enough" (green), "Not enough — 2 available" (rose), "0 of 4 available — Maintenance" (amber), "over-reserved by 2".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — each item reads as available, short, unavailable or over-reserved`
+
+## TC-FRONTEND-076 — the API helper sends only what was filled in
+
+- **Steps:** Call `checkEquipmentAvailability(form)` with a fake `fetch`: once
+  with type " Mic " and quantity "3", once with both blank.
+- **Expected:** `GET /api/equipment-requirements/availability?start_date=2026-11-12&start_time=09:00&end_date=2026-11-12&end_time=12:00&type=Mic&quantity=3`
+  through `requestJSON` with credentials; the second omits `type` and
+  `quantity`. Two calls make two requests.
+- **Actual:** Two requests to the specified path through `requestJSON` with credentials; blank type and quantity omitted. The times' `:` is sent URL-encoded as `%3A`, which the service reads as the same value.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — the API helper sends only what was filled in`
+
+## TC-FRONTEND-077 — only Technical Support can open the check
+
+- **Steps:** Call `hasPermission(role, PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY)`
+  for each role.
+- **Expected:** `equipment:check_availability`, granted to
+  `technical_support` only.
+- **Actual:** Only `technical_support` has `equipment:check_availability`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — only Technical Support can open the check`
+
+## TC-FRONTEND-078 — failures are shown, never an empty result, and the check time is shown
+
+- **Steps:** Pass `ApiError`s with 401, 403, 422 (with field errors) and 502
+  to `availabilityErrorMessages`. Call `checkedAtLabel("2026-11-10T06:32:10Z")`
+  in UTC.
+- **Expected:** 401 → "Your session has expired. Please sign in again.";
+  403 → "Only Technical Support can check equipment availability."; 422 → the
+  field messages; 502 → "We couldn't check availability. Nothing is shown
+  until it works — try again in a moment." The label reads
+  "Checked at 06:32".
+- **Actual:** Each status gave the specified message; the label read "Checked at 06:32".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_equipment_availability.mjs — failures are shown, never an empty result, and the check time is shown`
+
+## S-33 — place tentative venue hold
 
 Story: S-33 Place Tentative Venue Hold.
+Confirmed by the developer on 2026-09-30. Not yet executed.
 
-### TC-FRONTEND-057 — Hold actions and errors follow Venue Staff permissions
+### TC-FRONTEND-079 — Hold actions and errors follow Venue Staff permissions
 
 - **Scenario:** A Venue Staff member can hold a Pending request without the browser claiming a booking is confirmed (AC1).
 - **Pre-conditions:** Frontend access and booking helpers loaded; mocked fetch.
@@ -943,7 +1338,7 @@ Story: S-33 Place Tentative Venue Hold.
 - **Status:** Not Executed
 - **Evidence:** —
 
-### TC-FRONTEND-058 — Availability calendar distinguishes Tentative and Confirmed slots
+### TC-FRONTEND-080 — Availability calendar distinguishes Tentative and Confirmed slots
 
 - **Scenario:** Venue Staff can visually distinguish active holds from final bookings (AC2, AC4).
 - **Pre-conditions:** Availability helper receives Held, Confirmed and Released rows.

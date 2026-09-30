@@ -214,4 +214,87 @@ end $$;
 notify pgrst, 'reload schema';
 commit;
 -- END S-38 DATA-PRESERVING MIGRATION
+-- BEGIN S-30 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+--
+-- 1. A pending request is now a tentative hold, and holds are exclusive: no
+--    two pending-or-confirmed rows may overlap for one venue. This widens
+--    S-38's confirmed-only constraint. It fails safely, changing nothing, if
+--    overlapping pending rows already exist. Find them with:
+--
+--      select a.id, b.id, a.venue_name, a.booking_date,
+--             a.start_time, a.end_time, b.start_time, b.end_time
+--      from bookings.bookings a
+--      join bookings.bookings b
+--        on a.venue_id = b.venue_id and a.booking_date = b.booking_date
+--       and a.id < b.id
+--       and a.start_time < b.end_time and b.start_time < a.end_time
+--      where a.status in ('pending', 'confirmed')
+--        and b.status in ('pending', 'confirmed');
+--
+--    Resolve them with the team (reject one of each pair), then rerun.
+--
+-- 2. bookings.blocks: whole days Venue Staff mark a venue unavailable.
+--    venue_id is an opaque id owned by the venues service -- no foreign key,
+--    since that would cross schemas. venue_name is a snapshot for messages.
+--    A block may cover existing holds and bookings; nothing is changed or
+--    reassigned automatically, so there is no constraint between the tables.
+begin;
+create extension if not exists btree_gist with schema extensions;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'bookings_no_live_overlap'
+      and conrelid = 'bookings.bookings'::regclass
+  ) then
+    alter table bookings.bookings
+      add constraint bookings_no_live_overlap
+      exclude using gist (
+        venue_id with =,
+        (tsrange(booking_date + start_time, booking_date + end_time, '[)')) with &&
+      ) where (status in ('pending', 'confirmed'));
+  end if;
+end $$;
+
+-- Covered by the constraint above.
+alter table bookings.bookings drop constraint if exists bookings_no_confirmed_overlap;
+
+create table if not exists bookings.blocks (
+  id          uuid primary key default gen_random_uuid(),
+  venue_id    uuid not null,
+  venue_name  text not null,
+  start_date  date not null,
+  end_date    date not null,
+  reason      text not null,
+  note        text,
+  created_by  uuid not null,
+  created_at  timestamptz not null default now(),
+
+  -- Inclusive at both ends: a one-day block has start_date = end_date.
+  constraint blocks_date_order check (end_date >= start_date),
+
+  -- Repeated in backend/services/atomic/bookings/schemas.py. Change both.
+  constraint blocks_reason_allowed check (reason in (
+    'maintenance', 'renovation', 'safety', 'internal_activity', 'other'
+  )),
+
+  constraint blocks_text_not_blank check (
+    btrim(venue_name) <> ''
+    and (note is null or btrim(note) <> '')
+    and (reason <> 'other' or note is not null)
+  )
+);
+
+-- The calendar's lookup: one venue, overlapping a date range.
+create index if not exists bookings_blocks_venue_dates_idx
+  on bookings.blocks (venue_id, start_date, end_date);
+
+grant all on table bookings.blocks to service_role;
+alter table bookings.blocks enable row level security;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-30 DATA-PRESERVING MIGRATION
 notify pgrst, 'reload schema';

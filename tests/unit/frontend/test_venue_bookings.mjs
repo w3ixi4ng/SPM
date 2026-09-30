@@ -192,3 +192,35 @@ test("a venue that doesn't suit the event produces a warning listing why", () =>
   assert.equal(venueWarning(event, venue({})), null)
   assert.equal(venueWarning(event, null), null)
 })
+
+// --- S-34: opening hours on the request screen -----------------------------
+
+const THURSDAY_ONLY = {
+  name: 'Studio B',
+  capacity: 100,
+  room_layouts: ['theatre'],
+  facilities: [],
+  accessibility: [],
+  operating_hours: [{ day: 'thu', open: '08:00:00', close: '20:00:00' }],
+}
+const NO_NEEDS = { expected_attendance: 10 }
+
+// --- TC-FRONTEND-065 -------------------------------------------------------
+test("a venue closed at the booking's date and time is marked", () => {
+  const at = (date, startTime, endTime) => ({ date, startTime, endTime })
+  assert.deepEqual(venueFit(NO_NEEDS, THURSDAY_ONLY, at('2026-11-12', '09:00', '12:00')), [])
+  assert.deepEqual(
+    venueFit(NO_NEEDS, THURSDAY_ONLY, at('2026-11-12', '07:00', '10:00')),
+    ['Open 08:00–20:00 on Thursdays'],
+  )
+  assert.deepEqual(venueFit(NO_NEEDS, THURSDAY_ONLY, at('2026-11-14', '10:00', '12:00')), ['Closed on Saturdays'])
+  assert.deepEqual(venueFit(NO_NEEDS, THURSDAY_ONLY), [])
+})
+
+// --- TC-FRONTEND-066 -------------------------------------------------------
+test('a closed venue produces the S-35 warning', () => {
+  assert.equal(
+    venueWarning(NO_NEEDS, THURSDAY_ONLY, { date: '2026-11-14', startTime: '10:00', endTime: '12:00' }),
+    "Studio B doesn't suit this event: Closed on Saturdays. Choose a venue that fits.",
+  )
+})

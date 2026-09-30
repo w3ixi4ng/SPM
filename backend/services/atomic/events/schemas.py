@@ -296,6 +296,37 @@ class TechnicalSupportLoad(BaseModel):
     assigned_count: int
 
 
+class OverlappingEventsRequest(BaseModel):
+    """S-44: a window to find the live events overlapping it. The window may
+    span days, as an event's can."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+
+    @model_validator(mode="after")
+    def end_after_start(self):
+        if datetime.combine(self.end_date, self.end_time) <= datetime.combine(self.start_date, self.start_time):
+            raise ValueError("The end must be after the start")
+        return self
+
+
+class OverlappingEvent(BaseModel):
+    """Just what the availability check shows about an event holding
+    equipment: which event, its state, and when."""
+
+    id: UUID
+    name: str | None
+    status: str
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+
+
 class InternalTechnicalSupportAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

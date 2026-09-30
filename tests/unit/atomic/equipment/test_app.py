@@ -558,3 +558,29 @@ def test_retirement_storage_failures_are_safe(client, db, auth, failure):
     assert response.status_code == 500
     assert response.json() == {"detail": "Equipment storage unavailable"}
     assert "database secret" not in response.text
+
+
+# --- TC-EQUIPMENT-030 (S-44) --------------------------------------------
+OTHER_EVENT_ID = "e2e2e2e2-0000-4000-8000-000000000002"
+
+
+def test_requirements_can_be_listed_for_a_set_of_events(client, db):
+    operation = table(db).select.return_value.in_.return_value.order.return_value
+    returns(operation, [requirement_detail()])
+
+    response = client.get(
+        "/internal/equipment-requirements",
+        params=[("event_ids", EVENT_ID), ("event_ids", OTHER_EVENT_ID)],
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["equipment"]["type"] == "Wireless Microphone"
+    table(db).select.return_value.in_.assert_called_once_with("event_id", [EVENT_ID, OTHER_EVENT_ID])
+    table(db).select.return_value.eq.assert_not_called()
+
+
+def test_a_malformed_event_id_in_the_set_is_refused(client, db):
+    response = client.get("/internal/equipment-requirements", params=[("event_ids", "not-a-uuid")])
+
+    assert response.status_code == 422
+    db.schema.assert_not_called()

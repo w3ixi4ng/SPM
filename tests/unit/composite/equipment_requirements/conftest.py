@@ -21,7 +21,7 @@ os.environ.setdefault("USERS_SERVICE_URL", "http://users:8001")
 os.environ.setdefault("EVENTS_SERVICE_URL", "http://events:8002")
 os.environ.setdefault("EQUIPMENT_SERVICE_URL", "http://equipment:8005")
 
-_MODULE_NAMES = ("app", "clients", "schemas")
+_MODULE_NAMES = ("app", "availability", "clients", "schemas")
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}
 for _name in _MODULE_NAMES:
     sys.modules.pop(_name, None)

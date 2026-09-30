@@ -8,17 +8,17 @@ credentials independently, including calls to the published service port.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from supabase import Client
 
 from database import get_db
-from schemas import BookingCreate, BookingRead, BookingDecision
+from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision
 from security import require_venue_staff
 
 app = FastAPI(title="Bookings Service")
@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "bookings"
 TABLE = "bookings"
+BLOCKS = "blocks"
+
+# S-30: a pending request is a tentative hold, and holds are exclusive, so a
+# new request must not overlap either of these.
+LIVE_STATUSES = ["pending", "confirmed"]
 
 
 @app.exception_handler(RequestValidationError)
@@ -71,7 +76,7 @@ def _booking(db: Client, booking_id: UUID):
 def _overlap(db: Client, booking: dict):
     operation = (
         db.schema(SCHEMA).table(TABLE)
-        .select("id,venue_name,booking_date,start_time,end_time")
+        .select("id,status,venue_name,booking_date,start_time,end_time")
         .eq("venue_id", booking["venue_id"])
         .eq("booking_date", booking["booking_date"])
         .eq("status", "confirmed")
@@ -85,18 +90,67 @@ def _overlap(db: Client, booking: dict):
     return result.data[0] if result.data else None
 
 
+def _live_overlap(db: Client, booking: dict):
+    """S-30: a new request against every hold (pending) and confirmed
+    booking -- holds are exclusive. Half-open, so back-to-back is allowed."""
+    operation = (
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,status,venue_name,booking_date,start_time,end_time")
+        .eq("venue_id", booking["venue_id"])
+        .eq("booking_date", booking["booking_date"])
+        .in_("status", LIVE_STATUSES)
+        .lt("start_time", booking["end_time"])
+        .gt("end_time", booking["start_time"])
+        .order("start_time")
+        .limit(1)
+    )
+    result = _execute(operation)
+    return result.data[0] if result.data else None
+
+
+def _block_on(db: Client, venue_id: str, day: str):
+    """S-30: the block covering `day` at this venue, if any. Blocks are whole
+    days, inclusive at both ends."""
+    operation = (
+        db.schema(SCHEMA).table(BLOCKS)
+        .select("id,venue_name,start_date,end_date")
+        .eq("venue_id", str(venue_id))
+        .lte("start_date", str(day))
+        .gte("end_date", str(day))
+        .order("start_date")
+        .limit(1)
+    )
+    result = _execute(operation)
+    return result.data[0] if result.data else None
+
+
+def _date_label(value) -> str:
+    return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
+
+
 def _conflict_detail(conflict: dict) -> str:
-    booking_date = datetime.fromisoformat(str(conflict["booking_date"])).strftime("%d %b %Y")
+    booking_date = _date_label(conflict["booking_date"])
     start = str(conflict["start_time"])[:5]
     end = str(conflict["end_time"])[:5]
+    taken = "tentatively held" if conflict.get("status") == "pending" else "confirmed"
     return (
-        f'{conflict["venue_name"]} is already confirmed on {booking_date} '
+        f'{conflict["venue_name"]} is already {taken} on {booking_date} '
         f"from {start} to {end}."
     )
 
 
 def _raise_overlap(conflict: dict):
     raise HTTPException(status_code=409, detail=_conflict_detail(conflict))
+
+
+def _raise_blocked(block: dict):
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f'{block["venue_name"]} is unavailable from {_date_label(block["start_date"])} '
+            f'to {_date_label(block["end_date"])}.'
+        ),
+    )
 
 
 @app.get("/health")
@@ -121,6 +175,11 @@ def decide_booking(
         conflict = _overlap(db, booking)
         if conflict:
             _raise_overlap(conflict)
+        # S-30: a block added after the request was sent stops it being
+        # confirmed. Rejecting it stays possible.
+        block = _block_on(db, booking["venue_id"], booking["booking_date"])
+        if block:
+            _raise_blocked(block)
 
     values = {
         "status": "confirmed" if payload.decision == "approved" else "rejected",
@@ -155,7 +214,27 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
     # Set here, never taken from the payload, so a request cannot be
     # backdated ahead of others in Venue Staff's queue.
     values["submitted_at"] = datetime.now(timezone.utc).isoformat()
-    result = _execute(db.schema(SCHEMA).table(TABLE).insert(values))
+
+    # S-30: the request becomes a tentative hold, so it must not overlap
+    # another hold, a confirmed booking, or a block on that day.
+    conflict = _live_overlap(db, values)
+    if conflict:
+        _raise_overlap(conflict)
+    block = _block_on(db, values["venue_id"], values["booking_date"])
+    if block:
+        _raise_blocked(block)
+
+    # The exclusion constraint is the final authority: two simultaneous
+    # requests can both pass the check above, and only one insert wins.
+    try:
+        result = db.schema(SCHEMA).table(TABLE).insert(values).execute()
+    except Exception as exc:
+        if getattr(exc, "code", None) == "23P01":
+            conflict = _live_overlap(db, values)
+            if conflict:
+                _raise_overlap(conflict)
+        logger.exception("Booking storage operation failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if not result.data:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -164,14 +243,37 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
     return result.data[0]
 
 
+def _date_range(venue_id, from_date, to_date):
+    """A venue filter always comes with a range, so nothing lists a venue's
+    whole history at once."""
+    if venue_id is None or from_date is None or to_date is None:
+        raise HTTPException(status_code=422, detail="Filter by venue_id with from and to")
+    if to_date < from_date:
+        raise HTTPException(status_code=422, detail="The end date must be on or after the start date")
+
+
 @app.get("/bookings", response_model=list[BookingRead])
 def list_bookings(
     booking_status: Literal["pending"] | None = Query(default=None, alias="status"),
     event_id: UUID | None = None,
+    venue_id: UUID | None = None,
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
     db: Client = Depends(get_db),
 ):
-    # Always filtered: Venue Staff ask by status, a Coordinator by event.
-    # Nothing hands out every booking at once.
+    # Always filtered: Venue Staff ask by status, a Coordinator by event, and
+    # S-30's calendar by venue and date range. Nothing hands out every
+    # booking at once.
+    if venue_id is not None or from_date is not None or to_date is not None:
+        _date_range(venue_id, from_date, to_date)
+        operation = (
+            db.schema(SCHEMA).table(TABLE).select("*")
+            .eq("venue_id", str(venue_id))
+            .gte("booking_date", from_date.isoformat())
+            .lte("booking_date", to_date.isoformat())
+        )
+        return _execute(operation.order("booking_date").order("start_time")).data
+
     if booking_status is None and event_id is None:
         raise HTTPException(status_code=422, detail="Filter by status or event_id")
 
@@ -182,3 +284,54 @@ def list_bookings(
         operation = operation.eq("event_id", str(event_id))
     # Oldest first: the order requests came in.
     return _execute(operation.order("submitted_at")).data
+
+
+@app.post("/blocks", response_model=BlockRead, status_code=status.HTTP_201_CREATED)
+def create_block(
+    payload: BlockCreate,
+    staff=Depends(require_venue_staff),
+    db: Client = Depends(get_db),
+):
+    # S-30. A block may cover existing holds and bookings -- an emergency
+    # does not wait for them -- and none of them is changed here. Staff
+    # reassign affected events offline.
+    values = payload.model_dump(mode="json")
+    values["created_by"] = str(staff.id)
+    values["created_at"] = datetime.now(timezone.utc).isoformat()
+    result = _execute(db.schema(SCHEMA).table(BLOCKS).insert(values))
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not create block",
+        )
+    return result.data[0]
+
+
+@app.get("/blocks", response_model=list[BlockRead])
+def list_blocks(
+    venue_id: UUID | None = None,
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+    db: Client = Depends(get_db),
+):
+    # Every block touching the range, including one that only partly does.
+    _date_range(venue_id, from_date, to_date)
+    operation = (
+        db.schema(SCHEMA).table(BLOCKS).select("*")
+        .eq("venue_id", str(venue_id))
+        .lte("start_date", to_date.isoformat())
+        .gte("end_date", from_date.isoformat())
+    )
+    return _execute(operation.order("start_date")).data
+
+
+@app.delete("/blocks/{block_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_block(
+    block_id: UUID,
+    staff=Depends(require_venue_staff),
+    db: Client = Depends(get_db),
+):
+    result = _execute(db.schema(SCHEMA).table(BLOCKS).delete().eq("id", str(block_id)))
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Block not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

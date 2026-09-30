@@ -55,14 +55,16 @@ def test_staff_decisions_appear_to_requesting_coordinator(admin, page, make_user
     )
 
     bookings = []
-    for index in range(3):
+    # S-30: pending requests are exclusive holds, so each takes its own slot
+    # (back-to-back is allowed). Each is found by its venue name, never its time.
+    for index, (start, end) in enumerate((("09:00", "12:00"), ("12:00", "15:00"), ("15:00", "18:00"))):
         bookings.append(admin.schema("bookings").table("bookings").insert({
             "event_id": event["id"], "venue_id": venue["id"],
             "coordinator_id": coordinator["id"], "coordinator_name": "E2E Tester",
             "coordinator_email": coordinator["email"], "event_name": event_name,
             "event_purpose": "Decision testing", "expected_attendance": 100,
             "venue_name": f"{venue_name} {index}", "booking_date": "2026-11-12",
-            "start_time": "09:00", "end_time": "12:00",
+            "start_time": start, "end_time": end,
         }).execute().data[0])
 
     sign_in(staff)

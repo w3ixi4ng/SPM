@@ -17,7 +17,7 @@ physical unit. It also owns the event-to-item relationship in
 | `GET` | `/equipment/{equipment_item_id}` | Technical Support | Read one item for catalogue editing. |
 | `PUT` | `/equipment/{equipment_item_id}` | Technical Support | Replace the editable catalogue details. |
 | `POST` | `/equipment/{equipment_item_id}/retire` | Technical Support | Retire an item from future requirement selection. |
-| `GET` | `/internal/equipment-requirements` | Equipment requirements composite | List requirements, optionally filtered by `event_id`. |
+| `GET` | `/internal/equipment-requirements` | Equipment requirements composite | List requirements, optionally filtered by `event_id`, or (S-44) by several events with repeated `event_ids`, e.g. `?event_ids=<a>&event_ids=<b>`. A malformed id is `422`. |
 | `PUT` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Upsert a positive required quantity and audit user. |
 | `DELETE` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Delete one event/item relationship. |
 

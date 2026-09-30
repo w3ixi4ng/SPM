@@ -4,9 +4,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import useVenueList from '../components/useVenueList.js'
+import VenueFilters from '../components/VenueFilters.jsx'
 import VenueList from '../components/VenueList.jsx'
-import { getRoleAccess } from '../lib/access.js'
+import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import { eventErrorMessage, eventStatusMeta, listAssignedEventRequests } from '../lib/eventRequests.js'
+import { emptyVenueFilters, filterVenues, getVenueOptions } from '../lib/venues.js'
 
 const C = {
   ink: '#10192B',
@@ -95,6 +97,19 @@ export default function EventCoordinatorDashboard({ role }) {
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
   const { venues, loading, error, reload } = useVenueList()
+  // S-34: the Venues tab's filters start empty -- there is no event here.
+  const [venueFilters, setVenueFilters] = useState(emptyVenueFilters)
+  const [venueOptions, setVenueOptions] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    getVenueOptions()
+      .then((options) => { if (active) setVenueOptions(options) })
+      .catch(() => { if (active) setVenueOptions(null) })
+    return () => { active = false }
+  }, [])
+
+  const filteredVenues = filterVenues(venues, venueFilters)
   const [assigned, setAssigned] = useState({ status: 'loading', events: [], error: null })
   // Kept in the URL so a reload or a shared link opens the same tab.
   const [searchParams, setSearchParams] = useSearchParams()
@@ -189,12 +204,23 @@ export default function EventCoordinatorDashboard({ role }) {
             aria-labelledby="tab-venues"
             hidden={activeTab !== 'venues'}
           >
+            {venues.length > 0 && (
+              <VenueFilters
+                idPrefix="venue-filter"
+                filters={venueFilters}
+                onChange={setVenueFilters}
+                options={venueOptions}
+              />
+            )}
             <VenueList
-              venues={venues}
+              venues={filteredVenues}
+              canViewAvailability={hasPermission(user?.role, PERMISSIONS.VIEW_VENUE_AVAILABILITY)}
               loading={loading}
               error={error}
               onRetry={reload}
-              emptyMessage="No venues have been added yet. Venue staff add them from their workspace."
+              emptyMessage={venues.length > 0
+                ? 'No venues match these filters.'
+                : 'No venues have been added yet. Venue staff add them from their workspace.'}
             />
           </div>
 

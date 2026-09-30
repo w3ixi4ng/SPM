@@ -6,6 +6,7 @@ the event is still in planning.
 """
 
 import logging
+from datetime import date, datetime, time, timezone
 from uuid import UUID
 
 import httpx
@@ -13,6 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, s
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+import availability
 from clients import get_equipment_client, get_events_client, get_users_client
 from schemas import RequirementQuantity
 
@@ -152,6 +154,72 @@ async def remove_requirement(
     return await _equipment_response(
         equipment.delete(f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}"),
     )
+
+
+def _window_error() -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Please check the details you entered",
+            "errors": {"end_time": "The end must be after the start"},
+        },
+    )
+
+
+async def _json_list(service: str, service_call) -> list[dict]:
+    response = await _call(service, service_call)
+    if response.status_code != 200:
+        raise _unavailable(service)
+    return response.json()
+
+
+# Registered before any /equipment-requirements/{...} GET could read
+# "availability" as an id.
+@app.get("/equipment-requirements/availability")
+async def check_availability(
+    request: Request,
+    start_date: date,
+    start_time: time,
+    end_date: date,
+    end_time: time,
+    type: str | None = Query(default=None, max_length=200),
+    quantity: int | None = Query(default=None, ge=1),
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+):
+    """S-44: how much of each active equipment pool is free for a window.
+    Every call reads live data -- nothing is cached -- and says when it was
+    checked. A failing dependency is a 502, never an empty or full result."""
+    user = await _current_user(request, users)
+    if user["role"] != TECHNICAL_SUPPORT_ROLE:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    if datetime.combine(end_date, end_time) <= datetime.combine(start_date, start_time):
+        return _window_error()
+
+    window = {
+        "start_date": start_date.isoformat(),
+        "start_time": start_time.isoformat(timespec="minutes"),
+        "end_date": end_date.isoformat(),
+        "end_time": end_time.isoformat(timespec="minutes"),
+    }
+    overlapping = await _json_list("Events", events.post("/events/overlapping", json=window))
+    catalogue = await _json_list("Equipment", equipment.get("/equipment", cookies=request.cookies))
+    requirements = []
+    if overlapping:
+        params = [("event_ids", event["id"]) for event in overlapping]
+        requirements = await _json_list("Equipment", equipment.get(INTERNAL_PATH, params=params))
+
+    type_search = type.strip() if type else None
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        **window,
+        "type": type_search or None,
+        "quantity": quantity,
+        "items": availability.items(
+            catalogue, overlapping, requirements, type_search=type_search, quantity=quantity,
+        ),
+    }
 
 
 @app.get("/equipment-requirements")

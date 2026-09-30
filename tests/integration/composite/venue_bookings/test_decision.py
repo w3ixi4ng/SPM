@@ -25,10 +25,14 @@ def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_cl
     before_event = admin.schema('events').table('events').select('*').eq('id', event_id).execute().data[0]
     before_venue = admin.schema('venues').table('venues').select('*').eq('id', world['venue_id']).execute().data[0]
     saved = []
-    for payload in [{'decision': 'approved'}, {'decision': 'rejected', 'reason': 'Room needs repairs', 'alternative': 'Try Studio C on Friday'}]:
+    # S-30: holds are exclusive, so the two requests take different times.
+    for (start, end), payload in [
+        (('09:00', '12:00'), {'decision': 'approved'}),
+        (('13:00', '15:00'), {'decision': 'rejected', 'reason': 'Room needs repairs', 'alternative': 'Try Studio C on Friday'}),
+    ]:
         created = httpx.post(f'{GATEWAY_BASE_URL}/venue-bookings', headers=coordinator, json={
             'event_id': event_id, 'venue_id': world['venue_id'], 'booking_date': '2026-11-12',
-            'start_time': '09:00', 'end_time': '12:00',
+            'start_time': start, 'end_time': end,
         }, timeout=20)
         assert created.status_code == 201, created.text
         booking_id = created.json()['id']

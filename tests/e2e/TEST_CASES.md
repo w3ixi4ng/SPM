@@ -3,9 +3,10 @@
 Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_add_venue.py`, `test_respond_to_return.py`, `test_rejected_tab.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
-`test_record_equipment.py`, `test_update_equipment.py` and
-`test_retire_equipment.py`, `test_assign_technical_support.py`, and
-`test_prevent_overlapping_confirmation.py`.
+`test_record_equipment.py`, `test_update_equipment.py`,
+`test_retire_equipment.py`, `test_assign_technical_support.py`,
+`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py` and
+`test_venue_availability.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -234,7 +235,7 @@ contract without a browser.
 
 ## TC-E2E-210 — a venue that doesn't suit the event is warned about and blocked, and one that fits can be sent
 
-- **Scenario:** S-35 in a real browser. Only a browser shows the warning
+- **Scenario:** Revised for S-34, twice: **Clear filters** now shows every venue, including one closed at the booking's time, which is marked and blocked like any other mismatch. Before that: the list now opens filtered to the event, so the unsuitable venues are reached through **Clear filters**. S-35 in a real browser. Only a browser shows the warning
   appearing on selection and **Send request** being disabled and re-enabled;
   TC-FRONTEND-039 covers the wording.
 - **Pre-conditions:** Stack and project as the header. The test creates, and
@@ -245,27 +246,39 @@ contract without a browser.
   and open Thursday `08:00`–`20:00`:
   - `"spm-e2e Small <hex>"`: capacity `80`, facility `projector`;
   - `"spm-e2e Bare <hex>"`: capacity `150`, no facilities;
-  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`.
+  - `"spm-e2e Large <hex>"`: capacity `150`, facility `projector`;
+  - `"spm-e2e Weekend <hex>"`: capacity `150`, facility `projector`, open
+    Saturday `10:00`–`16:00` only.
 - **Steps:**
   1. Sign in as the coordinator and open
      `/coordinator/events/{id}/request-venue`.
-  2. Look at **Send request** before choosing a venue.
+  2. Look at the list and **Send request** before choosing a venue, then
+     open **Filters** (collapsed to start), click **Clear filters**, then tick
+     **Only venues open at the booking's
+     date and time** again, then click **Clear filters** once more.
   3. Choose the Small venue.
   4. Choose the Bare venue.
-  5. Choose the Large venue.
-  6. Set `09:00`–`12:00` and click **Send request**.
+  5. Choose the Weekend venue.
+  6. Choose the Large venue.
+  7. Set `09:00`–`12:00` and click **Send request**.
 - **Test data:** As above.
 - **Expected:**
-  - Step 2: no warning; **Send request** is enabled.
+  - Step 2: the list opens filtered to the event, so only the Large venue
+    shows; no warning; **Send request** is enabled. After **Clear filters**
+    all four venues show, the Weekend venue marked `"Closed on Thursdays"`
+    under its name, and the checkbox is unticked. Ticking it hides the
+    Weekend venue again; clearing once more shows all four.
   - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
     expects 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
     **Send request** is still disabled.
-  - Step 5: no warning, and **Send request** is enabled.
-  - Step 6: the browser returns to `/coordinator/events/{id}` with
+  - Step 5: the warning names the Weekend venue and `"Closed on
+    Thursdays"`; **Send request** is still disabled.
+  - Step 6: no warning, and **Send request** is enabled.
+  - Step 7: the browser returns to `/coordinator/events/{id}` with
     `"Venue request sent to Venue Staff."`
-- **Actual:** No warning and Send request enabled on arrival; the Small venue showed a warning naming it and "Too small: holds 80, event expects 100" with Send request disabled; the Bare venue's warning named it and "Missing: Projector", still disabled; the Large venue cleared the warning and re-enabled Send request; the send returned to the event page with the confirmation.
-- **Status:** Pass
+- **Actual:**
+- **Status:** Not Executed
 - **Evidence:** `test_capacity_warning.py::test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked`
 
 ## TC-E2E-211 — equipment moves from catalogue to planning requirement to Technical Support view
@@ -391,11 +404,11 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   4. Sign in as requester; reopen event and read both decisions.
   5. Exercise failed/conflicting save and a nonstaff dashboard.
   6. Reload the Coordinator event page and verify the saved result persists.
-- **Test data:** Studio B, 2026-11-12 09:00-12:00; alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
+- **Test data:** Studio B, 2026-11-12, three requests at 09:00-12:00, 12:00-15:00 and 15:00-18:00 (separate slots since S-30 made pending requests exclusive holds); alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
 - **Expected:** Saved Confirmed/Rejected outcome and alternative visible after reopen; no automatic booking of alternative. Failure/conflict gives safe feedback, not success. Nonstaff sees no decision controls. No reassignment exception is added; the existing assignment rule remains in force. Manual supplement: two staff tabs, keyboard operation, narrow screen and reason-plus-alternative display.
 - **Actual:** Venue Staff approved one pending request without a reason and rejected another with an alternative; blank rejection was blocked. The pending list refreshed after each decision. After signing in as the requesting Coordinator and reopening the event, both saved outcomes and the alternative were visible and persisted after reload.
 - **Status:** Pass
-- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; local Chromium execution against the freshly recreated `.env.test` stack.
+- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; rerun 2026-09-30 on branch `S-30/view-venue-availability-calendar` after giving the three requests separate slots; local Chromium against a freshly recreated `.env.test` stack: 1 passed.
 ## S-43 — Auto-Assign Technical Support
 
 ## TC-E2E-216 — Coordinator explicitly requests support and sees the automatic assignment
@@ -425,6 +438,10 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
 ## TC-E2E-218 — Confirmed venue time becomes unavailable to another event
 
+> **Superseded by S-30.** Holds are exclusive now, so the second overlapping
+> request is refused when it is sent, and there is nothing left to confirm.
+> TC-E2E-221 covers the refusal. The last result is kept below as a record.
+
 - **Scenario:** Venue Staff cannot confirm an overlapping request after the
   venue slot has been confirmed for another event (AC1, AC2, AC3).
 - **Pre-conditions:** Fresh `.env.test` stack with S-38 SQL applied, granted
@@ -443,11 +460,142 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.
 
-## S-33 specifications awaiting developer confirmation
+## TC-E2E-219 — a Coordinator narrows the Venues tab with filters, and results follow each change
+
+- **Scenario:** S-34, AC1–AC3 in a real browser. The matching rules are
+  TC-FRONTEND-057 to 062; this proves the filters are wired to the list on
+  the dashboard, update it on every change, and can be cleared.
+- **Pre-conditions:** Stack and project as the header. The test creates, and
+  removes afterwards, an `event_coordinator` with `make_user` and the three
+  venues from the frontend cases' shared data, each name suffixed with
+  `<hex>` so other venues in the project can be told apart.
+- **Steps:**
+  1. Sign in as the coordinator, open the **Venues** tab, and open
+     **Filters**.
+  2. Type `anson` in **Search by name or location**.
+  3. Set **Holds at least** to `100`.
+  4. Tick **Stage** under facilities.
+  5. Set the date to `2026-11-12`.
+  6. Click **Clear filters**.
+- **Test data:** As above.
+- **Expected:**
+  - Step 1: before opening, the collapsed panel reads **Filters · none
+    applied**.
+  - Step 2: of the three, Studio B and Anson Suite are listed.
+  - Step 3: Anson Suite only, and the panel reads **2 applied**.
+  - Step 4: Anson Suite only.
+  - Step 5: none of the three, and `"No venues match these filters."`
+  - Step 6: all three listed again, and the search box is empty.
+
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+Both cases are **Blocked** until the S-30 section of `backend/sql/bookings.sql`
+has been run in the test project. Dates are relative to the day of the run:
+`D+n` means n days after the browser's today, so the suite keeps working as
+time passes.
+
+## TC-E2E-220 — a Coordinator opens a venue's calendar and sees booked, held, unavailable and past days apart
+
+- **Scenario:** Kong, the SPA route and the calendar render every state
+  (AC1, AC2).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. A test venue
+  open every day `08:00`–`18:00`. Seeded through the API: a confirmed request
+  on `D+2` `09:00`–`12:00`, a pending request on `D+2` `14:00`–`16:00`, and a
+  block on `D+3`–`D+4`, `maintenance`.
+- **Steps:**
+  1. Sign in as the Coordinator. Open the Venues tab and choose **Availability**
+     on the test venue's row, next to where Venue Staff see **Edit**.
+  2. Reload on `/venues/:id/availability`.
+  3. Move to each seeded day's month with the Month and Year dropdowns, and
+     try ◀ on the first month. (Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.)
+- **Expected:**
+  - The page has a "Back to dashboard" link. It opens on the month `D+1` is
+    in, and ◀ is disabled there.
+  - `D+2` shows "Booked 09:00–12:00" and "Tentatively held 14:00–16:00".
+    `D+3` and `D+4` show "Unavailable — Maintenance". Other days show
+    "Available".
+  - A legend names each state. No event name appears on the page.
+  - In the grid, today and earlier are greyed out and cannot be clicked.
+  - The page survives the reload, which proves the SPA fallback and the
+    session. **Mark unavailable** is not shown to a Coordinator.
+- **Actual:** Opened from the Venues tab and survived a reload; opened on tomorrow's month with Previous disabled and today greyed out; D+2 showed Booked and Tentatively held, D+3 and D+4 Unavailable — Maintenance, D+5 Available; legend complete; no event name or note; no Mark unavailable for the Coordinator.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.
+
+## TC-E2E-221 — a new hold, a new block and a removed block all show up on the calendar
+
+- **Scenario:** Changes made elsewhere appear on the next open or Refresh
+  (AC3).
+- **Pre-conditions:** As TC-E2E-220, with nothing on the venue. A Venue
+  Staff account. Two planning events assigned to the Coordinator.
+- **Steps:**
+  1. The Coordinator opens the calendar, moving to `D+5`'s month with ▶ if
+     it is not the first month shown. `D+5` shows "Available".
+  2. The Coordinator sends a request for `D+5` `10:00`–`11:00` from the first
+     event. They reopen the calendar, then try the second event on `D+5`
+     `10:30`–`11:30`.
+  3. Venue Staff open the same venue's **Availability** and choose **Mark
+     unavailable**. In the slide-over they block `D+6`–`D+6`, reason
+     "Renovation".
+  4. The Coordinator presses **Refresh**.
+  5. Staff press **Remove** on the block. The Coordinator presses **Refresh**.
+- **Expected:**
+  - Step 2: `D+5` shows "Tentatively held 10:00–11:00". The second request
+    shows "… is already tentatively held on … from 10:00 to 11:00."
+  - Step 3: staff see the block on their calendar straight away.
+  - Step 4: `D+6` shows "Unavailable — Renovation".
+  - Step 5: `D+6` is "Available" again.
+  - Cleanup removes every row created.
+- **Actual:** D+5 went from Available to Tentatively held 10:00–11:00; the second event was refused as already tentatively held; the staff block showed for staff at once and for the Coordinator on Refresh; after Remove, Refresh showed D+6 Available.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_new_hold_a_new_block_and_a_removed_block_all_show_up`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+## TC-E2E-222 — Technical Support checks a window, sees what is reserved, and re-checks after a change
+
+- **Scenario:** Kong, the SPA route and the page work end to end (AC1, AC2,
+  AC3).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. A Technical
+  Support account. A new active item "spm-e2e S44 Mic {suffix}", total 10.
+  A `planning` event on `D+3` 10:00–11:00 with a 7-unit requirement for it.
+  `D+n` is n days after the browser's today.
+- **Steps:**
+  1. Sign in as Technical Support and choose **Check availability** on the
+     dashboard. Reload the page on `/equipment/availability`.
+  2. Enter `D+3` 09:00 to `D+3` 12:00, type "spm-e2e S44 Mic {suffix}",
+     quantity 4, and press **Check availability**.
+  3. Expand the item.
+  4. Add a 2-unit requirement for another `planning` event at the same time,
+     directly, then press **Check availability** again.
+- **Expected:**
+  - The page has "Back to dashboard"; the date pickers don't allow dates
+    before today; the reload keeps the page.
+  - Step 2: "3 of 10 available", "7 reserved", "Not enough — 3 available",
+    and "Checked at …".
+  - Step 3: the event's name, `D+3` 10:00–11:00, "Planning", and 7.
+  - Step 4: "1 of 10 available", "9 reserved", and a checked-at time no
+    earlier than before.
+  - Cleanup removes every row created.
+- **Actual:** Reached from the dashboard and survived a reload; Start date min was today; "3 of 10 available", "7 reserved", "Not enough — 3 available" and "Checked at …"; the expanded list showed the event, 10:00–11:00 and Planning; after the second hold, "1 of 10 available" and "9 reserved".
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_check_equipment_availability.py::test_technical_support_checks_a_window_and_rechecks_after_a_change[chromium]`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; 1 passed.
+
+## S-33 — place tentative venue hold
 
 Story: S-33 Place Tentative Venue Hold.
+Confirmed by the developer on 2026-09-30. Not yet executed.
 
-## TC-E2E-219 — Tentative hold appears distinctly and releases for a replacement request
+## TC-E2E-223 — Tentative hold appears distinctly and releases for a replacement request
 
 - **Scenario:** Venue Staff place and observe a hold, then the Coordinator's changed request frees the old slot immediately (AC1–AC4).
 - **Pre-conditions:** Fresh `.env.test` stack with S-33 SQL applied, granted and exposed; Chromium; one Venue Staff member; assigned Coordinator; planning event with a Pending Studio B request.
@@ -458,7 +606,7 @@ Story: S-33 Place Tentative Venue Hold.
 - **Status:** Not Executed
 - **Evidence:** —
 
-## TC-E2E-220 — Rejected or cancelled event releases its tentative hold
+## TC-E2E-224 — Rejected or cancelled event releases its tentative hold
 
 - **Scenario:** Closed event states never leave a venue slot reserved (AC3, AC4).
 - **Pre-conditions:** Same approved stack; separate Held requests whose authoritative events can be moved to `rejected` and `cancelled` by the test fixture. S-33 adds no Cancel Event UI.

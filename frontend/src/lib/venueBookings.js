@@ -1,5 +1,5 @@
 import { requestJSON } from './api.js'
-import { optionLabel } from './venues.js'
+import { DAY_LABELS, optionLabel, WEEK } from './venues.js'
 
 // S-36: a Coordinator requests a venue for an event in planning; Venue Staff
 // see every pending request. The venue requirements belong to the event, so
@@ -40,10 +40,29 @@ function missing(required, offered) {
   return (required ?? []).filter((code) => !(offered ?? []).includes(code))
 }
 
+function weekdayOf(isoDate) {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return WEEK[(new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7]
+}
+
+// Whether `venue` is open for the booking `when` ({date, startTime, endTime}),
+// as a problem to show, or null when it is -- or when there is no date yet.
+function hoursProblem(venue, when) {
+  if (!when?.date) return null
+  const day = weekdayOf(when.date)
+  const hours = venue.operating_hours.find((entry) => entry.day === day)
+  if (!hours) return `Closed on ${DAY_LABELS[day]}s`
+  if (!when.startTime || !when.endTime) return null
+  const open = hours.open.slice(0, 5)
+  const close = hours.close.slice(0, 5)
+  if (open <= when.startTime && when.endTime <= close) return null
+  return `Open ${open}–${close} on ${DAY_LABELS[day]}s`
+}
+
 // Why `venue` would not suit `event`, before anything is sent -- an empty list
-// when it fits. Opening hours are left out: they depend on the date and time,
-// which the service checks on send.
-export function venueFit(event, venue) {
+// when it fits. Opening hours are checked only when `when`, the booking's date
+// and time, is given (S-34); the service checks them again on send.
+export function venueFit(event, venue, when) {
   const problems = []
   if (event.expected_attendance > venue.capacity) {
     problems.push(`Too small: holds ${venue.capacity}, event expects ${event.expected_attendance}`)
@@ -55,6 +74,8 @@ export function venueFit(event, venue) {
   if (facilities.length > 0) problems.push(`Missing: ${facilities.map(optionLabel).join(', ')}`)
   const accessibility = missing(event.required_accessibility, venue.accessibility)
   if (accessibility.length > 0) problems.push(`Missing: ${accessibility.map(optionLabel).join(', ')}`)
+  const hours = hoursProblem(venue, when)
+  if (hours) problems.push(hours)
   return problems
 }
 
@@ -63,9 +84,9 @@ export function venueFit(event, venue) {
 // null when it does, or when nothing is selected yet. While it is showing,
 // Send request is disabled: the service would refuse the request anyway, so
 // the Coordinator is steered to a venue that fits instead.
-export function venueWarning(event, venue) {
+export function venueWarning(event, venue, when) {
   if (!venue) return null
-  const problems = venueFit(event, venue)
+  const problems = venueFit(event, venue, when)
   if (problems.length === 0) return null
   return `${venue.name} doesn't suit this event: ${problems.join('; ')}. Choose a venue that fits.`
 }
@@ -136,7 +157,9 @@ export function bookingDecisionErrorMessage(error) {
   if (error.status === 401) return 'Your session has expired. Please sign in again.'
   if (error.status === 403) return 'Only Venue Staff can decide booking requests.'
   if (error.status === 404) return 'This booking request could not be found. Reload the list.'
-  if (error.status === 409 && error.message?.includes('already confirmed')) return error.message
+  // S-38's overlap, or an S-30 block on the booking's day.
+  if (error.status === 409 && (error.message?.includes('already confirmed')
+    || error.message?.includes('is unavailable from'))) return error.message
   if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
   if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
   return 'We could not confirm whether your decision was saved. Reload the list before trying again.'

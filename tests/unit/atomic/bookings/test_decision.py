@@ -20,18 +20,16 @@ def auth():
     app.dependency_overrides.pop(database_module.get_auth, None)
 
 
-def prepare(db, *, booking=None, conflicts=None):
+def prepare(db, *, booking=None, conflicts=None, blocks=None):
     booking = booking_row() if booking is None else booking
     query = table(db).select.return_value
-    query.eq.return_value = query
-    query.neq.return_value = query
-    query.lt.return_value = query
-    query.gt.return_value = query
-    query.order.return_value = query
-    query.limit.return_value = query
+    for method in ('eq', 'neq', 'lt', 'gt', 'lte', 'gte', 'order', 'limit'):
+        getattr(query, method).return_value = query
+    # The booking, the confirmed-overlap check, then S-30's block check.
     query.execute.side_effect = [
         SimpleNamespace(data=[] if booking is False else [booking]),
         SimpleNamespace(data=conflicts or []),
+        SimpleNamespace(data=blocks or []),
     ]
     update = table(db).update.return_value
     update.eq.return_value = update
@@ -161,6 +159,7 @@ def test_database_overlap_race_returns_identified_conflict(client, db, auth):
     table(db).select.return_value.execute.side_effect = [
         SimpleNamespace(data=[booking_row()]),
         SimpleNamespace(data=[]),
+        SimpleNamespace(data=[]),  # S-30: no block that day
         SimpleNamespace(data=[conflict]),
     ]
     update.execute.side_effect = ExclusionViolation('private constraint detail')
