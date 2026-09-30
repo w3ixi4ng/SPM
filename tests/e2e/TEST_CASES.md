@@ -5,7 +5,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
-`test_prevent_overlapping_confirmation.py` and `test_filter_venues.py`.
+`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py` and
+`test_venue_availability.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -403,11 +404,11 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   4. Sign in as requester; reopen event and read both decisions.
   5. Exercise failed/conflicting save and a nonstaff dashboard.
   6. Reload the Coordinator event page and verify the saved result persists.
-- **Test data:** Studio B, 2026-11-12 09:00-12:00; alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
+- **Test data:** Studio B, 2026-11-12, three requests at 09:00-12:00, 12:00-15:00 and 15:00-18:00 (separate slots since S-30 made pending requests exclusive holds); alternative='Try Studio C at 14:00'; server-conflict fixture already decided by another staff.
 - **Expected:** Saved Confirmed/Rejected outcome and alternative visible after reopen; no automatic booking of alternative. Failure/conflict gives safe feedback, not success. Nonstaff sees no decision controls. No reassignment exception is added; the existing assignment rule remains in force. Manual supplement: two staff tabs, keyboard operation, narrow screen and reason-plus-alternative display.
 - **Actual:** Venue Staff approved one pending request without a reason and rejected another with an alternative; blank rejection was blocked. The pending list refreshed after each decision. After signing in as the requesting Coordinator and reopening the event, both saved outcomes and the alternative were visible and persisted after reload.
 - **Status:** Pass
-- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; local Chromium execution against the freshly recreated `.env.test` stack.
+- **Evidence:** `test_decide_booking.py::test_staff_decisions_appear_to_requesting_coordinator[chromium]`; rerun 2026-09-30 on branch `S-30/view-venue-availability-calendar` after giving the three requests separate slots; local Chromium against a freshly recreated `.env.test` stack: 1 passed.
 ## S-43 — Auto-Assign Technical Support
 
 ## TC-E2E-216 — Coordinator explicitly requests support and sees the automatic assignment
@@ -436,6 +437,10 @@ Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
 ## TC-E2E-218 — Confirmed venue time becomes unavailable to another event
+
+> **Superseded by S-30.** Holds are exclusive now, so the second overlapping
+> request is refused when it is sent, and there is nothing left to confirm.
+> TC-E2E-221 covers the refusal. The last result is kept below as a record.
 
 - **Scenario:** Venue Staff cannot confirm an overlapping request after the
   venue slot has been confirmed for another event (AC1, AC2, AC3).
@@ -485,3 +490,68 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 - **Actual:**
 - **Status:** Not Executed
 - **Evidence:**
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+Both cases are **Blocked** until the S-30 section of `backend/sql/bookings.sql`
+has been run in the test project. Dates are relative to the day of the run:
+`D+n` means n days after the browser's today, so the suite keeps working as
+time passes.
+
+## TC-E2E-220 — a Coordinator opens a venue's calendar and sees booked, held, unavailable and past days apart
+
+- **Scenario:** Kong, the SPA route and the calendar render every state
+  (AC1, AC2).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. A test venue
+  open every day `08:00`–`18:00`. Seeded through the API: a confirmed request
+  on `D+2` `09:00`–`12:00`, a pending request on `D+2` `14:00`–`16:00`, and a
+  block on `D+3`–`D+4`, `maintenance`.
+- **Steps:**
+  1. Sign in as the Coordinator. Open the Venues tab and choose **Availability**
+     on the test venue's row, next to where Venue Staff see **Edit**.
+  2. Reload on `/venues/:id/availability`.
+  3. Move to each seeded day's month with the Month and Year dropdowns, and
+     try ◀ on the first month. (Changed by the developer on 2026-09-30: one month at a time with arrows and Month/Year dropdowns, replacing the From/To range.)
+- **Expected:**
+  - The page has a "Back to dashboard" link. It opens on the month `D+1` is
+    in, and ◀ is disabled there.
+  - `D+2` shows "Booked 09:00–12:00" and "Tentatively held 14:00–16:00".
+    `D+3` and `D+4` show "Unavailable — Maintenance". Other days show
+    "Available".
+  - A legend names each state. No event name appears on the page.
+  - In the grid, today and earlier are greyed out and cannot be clicked.
+  - The page survives the reload, which proves the SPA fallback and the
+    session. **Mark unavailable** is not shown to a Coordinator.
+- **Actual:** Opened from the Venues tab and survived a reload; opened on tomorrow's month with Previous disabled and today greyed out; D+2 showed Booked and Tentatively held, D+3 and D+4 Unavailable — Maintenance, D+5 Available; legend complete; no event name or note; no Mark unavailable for the Coordinator.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.
+
+## TC-E2E-221 — a new hold, a new block and a removed block all show up on the calendar
+
+- **Scenario:** Changes made elsewhere appear on the next open or Refresh
+  (AC3).
+- **Pre-conditions:** As TC-E2E-220, with nothing on the venue. A Venue
+  Staff account. Two planning events assigned to the Coordinator.
+- **Steps:**
+  1. The Coordinator opens the calendar, moving to `D+5`'s month with ▶ if
+     it is not the first month shown. `D+5` shows "Available".
+  2. The Coordinator sends a request for `D+5` `10:00`–`11:00` from the first
+     event. They reopen the calendar, then try the second event on `D+5`
+     `10:30`–`11:30`.
+  3. Venue Staff open the same venue's **Availability** and choose **Mark
+     unavailable**. In the slide-over they block `D+6`–`D+6`, reason
+     "Renovation".
+  4. The Coordinator presses **Refresh**.
+  5. Staff press **Remove** on the block. The Coordinator presses **Refresh**.
+- **Expected:**
+  - Step 2: `D+5` shows "Tentatively held 10:00–11:00". The second request
+    shows "… is already tentatively held on … from 10:00 to 11:00."
+  - Step 3: staff see the block on their calendar straight away.
+  - Step 4: `D+6` shows "Unavailable — Renovation".
+  - Step 5: `D+6` is "Available" again.
+  - Cleanup removes every row created.
+- **Actual:** D+5 went from Available to Tentatively held 10:00–11:00; the second event was refused as already tentatively held; the staff block showed for staff at once and for the Coordinator on Refresh; after Remove, Refresh showed D+6 Available.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_venue_availability.py::test_a_new_hold_a_new_block_and_a_removed_block_all_show_up`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.

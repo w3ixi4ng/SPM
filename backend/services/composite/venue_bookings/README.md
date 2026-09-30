@@ -11,6 +11,7 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `events` — `GET /events/assigned/{id}` | The event, with the caller's own session, so only an event assigned to this Coordinator is found |
 | `venues` — `GET /venues/{id}` | The venue, with the caller's own session |
 | `bookings` — `POST /bookings`, `GET /bookings?status=pending`, `GET /bookings?event_id={id}` | Store and list requests |
+| `bookings` — `GET /bookings?venue_id&from&to`, `GET /blocks?venue_id&from&to`, `POST /blocks`, `DELETE /blocks/{id}` | S-30: the availability calendar and venue blocks |
 
 Reached through Kong at `/api/venue-bookings`.
 
@@ -22,6 +23,9 @@ Reached through Kong at `/api/venue-bookings`.
 | `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every pending request, oldest first. Not filtered by who added the venue. |
+| `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
+| `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30: mark whole days of a venue unavailable. |
+| `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
 ## Requests
@@ -69,8 +73,10 @@ failures are reported together, keyed by the field to change:
 | `required_accessibility` | One of the event's accessibility features is not at the venue | `Studio B does not have: hearing_loop` |
 | `room_layout` | The venue does not offer the event's layout | `Studio B does not offer the banquet layout` |
 
-Duplicate and overlapping requests are not checked here; they belong to the
-tentative-holds and conflict-detection stories.
+**Holds (S-30).** A stored request is a tentative hold, and holds are
+exclusive. The bookings service refuses a request that overlaps another hold,
+a confirmed booking or a block, and this service passes its `409` through
+unchanged — see the table below.
 
 Submitting a request writes nothing to the event — it is already in
 `planning` and stays there.
@@ -104,6 +110,7 @@ exactly as the bookings service returns them (see
 | `404` | `{"detail": "Event not found"}` | No such event, or it is not assigned to the caller. |
 | `404` | `{"detail": "Venue not found"}` | No such venue. |
 | `409` | `{"detail": "A venue can only be requested for an event in planning"}` | The event is `submitted`, `returned` or `rejected`. |
+| `409` | `{"detail": "Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00."}` | S-30: the slot is held. Also `… is already confirmed on …` and `Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.` Nothing was saved. |
 | `422` | `{"detail": "Please check the details you entered", "errors": {...}}` | The body failed validation. |
 | `422` | `{"detail": "This venue can't take this booking", "errors": {...}}` | Refused by the checks above. |
 | `502` | `{"detail": "<Users\|Events\|Venues\|Bookings> service unavailable"}` | A downstream service could not be reached or failed. Nothing was saved. |
@@ -164,3 +171,77 @@ team requirement. No new Coordinator permissions are granted.
 
 S-38 must protect the atomic pending-to-confirmed write against overlapping
 bookings. S-37 has no double-booking guarantee or S-33 hold behaviour.
+
+## S-30 availability calendar and blocks
+
+### `GET /venue-bookings/availability`
+
+| Query | Required | Values |
+| --- | --- | --- |
+| `venue_id` | yes | UUID |
+| `from` | yes | date `YYYY-MM-DD`, first day |
+| `to` | yes | date `YYYY-MM-DD`, last day, on or after `from` |
+
+No rule here keeps the range in the future; the page greys out and disables
+days before tomorrow in the browser, as every date picker in the app does.
+
+`200`:
+
+```json
+{
+  "venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "venue_name": "Studio B",
+  "from": "2026-11-11",
+  "to": "2026-12-08",
+  "operating_hours": [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
+  "entries": [
+    {"state": "confirmed", "start_date": "2026-11-12", "end_date": "2026-11-12", "start_time": "09:00:00", "end_time": "12:00:00"},
+    {"state": "held", "start_date": "2026-11-12", "end_date": "2026-11-12", "start_time": "14:00:00", "end_time": "16:00:00"},
+    {"state": "blocked", "start_date": "2026-11-13", "end_date": "2026-11-16", "start_time": null, "end_time": null, "reason": "maintenance"}
+  ]
+}
+```
+
+`held` is a pending request, `confirmed` an approved one; rejected requests
+are left out. Entries are in date order, then by start time. No entry carries
+an event name, a coordinator, or a booking or event id. For `venue_staff`
+only, a `blocked` entry also has the block's `id` and `note`, which they need
+to remove it. `operating_hours` is the venue's own, for working out closed
+days.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `401` | `{"detail": "Not authenticated"}` | No valid session. |
+| `403` | `{"detail": "Permission denied"}` | Not a Coordinator or Venue Staff. |
+| `404` | `{"detail": "Venue not found"}` | No such venue. |
+| `422` | `{"detail": "Please check the details you entered", "errors": {...}}` | A query parameter is missing or malformed, or `to` is before `from` (`errors.to`). |
+| `502` | `{"detail": "<Users\|Venues\|Bookings> service unavailable"}` | Never an empty calendar, which would read as available. |
+
+### `POST /venue-bookings/blocks`
+
+Venue Staff only. Body: `venue_id`, `start_date`, `end_date`, `reason`,
+optional `note` — the rules in the
+[bookings contract](../../atomic/bookings/README.md#post-blocks). The venue's
+name is looked up here and the session is forwarded, so `venue_name` and
+`created_by` in the body are `422`.
+
+```json
+{"venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd", "start_date": "2026-11-13", "end_date": "2026-11-16", "reason": "maintenance", "note": "Ceiling repair"}
+```
+
+`201` with the stored block. `404` `{"detail": "Venue not found"}`; a `422`
+from the bookings service is passed through with its `errors`; `401`, `403`
+and `502` as above.
+
+### `DELETE /venue-bookings/blocks/{id}`
+
+Venue Staff only. `204` with no body; `404` `{"detail": "Block not found"}`.
+
+A decision refused because the request falls on a blocked day is passed
+through too: `409` `{"detail": "Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026."}`.
+
+**Before running it:** the S-30 block in
+[`bookings.sql`](../../../sql/bookings.sql) applied in both projects — see
+[S-30 database setup](../../atomic/bookings/README.md#s-30-database-setup).
+Tests are those listed under
+[S-30 verification](../../atomic/bookings/README.md#s-30-verification).

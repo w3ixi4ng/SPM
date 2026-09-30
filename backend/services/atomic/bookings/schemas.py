@@ -132,6 +132,60 @@ class BookingRead(BaseModel):
     submitted_at: datetime
 
 
+# S-30: why Venue Staff marked a venue unavailable. Keep in step with
+# backend/sql/bookings.sql.
+BlockReason = Literal["maintenance", "renovation", "safety", "internal_activity", "other"]
+
+
+class BlockCreate(BaseModel):
+    """A whole-day period a venue cannot be used, inclusive at both ends.
+    venue_name is a snapshot the venue_bookings composite takes from the
+    venues service, for messages. created_by and created_at are forbidden:
+    this service sets both from the verified session and the clock.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    venue_id: UUID
+    venue_name: str = Field(min_length=1)
+    start_date: date
+    end_date: date
+    reason: BlockReason
+    note: str | None = None
+
+    @field_validator("venue_name", mode="before")
+    @classmethod
+    def strip_venue_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def blank_note_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def valid_block(self):
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if self.reason == "other" and self.note is None:
+            raise ValueError("Add a note when the reason is other")
+        return self
+
+
+class BlockRead(BaseModel):
+    id: UUID
+    venue_id: UUID
+    venue_name: str
+    start_date: date
+    end_date: date
+    reason: BlockReason
+    note: str | None
+    created_by: UUID
+    created_at: datetime
+
+
 class BookingDecision(BaseModel):
     """Final decision only; request snapshots and audit fields are server-owned."""
 

@@ -31,7 +31,7 @@ os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 # folder. Load this service while preserving any same-named modules another
 # service's conftest already loaded, so `pytest tests/unit` remains
 # collectable.
-_MODULE_NAMES = ("app", "clients", "database", "schemas", "suitability")
+_MODULE_NAMES = ("app", "availability", "clients", "database", "schemas", "suitability")
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}
 for _name in _MODULE_NAMES:
     sys.modules.pop(_name, None)

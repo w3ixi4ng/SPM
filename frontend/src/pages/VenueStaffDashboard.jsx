@@ -1,4 +1,4 @@
-import { CalendarDays, ListChecks, LogOut, Plus } from 'lucide-react'
+import { ListChecks, LogOut, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
@@ -28,12 +28,8 @@ const C = {
   green: '#3F8F5F',
 }
 
+// S-30 built venue availability: each venue's Availability link above.
 const UPCOMING_AREAS = [
-  {
-    icon: CalendarDays,
-    title: 'Venue availability',
-    description: 'Mark a venue as available or booked for a given date.',
-  },
   {
     icon: ListChecks,
     title: 'Setup & teardown checklists',
@@ -261,6 +257,7 @@ export default function VenueStaffDashboard({ role }) {
           </div>
           <VenueList
             canEdit={hasPermission(role, PERMISSIONS.UPDATE_VENUE)}
+            canViewAvailability={hasPermission(role, PERMISSIONS.VIEW_VENUE_AVAILABILITY)}
             venues={venues}
             loading={loading}
             error={error}

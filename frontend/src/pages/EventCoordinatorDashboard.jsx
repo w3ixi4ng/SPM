@@ -6,7 +6,7 @@ import Logo from '../components/Logo.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueFilters from '../components/VenueFilters.jsx'
 import VenueList from '../components/VenueList.jsx'
-import { getRoleAccess } from '../lib/access.js'
+import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import { eventErrorMessage, eventStatusMeta, listAssignedEventRequests } from '../lib/eventRequests.js'
 import { emptyVenueFilters, filterVenues, getVenueOptions } from '../lib/venues.js'
 
@@ -214,6 +214,7 @@ export default function EventCoordinatorDashboard({ role }) {
             )}
             <VenueList
               venues={filteredVenues}
+              canViewAvailability={hasPermission(user?.role, PERMISSIONS.VIEW_VENUE_AVAILABILITY)}
               loading={loading}
               error={error}
               onRetry={reload}

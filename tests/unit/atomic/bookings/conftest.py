@@ -77,7 +77,22 @@ def table(db):
     return db.schema.return_value.table.return_value
 
 
+def lookups(db, *results):
+    """S-30: every filtered select returns the same query object, and each
+    execute returns the next result in turn -- the overlap check, then the
+    block check. With no results, every lookup finds nothing."""
+    query = table(db).select.return_value
+    for method in ("eq", "neq", "in_", "lt", "gt", "lte", "gte", "order", "limit"):
+        getattr(query, method).return_value = query
+    if results:
+        query.execute.side_effect = [MagicMock(data=rows) for rows in results]
+    else:
+        query.execute.return_value = MagicMock(data=[])
+    return query
+
+
 def on_insert(db, rows):
+    lookups(db)
     table(db).insert.return_value.execute.return_value = MagicMock(data=rows)
 
 

@@ -82,21 +82,85 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
-### TC-BOOKINGS-104 — Concurrent overlapping confirmations have exactly one winner
+### TC-BOOKINGS-104 — The database refuses a second overlapping confirmed booking
 
-- **Scenario:** The database-backed confirmation boundary prevents a race from
-  double-booking one venue (AC1, AC2, AC3).
-- **Pre-conditions:** Fresh `.env.test` stack; S-38 SQL applied, granted and
-  exposed in the test project; two different pending bookings exist for the
-  same venue and overlapping slot; two authenticated Venue Staff sessions.
-- **Steps:** Send both approvals simultaneously; read both rows through the
-  API and directly from `bookings.bookings`; then retry the blocked approval.
-- **Test data:** Studio B on `2026-11-12`: B1 `09:00`–`12:00`, B2
-  `11:00`–`13:00`.
-- **Expected:** Exactly one request returns `200` and becomes `confirmed`.
-  The other returns `409`, remains `pending`, and identifies the winning
-  booking's venue/date/time as the conflict. The retry is also blocked. At no
-  point do two overlapping confirmed rows exist.
-- **Actual:** Simultaneous approvals produced one Confirmed row and one still-Pending row; the loser received an identified `409`, and retry remained blocked.
+> **Rewritten for S-30 on 2026-09-30, at the developer's request.** The S-38
+> version raced two approvals of overlapping pending requests, which S-30's
+> exclusive holds make impossible to set up. This version checks the same S-38
+> rule — the database never holds two overlapping confirmed bookings — at the
+> database itself, going around the API.
+
+- **Scenario:** Even a write that skips every application check cannot
+  double-book a venue (S-38 AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack; the S-38 and S-30 SQL applied,
+  granted and exposed in the test project; one authenticated Venue Staff
+  session; a venue id with no bookings.
+- **Steps:**
+  1. Create booking B1 through `POST /bookings` and approve it through
+     `POST /bookings/{B1}/decision`.
+  2. With the admin (service role) client, insert a `confirmed` row straight
+     into `bookings.bookings` for the same venue and date, overlapping B1.
+  3. Insert another `confirmed` row directly, starting exactly when B1 ends.
+  4. Read the venue's rows from `bookings.bookings`.
+- **Test data:** Studio B on `2026-11-12`: B1 `09:00`–`12:00`; overlapping
+  row `11:00`–`13:00`; back-to-back row `12:00`–`14:00`.
+- **Expected:** B1 is approved (`200`). The overlapping insert is refused
+  with Postgres exclusion violation `23P01`. The back-to-back insert
+  succeeds, since the range is `[start,end)`. The venue ends with exactly two
+  confirmed rows, `09:00`–`12:00` and `12:00`–`14:00`, and never two that
+  overlap. Cleanup deletes every row.
+- **Actual:** B1 approved; the direct overlapping insert raised `23P01`; the back-to-back insert was stored; the venue held exactly the two expected confirmed rows.
 - **Status:** Pass
-- **Evidence:** `test_decision.py::test_concurrent_overlapping_confirmations_have_one_winner`; full `.env.test` integration suite: 35 passed.
+- **Evidence:** `test_decision.py::test_the_database_refuses_a_second_overlapping_confirmed_booking`; `.env.test` stack recreated immediately before (bookings container on the test project's `SUPABASE_URL`); `pytest tests/integration/atomic/bookings`: 8 passed, 0 skipped.
+
+## S-30 — view venue availability calendar
+
+Story: S-30 View venue availability calendar.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+All three cases are **Blocked** until the S-30 section of
+`backend/sql/bookings.sql` has been run in the test project. It widens the
+exclusion constraint to cover pending rows and adds `bookings.blocks` with
+its grants.
+
+### TC-BOOKINGS-105 — A block saved through the service can be read back and removed
+
+- **Scenario:** Proves `bookings.blocks` exists, is granted and exposed, and
+  is reachable with the service key.
+- **Pre-conditions:** A fresh `.env.test` stack and one Venue Staff session.
+- **Steps:** As staff, `POST /blocks` for a random venue id, `2026-11-13`–`2026-11-16`,
+  reason `renovation`. Then `GET /blocks?venue_id=…&from=2026-11-11&to=2026-11-30`.
+  Then `DELETE /blocks/{id}`. Finally read `bookings.blocks` with the admin
+  client.
+- **Expected:** `201`, then a list containing the block, then `204`, and the
+  row is gone. Cleanup removes anything left over.
+- **Actual:** Block created `201` with the staff id, listed for the range, deleted `204`, and gone from `bookings.blocks`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_a_block_can_be_saved_read_back_and_removed`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
+
+### TC-BOOKINGS-106 — Two simultaneous overlapping requests produce exactly one hold
+
+- **Scenario:** The database constraint, not only the application check,
+  keeps holds exclusive.
+- **Pre-conditions:** A fresh `.env.test` stack. A random venue id with no
+  bookings.
+- **Steps:** Send two `POST /bookings` at the same moment with different event
+  ids. Then read `bookings.bookings` directly.
+- **Test data:** `2026-11-12`, B1 `09:00`–`12:00`, B2 `11:00`–`13:00`.
+- **Expected:** One returns `201`. The other returns `409`, saying the winner
+  is "already tentatively held on 12 Nov 2026 from …". Exactly one row exists
+  for that venue and date.
+- **Actual:** Of two simultaneous overlapping requests one returned `201` and one `409` "already tentatively held"; exactly one row stored.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_two_simultaneous_overlapping_requests_produce_exactly_one_hold`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
+
+### TC-BOOKINGS-107 — Rejecting a hold releases the slot
+
+- **Scenario:** A hold is released when its request is rejected.
+- **Pre-conditions:** A fresh `.env.test` stack and one Venue Staff session.
+- **Steps:** Create pending B1 (`2026-11-12` `09:00`–`12:00`). Reject it with
+  a reason. Then `POST /bookings` for another event at the same venue and time.
+- **Expected:** The reject returns `200` and the new request returns `201`
+  `pending`.
+- **Actual:** Rejecting the hold returned `200`; the same slot then returned `201` pending.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.

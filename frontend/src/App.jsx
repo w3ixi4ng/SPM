@@ -11,6 +11,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx'
 import Login from './pages/Login.jsx'
 import SignUp from './pages/SignUp.jsx'
 import TechnicalSupportDashboard from './pages/TechnicalSupportDashboard.jsx'
+import VenueAvailability from './pages/VenueAvailability.jsx'
 import VenueForm from './pages/VenueForm.jsx'
 import VenueRequestForm from './pages/VenueRequestForm.jsx'
 import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
@@ -79,6 +80,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.UPDATE_VENUE}>
               <VenueForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/venues/:id/availability"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_VENUE_AVAILABILITY}>
+              <VenueAvailability />
             </ProtectedRoute>
           )}
         />

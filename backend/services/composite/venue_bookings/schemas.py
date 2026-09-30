@@ -45,6 +45,41 @@ class VenueBookingRequest(BaseModel):
         return self
 
 
+# S-30: repeated from the bookings service's schemas.py (each Docker image
+# holds only its own service's code). Keep in step with it and with
+# backend/sql/bookings.sql.
+BlockReason = Literal["maintenance", "renovation", "safety", "internal_activity", "other"]
+
+
+class BlockRequest(BaseModel):
+    """What Venue Staff choose when marking a venue unavailable. The venue's
+    name is looked up from the venues service and who added it comes from the
+    session -- neither is taken from the browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    venue_id: UUID
+    start_date: date
+    end_date: date
+    reason: BlockReason
+    note: str | None = None
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def blank_note_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def valid_block(self):
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if self.reason == "other" and self.note is None:
+            raise ValueError("Add a note when the reason is other")
+        return self
+
+
 class BookingDecision(BaseModel):
     """Final decision only; request snapshots and audit fields are server-owned."""
 
