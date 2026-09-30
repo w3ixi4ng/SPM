@@ -55,8 +55,12 @@ def test_tentative_hold_is_distinct_and_replacement_releases_it(
 
     page.get_by_role("link", name="Back to dashboard").click()
     page.get_by_role("button", name="Sign out").click()
+    # The logout request clears server-side cookies before redirecting. CI is
+    # slower than a local browser, so do not start the next login while that
+    # request is still in flight.
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
     sign_in(coordinator)
-    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
+    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=30000)
     page.goto(f"/coordinator/events/{event['id']}/request-venue")
     venue_row = page.get_by_role("list", name="Venues").get_by_role("listitem").filter(
         has_text=venue["name"]
