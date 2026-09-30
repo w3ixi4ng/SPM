@@ -414,3 +414,22 @@ operation in this story.
   without exposing the simulated database detail.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_retirement_storage_failures_are_safe`
+
+---
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+## TC-EQUIPMENT-030 — requirements can be listed for a set of events
+
+- **Scenario:** The availability check asks only for the overlapping events'
+  requirements (S-44 AC2).
+- **Steps:** `GET /internal/equipment-requirements?event_ids=<E1>&event_ids=<E2>`.
+- **Expected:** `200`; the query uses `event_id in (E1, E2)`, each row with
+  its equipment item, as the existing list returns. The existing `event_id`
+  filter and the unfiltered list are unchanged. A malformed id → `422`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

@@ -1411,3 +1411,51 @@ staff member.
 - **Actual:** Every stale target returned `409`; the simulated storage failure returned the safe `500` response.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_support_action_requires_current_planning_assignment`, `test_app.py::test_internal_support_action_storage_failure_is_safe`
+
+---
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+A new composite-only route, `POST /events/overlapping`, like
+`/events/coordinator-load`: no Kong route. IDs continue from the next unused
+number, as agreed with the developer on 2026-09-30 (this file's 001–099 range
+is full).
+
+## TC-EVENTS-105 — overlapping planning and confirmed events are returned
+
+- **Scenario:** The events that can reserve equipment for a window (S-44 AC2).
+- **Pre-conditions:** The fake returns, for statuses `planning` and
+  `confirmed`: E1 `planning` 2026-11-12 10:00–11:00; E2 `confirmed`
+  11:30–13:00; E4 `planning` 12:00–14:00; E5 `planning` 2026-11-11 18:00 →
+  2026-11-12 09:30; E6 `confirmed` 2026-11-12 07:00–09:00.
+- **Steps:** `POST /events/overlapping` with
+  `{"start_date":"2026-11-12","start_time":"09:00","end_date":"2026-11-12","end_time":"12:00"}`.
+- **Expected:** `200` with E5, E1, E2 in start order, each with `id`, `name`,
+  `status`, `start_date`, `start_time`, `end_date`, `end_time`. E4 (starts as
+  the window ends) and E6 (ends as it starts) are back-to-back and left out.
+  The query filters `status in (planning, confirmed)`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-EVENTS-106 — other statuses never reserve
+
+- **Scenario:** Rejected, returned, draft and submitted events hold nothing.
+- **Steps:** Inspect the storage query from TC-EVENTS-105.
+- **Expected:** Only `planning` and `confirmed` are requested, so an
+  overlapping `rejected`, `returned`, `draft` or `submitted` event is never
+  returned.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-EVENTS-107 — an invalid window is refused
+
+- **Steps:** Post an end equal to the start, an end before the start, and a
+  body missing `end_time`.
+- **Expected:** Each `422` with a field error; storage is not queried.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

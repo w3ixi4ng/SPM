@@ -555,3 +555,37 @@ time passes.
 - **Actual:** D+5 went from Available to Tentatively held 10:00–11:00; the second event was refused as already tentatively held; the staff block showed for staff at once and for the Coordinator on Refresh; after Remove, Refresh showed D+6 Available.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_venue_availability.py::test_a_new_hold_a_new_block_and_a_removed_block_all_show_up`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/e2e/test_venue_availability.py`: 2 passed.
+
+## S-44 — check equipment availability
+
+Story: S-44 Check equipment availability.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+## TC-E2E-222 — Technical Support checks a window, sees what is reserved, and re-checks after a change
+
+- **Scenario:** Kong, the SPA route and the page work end to end (AC1, AC2,
+  AC3).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. A Technical
+  Support account. A new active item "spm-e2e S44 Mic {suffix}", total 10.
+  A `planning` event on `D+3` 10:00–11:00 with a 7-unit requirement for it.
+  `D+n` is n days after the browser's today.
+- **Steps:**
+  1. Sign in as Technical Support and choose **Check availability** on the
+     dashboard. Reload the page on `/equipment/availability`.
+  2. Enter `D+3` 09:00 to `D+3` 12:00, type "spm-e2e S44 Mic {suffix}",
+     quantity 4, and press **Check availability**.
+  3. Expand the item.
+  4. Add a 2-unit requirement for another `planning` event at the same time,
+     directly, then press **Check availability** again.
+- **Expected:**
+  - The page has "Back to dashboard"; the date pickers don't allow dates
+    before today; the reload keeps the page.
+  - Step 2: "3 of 10 available", "7 reserved", "Not enough — 3 available",
+    and "Checked at …".
+  - Step 3: the event's name, `D+3` 10:00–11:00, "Planning", and 7.
+  - Step 4: "1 of 10 available", "9 reserved", and a checked-at time no
+    earlier than before.
+  - Cleanup removes every row created.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
