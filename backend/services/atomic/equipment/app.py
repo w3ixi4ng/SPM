@@ -263,6 +263,9 @@ def upsert_equipment_requirement(
 )
 def list_equipment_requirements(
     event_id: UUID | None = Query(default=None),
+    # S-44: the requirements of several events at once -- the events
+    # overlapping an availability check's window.
+    event_ids: list[UUID] | None = Query(default=None),
     db: Client = Depends(get_db),
 ):
     operation = (
@@ -272,6 +275,8 @@ def list_equipment_requirements(
     )
     if event_id is not None:
         operation = operation.eq("event_id", str(event_id))
+    if event_ids is not None:
+        operation = operation.in_("event_id", [str(value) for value in event_ids])
     return _execute(operation.order("created_at")).data
 
 
