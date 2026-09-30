@@ -207,9 +207,9 @@ Overlapping events returned by the events service: E1 `planning`
   `reservations` list: for the microphone, E5 (2), E1 (5), E2 (3) in start
   order, each with `event_id`, `event_name`, `status`, start/end date and
   time, and `required_quantity`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Projector 4/1/4/0 and microphone 12/10/0/2 as specified; retired speaker absent; microphone reservations E5 (2), E1 (5), E2 (3); window echoed; overlapping events requested by `event_ids`; catalogue read with the caller's cookies.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_availability_counts_reserved_and_unavailable_units_for_the_window`
 
 ## TC-EQUIPMENTREQUIREMENTS-013 — a quantity says whether each item is enough
 
@@ -218,9 +218,9 @@ Overlapping events returned by the events service: E1 `planning`
 - **Steps:** Repeat with `quantity=2`, then `quantity=3`.
 - **Expected:** With 2, the microphone is `sufficient: true` and the projector
   `false`. With 3, both are `false`. `quantity` is echoed back.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Quantity 2: microphone enough, projector not. Quantity 3: neither.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_a_quantity_says_whether_each_item_is_enough`
 
 ## TC-EQUIPMENTREQUIREMENTS-014 — over-reserved pools show 0, never a negative
 
@@ -228,9 +228,9 @@ Overlapping events returned by the events service: E1 `planning`
 - **Pre-conditions:** As TC-EQUIPMENTREQUIREMENTS-012, but E1 needs 9
   microphones (reserved 14 of 12).
 - **Expected:** Microphone `reserved 14, available 0, over_reserved true`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Microphone reserved 14, available 0, over_reserved true.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_over_reserved_pools_show_zero_never_a_negative`
 
 ## TC-EQUIPMENTREQUIREMENTS-015 — the type search narrows the items
 
@@ -239,9 +239,9 @@ Overlapping events returned by the events service: E1 `planning`
   `type=  ` (blank), then `type=drum`.
 - **Expected:** `MICRO` returns only Wireless Microphone. Blank is ignored and
   returns both active items. `drum` returns `items: []` with `200`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `MICRO` gave only the microphone; blank gave both active items; `drum` gave `[]` with `200`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_the_type_search_narrows_the_items`
 
 ## TC-EQUIPMENTREQUIREMENTS-016 — no overlapping events means nothing is reserved
 
@@ -250,9 +250,9 @@ Overlapping events returned by the events service: E1 `planning`
 - **Expected:** `200`; microphone `reserved 0, available 12`; projector
   `available 0` (maintenance). Equipment requirements are **not** requested,
   since there are no events to ask about.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Microphone 0 reserved, 12 available; projector 0; requirements were not requested.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_no_overlapping_events_means_nothing_is_reserved`
 
 ## TC-EQUIPMENTREQUIREMENTS-017 — only Technical Support can check, and the window is validated
 
@@ -268,9 +268,9 @@ Overlapping events returned by the events service: E1 `planning`
     the start".
   - `quantity=0`, `-1` or `two` → `422` naming `quantity`.
   - No `422` calls Events or Equipment.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Other roles `403`, no session `401`; missing, malformed and zero/negative/non-numeric quantity `422` naming the field; end not after start `422` on `end_time`; no downstream call in any of them.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_only_technical_support_can_check`; `tests/unit/composite/equipment_requirements/test_availability.py::test_no_session_cannot_check`; `tests/unit/composite/equipment_requirements/test_availability.py::test_a_malformed_check_is_refused_naming_the_field`; `tests/unit/composite/equipment_requirements/test_availability.py::test_the_end_must_be_after_the_start`
 
 ## TC-EQUIPMENTREQUIREMENTS-018 — a failing dependency is never an answer
 
@@ -278,9 +278,9 @@ Overlapping events returned by the events service: E1 `planning`
 - **Steps / Expected:** Events, Equipment catalogue or Equipment requirements
   fails to connect, times out or returns `500` → `502`
   `{"detail":"<Events|Equipment> service unavailable"}`; never `200`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Connection failures and `500`s from events, the catalogue and the requirements each returned the named `502`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_a_failing_dependency_is_never_an_answer`
 
 ## TC-EQUIPMENTREQUIREMENTS-019 — every check reads live data
 
@@ -289,6 +289,6 @@ Overlapping events returned by the events service: E1 `planning`
   4-microphone requirement to E1.
 - **Expected:** Both checks call Events and Equipment afresh. The second
   shows microphone `reserved 14, available 0`, and a later `checked_at`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The second check read the changed requirement (reserved 14, available 0) with a later-or-equal `checked_at`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_every_check_reads_live_data`

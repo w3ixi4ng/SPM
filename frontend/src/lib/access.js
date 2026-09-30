@@ -22,6 +22,7 @@ export const PERMISSIONS = Object.freeze({
   VIEW_EQUIPMENT_CATALOGUE: 'equipment:view_catalogue',
   EDIT_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:edit',
   VIEW_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:view',
+  CHECK_EQUIPMENT_AVAILABILITY: 'equipment:check_availability',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -89,6 +90,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.RETIRE_EQUIPMENT,
       PERMISSIONS.VIEW_EQUIPMENT_CATALOGUE,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
+      PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY,
     ]),
   }),
   attendee: Object.freeze({

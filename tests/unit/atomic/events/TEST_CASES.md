@@ -1436,9 +1436,9 @@ is full).
   `status`, `start_date`, `start_time`, `end_date`, `end_time`. E4 (starts as
   the window ends) and E6 (ends as it starts) are back-to-back and left out.
   The query filters `status in (planning, confirmed)`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** E5, E1, E2 returned in start order with the seven fields; back-to-back E4 and E6 left out; the query filtered status in (planning, confirmed) with a coarse date range.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_overlapping_planning_and_confirmed_events_are_returned_in_start_order`
 
 ## TC-EVENTS-106 — other statuses never reserve
 
@@ -1447,15 +1447,15 @@ is full).
 - **Expected:** Only `planning` and `confirmed` are requested, so an
   overlapping `rejected`, `returned`, `draft` or `submitted` event is never
   returned.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Only planning and confirmed were requested.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_only_planning_and_confirmed_events_are_asked_for`
 
 ## TC-EVENTS-107 — an invalid window is refused
 
 - **Steps:** Post an end equal to the start, an end before the start, and a
   body missing `end_time`.
 - **Expected:** Each `422` with a field error; storage is not queried.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Equal end, earlier end date and missing end_time each returned `422` without querying storage.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_an_invalid_window_is_refused`

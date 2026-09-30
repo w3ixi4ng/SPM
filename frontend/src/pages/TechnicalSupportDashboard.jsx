@@ -1,4 +1,4 @@
-import { Archive, CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
+import { Archive, CalendarSearch, CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
@@ -159,10 +159,18 @@ export default function TechnicalSupportDashboard({ role }) {
               <PackagePlus size={18} aria-hidden="true" style={{ color: C.teal }} />
               <h2 id="equipment-heading" className="font-display text-2xl" style={{ color: C.ink }}>Equipment catalogue</h2>
             </div>
-            <Link to="/equipment/new" className="inline-flex items-center gap-2 px-4 py-2 rounded-sm font-ui text-sm font-medium" style={{ backgroundColor: C.teal, color: C.paper }}>
-              <Plus size={15} aria-hidden="true" />
-              Add equipment
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              {hasPermission(user.role, PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY) && (
+                <Link to="/equipment/availability" className="inline-flex items-center gap-2 px-4 py-2 rounded-sm font-ui text-sm font-medium border" style={{ borderColor: C.ink, color: C.ink }}>
+                  <CalendarSearch size={15} aria-hidden="true" />
+                  Check availability
+                </Link>
+              )}
+              <Link to="/equipment/new" className="inline-flex items-center gap-2 px-4 py-2 rounded-sm font-ui text-sm font-medium" style={{ backgroundColor: C.teal, color: C.paper }}>
+                <Plus size={15} aria-hidden="true" />
+                Add equipment
+              </Link>
+            </div>
           </div>
           {notice && <p role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</p>}
           {retirement.error && <p role="alert" className="font-ui text-sm mb-4" style={{ color: '#A13D3D' }}>{retirement.error}</p>}

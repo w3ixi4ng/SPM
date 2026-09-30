@@ -430,6 +430,6 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Expected:** `200`; the query uses `event_id in (E1, E2)`, each row with
   its equipment item, as the existing list returns. The existing `event_id`
   filter and the unfiltered list are unchanged. A malformed id → `422`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** `200` with the requirement detail; the query used `event_id in (E1, E2)` and no single-event filter; a malformed id returned `422` without storage.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/equipment/test_app.py::test_requirements_can_be_listed_for_a_set_of_events`; `tests/unit/atomic/equipment/test_app.py::test_a_malformed_event_id_in_the_set_is_refused`
