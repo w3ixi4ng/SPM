@@ -8,6 +8,7 @@ USERS_URL = os.environ["USERS_SERVICE_URL"]
 EVENTS_URL = os.environ["EVENTS_SERVICE_URL"]
 VENUES_URL = os.environ["VENUES_SERVICE_URL"]
 BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
+BOOKINGS_TIMEOUT = 15.0
 
 
 def get_users_client() -> httpx.AsyncClient:
@@ -23,4 +24,6 @@ def get_venues_client() -> httpx.AsyncClient:
 
 
 def get_bookings_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=BOOKINGS_URL, timeout=5.0)
+    # Booking writes can include Supabase constraint checks. Allow for CI and
+    # remote-database latency while retaining a bounded downstream call.
+    return httpx.AsyncClient(base_url=BOOKINGS_URL, timeout=BOOKINGS_TIMEOUT)
