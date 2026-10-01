@@ -438,15 +438,16 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
 ## TC-E2E-218 — Confirmed venue time becomes unavailable to another event
 
-> **Superseded by S-30.** Holds are exclusive now, so the second overlapping
-> request is refused when it is sent, and there is nothing left to confirm.
-> TC-E2E-221 covers the refusal. The last result is kept below as a record.
+S-33 restored `pending` as an unheld request state, so two overlapping pending
+requests can exist until Venue Staff place a hold or confirm one. This case is
+active again and proves S-38 at the confirmation boundary.
 
 - **Scenario:** Venue Staff cannot confirm an overlapping request after the
   venue slot has been confirmed for another event (AC1, AC2, AC3).
-- **Pre-conditions:** Fresh `.env.test` stack with S-38 SQL applied, granted
-  and exposed; Chromium; one Venue Staff account; two planning events have
-  pending requests for Studio B on the same date with overlapping times.
+- **Pre-conditions:** Fresh `.env.test` stack with all repository SQL through
+  S-33 applied, granted and exposed; Chromium; one Venue Staff account; two
+  planning events have pending requests for Studio B on the same date with
+  overlapping times.
 - **Steps:** Sign in as Venue Staff; confirm the first request; attempt to
   confirm the second request; reload the pending list and both Coordinators'
   event views.
@@ -458,7 +459,7 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
   its Coordinator never sees a confirmed booking for that unavailable slot.
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
-- **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; full Chromium suite: 17 passed.
+- **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; restored after S-33 and rerun locally on 2026-10-01: 1 passed.
 
 ## TC-E2E-219 — a Coordinator narrows the Venues tab with filters, and results follow each change
 
