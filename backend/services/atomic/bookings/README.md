@@ -18,9 +18,11 @@ internal-service contract. Atomic services never call the users service.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/bookings` | Store a checked booking request as `pending` — a tentative hold. Refused with `409` if it overlaps another hold, a confirmed booking or a block (S-30). |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending request; confirmation overlapping a confirmed booking or on a blocked day is refused. |
-| `GET` | `/bookings?status=pending` | List pending requests, oldest first. |
+| `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
+| `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold. The service records `held_by` and `held_at`; an overlapping live slot returns `409`. |
+| `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release a replaced request. |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or on a blocked day is refused. |
+| `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/bookings?venue_id={id}&from={date}&to={date}` | S-30: one venue's requests dated in the range, every status, by date then start time. |
 | `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
@@ -225,7 +227,10 @@ Open Kong, or run `npm.cmd run dev` from frontend for hot reload.
 
 ## S-30 holds and blocks
 
-**Holds.** A `pending` request is a tentative hold, and holds are exclusive.
+**Holds.** A `pending` request is actionable but does not reserve a slot. A
+Venue Staff member explicitly changes it to `held`; held and confirmed rows
+are exclusive. Back-to-back ranges are allowed because the end time is not
+part of the occupied range.
 `POST /bookings` refuses, with the `409`s above, a request that overlaps a
 pending or confirmed request for the same venue and date, or that falls on a
 blocked day. The range is `[start,end)`, so back-to-back requests are fine;

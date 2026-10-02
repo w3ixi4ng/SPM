@@ -295,8 +295,24 @@ def test_event_organiser_has_the_sprint_one_permissions():
 
 # --- TC-EVENTS-028 --------------------------------------------------------
 def test_other_known_roles_only_have_dashboard_permission():
-    for role in ("venue_staff", "technical_support", "attendee"):
+    assert ROLE_PERMISSIONS["venue_staff"] == {"dashboard:view", "events:view_booking_status"}
+    for role in ("technical_support", "attendee"):
         assert ROLE_PERMISSIONS[role] == {"dashboard:view"}
+
+
+def test_venue_staff_can_read_only_an_events_booking_status(client, db, auth):
+    authenticate(client, auth, fake_user(role="venue_staff"))
+    query = db.schema.return_value.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.execute.return_value = SimpleNamespace(
+        data=[{"id": EVENT_ID, "status": "cancelled"}]
+    )
+
+    response = client.get(f"/events/booking-status/{EVENT_ID}")
+
+    assert response.status_code == 200
+    assert response.json() == {"id": EVENT_ID, "status": "cancelled"}
+    db.schema.return_value.table.return_value.select.assert_called_once_with("id,status")
 
 
 # --- TC-EVENTS-057 --------------------------------------------------------

@@ -2,7 +2,7 @@
 
 Composite FastAPI service for venue booking requests (S-36). An Event
 Coordinator submits a request for a venue, date and time against one of their
-events; Venue Staff see every pending request. Owns no table — requests are
+events; Venue Staff see every pending or held request. Owns no table — requests are
 stored by the [`bookings`](../../atomic/bookings/README.md) service.
 
 | Calls | For |
@@ -22,7 +22,9 @@ Reached through Kong at `/api/venue-bookings`.
 | `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. |
 | `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
-| `GET` | `/venue-bookings/pending` | `venue_staff` | Every pending request, oldest first. Not filtered by who added the venue. |
+| `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
+| `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold on a pending request. |
+| `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30: mark whole days of a venue unavailable. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
@@ -73,7 +75,8 @@ failures are reported together, keyed by the field to change:
 | `required_accessibility` | One of the event's accessibility features is not at the venue | `Studio B does not have: hearing_loop` |
 | `room_layout` | The venue does not offer the event's layout | `Studio B does not offer the banquet layout` |
 
-**Holds (S-30).** A stored request is a tentative hold, and holds are
+**Holds (S-33).** A stored request starts pending. Venue Staff explicitly place
+the tentative hold, and only held and confirmed rows reserve time. Holds are
 exclusive. The bookings service refuses a request that overlaps another hold,
 a confirmed booking or a block, and this service passes its `409` through
 unchanged — see the table below.
@@ -170,7 +173,8 @@ who is no longer assigned still gets 404. Their continued access is an open
 team requirement. No new Coordinator permissions are granted.
 
 S-38 must protect the atomic pending-to-confirmed write against overlapping
-bookings. S-37 has no double-booking guarantee or S-33 hold behaviour.
+bookings. The atomic bookings exclusion constraint remains the final
+concurrency guarantee.
 
 ## S-30 availability calendar and blocks
 
@@ -202,7 +206,7 @@ days before tomorrow in the browser, as every date picker in the app does.
 }
 ```
 
-`held` is a pending request, `confirmed` an approved one; rejected requests
+`held` is a distinct tentative reservation, `confirmed` an approved one; rejected requests
 are left out. Entries are in date order, then by start time. No entry carries
 an event name, a coordinator, or a booking or event id. For `venue_staff`
 only, a `blocked` entry also has the block's `id` and `note`, which they need

@@ -406,7 +406,7 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.
-Confirmed by the developer on 2026-09-30. Not yet executed.
+Confirmed by the developer on 2026-09-30. Executed locally on 2026-09-30.
 
 S-30 extends this service in four ways, each following an existing pattern:
 
@@ -593,3 +593,41 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
 - **Actual:** `204`, then `404` `Block not found`; Coordinator `403` and no cookie `401` with no delete attempted.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_venue_staff_remove_a_block`; `tests/unit/atomic/bookings/test_availability.py::test_only_venue_staff_remove_blocks`
+
+## S-33 — place tentative venue hold
+
+Story: S-33 Place Tentative Venue Hold.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+### TC-BOOKINGS-036 — Venue Staff can place one tentative hold on a pending request
+
+- **Scenario:** A pending venue request becomes Held without becoming Confirmed (AC1, AC2).
+- **Pre-conditions:** Authenticated Venue Staff; pending booking B; no overlapping Held or Confirmed slot for the same venue.
+- **Steps:** Place a tentative hold on B; read B again; list availability for B's venue and date.
+- **Test data:** Studio B, `2026-11-12`, `09:00`–`12:00`.
+- **Expected:** The action succeeds once. B is labelled Held and records trusted staff/time metadata, while its event, venue, date and times remain unchanged. It remains available for Venue Staff to Confirm or Reject. Availability contains a Tentative hold entry and does not label it Confirmed.
+- **Actual:** The pending row became Held with trusted audit fields and remained eligible for a final decision; a repeated hold was idempotent.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_hold.py`
+
+### TC-BOOKINGS-037 — Holds and confirmed bookings block overlapping holds and confirmations
+
+- **Scenario:** A tentative hold keeps its venue slot free for its own likely booking (AC1, AC4).
+- **Pre-conditions:** Booking B1 is Held or Confirmed; B2 is a different pending request for the same venue/date.
+- **Steps:** Attempt to hold B2 and attempt to confirm B2 for each overlapping interval; repeat with back-to-back, different-date and different-venue requests.
+- **Test data:** B1 `10:00`–`12:00`; overlaps `10:30`–`11:30`, `09:00`–`11:00`, `11:00`–`13:00`, `09:00`–`13:00`; boundaries `08:00`–`10:00`, `12:00`–`14:00`.
+- **Expected:** Every overlap returns `409` identifying the blocking venue/date/time and whether it is Tentative or Confirmed. B2 remains Pending. Boundary-touching, different-date and different-venue actions succeed. Confirming B1 itself converts its Held slot to Confirmed atomically.
+- **Actual:** Every overlapping Held/Confirmed claim returned the identified conflict; boundary and unrelated slots remained valid.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_hold.py` and `tests/unit/atomic/bookings/test_decision.py`
+
+### TC-BOOKINGS-038 — Releasing a hold immediately frees only that slot
+
+- **Scenario:** A released hold stops affecting availability while its history remains readable (AC3, AC4).
+- **Pre-conditions:** Held booking B and a separate non-overlapping Held/Confirmed booking exist.
+- **Steps:** Release B for each allowed system reason; read availability; place an overlapping hold on another request; retry release.
+- **Test data:** Reasons `event_rejected`, `event_cancelled`, `booking_replaced`; B is Studio B on `2026-11-12`, `09:00`–`12:00`.
+- **Expected:** Release records server time and the exact reason, removes B from active availability immediately, and permits a new overlapping hold. Other slots are unchanged. Releasing an already released/final request is idempotent and cannot erase a Confirmed booking.
+- **Actual:** Release restored Pending, recorded its timestamp and reason, removed the live conflict, and preserved final bookings.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_hold.py`

@@ -116,7 +116,7 @@ Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.
-Confirmed by the developer on 2026-09-30. Not yet executed.
+Confirmed by the developer on 2026-09-30. Executed locally on 2026-09-30.
 All three cases are **Blocked** until the S-30 section of
 `backend/sql/bookings.sql` has been run in the test project. It widens the
 exclusion constraint to cover pending rows and adds `bookings.blocks` with
@@ -164,3 +164,19 @@ its grants.
 - **Actual:** Rejecting the hold returned `200`; the same slot then returned `201` pending.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
+
+## S-33 — place tentative venue hold
+
+Story: S-33 Place Tentative Venue Hold.
+Confirmed by the developer on 2026-09-30. Not yet executed.
+
+### TC-BOOKINGS-108 — Concurrent slot claims have one database-backed winner and release restores availability
+
+- **Scenario:** Real storage prevents simultaneous Held/Confirmed overlap and frees the range after release (AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack with S-33 SQL applied, granted and exposed; two overlapping pending requests; two authenticated Venue Staff sessions.
+- **Steps:** Attempt simultaneous holds; verify availability; confirm the winner while attempting to hold/confirm the loser; release the winner with `booking_replaced`; hold the loser; read storage directly after each step.
+- **Test data:** Studio B on `2026-11-12`: B1 `09:00`–`12:00`, B2 `11:00`–`13:00`.
+- **Expected:** Exactly one simultaneous claim succeeds. Availability shows one Tentative entry, then one Confirmed entry after converting that same request. Competing overlap stays Pending with identified `409`. Release removes the active range immediately and allows B2 to become Held. At no point do overlapping active Held/Confirmed rows exist.
+- **Actual:** Concurrent overlapping hold requests produced exactly one Held winner and one identified `409`; release allowed the range to be claimed again. No overlapping live rows were stored.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_availability.py`; complete integration suite, 41 passed.

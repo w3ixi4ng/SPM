@@ -2,7 +2,6 @@
 import re
 import uuid
 
-import pytest
 from playwright.sync_api import expect
 
 from .conftest import requires_env
@@ -10,8 +9,6 @@ from .conftest import requires_env
 pytestmark = requires_env
 
 
-@pytest.mark.skip(reason="TC-E2E-218 is superseded by S-30: two overlapping pending requests can no "
-                         "longer exist. TC-E2E-221 covers the refusal at submission.")
 def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, make_user, sign_in):
     coordinator = make_user("event_coordinator")
     staff = make_user("venue_staff")

@@ -166,6 +166,8 @@ class Services:
         return self.user
 
     async def _events_get(self, path, **kwargs):
+        if path.startswith("/events/booking-status/"):
+            return fake_response(200, {"id": path.rsplit("/", 1)[-1], "status": "planning"})
         assert path == f"/events/assigned/{EVENT_ID}", f"unexpected events.get({path!r})"
         return self.event
 

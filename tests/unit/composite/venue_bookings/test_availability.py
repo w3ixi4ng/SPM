@@ -14,7 +14,7 @@ BOOKINGS = [
     {'id': 'b1', 'status': 'confirmed', 'booking_date': '2026-11-12', 'start_time': '09:00:00',
      'end_time': '12:00:00', 'event_id': 'e1', 'event_name': 'Alumni night',
      'coordinator_name': 'Grace Hopper', 'coordinator_email': 'grace@example.com'},
-    {'id': 'b2', 'status': 'pending', 'booking_date': '2026-11-12', 'start_time': '14:00:00',
+    {'id': 'b2', 'status': 'held', 'booking_date': '2026-11-12', 'start_time': '14:00:00',
      'end_time': '16:00:00', 'event_id': 'e2', 'event_name': 'Board dinner',
      'coordinator_name': 'Ada Lovelace', 'coordinator_email': 'ada@example.com'},
     {'id': 'b3', 'status': 'rejected', 'booking_date': '2026-11-12', 'start_time': '16:00:00',

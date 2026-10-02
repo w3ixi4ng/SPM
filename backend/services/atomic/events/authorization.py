@@ -30,7 +30,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "event_coordinator": frozenset(
         {DASHBOARD_PERMISSION, *EVENT_COORDINATOR_EVENT_PERMISSIONS}
     ),
-    "venue_staff": frozenset({DASHBOARD_PERMISSION}),
+    "venue_staff": frozenset({DASHBOARD_PERMISSION, "events:view_booking_status"}),
     "technical_support": frozenset({DASHBOARD_PERMISSION}),
     "attendee": frozenset({DASHBOARD_PERMISSION}),
 }

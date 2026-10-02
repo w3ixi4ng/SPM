@@ -106,10 +106,12 @@ def test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart(admin, p
         }
         if status == "confirmed":
             row.update(decided_by=staff["id"], decided_at="2026-10-01T00:00:00+00:00")
+        if status == "held":
+            row.update(held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00")
         admin.schema("bookings").table("bookings").insert(row).execute()
 
     booking(event_a, "09:00", "12:00", "confirmed")
-    booking(event_b, "14:00", "16:00", "pending")
+    booking(event_b, "14:00", "16:00", "held")
     admin.schema("bookings").table("blocks").insert({
         "venue_id": venue["id"], "venue_name": venue["name"],
         "start_date": d(3).isoformat(), "end_date": d(4).isoformat(),
@@ -174,7 +176,8 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     day_cell(page, d(5)).click()
     expect(day_detail(page, d(5))).to_contain_text("Available", timeout=20000)
 
-    # 2. A request from the first event holds D+5; the second event is refused.
+    # 2. A request stays pending until Venue Staff explicitly hold it; the
+    # second event is then refused for the held slot.
     def request(event, start, end):
         page.goto(f"/coordinator/events/{event['id']}/request-venue")
         page.get_by_role("heading", name="Request a venue").wait_for(timeout=20000)
@@ -187,6 +190,20 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
 
     request(first, "10:00", "11:00")
     page.wait_for_url(re.compile(rf"/coordinator/events/{first['id']}$"), timeout=20000)
+
+    staff_context = browser.new_context(base_url=base_url)
+    staff_page = staff_context.new_page()
+    staff_page.goto("/login")
+    staff_page.fill("input[name=email]", staff["email"])
+    staff_page.fill("input[name=password]", staff["password"])
+    staff_page.click("button[type=submit]")
+    staff_page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    first_request = staff_page.get_by_role("list", name="Pending booking requests").get_by_role(
+        "listitem"
+    ).filter(has_text=first["name"])
+    first_request.get_by_role("button", name="Place hold").click()
+    expect(first_request).to_contain_text("Tentatively held", timeout=20000)
+
     open_calendar(page, venue["name"], "/dashboard/event-coordinator")
     show_month(page, d(5))
     day_cell(page, d(5)).click()
@@ -201,14 +218,7 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     show_month(page, d(6))
 
     # 3. Venue Staff, in their own browser, mark D+6 unavailable.
-    staff_context = browser.new_context(base_url=base_url)
     try:
-        staff_page = staff_context.new_page()
-        staff_page.goto("/login")
-        staff_page.fill("input[name=email]", staff["email"])
-        staff_page.fill("input[name=password]", staff["password"])
-        staff_page.click("button[type=submit]")
-        staff_page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
         open_calendar(staff_page, venue["name"], "/dashboard/venue-staff")
         show_month(staff_page, d(6))
 

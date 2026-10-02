@@ -23,7 +23,7 @@ def auth():
 def prepare(db, *, booking=None, conflicts=None, blocks=None):
     booking = booking_row() if booking is None else booking
     query = table(db).select.return_value
-    for method in ('eq', 'neq', 'lt', 'gt', 'lte', 'gte', 'order', 'limit'):
+    for method in ('eq', 'neq', 'in_', 'lt', 'gt', 'lte', 'gte', 'order', 'limit'):
         getattr(query, method).return_value = query
     # The booking, the confirmed-overlap check, then S-30's block check.
     query.execute.side_effect = [
@@ -33,6 +33,7 @@ def prepare(db, *, booking=None, conflicts=None, blocks=None):
     ]
     update = table(db).update.return_value
     update.eq.return_value = update
+    update.in_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[booking_row(**table(db).update.call_args.args[0])])
     return update
 
@@ -58,7 +59,7 @@ def test_decision_preserves_request(client, db, auth, payload, expected):
     assert values['decision_reason'] == (payload.get('reason', '').strip() or None)
     assert values['decision_alternative'] == (payload.get('alternative', '').strip() or None)
     assert update.eq.call_args_list[0].args == ('id', BOOKING_ID)
-    assert update.eq.call_args_list[1].args == ('status', 'pending')
+    update.in_.assert_called_once_with('status', ['pending', 'held'])
     for key, value in booking_row().items():
         if key not in ('status', 'submitted_at'):
             assert saved[key] == value
@@ -140,7 +141,7 @@ def test_overlap_lookup_uses_half_open_same_venue_and_date_window(client, db, au
     query = table(db).select.return_value
     assert ('venue_id', booking_row()['venue_id']) in [call.args for call in query.eq.call_args_list]
     assert ('booking_date', booking_row()['booking_date']) in [call.args for call in query.eq.call_args_list]
-    assert ('status', 'confirmed') in [call.args for call in query.eq.call_args_list]
+    query.in_.assert_called_once_with('status', ['held', 'confirmed'])
     query.lt.assert_called_once_with('start_time', booking_row()['end_time'])
     query.gt.assert_called_once_with('end_time', booking_row()['start_time'])
 
