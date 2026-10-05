@@ -323,7 +323,7 @@ function TechnicalSupportAssignment({ eventId, eventStatus }) {
   const editable = canRequestTechnicalSupport(eventStatus)
 
   return (
-    <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }} aria-labelledby="technical-support-heading">
+    <section className="border-t pt-8 mt-8" style={{ borderColor: C.line }} aria-labelledby="technical-support-heading">
       <div className="flex items-center gap-2 mb-2">
         <Headphones size={18} aria-hidden="true" style={{ color: C.teal }} />
         <h2 id="technical-support-heading" className="font-display text-2xl" style={{ color: C.ink }}>
@@ -502,26 +502,33 @@ export default function EventCoordinatorEventDetail() {
               </div>
             </section>
 
-            <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }} aria-labelledby="equipment-requirements-heading">
-              <h2 id="equipment-requirements-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
-                Required equipment
-              </h2>
-              <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
-                Record the types and quantities Technical Support must prepare for this event.
-              </p>
-              <EquipmentRequirementsPanel
-                eventId={state.event.id}
-                status={state.event.status}
-                editable={isCoordinator}
-              />
-            </section>
+            <div
+              role="group"
+              aria-label="Event resources"
+              className="border rounded-sm p-7 sm:p-8 mt-8"
+              style={{ borderColor: C.line }}
+            >
+              <section aria-labelledby="equipment-requirements-heading">
+                <h2 id="equipment-requirements-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
+                  Required equipment
+                </h2>
+                <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
+                  Record the types and quantities Technical Support must prepare for this event.
+                </p>
+                <EquipmentRequirementsPanel
+                  eventId={state.event.id}
+                  status={state.event.status}
+                  editable={isCoordinator}
+                />
+              </section>
 
-            {canAssignTechnicalSupport && (
-              <TechnicalSupportAssignment
-                eventId={state.event.id}
-                eventStatus={state.event.status}
-              />
-            )}
+              {canAssignTechnicalSupport && (
+                <TechnicalSupportAssignment
+                  eventId={state.event.id}
+                  eventStatus={state.event.status}
+                />
+              )}
+            </div>
           </>
         )}
       </div>
