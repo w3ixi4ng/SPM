@@ -653,3 +653,36 @@ allocated to the S-40 resource-panel fix, so this case uses the next id.
   equipment did not appear in either assigned-work list.
 - **Status:** Pass
 - **Evidence:** `test_assign_technical_support.py::test_support_staff_see_only_their_active_assigned_events_and_equipment[chromium]`; fresh `.env.test` stack; 2 tests in the S-43 browser file passed.
+## S-40 — resource-panel contrast and grouping fix
+
+Story: S-40 Record Required Equipment.
+Confirmed by the developer on 2026-10-05.
+
+## TC-E2E-225 — equipment quantities contrast with one grouped resource panel
+
+- **Scenario:** A Coordinator can distinguish the equipment quantity control
+  from the page and understands equipment and Technical Support as one
+  resource-planning area.
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium; a planning event
+  assigned to the signed-in Coordinator; one active equipment item; no
+  Technical Support request yet exists.
+- **Steps:**
+  1. Open the assigned planning event.
+  2. Inspect the equipment quantity input at rest, hover it, and focus it.
+  3. Inspect the closest resource-planning card around the **Required
+     equipment** and **Technical support** headings.
+  4. Enter quantity `6` and save it.
+  5. Run the existing Technical Support request journey.
+- **Test data:** The TC-E2E-211 equipment item and planning event; quantity
+  `6`; TC-E2E-216 support details.
+- **Expected:** The quantity input background is white (`rgb(255, 255, 255)`)
+  at rest, on hover, and while focused. Both headings are inside one shared
+  bordered resource card, while remaining separately labelled sections.
+  Quantity saving and Technical Support requesting continue to succeed.
+- **Actual:** The quantity input computed to white at rest, on hover, and
+  while focused. Both headings were found inside the same Event resources
+  group. Quantity `6` saved and remained visible to Technical Support; the
+  separate support-assignment journey still assigned staff and persisted its
+  details after reload.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support[chromium]`; `tests/e2e/test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`; local run on 2026-10-05, branch `S-40/record-required-equipment`, freshly rebuilt `.env.test` stack: 2 passed.

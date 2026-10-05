@@ -53,7 +53,27 @@ def test_coordinator_records_required_equipment_visible_to_technical_support(adm
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator"), timeout=20000)
     page.goto(f"/coordinator/events/{event['id']}")
     page.get_by_role("heading", name="Required equipment").wait_for(timeout=20000)
-    page.get_by_label(f"{item_type} quantity").fill("6")
+    resources = page.get_by_role("group", name="Event resources")
+    resources.get_by_role("heading", name="Required equipment").wait_for()
+    resources.get_by_role("heading", name="Technical support").wait_for()
+
+    quantity = page.get_by_label(f"{item_type} quantity")
+    expected_background = "rgb(255, 255, 255)"
+    assert (
+        quantity.evaluate("element => getComputedStyle(element).backgroundColor")
+        == expected_background
+    )
+    quantity.hover()
+    assert (
+        quantity.evaluate("element => getComputedStyle(element).backgroundColor")
+        == expected_background
+    )
+    quantity.focus()
+    assert (
+        quantity.evaluate("element => getComputedStyle(element).backgroundColor")
+        == expected_background
+    )
+    quantity.fill("6")
     editor = page.get_by_role("list", name="Equipment requirements editor")
     editor.get_by_role("listitem").filter(has_text=item_type).get_by_role("button", name="Save").click()
     page.get_by_text("Equipment requirement saved.").wait_for(timeout=20000)

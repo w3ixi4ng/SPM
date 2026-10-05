@@ -13,6 +13,7 @@ const C = {
   ink: '#10192B',
   inkFaint: '#4C5A70',
   paper: '#F8F6F1',
+  white: '#FFFFFF',
   line: '#E3DFD3',
   teal: '#0E7C74',
   rose: '#B25547',
@@ -152,7 +153,8 @@ export default function EquipmentRequirementsPanel({ eventId, status, editable =
                       }}
                       aria-invalid={Boolean(error)}
                       aria-describedby={error ? `requirement-${item.id}-error` : undefined}
-                      className="csp-input w-28 rounded-sm px-3 py-2 font-ui text-sm"
+                      className="csp-input w-28 rounded-sm border bg-white hover:bg-white focus:bg-white px-3 py-2 font-ui text-sm"
+                      style={{ backgroundColor: C.white, borderColor: C.line, color: C.ink }}
                     />
                   </div>
                   <button
