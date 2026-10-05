@@ -43,7 +43,9 @@ get_equipment_client = clients_module.get_equipment_client
 
 COORDINATOR_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 NEW_COORDINATOR_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+SUPPORT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 EVENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+SECOND_EVENT_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 ITEM_ID = "22222222-2222-4222-8222-222222222222"
 REQUIREMENT_ID = "33333333-3333-4333-8333-333333333333"
 
@@ -64,11 +66,17 @@ def user(role="event_coordinator", user_id=COORDINATOR_ID):
     }
 
 
-def event(status="planning", coordinator_id=COORDINATOR_ID):
+def event(
+    status="planning",
+    coordinator_id=COORDINATOR_ID,
+    event_id=EVENT_ID,
+    support_id=SUPPORT_ID,
+):
     return {
-        "id": EVENT_ID,
+        "id": event_id,
         "status": status,
         "assigned_coordinator_id": coordinator_id,
+        "assigned_technical_support_id": support_id,
         "name": "Alumni evening",
     }
 
@@ -97,6 +105,8 @@ class Services:
     def __init__(self):
         self.me = fake_response(200, user())
         self.assigned_event = fake_response(200, event())
+        self.support_events = fake_response(200, [event()])
+        self.support_event = fake_response(200, event())
         self.saved = fake_response(200, requirement())
         self.listed = fake_response(200, [requirement()])
         self.deleted = fake_response(204)
@@ -104,11 +114,18 @@ class Services:
         self.users = MagicMock()
         self.users.get = AsyncMock(side_effect=lambda *args, **kwargs: self.me)
         self.events = MagicMock()
-        self.events.get = AsyncMock(side_effect=lambda *args, **kwargs: self.assigned_event)
+        self.events.get = AsyncMock(side_effect=self._event_response)
         self.equipment = MagicMock()
         self.equipment.put = AsyncMock(side_effect=lambda *args, **kwargs: self.saved)
         self.equipment.get = AsyncMock(side_effect=lambda *args, **kwargs: self.listed)
         self.equipment.delete = AsyncMock(side_effect=lambda *args, **kwargs: self.deleted)
+
+    def _event_response(self, path, *args, **kwargs):
+        if path == "/events/support-assigned":
+            return self.support_events
+        if path.startswith("/events/support-assigned/"):
+            return self.support_event
+        return self.assigned_event
 
 
 @pytest.fixture

@@ -617,3 +617,36 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Both rejected and cancelled event states released the held booking with the matching audit reason; the request disappeared and its calendar day returned to Available.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_tentative_hold.py::test_terminal_event_releases_hold_when_staff_refreshes[chromium-rejected]` and `[chromium-cancelled]`.
+
+## S-43 — Technical Support assigned-event visibility
+
+Story: S-43 Auto-Assign Technical Support.
+Specification updated by the developer on 2026-10-05. TC-E2E-225 is already
+allocated to the S-40 resource-panel fix, so this case uses the next id.
+
+## TC-E2E-226 — Technical Support sees only its active events and their requirements
+
+- **Scenario:** The complete browser flow reflects the persisted staff
+  assignment and never exposes another staff member's work.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; Technical Support
+  A and B; A's planning event, A's cancelled historical assignment, and B's
+  planning event; one distinct equipment requirement per event; shared
+  catalogue items exist for all three requirements.
+- **Steps:** Sign in as A; inspect the Equipment Catalogue and Assigned events
+  area; inspect A's event details and equipment; verify absent events and
+  requirements; sign out and sign in as B; repeat.
+- **Test data:** Events `A active`, `A cancelled`, `B active`; support notes
+  unique to each; equipment `A microphone ×2`, `A old speaker ×3`, and
+  `B projector ×4`.
+- **Expected:** The shared catalogue remains visible to both staff members. A
+  sees only `A active`, its support notes, and `A microphone ×2`; neither
+  cancelled nor B data appears. B sees only `B active` and `B projector ×4`.
+  Empty/unrelated event requirements never appear, and the result survives a
+  page reload.
+- **Actual:** Both accounts retained the complete three-item catalogue. A's
+  Assigned events list contained only A active, A's notes and microphone ×2,
+  including after reload. After signing out and into B, it contained only B
+  active, B's notes and projector ×4; the cancelled event and unrelated
+  equipment did not appear in either assigned-work list.
+- **Status:** Pass
+- **Evidence:** `test_assign_technical_support.py::test_support_staff_see_only_their_active_assigned_events_and_equipment[chromium]`; fresh `.env.test` stack; 2 tests in the S-43 browser file passed.

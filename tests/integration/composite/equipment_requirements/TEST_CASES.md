@@ -64,3 +64,30 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Through Kong: reserved 5 (planning + confirmed), available 5, sufficient true, reservations P and C only; after the extra 1-unit hold, reserved 6, available 4, sufficient false.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/equipment_requirements/test_availability.py::test_the_availability_check_through_kong_reflects_live_events_and_requirements`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/events/test_overlapping.py tests/integration/composite/equipment_requirements`: 4 passed.
+
+## S-43 — Technical Support assignment visibility
+
+Story: S-43 Auto-Assign Technical Support.
+Specification updated by the developer on 2026-10-05.
+
+## TC-EQUIPMENTREQUIREMENTS-104 — real services isolate each staff member's event requirements
+
+- **Scenario:** Auth, Events, Equipment and the composite agree on the current
+  Technical Support assignment.
+- **Pre-conditions:** Fresh `.env.test` stack; Technical Support A and B; A's
+  planning and cancelled events; B's planning event; a distinct requirement
+  on every event.
+- **Steps:** Through Kong, list requirements as A and B; as A, request B's
+  event and A's cancelled event explicitly; query A's active assigned events.
+- **Test data:** Three event UUIDs and three equipment-item UUIDs with
+  quantities `2`, `3`, and `4`.
+- **Expected:** A sees only the requirement on A's planning event and lists
+  only that active event. B sees only B's planning-event requirement. A's
+  direct requests for B's event and A's cancelled event return `404`.
+  Cleanup removes every created row and Auth user.
+- **Actual:** On a freshly recreated `.env.test` stack, A listed only A's
+  planning event and its quantity-2 requirement; B listed only B's confirmed
+  event and quantity-4 requirement. A received `404` for B's event and A's
+  cancelled event through both event and requirement routes. Cleanup ran.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_staff_only_reads_own_active_event_requirements`; `pytest tests/integration/composite/equipment_requirements`: 4 passed.

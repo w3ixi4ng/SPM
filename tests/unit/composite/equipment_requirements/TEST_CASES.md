@@ -292,3 +292,62 @@ Overlapping events returned by the events service: E1 `planning`
 - **Actual:** The second check read the changed requirement (reserved 14, available 0) with a later-or-equal `checked_at`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/equipment_requirements/test_availability.py::test_every_check_reads_live_data`
+
+---
+
+## S-43 — requirements follow the Technical Support assignment
+
+Story: S-43 Auto-Assign Technical Support.
+Specification updated by the developer on 2026-10-05.
+
+## TC-EQUIPMENTREQUIREMENTS-020 — Technical Support lists requirements only for assigned active events
+
+- **Scenario:** The dashboard requirements list cannot expose another staff
+  member's work.
+- **Pre-conditions:** Users identifies Technical Support A. Events returns A's
+  two active assigned events. Equipment contains requirements for those two
+  events plus another staff member's event.
+- **Steps:** `GET /equipment-requirements` without `event_id`.
+- **Test data:** Assigned event IDs A1 and A2; unrelated event B1; one
+  requirement on each.
+- **Expected:** The composite asks Events for A's authenticated active
+  assignments, then asks Equipment with only `event_ids=A1&event_ids=A2`.
+  `200` contains A1 and A2 requirements only. No browser-supplied staff ID is
+  accepted or trusted.
+- **Actual:** The composite read the authenticated support assignments and
+  called Equipment once with repeated `event_ids` for A1 and A2 only; the
+  returned list contained no B1 requirement.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_lists_only_requirements_for_its_active_assignments`
+
+## TC-EQUIPMENTREQUIREMENTS-021 — an empty assignment list returns no requirements
+
+- **Scenario:** No assigned events means no equipment responsibility, not a
+  fallback to all requirements.
+- **Pre-conditions:** Users identifies Technical Support A; Events returns no
+  active assigned events.
+- **Steps:** `GET /equipment-requirements`.
+- **Test data:** Equipment storage may contain unrelated requirements.
+- **Expected:** `200 []`; Equipment's internal requirements endpoint is not
+  called, so unrelated rows cannot leak.
+- **Actual:** An empty Events response produced `200 []` and the Equipment
+  client recorded no request.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_with_no_active_assignments_gets_empty_requirements`
+
+## TC-EQUIPMENTREQUIREMENTS-022 — a support worker cannot select an unrelated event
+
+- **Scenario:** Adding `event_id` to the URL cannot bypass assignment
+  filtering.
+- **Pre-conditions:** Event A is active and assigned to Technical Support A;
+  Event B belongs to B; Event C is A's inactive event.
+- **Steps:** As A, request requirements for A, B, and C individually.
+- **Test data:** `?event_id=A`, `?event_id=B`, `?event_id=C`.
+- **Expected:** A returns only A's requirements. B and C return `404`, and
+  Equipment is not queried for either denied event. Existing Coordinator
+  assignment checks and edit behavior remain unchanged.
+- **Actual:** The assigned event returned its requirements. Both an event
+  assigned to someone else and an inactive assignment returned `404` before
+  the Equipment client was called.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_support_can_list_one_assigned_event`; `test_app.py::test_support_cannot_select_unassigned_or_inactive_event`

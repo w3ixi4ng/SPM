@@ -1348,3 +1348,63 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Held entries map to Tentative while Confirmed remains distinct, and released Pending rows do not appear on the calendar.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_bookings.mjs` and existing calendar presentation tests; full Node suite, 93 passed.
+
+## S-43 — Technical Support assigned-event visibility
+
+Story: S-43 Auto-Assign Technical Support.
+Specification updated by the developer on 2026-10-05.
+
+### TC-FRONTEND-081 — assigned-event reads use authenticated gateway routes
+
+- **Scenario:** Technical Support asks the backend for its own assignment;
+  the browser never chooses a staff id.
+- **Pre-conditions:** Mocked `fetch` returns two active assigned events.
+- **Steps:** List assigned support events and fetch one by an id containing
+  URL-sensitive characters.
+- **Test data:** Event id `event/support 1`.
+- **Expected:** Credentialed GETs use `/api/events/support-assigned` and
+  `/api/events/support-assigned/event%2Fsupport%201`. No query parameter,
+  header, or body contains a staff id.
+- **Actual:** Both helpers sent credentialed GETs to the expected encoded Kong
+  routes with no caller-selected staff identifier.
+- **Status:** Pass
+- **Evidence:** `test_technical_support_assignment.mjs` — `assigned support event reads use authenticated gateway routes without a staff id`
+
+### TC-FRONTEND-082 — the workspace groups assigned events with their equipment
+
+- **Scenario:** Technical Support can identify each active assignment and the
+  equipment they must prepare.
+- **Pre-conditions:** The assigned-events API returns one planning and one
+  confirmed event; the requirements API returns requirements for those events.
+- **Steps:** Build the dashboard assignment presentation.
+- **Test data:** `Sound check` and `Awards night`, with dates/times, support
+  notes, Microphone ×2 and Projector ×1.
+- **Expected:** The Assigned events area shows both event names, dates/times,
+  statuses, support notes, and the matching equipment under the correct
+  event. It does not render a requirement whose `event_id` is not in the
+  assigned-event response.
+- **Actual:** The presentation helper kept planning and confirmed assignments,
+  grouped each matching requirement under its event, and discarded an
+  unrelated requirement.
+- **Status:** Pass
+- **Evidence:** `test_technical_support_assignment.mjs` — `assigned event work groups only matching equipment under active events`
+
+### TC-FRONTEND-083 — catalogue and assignment failure states remain honest
+
+- **Scenario:** Shared inventory stays shared while assignment failures never
+  look like an empty workload.
+- **Pre-conditions:** Exercise an empty assignment response and rejected
+  assignment/requirements requests while the catalogue succeeds.
+- **Steps:** Resolve the dashboard state for each response.
+- **Test data:** Empty arrays; HTTP `401`, `403`, `404`, and `502`; catalogue
+  item `Shared microphone`.
+- **Expected:** The complete Equipment Catalogue remains visible and
+  manageable. A successful empty assignment says no active events are
+  assigned. A failed load shows a safe error with retry rather than the empty
+  message or unrelated requirements.
+- **Actual:** Empty work remained an empty successful collection; each failure
+  mapped to safe assignment feedback instead of being presented as no work.
+  The catalogue code and permissions remained independent and all frontend
+  unit tests passed.
+- **Status:** Pass
+- **Evidence:** `test_technical_support_assignment.mjs` — `assigned event failures stay distinct from an empty workload`; `node --test tests/unit/frontend/test_*.mjs`: 97 passed.

@@ -8,6 +8,8 @@ from .conftest import (
     EVENT_ID,
     ITEM_ID,
     NEW_COORDINATOR_ID,
+    SECOND_EVENT_ID,
+    SUPPORT_ID,
     event,
     fake_response,
     requirement,
@@ -166,18 +168,20 @@ def test_coordinator_reads_current_assignment_requirements(client, services):
 
 
 # --- TC-EQUIPMENTREQUIREMENTS-009 ---------------------------------------
-@pytest.mark.parametrize("event_id", [None, EVENT_ID])
-def test_technical_support_reads_but_cannot_mutate(client, services, event_id):
-    services.me = fake_response(200, user(role="technical_support"))
-    params = {"event_id": event_id} if event_id else None
+def test_technical_support_reads_assigned_event_but_cannot_mutate(client, services):
+    services.me = fake_response(
+        200, user(role="technical_support", user_id=SUPPORT_ID)
+    )
 
-    read = client.get("/equipment-requirements", params=params)
+    read = client.get("/equipment-requirements", params={"event_id": EVENT_ID})
     write = client.put(paths(), json={"required_quantity": 6})
     remove = client.delete(paths())
 
     assert read.status_code == 200
     assert write.status_code == remove.status_code == 403
-    services.events.get.assert_not_called()
+    services.events.get.assert_any_await(
+        f"/events/support-assigned/{EVENT_ID}", cookies=client.cookies
+    )
     assert_no_mutation(services)
 
 
@@ -199,6 +203,58 @@ def test_wrong_coordinator_gets_404(client, services):
     response = client.put(paths(), json={"required_quantity": 6})
     assert response.status_code == 404
     assert_no_mutation(services)
+
+
+# --- TC-EQUIPMENTREQUIREMENTS-020 ---------------------------------------
+def test_support_lists_requirements_only_for_active_assigned_events(client, services):
+    services.me = fake_response(
+        200, user(role="technical_support", user_id=SUPPORT_ID)
+    )
+    services.support_events = fake_response(
+        200,
+        [event(), event(event_id=SECOND_EVENT_ID, status="confirmed")],
+    )
+
+    response = client.get("/equipment-requirements")
+
+    assert response.status_code == 200
+    services.events.get.assert_awaited_once_with(
+        "/events/support-assigned", cookies=client.cookies
+    )
+    services.equipment.get.assert_awaited_once_with(
+        "/internal/equipment-requirements",
+        params=[("event_ids", EVENT_ID), ("event_ids", SECOND_EVENT_ID)],
+    )
+
+
+# --- TC-EQUIPMENTREQUIREMENTS-021 ---------------------------------------
+def test_support_with_no_active_assignments_gets_no_requirements(client, services):
+    services.me = fake_response(
+        200, user(role="technical_support", user_id=SUPPORT_ID)
+    )
+    services.support_events = fake_response(200, [])
+
+    response = client.get("/equipment-requirements")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    services.equipment.get.assert_not_called()
+
+
+# --- TC-EQUIPMENTREQUIREMENTS-022 ---------------------------------------
+def test_support_cannot_select_an_unassigned_or_inactive_event(client, services):
+    services.me = fake_response(
+        200, user(role="technical_support", user_id=SUPPORT_ID)
+    )
+    services.support_event = fake_response(404, {"detail": "Event not found"})
+
+    response = client.get(
+        "/equipment-requirements", params={"event_id": SECOND_EVENT_ID}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Event not found or not assigned to you"}
+    services.equipment.get.assert_not_called()
 
 
 @pytest.mark.parametrize("service", ["users", "events", "equipment"])

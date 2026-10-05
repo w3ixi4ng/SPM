@@ -98,6 +98,10 @@ def world(admin):
             "decision": "approved",
             "decided_at": "2026-10-01T00:00:00Z",
             "submitted_at": "2026-09-30T00:00:00Z",
+            "technical_support_required": True,
+            "technical_support_details": "Prepare the recorded equipment",
+            "assigned_technical_support_id": support["id"],
+            "technical_support_assigned_at": "2026-10-01T01:00:00Z",
         }).execute().data[0]["id"]
         yield {
             "coordinator": coordinator,
