@@ -8,9 +8,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Last run | 2026-10-05, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | 7 passed in this suite; 30 passed across `tests/integration` |
+| Result | 7 passed in this suite |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -75,12 +75,10 @@ Verified runnable twice in a row.
 - **Test data:** Window `2026-11-05 09:00`–`11:00`.
 - **Expected:** Step 2 returns `409`; step 3's list contains no event for
   this attempt — the request was never created.
-- **Actual:** First run: `201` — a coordinator account left over from earlier
-  manual testing was not blocked. Second run, after blocking the whole pool:
-  `409` correctly, but the final assertion still failed — the blocking
-  events were all misnamed after `SUBMITTED` itself by the `**window`
-  dict-merge bug (see the header). Third run, after fixing that: as
-  expected.
+- **Actual:** `409` with the exact expected detail; the organiser's event list
+  contained no event for the refused request. The blocking helper rechecked
+  the shared coordinator pool until no newly created CI account remained
+  unblocked.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_fully_booked_coordinator_pool_rejects_the_submission`
 

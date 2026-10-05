@@ -70,6 +70,9 @@ def test_fully_booked_coordinator_pool_rejects_the_submission(organiser_session,
     with httpx.Client(base_url=BASE_URL, timeout=15.0, headers=headers) as api:
         response = request_with_retry(api, "POST", "/event-requests", json=SUBMITTED)
         assert response.status_code == 409, response.text
+        assert response.json() == {
+            "detail": "No event coordinator is available for the requested date and time"
+        }
 
     with httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=headers) as events_api:
         listed = request_with_retry(events_api, "GET", "/events")

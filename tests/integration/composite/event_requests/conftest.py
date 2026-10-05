@@ -238,32 +238,44 @@ def block_other_coordinators(
     `window` has start_date/start_time/end_date/end_time.
     """
     created_ids = []
-    for coordinator_id in all_coordinator_ids(admin) - exempt_ids:
-        row = (
-            admin.schema("events")
-            .table("events")
-            .insert(
-                {
-                    "organiser_id": organiser_id,
-                    "status": "submitted",
-                    "assigned_coordinator_id": coordinator_id,
-                    "name": f"Blocking booking for {coordinator_id}",
-                    "purpose": "Keeps this coordinator out of the pool for this test",
-                    # Only the four date/time keys, deliberately -- spreading
-                    # the whole `window` dict here once clobbered the `name`,
-                    # `purpose`, etc. set above, because a real caller's
-                    # window (SUBMITTED) has its own `name` key too, and a
-                    # later key in a dict literal always wins.
-                    "start_date": window["start_date"],
-                    "start_time": window["start_time"],
-                    "end_date": window["end_date"],
-                    "end_time": window["end_time"],
-                    "expected_attendance": 5,
-                    "venue": "Room 2",
-                    "submitted_at": "2026-09-24T00:00:00Z",
-                }
+    blocked_ids: set[str] = set()
+
+    # CI jobs share one test Supabase project. Another run can create a
+    # coordinator while this helper is inserting its blocking events, so a
+    # single snapshot can immediately become stale and leave that new account
+    # free. Keep taking snapshots until a complete pass finds nobody new.
+    while True:
+        unblocked_ids = all_coordinator_ids(admin) - exempt_ids - blocked_ids
+        if not unblocked_ids:
+            break
+
+        for coordinator_id in unblocked_ids:
+            row = (
+                admin.schema("events")
+                .table("events")
+                .insert(
+                    {
+                        "organiser_id": organiser_id,
+                        "status": "submitted",
+                        "assigned_coordinator_id": coordinator_id,
+                        "name": f"Blocking booking for {coordinator_id}",
+                        "purpose": "Keeps this coordinator out of the pool for this test",
+                        # Only the four date/time keys, deliberately -- spreading
+                        # the whole `window` dict here once clobbered the `name`,
+                        # `purpose`, etc. set above, because a real caller's
+                        # window (SUBMITTED) has its own `name` key too, and a
+                        # later key in a dict literal always wins.
+                        "start_date": window["start_date"],
+                        "start_time": window["start_time"],
+                        "end_date": window["end_date"],
+                        "end_time": window["end_time"],
+                        "expected_attendance": 5,
+                        "venue": "Room 2",
+                        "submitted_at": "2026-09-24T00:00:00Z",
+                    }
+                )
+                .execute()
             )
-            .execute()
-        )
-        created_ids.append(row.data[0]["id"])
+            created_ids.append(row.data[0]["id"])
+            blocked_ids.add(coordinator_id)
     return created_ids
