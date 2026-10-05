@@ -9,18 +9,24 @@ EVENTS_URL = os.environ["EVENTS_SERVICE_URL"]
 VENUES_URL = os.environ["VENUES_SERVICE_URL"]
 BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
 BOOKINGS_TIMEOUT = 15.0
+INTERNAL_READ_TIMEOUT = httpx.Timeout(
+    connect=5.0,
+    read=10.0,
+    write=5.0,
+    pool=5.0,
+)
 
 
 def get_users_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=USERS_URL, timeout=5.0)
+    return httpx.AsyncClient(base_url=USERS_URL, timeout=INTERNAL_READ_TIMEOUT)
 
 
 def get_events_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=EVENTS_URL, timeout=5.0)
+    return httpx.AsyncClient(base_url=EVENTS_URL, timeout=INTERNAL_READ_TIMEOUT)
 
 
 def get_venues_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=VENUES_URL, timeout=5.0)
+    return httpx.AsyncClient(base_url=VENUES_URL, timeout=INTERNAL_READ_TIMEOUT)
 
 
 def get_bookings_client() -> httpx.AsyncClient:
