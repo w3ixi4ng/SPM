@@ -15,6 +15,12 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 
 Reached through Kong at `/api/venue-bookings`.
 
+Dependency reads use a 10-second read timeout and retry transport timeouts or
+network errors up to three times with bounded backoff. Only idempotent `GET`
+requests are retried. Booking, decision, hold, release, and block writes are
+sent exactly once, so a lost response cannot create a duplicate write. After
+all read attempts fail, the existing safe `502` response is returned.
+
 ## Endpoints
 
 | Method | Path | Role | Purpose |

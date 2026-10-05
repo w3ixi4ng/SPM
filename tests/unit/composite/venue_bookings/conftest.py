@@ -188,6 +188,14 @@ def services():
     return Services()
 
 
+@pytest.fixture(autouse=True)
+def no_retry_delay(monkeypatch):
+    """Retry semantics are asserted without making the unit suite sleep."""
+    delay = AsyncMock()
+    monkeypatch.setattr(app_module.asyncio, "sleep", delay)
+    return delay
+
+
 @pytest.fixture
 def client(services):
     app.dependency_overrides[get_users_client] = lambda: services.users
