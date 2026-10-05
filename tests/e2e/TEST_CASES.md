@@ -286,18 +286,21 @@ contract without a browser.
 - **Scenario:** Combined S-39/S-40 browser journey proving the gateway,
   role-specific screens, session cookies, orchestration, and persistence.
 - **Pre-conditions:** Complete test stack; a Technical Support user, assigned
-  Coordinator, organiser, planning event, and no requirement for the item.
+  Coordinator, organiser, planning event assigned to that Technical Support
+  user, and no requirement for the item.
 - **Steps:** Technical Support adds `spm-e2e Wireless Microphone <hex>` with
   total `12`; Coordinator opens the planning event, records quantity `6`, and
   sees it after reload; sign out and back in as Technical Support.
-- **Expected:** The new item needs no frontend code change, the Coordinator can
-  record it only on the planning event, and Technical Support's requirement
-  view shows the event id, item name, and quantity `6`.
-- **Actual:** Technical Support added the item, the assigned Coordinator saved
-  quantity 6 on the planning event, and Technical Support saw the item,
-  quantity and event id after a fresh sign-in.
+- **Expected:** The new item remains in the shared catalogue, the Coordinator
+  can record it only on the planning event, and the assigned Technical Support
+  user sees the event name, item name, and quantity `6` under Assigned events.
+  The requirement is verified in storage immediately after the save response.
+- **Actual:** Technical Support added the shared catalogue item; the assigned
+  Coordinator saved quantity 6; storage contained the saved requirement; and
+  after a fresh sign-in the assigned Technical Support user saw the event and
+  microphone ×6 under Assigned events.
 - **Status:** Pass
-- **Evidence:** `test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support`
+- **Evidence:** `test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support[chromium]`; freshly rebuilt S-43 `.env.test` stack; 1 passed on 2026-10-05.
 
 ## TC-E2E-212 — Technical Support edits an item and immediately sees the catalogue update
 

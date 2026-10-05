@@ -30,6 +30,10 @@ def test_coordinator_records_required_equipment_visible_to_technical_support(adm
         "decision": "approved",
         "decided_at": "2026-10-01T00:00:00+00:00",
         "submitted_at": "2026-09-30T00:00:00+00:00",
+        "technical_support_required": True,
+        "technical_support_details": "Prepare the recorded equipment",
+        "assigned_technical_support_id": support["id"],
+        "technical_support_assigned_at": "2026-10-01T01:00:00+00:00",
     }).execute().data[0]
 
     sign_in(support)
@@ -54,21 +58,24 @@ def test_coordinator_records_required_equipment_visible_to_technical_support(adm
     editor.get_by_role("listitem").filter(has_text=item_type).get_by_role("button", name="Save").click()
     page.get_by_text("Equipment requirement saved.").wait_for(timeout=20000)
 
-    page.goto("/dashboard/event-coordinator")
-    page.get_by_role("button", name="Sign out").click()
-    page.wait_for_url(re.compile(r"/login"), timeout=20000)
-
-    sign_in(support)
-    page.wait_for_url(re.compile(r"/dashboard/technical-support"), timeout=20000)
-    requirements = page.get_by_role("list", name="Equipment requirements")
-    row = requirements.get_by_role("listitem").filter(has_text=item_type)
-    row.wait_for(timeout=20000)
-    row.get_by_text("×6", exact=True).wait_for()
-    row.get_by_text(f"Event {event['id']}", exact=True).wait_for()
-
     stored = admin.schema("equipment").table("requirements").select("*").eq(
         "event_id", event["id"]
     ).eq("equipment_item_id", item["id"]).execute().data
     assert len(stored) == 1
     assert stored[0]["required_quantity"] == 6
     assert stored[0]["recorded_by_coordinator_id"] == coordinator["id"]
+
+    page.goto("/dashboard/event-coordinator")
+    page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login"), timeout=20000)
+
+    sign_in(support)
+    page.wait_for_url(re.compile(r"/dashboard/technical-support"), timeout=20000)
+    assignments = page.get_by_role("list", name="Assigned events")
+    assignments.get_by_text(event["name"], exact=True).wait_for(timeout=20000)
+    requirements = assignments.get_by_role(
+        "list", name=f"{event['name']} equipment requirements"
+    )
+    row = requirements.get_by_role("listitem").filter(has_text=item_type)
+    row.wait_for(timeout=20000)
+    row.get_by_text("×6", exact=True).wait_for()
