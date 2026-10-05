@@ -818,3 +818,57 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Rejected/cancelled events released and disappeared from actionable results; changed requests released the old hold, while identical retries returned the existing row.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py`
+
+## Update — resilient internal reads
+
+Confirmed by the developer on 2026-10-05 after CI returned a transient
+`httpcore.ReadTimeout` from the Events lookup.
+
+### TC-VENUEBOOKINGS-047 — A transient GET timeout is retried before validation
+
+- **Scenario:** A temporary Events delay does not bypass the venue suitability
+  checks or turn a deterministic validation response into a `502`.
+- **Pre-conditions:** Users succeeds; the first Events `GET` raises
+  `httpx.ReadTimeout`; its second attempt returns the assigned planning event;
+  Venues returns a venue whose capacity is too small.
+- **Steps:** `POST /venue-bookings` once.
+- **Test data:** Event attendance `151`; venue capacity `150`.
+- **Expected:** Events receives two idempotent `GET` attempts using the longer
+  internal-read timeout. The route continues through validation and returns
+  `422` with `expected_attendance`; no booking write is attempted.
+- **Actual:** The first Events timeout was retried with the 10-second internal
+  read timeout. The second response reached suitability validation and
+  returned `422` for `expected_attendance`; Bookings received no write.
+- **Status:** Pass
+- **Evidence:** `test_resilience.py::test_transient_event_timeout_retries_then_returns_validation`
+
+### TC-VENUEBOOKINGS-048 — Exhausted GET retries return the existing safe 502
+
+- **Scenario:** A genuinely unavailable dependency still fails safely after a
+  small bounded number of attempts.
+- **Pre-conditions:** Users succeeds; every Events `GET` raises a timeout or
+  network error.
+- **Steps:** `POST /venue-bookings` once.
+- **Test data:** Three consecutive transport failures.
+- **Expected:** Exactly three Events `GET` attempts occur with bounded
+  backoff; the response is `502 {"detail":"Events service unavailable"}`;
+  Venues and Bookings are not called.
+- **Actual:** Three transport failures caused exactly three Events reads and
+  two backoff waits, followed by the existing safe Events `502`. No venue read
+  or booking write occurred.
+- **Status:** Pass
+- **Evidence:** `test_resilience.py::test_exhausted_event_get_retries_return_safe_502`
+
+### TC-VENUEBOOKINGS-049 — Booking writes are never retried
+
+- **Scenario:** Retry safety applies only to idempotent reads.
+- **Pre-conditions:** All validation reads succeed; `POST /bookings` raises
+  `httpx.ReadTimeout`.
+- **Steps:** `POST /venue-bookings` once.
+- **Test data:** One valid venue-booking request.
+- **Expected:** `502 {"detail":"Bookings service unavailable"}` and exactly
+  one downstream booking `POST`, preventing duplicate booking creation.
+- **Actual:** A lost booking-write response returned the existing Bookings
+  `502`, and the downstream `POST /bookings` was attempted exactly once.
+- **Status:** Pass
+- **Evidence:** `test_resilience.py::test_booking_write_timeout_is_not_retried`
