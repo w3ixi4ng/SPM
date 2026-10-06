@@ -6,6 +6,7 @@ is why it lives here and not in any one atomic service. Owns no table; every
 write ends up in ``bookings.bookings`` by way of the bookings service.
 """
 
+import asyncio
 import logging
 from datetime import date
 from uuid import UUID
@@ -17,7 +18,13 @@ from fastapi.responses import JSONResponse
 
 import availability
 import suitability
-from clients import get_bookings_client, get_events_client, get_users_client, get_venues_client
+from clients import (
+    INTERNAL_READ_TIMEOUT,
+    get_bookings_client,
+    get_events_client,
+    get_users_client,
+    get_venues_client,
+)
 from schemas import BlockRequest, VenueBookingRequest, BookingDecision
 
 app = FastAPI(title="Venue Bookings Service")
@@ -33,6 +40,8 @@ UNSUITABLE = "This venue can't take this booking"
 # venue, date and times, so they are safe to pass to the caller. Any other 409
 # detail is not.
 CONFLICT_PHRASES = (" is already confirmed on ", " is already tentatively held on ", " is unavailable from ")
+INTERNAL_GET_ATTEMPTS = 3
+INTERNAL_GET_BACKOFF = (0.5, 1.0)
 
 
 def _identified_conflict(response) -> str | None:
@@ -86,8 +95,44 @@ async def _call(service: str, send):
         raise _unavailable(service) from exc
 
 
+async def _get(service: str, client: httpx.AsyncClient, path: str, **kwargs):
+    """Retry idempotent dependency reads on transport failures only.
+
+    HTTP responses are returned unchanged so each caller retains its existing
+    401/404/validation mapping. Writes continue through ``_call`` once and are
+    never retried, avoiding duplicate bookings, decisions, holds, or blocks.
+    """
+    last_error: httpx.HTTPError | None = None
+    for attempt in range(INTERNAL_GET_ATTEMPTS):
+        try:
+            return await client.get(
+                path,
+                timeout=INTERNAL_READ_TIMEOUT,
+                **kwargs,
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = exc
+            if attempt < INTERNAL_GET_ATTEMPTS - 1:
+                logger.warning(
+                    "%s GET %s failed on attempt %s/%s; retrying",
+                    service,
+                    path,
+                    attempt + 1,
+                    INTERNAL_GET_ATTEMPTS,
+                )
+                await asyncio.sleep(INTERNAL_GET_BACKOFF[attempt])
+
+    logger.error(
+        "%s service unavailable after %s GET attempts: %s",
+        service,
+        INTERNAL_GET_ATTEMPTS,
+        last_error,
+    )
+    raise _unavailable(service) from last_error
+
+
 async def _authenticate(request: Request, users: httpx.AsyncClient, *roles: str) -> dict:
-    response = await _call("Users", users.get("/users/me", cookies=request.cookies))
+    response = await _get("Users", users, "/users/me", cookies=request.cookies)
     if response.status_code == status.HTTP_401_UNAUTHORIZED:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if response.status_code != status.HTTP_200_OK:
@@ -103,7 +148,7 @@ async def _fetch(service: str, client: httpx.AsyncClient, path: str, cookies, no
     """GET one record with the caller's own session, so the owning service's
     access rules still apply -- the events service only returns an event
     assigned to this Coordinator."""
-    response = await _call(service, client.get(path, cookies=cookies))
+    response = await _get(service, client, path, cookies=cookies)
     if response.status_code == status.HTTP_404_NOT_FOUND:
         raise HTTPException(status_code=404, detail=not_found)
     if response.status_code != status.HTTP_200_OK:
@@ -157,8 +202,8 @@ async def submit_venue_booking(
 
     # Read existing requests before writing so an identical retry is
     # idempotent and a successful replacement can release the old hold.
-    previous_response = await _call(
-        "Bookings", bookings.get("/bookings", params={"event_id": str(payload.event_id)})
+    previous_response = await _get(
+        "Bookings", bookings, "/bookings", params={"event_id": str(payload.event_id)}
     )
     if previous_response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
@@ -219,7 +264,9 @@ async def list_venue_bookings_for_event(
     await _authenticate(request, users, COORDINATOR_ROLE)
     await _fetch("Events", events, f"/events/assigned/{event_id}", request.cookies, "Event not found")
 
-    response = await _call("Bookings", bookings.get("/bookings", params={"event_id": str(event_id)}))
+    response = await _get(
+        "Bookings", bookings, "/bookings", params={"event_id": str(event_id)}
+    )
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
     return response.json()
@@ -235,7 +282,9 @@ async def list_pending_venue_bookings(
     # Every Venue Staff member sees every pending request -- no filter by
     # who added the venue.
     await _authenticate(request, users, VENUE_STAFF_ROLE)
-    response = await _call("Bookings", bookings.get("/bookings", params={"status": "actionable"}))
+    response = await _get(
+        "Bookings", bookings, "/bookings", params={"status": "actionable"}
+    )
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
     return await _release_terminal_holds(response.json(), events, bookings, request.cookies)
@@ -311,7 +360,7 @@ async def decide_venue_booking(
 
 
 async def _list(bookings: httpx.AsyncClient, path: str, params: dict) -> list[dict]:
-    response = await _call("Bookings", bookings.get(path, params=params))
+    response = await _get("Bookings", bookings, path, params=params)
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
     return response.json()
@@ -326,8 +375,11 @@ async def _release_terminal_holds(rows, events, bookings, cookies):
         if row.get("status") != "held":
             current.append(row)
             continue
-        event = await _call(
-            "Events", events.get(f'/events/booking-status/{row["event_id"]}', cookies=cookies)
+        event = await _get(
+            "Events",
+            events,
+            f'/events/booking-status/{row["event_id"]}',
+            cookies=cookies,
         )
         if event.status_code == 404:
             current.append(row)
