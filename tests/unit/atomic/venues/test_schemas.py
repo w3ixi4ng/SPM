@@ -37,6 +37,9 @@ def test_complete_venue_is_accepted_and_normalised():
             {"day": "sat", "open": "10:00:00", "close": "22:00:00"},
         ],
         "description": "Waterfront hall with a raised stage.",
+        # S-75: not given, so 0.
+        "setup_minutes": 0,
+        "turnaround_minutes": 0,
     }
 
 

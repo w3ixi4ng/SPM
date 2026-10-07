@@ -67,9 +67,12 @@ MINIMAL_VENUE = {
     "operating_hours": [{"day": "tue", "open": "08:00", "close": "17:00"}],
 }
 
-# VALID_VENUE as the service sends it to Supabase: times serialised in full.
+# VALID_VENUE as the service sends it to Supabase: times serialised in full,
+# and S-75's setup and turnaround defaulting to 0.
 VALID_VENUE_STORED = {
     **VALID_VENUE,
+    "setup_minutes": 0,
+    "turnaround_minutes": 0,
     "operating_hours": [
         {"day": "mon", "open": "09:00:00", "close": "18:00:00"},
         {"day": "sat", "open": "10:00:00", "close": "22:00:00"},

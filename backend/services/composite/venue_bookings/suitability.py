@@ -9,7 +9,9 @@ This is validation at submission, not a booking decision: a request that
 fails here is never saved and never reaches Venue Staff.
 """
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
+
+import occupancy
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DAY_NAMES = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays")
@@ -45,10 +47,24 @@ def _hours_problem(booking, venue) -> str | None:
         return f"{venue['name']} is closed on {DAY_NAMES[weekday]}"
 
     opens, closes = _time(hours["open"]), _time(hours["close"])
+    # S-75: the whole occupied window -- setup before, turnaround after --
+    # must be within opening hours. Staff can't prepare a closed room.
+    setup, turnaround = occupancy.gap(venue)
+    day = booking.booking_date
+    occupied_start = datetime.combine(day, booking.start_time) - timedelta(minutes=setup)
+    occupied_end = datetime.combine(day, booking.end_time) + timedelta(minutes=turnaround)
     # Inclusive at both ends: open-to-close exactly is allowed.
-    if booking.start_time < opens or booking.end_time > closes:
-        return f"{venue['name']} is open {opens:%H:%M}–{closes:%H:%M} on {DAY_NAMES[weekday]}"
-    return None
+    if occupied_start >= datetime.combine(day, opens) and occupied_end <= datetime.combine(day, closes):
+        return None
+    message = f"{venue['name']} is open {opens:%H:%M}–{closes:%H:%M} on {DAY_NAMES[weekday]}"
+    if setup or turnaround:
+        earliest = datetime.combine(day, opens) + timedelta(minutes=setup)
+        latest = datetime.combine(day, closes) - timedelta(minutes=turnaround)
+        message += (
+            f"; with {setup} min setup and {turnaround} min turnaround a booking "
+            f"must run within {earliest:%H:%M}–{latest:%H:%M}"
+        )
+    return message
 
 
 def _missing(required: list[str], offered: list[str]) -> list[str]:

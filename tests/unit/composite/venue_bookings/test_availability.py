@@ -65,6 +65,8 @@ def test_a_coordinator_gets_a_venues_availability_for_a_range(client, services):
         'from': '2026-11-11',
         'to': '2026-12-08',
         'operating_hours': VENUE['operating_hours'],
+        'setup_minutes': 0,  # S-75: the venue's times, 0 before they are set
+        'turnaround_minutes': 0,
         'entries': EXPECTED_ENTRIES,
     }
     for private in ('Alumni night', 'Grace Hopper', 'grace@example.com', 'Ceiling repair', BLOCK_ID, '"b1"', '"e1"'):

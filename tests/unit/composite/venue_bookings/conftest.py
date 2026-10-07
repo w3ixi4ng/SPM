@@ -31,7 +31,7 @@ os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 # folder. Load this service while preserving any same-named modules another
 # service's conftest already loaded, so `pytest tests/unit` remains
 # collectable.
-_MODULE_NAMES = ("app", "availability", "clients", "database", "schemas", "suitability")
+_MODULE_NAMES = ("app", "availability", "clients", "database", "occupancy", "schemas", "suitability")
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}
 for _name in _MODULE_NAMES:
     sys.modules.pop(_name, None)
@@ -153,7 +153,13 @@ class Services:
 
         self.bookings = MagicMock()
         self.bookings.post = AsyncMock(side_effect=self._bookings_post)
-        self.bookings.get = AsyncMock(side_effect=lambda path, **kwargs: self.pending)
+        self.bookings.get = AsyncMock(side_effect=self._bookings_get)
+        # S-75: what GET /bookings/{id} answers -- a hold or decision reads
+        # the booking to find its venue's setup and turnaround.
+        self.booking = fake_response(200, {
+            "id": BOOKING_ID, "venue_id": VENUE_ID, "event_id": EVENT_ID, "status": "pending",
+            "booking_date": "2026-11-12", "start_time": "09:00:00", "end_time": "12:00:00",
+        })
 
     def set_event(self, **changes):
         self.event = fake_response(200, {**EVENT, **changes})
@@ -173,6 +179,11 @@ class Services:
 
     async def _venues_get(self, path, **kwargs):
         return self.venue
+
+    async def _bookings_get(self, path, **kwargs):
+        if path.startswith("/bookings/"):
+            return self.booking
+        return self.pending
 
     async def _bookings_post(self, path, **kwargs):
         assert path == "/bookings", f"unexpected bookings.post({path!r})"

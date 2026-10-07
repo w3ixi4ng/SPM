@@ -8,8 +8,8 @@ credentials independently, including calls to the published service port.
 """
 
 import logging
-from datetime import date, datetime, timezone
-from typing import Literal
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -90,17 +90,60 @@ def _overlap(db: Client, booking: dict):
     return result.data[0] if result.data else None
 
 
-def _live_overlap(db: Client, booking: dict):
-    """S-30: a new request against every hold (pending) and confirmed
-    booking -- holds are exclusive. Half-open, so back-to-back is allowed."""
+class Gap(NamedTuple):
+    """S-75: the venue's current setup and turnaround minutes. A booking
+    occupies its venue from start - setup to end + turnaround, so two
+    bookings at one venue need setup + turnaround minutes between them."""
+
+    setup: int = 0
+    turnaround: int = 0
+
+    @property
+    def minutes(self) -> int:
+        return self.setup + self.turnaround
+
+
+def venue_gap(
+    setup_minutes: int = Query(default=0, ge=0),
+    turnaround_minutes: int = Query(default=0, ge=0),
+) -> Gap:
+    """The venue_bookings composite passes the venue's times as it reads them
+    now. A caller passing none gets the pre-S-75 rule: no gap."""
+    return Gap(setup_minutes, turnaround_minutes)
+
+
+def _shift(value, minutes: int) -> str:
+    """A booking time moved by `minutes`, kept within its day: bookings never
+    cross midnight, and neither does their occupied window (S-75 keeps it
+    inside opening hours), so the day's edges are bounds enough."""
+    day = date(2000, 1, 2)
+    moved = datetime.combine(day, time.fromisoformat(str(value))) + timedelta(minutes=minutes)
+    if moved.date() < day:
+        return "00:00:00"
+    if moved.date() > day:
+        return "24:00:00"
+    return moved.time().isoformat()
+
+
+def _live_overlap(db: Client, booking: dict, gap: Gap = Gap()):
+    """S-30: a new request against every hold and confirmed booking -- holds
+    are exclusive. Half-open, so back-to-back is allowed. S-75: widened by the
+    venue's setup + turnaround, so a booking is checked by the time its venue
+    is occupied, not just its own start and end."""
     operation = (
         db.schema(SCHEMA).table(TABLE)
         .select("id,status,venue_name,booking_date,start_time,end_time")
         .eq("venue_id", booking["venue_id"])
         .eq("booking_date", booking["booking_date"])
         .in_("status", LIVE_STATUSES)
-        .lt("start_time", booking["end_time"])
-        .gt("end_time", booking["start_time"])
+    )
+    # A held booking being confirmed is itself live; it never clashes with itself.
+    if booking.get("id"):
+        operation = operation.neq("id", str(booking["id"]))
+    operation = (
+        operation
+        .lt("start_time", _shift(booking["end_time"], gap.minutes))
+        .gt("end_time", _shift(booking["start_time"], -gap.minutes))
         .order("start_time")
         .limit(1)
     )
@@ -128,19 +171,27 @@ def _date_label(value) -> str:
     return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
 
 
-def _conflict_detail(conflict: dict) -> str:
+def _conflict_detail(conflict: dict, gap: Gap = Gap()) -> str:
     booking_date = _date_label(conflict["booking_date"])
     start = str(conflict["start_time"])[:5]
     end = str(conflict["end_time"])[:5]
     taken = "tentatively held" if conflict.get("status") == "held" else "confirmed"
-    return (
+    detail = (
         f'{conflict["venue_name"]} is already {taken} on {booking_date} '
         f"from {start} to {end}."
     )
+    if gap.minutes:
+        # S-75: say why a time that looks free is not.
+        in_use_until = _shift(conflict["end_time"], gap.turnaround)[:5]
+        detail += (
+            f" With {gap.setup} min setup and {gap.turnaround} min turnaround "
+            f"it is in use until {in_use_until}."
+        )
+    return detail
 
 
-def _raise_overlap(conflict: dict):
-    raise HTTPException(status_code=409, detail=_conflict_detail(conflict))
+def _raise_overlap(conflict: dict, gap: Gap = Gap()):
+    raise HTTPException(status_code=409, detail=_conflict_detail(conflict, gap))
 
 
 def _raise_blocked(block: dict):
@@ -163,6 +214,7 @@ def decide_booking(
     booking_id: UUID,
     payload: BookingDecision,
     staff=Depends(require_venue_staff),
+    gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
     booking = _booking(db, booking_id)
@@ -172,9 +224,9 @@ def decide_booking(
         raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
     if payload.decision == "approved":
-        conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+        conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
         if conflict:
-            _raise_overlap(conflict)
+            _raise_overlap(conflict, gap)
         # S-30: a block added after the request was sent stops it being
         # confirmed. Rejecting it stays possible.
         block = _block_on(db, booking["venue_id"], booking["booking_date"])
@@ -199,7 +251,7 @@ def decide_booking(
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
             conflict = _overlap(db, booking)
             if conflict:
-                _raise_overlap(conflict)
+                _raise_overlap(conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
@@ -211,6 +263,7 @@ def decide_booking(
 def place_hold(
     booking_id: UUID,
     staff=Depends(require_venue_staff),
+    gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
     booking = _booking(db, booking_id)
@@ -221,9 +274,9 @@ def place_hold(
     if booking["status"] != "pending":
         raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
 
-    conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+    conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
     if conflict:
-        _raise_overlap(conflict)
+        _raise_overlap(conflict, gap)
     block = _block_on(db, booking["venue_id"], booking["booking_date"])
     if block:
         _raise_blocked(block)
@@ -241,9 +294,9 @@ def place_hold(
         ).eq("status", "pending").execute()
     except Exception as exc:
         if getattr(exc, "code", None) == "23P01":
-            conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+            conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
-                _raise_overlap(conflict)
+                _raise_overlap(conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
@@ -289,7 +342,11 @@ def release_hold(
 
 
 @app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)
-def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
+def create_booking(
+    payload: BookingCreate,
+    gap: Gap = Depends(venue_gap),
+    db: Client = Depends(get_db),
+):
     values = payload.model_dump(mode="json")
     values["status"] = "pending"
     # Set here, never taken from the payload, so a request cannot be
@@ -298,9 +355,9 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
 
     # A new request is pending and does not itself reserve the slot, but it
     # may not be submitted into a slot already held, confirmed or blocked.
-    conflict = _live_overlap(db, values)
+    conflict = _live_overlap(db, values, gap)
     if conflict:
-        _raise_overlap(conflict)
+        _raise_overlap(conflict, gap)
     block = _block_on(db, values["venue_id"], values["booking_date"])
     if block:
         _raise_blocked(block)
@@ -308,9 +365,9 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
         result = db.schema(SCHEMA).table(TABLE).insert(values).execute()
     except Exception as exc:
         if getattr(exc, "code", None) == "23P01":
-            conflict = _live_overlap(db, values)
+            conflict = _live_overlap(db, values, gap)
             if conflict:
-                _raise_overlap(conflict)
+                _raise_overlap(conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if not result.data:
@@ -364,6 +421,18 @@ def list_bookings(
         operation = operation.eq("event_id", str(event_id))
     # Oldest first: the order requests came in.
     return _execute(operation.order("submitted_at")).data
+
+
+@app.get("/bookings/{booking_id}", response_model=BookingRead)
+def get_booking(booking_id: UUID, db: Client = Depends(get_db)):
+    """S-75: one request, for the venue_bookings composite -- it needs the
+    booking's venue to pass that venue's setup and turnaround times to a
+    hold or decision, and Venue Staff open each request on its own page.
+    Internal, like the other reads: the composite checks the caller's role."""
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return booking
 
 
 @app.post("/blocks", response_model=BlockRead, status_code=status.HTTP_201_CREATED)

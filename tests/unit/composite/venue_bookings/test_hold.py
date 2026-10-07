@@ -25,7 +25,8 @@ def test_staff_hold_actions_are_authenticated_and_forwarded(client, services, ac
 
     assert response.status_code == 200
     assert response.json() == saved
-    expected = {"cookies": {}} if action == "hold" else {
+    # S-75: a hold is checked by the venue's current setup and turnaround.
+    expected = {"params": {'setup_minutes': 0, 'turnaround_minutes': 0}, "cookies": {}} if action == "hold" else {
         "json": {"reason": "staff_released"}, "cookies": {}
     }
     services.bookings.post.assert_awaited_once_with(
