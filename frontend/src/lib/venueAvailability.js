@@ -1,6 +1,6 @@
 import { requestJSON } from './api.js'
 import { bookingStatusMeta, shortTime } from './venueBookings.js'
-import { optionLabel, WEEK } from './venues.js'
+import { optionLabel, shiftClock, WEEK } from './venues.js'
 
 // S-30: a venue's availability calendar. A pending request is a tentative
 // hold, a confirmed one is shown as just "Booked", and Venue Staff can mark
@@ -123,18 +123,30 @@ export function blockLabel(reason) {
   return `Unavailable — ${optionLabel(reason)}`
 }
 
-function entryItem(entry) {
+const NO_GAP = Object.freeze({ setup: 0, turnaround: 0 })
+
+// S-75: "Setup 30 min · Turnaround 45 min", for the top of the calendar.
+export function setupTurnaroundLabel({ setup, turnaround }) {
+  return `Setup ${setup} min · Turnaround ${turnaround} min`
+}
+
+// The event's own time, and -- when the venue has setup or turnaround --
+// the longer time the venue is in use, which is what other requests can't
+// book into.
+function entryItem(entry, gap = NO_GAP) {
   const meta = STATE_META[entry.state]
-  return {
-    state: entry.state,
-    label: `${meta.label} ${shortTime(entry.start_time)}–${shortTime(entry.end_time)}`,
-    color: meta.color,
+  const start = shortTime(entry.start_time)
+  const end = shortTime(entry.end_time)
+  let label = `${meta.label} ${start}–${end}`
+  if (gap.setup || gap.turnaround) {
+    label += ` · venue in use ${shiftClock(start, -gap.setup)}–${shiftClock(end, gap.turnaround)}`
   }
+  return { state: entry.state, label, color: meta.color }
 }
 
 // One day of the range. A block outranks everything, closed included -- a
 // venue under repair is unavailable, whatever its hours say.
-function dayOf(iso, entries, operatingHours) {
+function dayOf(iso, entries, operatingHours, gap) {
   const block = entries.find((entry) => entry.state === 'blocked' && entry.start_date <= iso && iso <= entry.end_date)
   if (block) {
     return { date: iso, state: 'blocked', label: blockLabel(block.reason), color: STATE_META.blocked.color, items: [], block }
@@ -142,7 +154,7 @@ function dayOf(iso, entries, operatingHours) {
   const items = entries
     .filter((entry) => entry.state !== 'blocked' && entry.start_date === iso)
     .sort((a, b) => a.start_time.localeCompare(b.start_time))
-    .map(entryItem)
+    .map((entry) => entryItem(entry, gap))
   if (items.length > 0) {
     const state = items.some((item) => item.state === 'confirmed') ? 'confirmed' : 'held'
     return { date: iso, state, label: items.map((item) => item.label).join(', '), color: STATE_META[state].color, items }
@@ -151,10 +163,10 @@ function dayOf(iso, entries, operatingHours) {
   return { date: iso, state, label: STATE_META[state].label, color: STATE_META[state].color, items: [] }
 }
 
-export function availabilityDays({ from, to }, entries, operatingHours) {
+export function availabilityDays({ from, to }, entries, operatingHours, gap = NO_GAP) {
   const days = []
   for (let iso = from; iso <= to; iso = addDays(iso, 1)) {
-    days.push(dayOf(iso, entries, operatingHours))
+    days.push(dayOf(iso, entries, operatingHours, gap))
   }
   return days
 }

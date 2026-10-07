@@ -13,6 +13,7 @@ import Login from './pages/Login.jsx'
 import SignUp from './pages/SignUp.jsx'
 import TechnicalSupportDashboard from './pages/TechnicalSupportDashboard.jsx'
 import VenueAvailability from './pages/VenueAvailability.jsx'
+import VenueBookingRequest from './pages/VenueBookingRequest.jsx'
 import VenueForm from './pages/VenueForm.jsx'
 import VenueRequestForm from './pages/VenueRequestForm.jsx'
 import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
@@ -81,6 +82,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.UPDATE_VENUE}>
               <VenueForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/venue-bookings/:id"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS}>
+              <VenueBookingRequest />
             </ProtectedRoute>
           )}
         />

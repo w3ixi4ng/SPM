@@ -17,6 +17,7 @@ import {
   venueErrorMessage,
   venueFieldErrorsToForm,
 } from '../lib/venues.js'
+import { getVenueClashes } from '../lib/venueBookings.js'
 
 const C = {
   ink: '#10192B',
@@ -41,6 +42,8 @@ const FOCUS_FOR = {
   facilities: 'input[name="facilities"]',
   accessibility: 'input[name="accessibility"]',
   description: '#description',
+  setup_minutes: '#setup_minutes',
+  turnaround_minutes: '#turnaround_minutes',
 }
 
 function focusFirstError(errors) {
@@ -255,9 +258,22 @@ function VenueFormFields({ id }) {
 
     setSaving(true)
     try {
-      if (editing) await updateVenue(id, form)
-      else await createVenue(form)
-      navigate(DASHBOARD, { state: { notice: 'Venue saved.' } })
+      if (!editing) {
+        await createVenue(form)
+        navigate(DASHBOARD, { state: { notice: 'Venue saved.' } })
+        return
+      }
+      await updateVenue(id, form)
+      // S-75: the times are saved first; then Staff see any bookings the new
+      // times make clash. Nothing is changed or removed because of them.
+      let clashes = []
+      let notice = 'Venue saved.'
+      try {
+        clashes = (await getVenueClashes(id)).pairs
+      } catch {
+        notice = "Venue saved. We couldn't check for clashing bookings — open the venue's availability to review them."
+      }
+      navigate(DASHBOARD, { state: { notice, clashes, clashVenue: venueName } })
     } catch (error) {
       const fieldErrors = venueFieldErrorsToForm(error.fieldErrors, form)
       setErrors(fieldErrors)
@@ -312,7 +328,7 @@ function VenueFormFields({ id }) {
           {editing ? `Edit ${venueName || 'venue'}` : 'New venue'}
         </h1>
         <p className="font-ui text-base leading-relaxed mb-10 max-w-md" style={{ color: C.inkFaint }}>
-          {editing ? 'Update location, capacity, facilities and accessibility. Existing booking requests remain unchanged.' : 'Once saved, the venue can receive booking requests. Fields marked required must be filled in first.'}
+          {editing ? 'Update location, capacity, setup and turnaround times, facilities and accessibility. Existing booking requests remain unchanged.' : 'Once saved, the venue can receive booking requests. Fields marked required must be filled in first.'}
         </p>
 
         {optionsError && (
@@ -376,6 +392,32 @@ function VenueFormFields({ id }) {
             {!editing && <Section title="Opening hours" hint="Tick the days the venue is open. Unticked days count as closed. At least one day is required.">
               <HoursField days={options.days} hours={form.hours} onChange={update('hours')} errors={errors} />
             </Section>}
+
+            <Section
+              title="Setup & turnaround"
+              hint="Minutes needed to prepare the venue before each event and to reset it afterwards. Bookings can't use this time, and it must fit inside opening hours. Use 0 for none."
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
+                <TextField
+                  id="setup_minutes"
+                  label="Setup time (minutes)"
+                  required
+                  inputMode="numeric"
+                  value={form.setupMinutes}
+                  onChange={update('setupMinutes')}
+                  error={errors.setup_minutes}
+                />
+                <TextField
+                  id="turnaround_minutes"
+                  label="Turnaround time (minutes)"
+                  required
+                  inputMode="numeric"
+                  value={form.turnaroundMinutes}
+                  onChange={update('turnaroundMinutes')}
+                  error={errors.turnaround_minutes}
+                />
+              </div>
+            </Section>
 
             <Section title="Facilities & accessibility">
               <CheckboxGroup

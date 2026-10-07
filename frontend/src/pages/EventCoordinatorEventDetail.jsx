@@ -14,6 +14,7 @@ import {
   getAssignedEventRequest,
 } from '../lib/eventRequests.js'
 import {
+  bookingClashMessage,
   bookingDateLabel,
   bookingStatusMeta,
   canRequestVenue,
@@ -273,6 +274,12 @@ function VenueRequests({ eventId }) {
                     {booking.decision_alternative && <p className="whitespace-pre-wrap">Alternative: {booking.decision_alternative}</p>}
                     {booking.decided_at && <p>Decided {new Date(booking.decided_at).toLocaleString()}</p>}
                   </div>
+                )}
+                {bookingClashMessage(booking) && (
+                  // S-75: flagged for the assigned Coordinator; the booking itself is unchanged.
+                  <p role="alert" className="w-full font-ui text-sm" style={{ color: C.rose }}>
+                    {bookingClashMessage(booking)}
+                  </p>
                 )}
               </li>
             )

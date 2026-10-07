@@ -1468,7 +1468,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   `clashPairLabel(pair)` for the A–B pair.
 - **Expected:** `GET /api/venue-bookings/clashes?venue_id=…` with credentials.
   The label reads "Alumni talk (Confirmed, 10:00–12:00) and Board lunch
-  (Held, 12:30–14:00) on 12 Nov 2026".
+  (Tentatively held, 12:30–14:00) on 12 Nov 2026". ("Tentatively held" is the
+  app's existing label for a held request since S-33; the confirmed draft
+  said "Held".)
 - **Actual:** —
 - **Status:** Not Executed
 - **Evidence:** —
@@ -1478,7 +1480,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 - **Steps:** `pendingRequestSummary(booking)` for pending D and held B (with
   its clash), and `pendingRequestPath(booking)`.
 - **Expected:** D → title "Alumni talk", line "Studio B · 12 Nov 2026,
-  12:15–12:45", status "Pending". B → status "Held" and the flag "Clash".
+  12:15–12:45", status "Pending". B → status "Tentatively held" (the app's
+  label for held since S-33; the confirmed draft said "Held") and the flag
+  "Clash".
   The path is `/venue-bookings/{id}`. No decision or hold controls are part of
   the row.
 - **Actual:** —

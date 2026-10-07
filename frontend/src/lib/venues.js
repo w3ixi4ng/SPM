@@ -43,7 +43,41 @@ export function emptyVenueForm() {
     roomLayouts: [],
     // A day is open when it has an entry here; a missing day is closed.
     hours: {},
+    // S-75: minutes to prepare before an event and reset after it.
+    setupMinutes: '0',
+    turnaroundMinutes: '0',
   }
+}
+
+// S-75: setup and turnaround are whole minutes, 0 or more, no maximum.
+const MINUTES_ERROR = 'Enter whole minutes, 0 or more.'
+
+function minutesErrors(form) {
+  const errors = {}
+  for (const [field, key] of [['setupMinutes', 'setup_minutes'], ['turnaroundMinutes', 'turnaround_minutes']]) {
+    if (!/^\d+$/.test(String(form[field] ?? '').trim())) errors[key] = MINUTES_ERROR
+  }
+  return errors
+}
+
+function minutesPayload(form) {
+  return {
+    setup_minutes: Number(String(form.setupMinutes).trim()),
+    turnaround_minutes: Number(String(form.turnaroundMinutes).trim()),
+  }
+}
+
+// "HH:MM" moved by `minutes`, kept within the day: an occupied window never
+// crosses midnight, because it must fit inside opening hours.
+export function shiftClock(clock, minutes) {
+  const [hours, mins] = clock.slice(0, 5).split(':').map(Number)
+  const total = Math.min(24 * 60, Math.max(0, hours * 60 + mins + minutes))
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+// A venue's setup and turnaround, 0 for one saved before S-75.
+export function venueGap(venue) {
+  return { setup: venue?.setup_minutes ?? 0, turnaround: venue?.turnaround_minutes ?? 0 }
 }
 
 function openDays(form) {
@@ -68,6 +102,8 @@ export function validateVenueForm(form) {
   if (!form.roomLayouts?.length) {
     errors.room_layouts = 'Choose at least one room layout.'
   }
+
+  Object.assign(errors, minutesErrors(form))
 
   const days = openDays(form)
   if (!days.length) {
@@ -109,6 +145,7 @@ export function venueFormToPayload(form) {
       close: form.hours[day].close,
     })),
     description: description || null,
+    ...minutesPayload(form),
   }
 }
 
@@ -160,6 +197,8 @@ export function venueToEditForm(venue) {
     capacity: String(venue.capacity),
     facilities: [...venue.facilities],
     accessibility: [...venue.accessibility],
+    setupMinutes: String(venue.setup_minutes ?? 0),
+    turnaroundMinutes: String(venue.turnaround_minutes ?? 0),
   }
 }
 
@@ -170,7 +209,7 @@ export function validateVenueEditForm(form) {
   if (!/^\d+$/.test(capacity) || Number(capacity) < 1 || Number(capacity) > 2147483647) {
     errors.capacity = 'Capacity must be a whole number between 1 and 2147483647.'
   }
-  return errors
+  return { ...errors, ...minutesErrors(form) }
 }
 
 export function getVenue(id) {
@@ -186,6 +225,7 @@ export function updateVenue(id, form) {
       capacity: Number(form.capacity),
       facilities: [...form.facilities],
       accessibility: [...form.accessibility],
+      ...minutesPayload(form),
     }),
   })
 }
@@ -243,7 +283,10 @@ function openThen(venue, { date, startTime, endTime }) {
   const hours = venue.operating_hours.find((entry) => entry.day === weekdayOf(date))
   if (!hours) return false
   if (!startTime || !endTime) return true
-  return hours.open.slice(0, 5) <= startTime && endTime <= hours.close.slice(0, 5)
+  // S-75: the whole occupied window, setup to turnaround, must be open.
+  const { setup, turnaround } = venueGap(venue)
+  return hours.open.slice(0, 5) <= shiftClock(startTime, -setup)
+    && shiftClock(endTime, turnaround) <= hours.close.slice(0, 5)
 }
 
 export function filterVenues(venues, filters) {
