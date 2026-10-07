@@ -28,6 +28,9 @@ const COMPLETE_FORM = {
     sat: { open: '10:00', close: '22:00' },
     mon: { open: '09:00', close: '18:00' },
   },
+  // S-75: setup and turnaround, as the form starts them.
+  setupMinutes: '0',
+  turnaroundMinutes: '0',
   created_by: 'must-not-be-sent',
 }
 
@@ -110,6 +113,8 @@ test('venue API functions use Kong paths, methods, JSON, and credentials', async
       { day: 'sat', open: '10:00', close: '22:00' },
     ],
     description: 'Waterfront hall with a raised stage.',
+    setup_minutes: 0,
+    turnaround_minutes: 0,
   })
 })
 
