@@ -195,5 +195,5 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Expected:** `409` "…in use until 12:45.", then `201`. Cleanup deletes
   every row.
 - **Actual:** —
-- **Status:** Not Executed
+- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
 - **Evidence:** —

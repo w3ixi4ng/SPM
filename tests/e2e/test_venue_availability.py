@@ -12,7 +12,7 @@ from datetime import date, timedelta
 
 from playwright.sync_api import expect
 
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 
 pytestmark = requires_env
 
@@ -198,11 +198,10 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     staff_page.fill("input[name=password]", staff["password"])
     staff_page.click("button[type=submit]")
     staff_page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
-    first_request = staff_page.get_by_role("list", name="Pending booking requests").get_by_role(
-        "listitem"
-    ).filter(has_text=first["name"])
-    first_request.get_by_role("button", name="Place hold").click()
-    expect(first_request).to_contain_text("Tentatively held", timeout=20000)
+    # S-75: the hold is placed on the request's own page.
+    open_request(staff_page, first["name"])
+    staff_page.get_by_role("button", name="Place hold").click()
+    expect(staff_page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
 
     open_calendar(page, venue["name"], "/dashboard/event-coordinator")
     show_month(page, d(5))

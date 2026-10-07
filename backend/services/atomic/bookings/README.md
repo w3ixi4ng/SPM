@@ -28,6 +28,7 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
 | `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's blocks touching the range, by start date. |
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
+| `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -319,3 +320,30 @@ docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings
 pytest tests/e2e/test_venue_availability.py
 ```
+
+## Setup and turnaround (S-75)
+
+`POST /bookings`, `POST /bookings/{id}/hold` and `POST /bookings/{id}/decision`
+take two optional query parameters, `setup_minutes` and `turnaround_minutes`
+(whole numbers ≥ 0, default 0). The `venue_bookings` composite passes the
+venue's current values; without them the check is the same as before S-75.
+
+With them, a held or confirmed booking at the same venue and date clashes when
+`other.start < new.end + turnaround + setup` and
+`other.end > new.start − setup − turnaround` — the two bookings' occupied
+windows (*start − setup* to *end + turnaround*) overlap. Touching windows do
+not clash. The refusal says why:
+
+```json
+{"detail": "Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00. With 30 min setup and 45 min turnaround it is in use until 12:45."}
+```
+
+The overlap check also excludes the booking being held or confirmed, so a
+held request is never refused for clashing with itself.
+
+The database's `bookings_no_live_overlap` constraint still uses the raw
+booking times: it blocks raw overlaps even under a race, but not the
+setup/turnaround gap. Storing each venue's times on its bookings to enforce
+the gap there would mean rewriting bookings whenever a venue's times change,
+which S-75 says must never silently alter bookings.
+

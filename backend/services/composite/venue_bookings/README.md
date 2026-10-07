@@ -32,6 +32,8 @@ all read attempts fail, the existing safe `502` response is returned.
 | `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold on a pending request. |
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
+| `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround. |
+| `GET` | `/venue-bookings/{id}` | `venue_staff` | S-75: one request, with its clash warning, for its own page. Decided requests are returned too. |
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30: mark whole days of a venue unavailable. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
@@ -255,3 +257,51 @@ through too: `409` `{"detail": "Studio B is unavailable from 13 Nov 2026 to 16 N
 [S-30 database setup](../../atomic/bookings/README.md#s-30-database-setup).
 Tests are those listed under
 [S-30 verification](../../atomic/bookings/README.md#s-30-verification).
+
+## Setup and turnaround (S-75)
+
+A booking occupies its venue from *start − setup* to *end + turnaround*,
+using the venue's **current** `setup_minutes` and `turnaround_minutes` (read
+from the venues service each time). This service applies that everywhere:
+
+- **Submitting a request:** the whole occupied window must be inside the
+  venue's opening hours, or `422` with `errors.operating_hours`, e.g.
+  `Studio B is open 08:00–20:00 on Thursdays; with 30 min setup and 45 min turnaround a booking must run within 08:30–19:15`.
+  The two times are passed to the bookings service, whose `409` says when the
+  clashing booking's venue is in use until.
+- **Hold and decision:** the booking (`GET /bookings/{id}`) and its venue are
+  read first, and their times passed on.
+- **Clashes** are worked out live from current data, between **held and
+  confirmed** bookings dated **today or later**; nothing is stored and no
+  booking is ever changed, released or removed because of one:
+  - `GET /venue-bookings?event_id=` and `GET /venue-bookings/pending` give
+    each row `clashes` — `[]` when there is none. For a held/confirmed row the
+    venue's `setup_minutes` and `turnaround_minutes` are added. Each clash
+    gives the other booking's date, times, occupied window and status only:
+    ```json
+    {"booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00", "occupied_start": "09:30", "occupied_end": "12:45", "status": "confirmed"}
+    ```
+  - `GET /venue-bookings/clashes?venue_id=` (Venue Staff) lists each clashing
+    pair once, with event and coordinator names:
+    ```json
+    {"venue_id": "…", "venue_name": "Studio B", "setup_minutes": 30, "turnaround_minutes": 45,
+     "pairs": [{"first": {"id": "…", "event_id": "…", "event_name": "Alumni talk", "coordinator_name": "…", "status": "confirmed",
+                          "booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00",
+                          "occupied_start": "09:30", "occupied_end": "12:45"},
+                "second": {"…": "the same fields for Board lunch"}}]}
+    ```
+- **Calendar:** `GET /venue-bookings/availability` adds `setup_minutes` and
+  `turnaround_minutes`.
+
+`GET /venue-bookings/{id}` (Venue Staff) returns one request as the pending
+list does, with `clashes`; `404` `{"detail": "Booking not found"}`; other
+roles `403`. Venues or bookings failing is `502`, never a missing warning.
+
+**Before running it:** the S-75 block in
+[`venues.sql`](../../../sql/venues.sql) run in both projects (see the
+[venues README](../../atomic/venues/README.md#setup-and-turnaround-s-75)).
+
+Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
+recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
+and `pytest tests/e2e/test_setup_turnaround.py`.
+

@@ -4,7 +4,7 @@ import uuid
 
 from playwright.sync_api import expect
 
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 
 pytestmark = requires_env
 
@@ -55,20 +55,24 @@ def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, 
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     pending = page.get_by_role("list", name="Pending booking requests")
 
-    first = pending.get_by_role("listitem").filter(has_text=events[0]["name"])
-    first.get_by_role("radio", name="Approve", exact=True).check()
-    first.get_by_role("button", name="Save decision").click()
-    expect(first).to_have_count(0, timeout=20000)
+    # S-75: each request is decided on its own page, opened from its row.
+    open_request(page, events[0]["name"])
+    page.get_by_role("radio", name="Approve", exact=True).check()
+    page.get_by_role("button", name="Save decision").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    expect(pending.get_by_role("link").filter(has_text=events[0]["name"])).to_have_count(0, timeout=20000)
 
-    second = pending.get_by_role("listitem").filter(has_text=events[1]["name"])
-    second.get_by_role("radio", name="Approve", exact=True).check()
-    second.get_by_role("button", name="Save decision").click()
-    expect(second.get_by_role("alert")).to_contain_text(
+    open_request(page, events[1]["name"])
+    page.get_by_role("radio", name="Approve", exact=True).check()
+    page.get_by_role("button", name="Save decision").click()
+    expect(page.get_by_role("alert").filter(has_text="is already confirmed")).to_contain_text(
         f"{venue_name} is already confirmed on 12 Nov 2026 from 09:00 to 12:00",
         timeout=20000,
     )
     page.reload()
-    expect(pending.get_by_role("listitem").filter(has_text=events[1]["name"])).to_be_visible(timeout=20000)
+    page.get_by_role("link", name="Back to dashboard").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    expect(pending.get_by_role("link").filter(has_text=events[1]["name"])).to_be_visible(timeout=20000)
 
     page.get_by_role("button", name="Sign out").click()
     sign_in(coordinator)
