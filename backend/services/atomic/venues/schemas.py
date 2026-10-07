@@ -76,6 +76,11 @@ class VenueCreate(BaseModel):
     room_layouts: list[RoomLayout] = Field(min_length=1)
     operating_hours: list[OpeningHours] = Field(min_length=1)
     description: str | None = None
+    # S-75: minutes needed before an event to prepare the venue and after it
+    # to reset it. Whole minutes, 0 or more; strict, so "30" and 1.5 are
+    # refused rather than coerced.
+    setup_minutes: int = Field(default=0, ge=0, strict=True)
+    turnaround_minutes: int = Field(default=0, ge=0, strict=True)
 
     @field_validator("name", "location", mode="before")
     @classmethod
@@ -106,7 +111,8 @@ class VenueCreate(BaseModel):
 
 
 class VenueUpdate(BaseModel):
-    """Only S-28 fields; omitted values are preserved, explicit nulls refused."""
+    """Only S-28 fields and S-75's times; omitted values are preserved,
+    explicit nulls refused."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -114,6 +120,8 @@ class VenueUpdate(BaseModel):
     capacity: int = Field(default=None, ge=1, le=MAX_CAPACITY, strict=True)
     facilities: list[Facility] = Field(default=None)
     accessibility: list[AccessibilityFeature] = Field(default=None)
+    setup_minutes: int = Field(default=None, ge=0, strict=True)
+    turnaround_minutes: int = Field(default=None, ge=0, strict=True)
 
     @field_validator("location", mode="before")
     @classmethod
@@ -142,6 +150,9 @@ class VenueRead(BaseModel):
     room_layouts: list[str]
     operating_hours: list[OpeningHours]
     description: str | None
+    # Defaults keep a row from before the S-75 columns readable.
+    setup_minutes: int = 0
+    turnaround_minutes: int = 0
     created_by: UUID
     created_at: datetime
 

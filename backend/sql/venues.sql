@@ -127,5 +127,26 @@ alter table venues.venues enable row level security;
 --     );
 -- ---------------------------------------------------------------------------
 
+-- BEGIN S-75 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test. Fresh
+-- installations need it too. Safe to run twice.
+--
+-- Each venue's setup time (needed before an event) and turnaround time
+-- (needed after it), in whole minutes. A booking occupies its venue from
+-- start - setup to end + turnaround. Every existing venue starts at 0, so
+-- nothing changes until Venue Staff set them. No maximum.
+begin;
+alter table venues.venues
+  add column if not exists setup_minutes integer not null default 0,
+  add column if not exists turnaround_minutes integer not null default 0;
+
+alter table venues.venues drop constraint if exists venues_setup_turnaround_not_negative;
+alter table venues.venues add constraint venues_setup_turnaround_not_negative
+  check (setup_minutes >= 0 and turnaround_minutes >= 0);
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-75 DATA-PRESERVING MIGRATION
+
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.
 notify pgrst, 'reload schema';
