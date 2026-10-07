@@ -709,7 +709,7 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   - The calendar shows "Setup 30 min · Turnaround 45 min" and "Booked
     10:00–12:00 · venue in use 09:30–12:45".
 - **Actual:** —
-- **Status:** Not Executed
+- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
 - **Evidence:** —
 
 ## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
@@ -733,6 +733,6 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   open the request's page from the dashboard row first; what each proves is
   unchanged.
 - **Actual:** —
-- **Status:** Not Executed
+- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
 - **Evidence:** —
 

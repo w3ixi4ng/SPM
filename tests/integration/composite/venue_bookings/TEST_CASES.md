@@ -194,5 +194,5 @@ in the test project.
   warning. A and B are unchanged in `bookings.bookings`. Step 4: `409` "…in
   use until 12:45." Cleanup deletes every row created.
 - **Actual:** —
-- **Status:** Not Executed
+- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
 - **Evidence:** —

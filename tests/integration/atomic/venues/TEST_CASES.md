@@ -99,5 +99,5 @@ the test project.
   stored as 30/45. `-5` is `422` from the service and the database check
   would refuse it too. Cleanup deletes the venue.
 - **Actual:** —
-- **Status:** Not Executed
+- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
 - **Evidence:** —

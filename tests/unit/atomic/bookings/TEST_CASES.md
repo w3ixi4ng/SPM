@@ -655,9 +655,9 @@ a caller that passes none gets today's behaviour). Two bookings clash when
   09:30, and 08:45 + 75 = 10:00). 07:30–08:45 → `201`. With no parameters,
   12:30 → `201`, as before S-75. A held A gives the same with "tentatively
   held".
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** 12:30 refused with the specified detail and no insert; 13:15, 08:00–08:45 and 07:30–08:45 created; the query bounds were widened by 75 minutes (clamped to the day); without parameters the bounds were the raw times; a held neighbour is named as tentatively held.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_setup_turnaround.py::test_a_request_inside_the_gap_is_refused_and_says_why`; `tests/unit/atomic/bookings/test_setup_turnaround.py::test_without_the_venue_times_the_rule_is_as_before`; `tests/unit/atomic/bookings/test_setup_turnaround.py::test_a_held_neighbour_is_named_as_held`; `tests/unit/atomic/bookings/test_setup_turnaround.py::test_bad_venue_times_are_refused`; `tests/unit/atomic/bookings/test_setup_turnaround.py::test_the_gap_is_clamped_to_the_day`
 
 ## TC-BOOKINGS-040 — holds and confirmations use the same gap
 
@@ -665,15 +665,15 @@ a caller that passes none gets today's behaviour). Two bookings clash when
   12:30–14:00, with A as above and the same parameters.
 - **Expected:** Both `409` with the TC-BOOKINGS-039 detail; B stays pending.
   Without parameters, both succeed.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Hold and approve both 409 with the same detail and no update; without parameters both succeeded. Confirming a held request no longer matches itself.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_setup_turnaround.py::test_holds_and_confirmations_use_the_same_gap`; `tests/unit/atomic/bookings/test_setup_turnaround.py::test_without_the_venue_times_holds_and_confirmations_succeed`; `tests/unit/atomic/bookings/test_setup_turnaround.py::test_confirming_a_held_booking_never_clashes_with_itself`
 
 ## TC-BOOKINGS-041 — a booking is readable by id for the composite
 
 - **Steps:** `GET /bookings/{id}` for A, then an unknown id.
 - **Expected:** `200` with A as `BookingRead`; unknown → `404`
   `{"detail":"Booking not found"}`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** 200 with the booking; unknown id 404 `Booking not found`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_setup_turnaround.py::test_a_booking_is_readable_by_id`

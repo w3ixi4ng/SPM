@@ -934,9 +934,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
   min setup and 45 min turnaround a booking must run within 08:30–19:15". The
   other two pass this check. With setup and turnaround 0, 08:00–20:00 passes,
   as today.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** 08:00 start and 19:30 end refused with the specified message and nothing sent; 08:30–10:00 and 18:00–19:15 accepted; with 0/0, 08:00–20:00 accepted.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_opening_hours_check_covers_setup_and_turnaround`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_without_setup_and_turnaround_the_whole_day_is_bookable`
 
 ## TC-VENUEBOOKINGS-051 — requests, holds and confirmations pass the venue's current times
 
@@ -948,9 +948,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
   then its venue, and passes the same two values. A venue changed to 0/0 in
   between is passed as 0/0 on the next call. Unknown booking → `404`
   `{"detail":"Booking not found"}`; venues or bookings failing → `502`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The request, hold and decision each passed 30/45 read at that moment, and 0/0 once the venue changed; an unknown booking was 404 with no write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_request_passes_the_venues_current_times`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_holds_and_decisions_pass_the_bookings_venues_current_times`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_an_unknown_booking_is_a_404_before_any_write`
 
 ## TC-VENUEBOOKINGS-052 — a refusal explains the setup and turnaround
 
@@ -958,9 +958,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 - **Pre-conditions:** Bookings returns `409` with the TC-BOOKINGS-039 detail.
 - **Expected:** `409` with that detail unchanged:
   `"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00. With 30 min setup and 45 min turnaround it is in use until 12:45."`
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The bookings 409 detail reached the Coordinator unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_refusal_explains_the_setup_and_turnaround`
 
 ## TC-VENUEBOOKINGS-053 — a Coordinator's clashing booking carries a warning
 
@@ -974,9 +974,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
   plus `setup_minutes: 30`, `turnaround_minutes: 45`. A request that is
   pending, rejected, dated before today, or clashes with nothing has
   `clashes: []`. No booking is updated.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** B carried exactly the specified clash and 30/45, with no other event's name or id; pending, rejected, past and non-clashing rows had `clashes: []`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_coordinators_clashing_booking_carries_a_warning`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_other_requests_carry_no_warning`
 
 ## TC-VENUEBOOKINGS-054 — Venue Staff list a venue's clashing bookings
 
@@ -987,9 +987,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
   window and status. C (75 min after B ends) and D (pending) are not listed.
   Pairs are listed once, in date then start order. Bookings before today are
   ignored. Non-staff → `403`; unknown venue → `404`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** One A–B pair with names and occupied windows, read from today; non-staff 403; unknown venue 404.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_venue_staff_list_a_venues_clashing_bookings`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_only_venue_staff_list_clashes`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_clashes_for_an_unknown_venue_is_a_404`
 
 ## TC-VENUEBOOKINGS-055 — held requests in the Staff request list show their clashes
 
@@ -997,9 +997,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 - **Steps:** `GET /venue-bookings/pending` with B among the held requests.
 - **Expected:** B carries the same `clashes` as TC-VENUEBOOKINGS-053; pending
   requests carry `clashes: []`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Held B carried its clash; pending D had none.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_held_requests_in_the_staff_list_show_their_clashes`
 
 ## TC-VENUEBOOKINGS-056 — the calendar reports the venue's times
 
@@ -1008,9 +1008,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 - **Expected:** The response adds `setup_minutes: 30` and
   `turnaround_minutes: 45`; entries are unchanged (event times), so the page
   can show both.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The calendar response carried 30/45.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_calendar_reports_the_venues_times`
 
 ## TC-VENUEBOOKINGS-057 — clashes never change or remove a booking
 
@@ -1018,9 +1018,9 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 - **Steps:** Run TC-VENUEBOOKINGS-053, 054 and 055.
 - **Expected:** No call to the bookings service other than reads; nothing is
   released, rejected, updated or deleted.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The three reads made no write to the bookings service.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_clashes_never_change_or_remove_a_booking`
 
 ## TC-VENUEBOOKINGS-058 — Venue Staff read one request by id
 
@@ -1032,6 +1032,6 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
   status, so the page can say it was already decided. Unknown → `404`
   `{"detail":"Booking not found"}`; Coordinator → `403`; bookings failing →
   `502`.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** B returned with its clash; a decided request returned with its status; unknown 404; Coordinator 403; /pending and /clashes still resolve.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_venue_staff_read_one_request_by_id`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_decided_request_is_returned_with_its_status`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_only_venue_staff_read_a_request`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_fixed_paths_are_not_read_as_ids`

@@ -6,7 +6,7 @@ import uuid
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 from .test_venue_availability import add_event, add_venue, d, day_cell, day_detail, open_calendar, show_month
 
 pytestmark = requires_env
@@ -44,9 +44,11 @@ def test_tentative_hold_is_distinct_and_replacement_releases_it(
 
     sign_in(staff)
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
-    row = booking_row(page, event["name"])
-    row.get_by_role("button", name="Place hold").click()
-    expect(row).to_contain_text("Tentatively held", timeout=20000)
+    # S-75: the hold is placed on the request's own page.
+    open_request(page, event["name"])
+    page.get_by_role("button", name="Place hold").click()
+    expect(page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
+    expect(page.get_by_text("Tentatively held").first).to_be_visible()
 
     open_calendar(page, venue["name"], "/dashboard/venue-staff")
     show_month(page, d(5))

@@ -1424,9 +1424,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   `"30"`/`"45"`. Blank, `-1` and `1.5` → "Enter whole minutes, 0 or more." on
   that field; `0` is fine. Payloads send integers, and the edit payload
   includes the two times alongside the existing editable fields.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Empty form 0/0, edit form 30/45; blank, -1 and 1.5 gave the message on both forms; integers sent.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the venue form records both times, 0 or more`
 
 ## TC-FRONTEND-089 — the request screen applies setup and turnaround to opening hours
 
@@ -1435,9 +1435,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 - **Expected:** 08:30–10:00 fits. The others give "Open 08:00–20:00 on
   Thursdays, with 30 min setup and 45 min turnaround" and are filtered out
   when "open then" is on. A venue with 0/0 behaves as before.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** 08:30–10:00 fits; 08:00 and 19:30 gave the specified problem and were filtered out; 0/0 behaves as before.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the request screen applies setup and turnaround to opening hours`
 
 ## TC-FRONTEND-090 — the calendar shows the event's time and the venue's time in use
 
@@ -1446,9 +1446,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   "Tentatively held 12:30–14:00 · venue in use 12:00–14:45". With 0/0 there
   is no "venue in use" part. `setupTurnaroundLabel` reads "Setup 30 min ·
   Turnaround 45 min".
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Both labels as specified; no "venue in use" with 0/0; "Setup 30 min · Turnaround 45 min".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the calendar shows the event time and the time the venue is in use`
 
 ## TC-FRONTEND-091 — a clashing booking shows a warning to its Coordinator
 
@@ -1458,9 +1458,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   10:00–12:00 (venue in use 09:30–12:45) under Studio B's setup and
   turnaround times. Contact Venue Staff to rearrange." — and `null` with no
   clashes.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The specified warning; null with no clashes.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — a clashing booking shows a warning to its Coordinator`
 
 ## TC-FRONTEND-085 — Venue Staff see the clashes after saving
 
@@ -1471,9 +1471,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   (Tentatively held, 12:30–14:00) on 12 Nov 2026". ("Tentatively held" is the
   app's existing label for a held request since S-33; the confirmed draft
   said "Held".)
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** The specified request with credentials; the pair label as specified, with "Tentatively held".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — Venue Staff see the clashes after saving`
 
 ## TC-FRONTEND-086 — each pending request is one compact row that opens its page
 
@@ -1485,9 +1485,9 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   "Clash".
   The path is `/venue-bookings/{id}`. No decision or hold controls are part of
   the row.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** D and B summaries as specified (B "Tentatively held" with "Clash"); path `/venue-bookings/b1`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — each pending request is one compact row that opens its page`
 
 ## TC-FRONTEND-087 — the request page is Venue Staff only, and a decision returns to the list once
 
@@ -1498,6 +1498,6 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
   read "Booking for Alumni talk at Studio B confirmed." and "… rejected." —
   shown once on the dashboard after returning, then cleared, so a reload does
   not repeat it.
-- **Actual:** —
-- **Status:** Not Executed
-- **Evidence:** —
+- **Actual:** Only venue_staff can open the page; both notices read as specified.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the request page is Venue Staff only, and a decision notice reads once`

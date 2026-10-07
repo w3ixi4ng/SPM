@@ -2,7 +2,7 @@
 import re
 import uuid
 from playwright.sync_api import expect
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 
 pytestmark = requires_env
 
@@ -70,28 +70,35 @@ def test_staff_decisions_appear_to_requesting_coordinator(admin, page, make_user
     sign_in(staff)
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     pending = page.get_by_role("list", name="Pending booking requests")
-    first = pending.get_by_role("listitem").filter(has_text=bookings[0]["venue_name"])
-    first.get_by_role("radio", name="Approve", exact=True).check()
-    first.get_by_role("button", name="Save decision").click()
-    expect(first).to_have_count(0, timeout=20000)
 
-    second = pending.get_by_role("listitem").filter(has_text=bookings[1]["venue_name"])
-    second.get_by_role("radio", name="Reject", exact=True).check()
-    second.get_by_role("button", name="Save decision").click()
-    expect(second.get_by_role("alert")).to_contain_text("Provide a reason or alternative")
-    second.get_by_label("Alternative venue or time (optional)").fill("Try Studio C at 14:00")
-    second.get_by_role("button", name="Save decision").click()
-    expect(second).to_have_count(0, timeout=20000)
+    # S-75: each request is decided on its own page, opened from its row.
+    open_request(page, bookings[0]["venue_name"])
+    page.get_by_role("radio", name="Approve", exact=True).check()
+    page.get_by_role("button", name="Save decision").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    expect(page.get_by_role("status").filter(has_text="confirmed")).to_be_visible(timeout=20000)
+    expect(pending.get_by_role("link").filter(has_text=bookings[0]["venue_name"])).to_have_count(0, timeout=20000)
 
-    third = pending.get_by_role("listitem").filter(has_text=bookings[2]["venue_name"])
-    third.get_by_role("radio", name="Approve", exact=True).check()
+    open_request(page, bookings[1]["venue_name"])
+    page.get_by_role("radio", name="Reject", exact=True).check()
+    page.get_by_role("button", name="Save decision").click()
+    expect(page.get_by_role("alert")).to_contain_text("Provide a reason or alternative")
+    page.get_by_label("Alternative venue or time (optional)").fill("Try Studio C at 14:00")
+    page.get_by_role("button", name="Save decision").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    expect(pending.get_by_role("link").filter(has_text=bookings[1]["venue_name"])).to_have_count(0, timeout=20000)
+
+    open_request(page, bookings[2]["venue_name"])
+    page.get_by_role("radio", name="Approve", exact=True).check()
     # Another staff decision wins while this browser is showing stale Pending.
     admin.schema("bookings").table("bookings").update({
         "status": "rejected", "decision_reason": "Repairs",
         "decided_by": staff["id"], "decided_at": "2026-09-28T01:00:00Z",
     }).eq("id", bookings[2]["id"]).execute()
-    third.get_by_role("button", name="Save decision").click()
-    expect(third.get_by_role("alert")).to_contain_text("already been decided", timeout=20000)
+    page.get_by_role("button", name="Save decision").click()
+    expect(page.get_by_role("alert").filter(has_text="already been decided")).to_be_visible(timeout=20000)
+    page.get_by_role("link", name="Back to dashboard").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
 
     page.get_by_role("button", name="Sign out").click()
     page.wait_for_url(re.compile(r"/login"), timeout=20000)
