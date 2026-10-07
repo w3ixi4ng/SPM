@@ -180,3 +180,20 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Concurrent overlapping hold requests produced exactly one Held winner and one identified `409`; release allowed the range to be claimed again. No overlapping live rows were stored.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py`; complete integration suite, 41 passed.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+
+### TC-BOOKINGS-109 — the setup/turnaround gap is enforced against real rows
+
+- **Pre-conditions:** A fresh `.env.test` stack; Venue Staff session; a
+  random venue id.
+- **Steps:** Create and approve A 10:00–12:00. Request 12:30–13:00 with
+  `setup_minutes=30&turnaround_minutes=45`, then 13:15–14:00 with the same.
+- **Expected:** `409` "…in use until 12:45.", then `201`. Cleanup deletes
+  every row.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

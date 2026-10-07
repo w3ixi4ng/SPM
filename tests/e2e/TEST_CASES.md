@@ -686,3 +686,53 @@ Confirmed by the developer on 2026-10-05.
   details after reload.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support[chromium]`; `tests/e2e/test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`; local run on 2026-10-05, branch `S-40/record-required-equipment`, freshly rebuilt `.env.test` stack: 2 passed.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+**Blocked** until the S-75 SQL has been run in the test project.
+
+## TC-E2E-226 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
+
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
+  Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
+  `D+3`: A confirmed 10:00–12:00 and B held 12:30–14:00 (B's event assigned
+  to the Coordinator).
+- **Steps:**
+  1. Staff edit the venue: setup 30, turnaround 45; save.
+  2. The Coordinator opens B's event, then the venue's calendar on `D+3`.
+- **Expected:**
+  - Step 1: the times are saved, and the page lists A and B as clashing.
+  - Neither booking is removed.
+  - Step 2: B shows the clash warning.
+  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Booked
+    10:00–12:00 · venue in use 09:30–12:45".
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
+
+- **Scenario:** The list stays short; the work happens on the request's page.
+- **Pre-conditions:** As TC-E2E-226, plus a pending request P.
+- **Steps:**
+  1. Staff open their dashboard.
+  2. Click P's row; reload the page.
+  3. Place a hold, then approve P.
+- **Expected:**
+  - Step 1: each request is one row (event, venue, date and time, status);
+    the list has no hold button or decision form.
+  - Step 2: `/venue-bookings/{P}` shows P's details, a "Back to dashboard"
+    link, Place hold and the decision form, and survives the reload.
+  - Step 3: P shows "Held"; after approving, Staff return to the dashboard,
+    see "Booking for … confirmed." once, and P is no longer listed.
+
+  Existing journeys updated for this change: TC-E2E-209, 217, 218, 221, 223
+  and 224 decided or held requests from the inline forms. Their steps now
+  open the request's page from the dashboard row first; what each proves is
+  unchanged.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+

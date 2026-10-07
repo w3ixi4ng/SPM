@@ -170,3 +170,29 @@ in the test project.
 - **Actual:** Through Kong: empty calendar, then confirmed + held; C refused `409` while B held and accepted after B was rejected; the safety block appeared with no id or note; no event name in any response.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_availability.py::test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_kong`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+**Blocked** until the S-75 section of `backend/sql/venues.sql` has been run
+in the test project.
+
+### TC-VENUEBOOKINGS-107 — changing a venue's times flags the new clash and is used for the next request
+
+- **Scenario:** Real services and Kong agree (AC3, AC4).
+- **Pre-conditions:** A fresh `.env.test` stack. A Coordinator, Venue Staff,
+  a test venue open `thu` 08:00–20:00 with setup and turnaround 0, and two
+  planning events. Booking A confirmed 10:00–12:00 and B held 12:30–14:00 on
+  2026-11-12.
+- **Steps:**
+  1. Staff `GET /api/venue-bookings/clashes` for the venue: none.
+  2. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`, `turnaround_minutes: 45`.
+  3. Staff list clashes again; the Coordinator lists B's event requests.
+  4. The Coordinator requests 12:00–12:30 for another planning event.
+- **Expected:** Step 3: the A–B pair is listed, and B carries the clash
+  warning. A and B are unchanged in `bookings.bookings`. Step 4: `409` "…in
+  use until 12:45." Cleanup deletes every row created.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
