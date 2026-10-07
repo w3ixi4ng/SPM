@@ -872,3 +872,166 @@ Confirmed by the developer on 2026-10-05 after CI returned a transient
   `502`, and the downstream `POST /bookings` was attempted exactly once.
 - **Status:** Pass
 - **Evidence:** `test_resilience.py::test_booking_write_timeout_is_not_retried`
+
+---
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+
+**Acceptance criteria → cases (all layers)**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Venue Staff record a setup time and a turnaround time per venue, in minutes | VENUES-033, 035, 036, 104, FRONTEND-081, E2E-226 |
+| AC2: Neither can be negative; 0 is accepted | VENUES-034, FRONTEND-081 |
+| AC3: The times can be updated at any time and the saved values are used whenever availability is checked or conflicts are detected | VENUES-035, BOOKINGS-039–041, 109, VENUEBOOKINGS-050–052, 056, 107, FRONTEND-082, 083, E2E-226 |
+| AC4: Bookings that clash under new times are identified and flagged for the assigned Coordinator, never removed or cancelled | VENUEBOOKINGS-053–055, 057, 058, 107, FRONTEND-084, 085, E2E-226 |
+| Developer request: compact pending list, each request on its own page | VENUEBOOKINGS-058, FRONTEND-086, 087, E2E-227 |
+
+The conditions agreed with the developer on 2026-10-07 (with the Week 7
+customer change #1):
+
+- A booking **occupies** its venue from *start − setup* to *end +
+  turnaround*, using the venue's **current** times. Two bookings at the same
+  venue clash when their occupied windows overlap, so consecutive bookings
+  need at least *turnaround + setup* between them. Touching windows (one
+  ends exactly as the other starts) do not clash, as before.
+- The **whole occupied window** must fit inside the venue's opening hours.
+- Only **held** and **confirmed** bookings reserve time. Clashes are detected
+  between held and confirmed bookings dated **today or later** (the
+  composite's server date).
+- A clash is a **live warning**: worked out from current data whenever it is
+  viewed, nothing stored, gone once the clash is resolved. No booking is ever
+  changed, released, rejected or removed because of it.
+- The Coordinator sees it on the affected booking in their event's venue
+  requests; Venue Staff see the clashing pairs right after saving and on
+  held requests in their request list.
+- The S-30 calendar shows "Booked 10:00–12:00 · venue in use 09:30–12:45",
+  with the venue's setup and turnaround at the top.
+- Both times start at **0** for every venue (existing ones included): any
+  whole number of minutes ≥ 0, no maximum. Times are **saved first**, then
+  the clashes are listed.
+- **Also in S-75, at the developer's request:** Venue Staff's "Pending booking
+  requests" list shows one compact row per request instead of every form.
+  Each row opens the request's own page, where the details, the clash
+  warning, Place/Release hold and the approve/reject form now live.
+
+**Shared test data.** Studio B, open `thu` 08:00–20:00, setup 30, turnaround
+45 (so 75 minutes between bookings). On Thu 2026-11-12: A **confirmed**
+10:00–12:00 (event "Alumni talk"); B **held** 12:30–14:00 ("Board lunch");
+C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-10.
+
+## TC-VENUEBOOKINGS-050 — the opening-hours check covers setup and turnaround
+
+- **Scenario:** A request must leave room to prepare and reset within hours (AC3).
+- **Pre-conditions:** The S-36 submit checks otherwise pass; Studio B as above.
+- **Steps:** `POST /venue-bookings` for 08:00–10:00, 08:30–10:00,
+  18:00–19:15 and 18:00–19:30.
+- **Expected:** 08:00 start and 19:30 end → `422` with
+  `errors.operating_hours` "Studio B is open 08:00–20:00 on Thursdays; with 30
+  min setup and 45 min turnaround a booking must run within 08:30–19:15". The
+  other two pass this check. With setup and turnaround 0, 08:00–20:00 passes,
+  as today.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-051 — requests, holds and confirmations pass the venue's current times
+
+- **Scenario:** The saved values are used whenever conflicts are detected (AC3).
+- **Steps:** Submit a request; place a hold; approve a request.
+- **Expected:** `POST /bookings` is sent `setup_minutes=30` and
+  `turnaround_minutes=45`, read from the venues service at that moment. For
+  hold and decision, the composite reads the booking (`GET /bookings/{id}`),
+  then its venue, and passes the same two values. A venue changed to 0/0 in
+  between is passed as 0/0 on the next call. Unknown booking → `404`
+  `{"detail":"Booking not found"}`; venues or bookings failing → `502`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-052 — a refusal explains the setup and turnaround
+
+- **Scenario:** The Coordinator sees why a slot that looks free is refused (AC3).
+- **Pre-conditions:** Bookings returns `409` with the TC-BOOKINGS-039 detail.
+- **Expected:** `409` with that detail unchanged:
+  `"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00. With 30 min setup and 45 min turnaround it is in use until 12:45."`
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-053 — a Coordinator's clashing booking carries a warning
+
+- **Scenario:** Flagged for the assigned Coordinator (AC4).
+- **Pre-conditions:** The Coordinator is assigned B's event; bookings for the
+  date and Studio B are A, B, C, D.
+- **Steps:** `GET /venue-bookings?event_id=<B's event>`.
+- **Expected:** B carries
+  `clashes: [{"booking_date":"2026-11-12","start_time":"10:00:00","end_time":"12:00:00","occupied_start":"09:30","occupied_end":"12:45","status":"confirmed"}]`
+  — another booking's time and state only, no event name, coordinator or id —
+  plus `setup_minutes: 30`, `turnaround_minutes: 45`. A request that is
+  pending, rejected, dated before today, or clashes with nothing has
+  `clashes: []`. No booking is updated.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-054 — Venue Staff list a venue's clashing bookings
+
+- **Scenario:** Identified right after saving (AC4).
+- **Steps:** `GET /venue-bookings/clashes?venue_id=<Studio B>` as Venue Staff.
+- **Expected:** `200` with `setup_minutes`, `turnaround_minutes` and one pair:
+  A and B, each with event name, coordinator name, date, times, occupied
+  window and status. C (75 min after B ends) and D (pending) are not listed.
+  Pairs are listed once, in date then start order. Bookings before today are
+  ignored. Non-staff → `403`; unknown venue → `404`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-055 — held requests in the Staff request list show their clashes
+
+- **Scenario:** Staff see the warning where they act (AC4).
+- **Steps:** `GET /venue-bookings/pending` with B among the held requests.
+- **Expected:** B carries the same `clashes` as TC-VENUEBOOKINGS-053; pending
+  requests carry `clashes: []`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-056 — the calendar reports the venue's times
+
+- **Scenario:** Availability uses the saved values (AC3).
+- **Steps:** `GET /venue-bookings/availability` for Studio B.
+- **Expected:** The response adds `setup_minutes: 30` and
+  `turnaround_minutes: 45`; entries are unchanged (event times), so the page
+  can show both.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-057 — clashes never change or remove a booking
+
+- **Scenario:** Flagged rather than silently removed or cancelled (AC4).
+- **Steps:** Run TC-VENUEBOOKINGS-053, 054 and 055.
+- **Expected:** No call to the bookings service other than reads; nothing is
+  released, rejected, updated or deleted.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-VENUEBOOKINGS-058 — Venue Staff read one request by id
+
+- **Scenario:** The request's own page loads by itself, including on reload.
+- **Steps:** `GET /venue-bookings/{id}` as Venue Staff for held B, then for an
+  unknown id; then as a Coordinator.
+- **Expected:** `200` with B exactly as the pending list returns it, including
+  `clashes` (TC-VENUEBOOKINGS-055). A decided request is returned too, with its
+  status, so the page can say it was already decided. Unknown → `404`
+  `{"detail":"Booking not found"}`; Coordinator → `403`; bookings failing →
+  `502`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

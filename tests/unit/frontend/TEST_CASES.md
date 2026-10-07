@@ -1348,3 +1348,92 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Held entries map to Tentative while Confirmed remains distinct, and released Pending rows do not appear on the calendar.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_bookings.mjs` and existing calendar presentation tests; full Node suite, 93 passed.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
+
+## TC-FRONTEND-081 — the venue form records both times, 0 or more
+
+- **Steps:** Build an empty venue form and an edit form from a venue with
+  30/45; validate with `""`, `-1`, `1.5` and `0` in each field; build both
+  payloads.
+- **Expected:** An empty form starts at `"0"`/`"0"`; the edit form loads
+  `"30"`/`"45"`. Blank, `-1` and `1.5` → "Enter whole minutes, 0 or more." on
+  that field; `0` is fine. Payloads send integers, and the edit payload
+  includes the two times alongside the existing editable fields.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-082 — the request screen applies setup and turnaround to opening hours
+
+- **Steps:** `venueFit` and the "open then" filter for Studio B on a Thursday
+  at 08:00–10:00, 08:30–10:00 and 18:00–19:30.
+- **Expected:** 08:30–10:00 fits. The others give "Open 08:00–20:00 on
+  Thursdays, with 30 min setup and 45 min turnaround" and are filtered out
+  when "open then" is on. A venue with 0/0 behaves as before.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-083 — the calendar shows the event's time and the venue's time in use
+
+- **Steps:** Build the 2026-11-12 day for Studio B with A confirmed and B held.
+- **Expected:** "Booked 10:00–12:00 · venue in use 09:30–12:45" and
+  "Tentatively held 12:30–14:00 · venue in use 12:00–14:45". With 0/0 there
+  is no "venue in use" part. `setupTurnaroundLabel` reads "Setup 30 min ·
+  Turnaround 45 min".
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-084 — a clashing booking shows a warning to its Coordinator
+
+- **Steps:** `bookingClashMessage(booking)` for B with the clash from
+  TC-VENUEBOOKINGS-053, and for a booking with `clashes: []`.
+- **Expected:** "Clashes with another confirmed booking on 12 Nov 2026,
+  10:00–12:00 (venue in use 09:30–12:45) under Studio B's setup and
+  turnaround times. Contact Venue Staff to rearrange." — and `null` with no
+  clashes.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-085 — Venue Staff see the clashes after saving
+
+- **Steps:** `getVenueClashes(venueId)` with a fake `fetch`; then
+  `clashPairLabel(pair)` for the A–B pair.
+- **Expected:** `GET /api/venue-bookings/clashes?venue_id=…` with credentials.
+  The label reads "Alumni talk (Confirmed, 10:00–12:00) and Board lunch
+  (Held, 12:30–14:00) on 12 Nov 2026".
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-086 — each pending request is one compact row that opens its page
+
+- **Steps:** `pendingRequestSummary(booking)` for pending D and held B (with
+  its clash), and `pendingRequestPath(booking)`.
+- **Expected:** D → title "Alumni talk", line "Studio B · 12 Nov 2026,
+  12:15–12:45", status "Pending". B → status "Held" and the flag "Clash".
+  The path is `/venue-bookings/{id}`. No decision or hold controls are part of
+  the row.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-FRONTEND-087 — the request page is Venue Staff only, and a decision returns to the list once
+
+- **Steps:** Check `PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS` for each role;
+  call `decisionNotice("approved", booking)` and `decisionNotice("rejected",
+  booking)`.
+- **Expected:** Only `venue_staff` can open `/venue-bookings/:id`. The notices
+  read "Booking for Alumni talk at Studio B confirmed." and "… rejected." —
+  shown once on the dashboard after returning, then cleared, so a reload does
+  not repeat it.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —

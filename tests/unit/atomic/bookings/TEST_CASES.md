@@ -631,3 +631,49 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Release restored Pending, recorded its timestamp and reason, removed the live conflict, and preserved final bookings.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_hold.py`
+
+---
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+The overlap checks take the venue's current `setup_minutes` and
+`turnaround_minutes` as query parameters from the composite (default 0, so
+a caller that passes none gets today's behaviour). Two bookings clash when
+`other.start < new.end + turnaround + setup` and
+`other.end > new.start − setup − turnaround`.
+
+## TC-BOOKINGS-039 — a request inside the setup/turnaround gap is refused, and says why
+
+- **Pre-conditions:** Confirmed A, Studio B 2026-11-12 10:00–12:00.
+- **Steps:** `POST /bookings?setup_minutes=30&turnaround_minutes=45` for
+  12:30–13:00, 13:15–14:00, 08:00–08:45 and 07:30–08:45.
+- **Expected:** 12:30 → `409`
+  `"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00. With 30 min setup and 45 min turnaround it is in use until 12:45."`
+  13:15 (exactly 75 min after) → `201`. 08:45 end → `201` (A's setup starts
+  09:30, and 08:45 + 75 = 10:00). 07:30–08:45 → `201`. With no parameters,
+  12:30 → `201`, as before S-75. A held A gives the same with "tentatively
+  held".
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-BOOKINGS-040 — holds and confirmations use the same gap
+
+- **Steps:** `POST /bookings/{B}/hold` and `/decision` approve, for pending B
+  12:30–14:00, with A as above and the same parameters.
+- **Expected:** Both `409` with the TC-BOOKINGS-039 detail; B stays pending.
+  Without parameters, both succeed.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
+
+## TC-BOOKINGS-041 — a booking is readable by id for the composite
+
+- **Steps:** `GET /bookings/{id}` for A, then an unknown id.
+- **Expected:** `200` with A as `BookingRead`; unknown → `404`
+  `{"detail":"Booking not found"}`.
+- **Actual:** —
+- **Status:** Not Executed
+- **Evidence:** —
