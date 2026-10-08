@@ -28,21 +28,24 @@ Does not call any other service.
 | `POST` | `/users/login` | Checks the credentials, sets the session cookies, returns the profile. |
 | `POST` | `/users/logout` | Expires the cookies and revokes the refresh token. `204`. |
 | `GET` | `/users/me` | The signed-in user, for a route guard to call on every page load. `401` when signed out. |
+| `POST` | `/internal/users/profiles` | Internal batch lookup for basic profiles by UUID. |
 | `GET` | `/health` | Liveness, for `docker compose --wait`. |
 
 Paths are bare, the way every service in this repo mounts its routes. The
 `/api/users/...` the frontend calls is the gateway's prefix, not this service's
 — Kong (or the Vite dev proxy) strips it.
 
-**`GET /users/coordinators`** and **`GET /users/technical-support`** are
+**`GET /internal/users/coordinators`**, **`POST /internal/users/profiles`**, and
+**`GET /users/technical-support`** are
 internal, composite-only routes — no Kong route, and no session required at
 this layer, because a browser cannot reach them from outside the Docker
 network. The `event_requests` composite
 ([`backend/services/composite/event_requests`](../../composite/event_requests/README.md))
-is the only caller. The first route finds candidates for a new event request;
-the second finds candidates for an event's Technical Support assignment. Each
-uses only trusted Supabase Auth `app_metadata.role`, including across all Auth
-pagination pages, and returns the matching profile rows:
+is the only caller. The first lists trusted Coordinator choices for a Lead;
+the profile route resolves organiser details for the unassigned queue; the
+third finds candidates for an event's Technical Support assignment. Role
+routes use only trusted Supabase Auth `app_metadata.role`, including across
+all Auth pagination pages, and return the matching profile rows:
 
 ```json
 // 200
@@ -50,6 +53,13 @@ pagination pages, and returns the matching profile rows:
 ```
 
 `[]` when no account currently holds that role.
+
+`POST /internal/users/profiles` accepts 0–100 UUIDs, removes duplicates while
+preserving order, and returns the profiles that exist:
+
+```json
+{"ids": ["11111111-1111-4111-8111-111111111111"]}
+```
 
 `GET /users/technical-support` has the same response shape and returns only
 accounts whose trusted role is `technical_support`. A role in editable

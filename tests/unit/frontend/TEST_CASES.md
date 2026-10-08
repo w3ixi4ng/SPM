@@ -4,6 +4,7 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
 `test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
+S-83 also adds `test_event_assignments.mjs` and `test_notifications.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -11,18 +12,18 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
-| Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 64 passed |
+| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Environment | Node.js; no network or Supabase |
+| Result | 100 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
 - **Scenario:** Every trusted project role resolves to its own dashboard path.
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Read each role's configured dashboard path.
-- **Test data:** All five supported role names.
-- **Expected:** Five distinct, role-appropriate `/dashboard/...` paths.
-- **Actual:** All five roles resolved to distinct expected dashboard paths.
+- **Test data:** All six supported role names.
+- **Expected:** Six distinct, role-appropriate `/dashboard/...` paths.
+- **Actual:** All six roles resolved to distinct expected dashboard paths.
 - **Status:** Pass
 - **Evidence:** `test_access.mjs` — `every supported role has its own dashboard`
 
@@ -133,7 +134,7 @@ RBAC, and validation remain authoritative.
   venues service allows (S-27).
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Check `venues:create` and `venues:view` for every supported role.
-- **Test data:** All five supported role names.
+- **Test data:** All six supported role names.
 - **Expected:** `venue_staff` has both; `event_coordinator` has
   `venues:view` only; `event_organiser`, `technical_support` and `attendee`
   have neither.
@@ -200,7 +201,7 @@ RBAC, and validation remain authoritative.
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Check every `events:*` permission the coordinator role holds,
   against every supported role.
-- **Test data:** Five roles and `event_coordinator`'s `events:*` permissions.
+- **Test data:** Six roles and `event_coordinator`'s `events:*` permissions.
 - **Expected:** True for `event_coordinator`, false for every other role.
 - **Actual:** As expected.
 - **Status:** Pass
@@ -464,7 +465,7 @@ says.
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Check `venue_bookings:create` and
   `venue_bookings:view_pending` for every supported role.
-- **Test data:** All five supported role names.
+- **Test data:** All six supported role names.
 - **Expected:** `event_coordinator` has `venue_bookings:create` only.
   `venue_staff` has `venue_bookings:view_pending` only. `event_organiser`,
   `technical_support` and `attendee` have neither.
@@ -852,7 +853,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Scenario:** Decision form validation and permissions match backend policy (AC1, AC2).
 - **Pre-conditions:** Pure frontend helpers loaded; no network.
 - **Steps:** 1. Validate approval and rejection variants.
-  2. Check all five role permissions.
+  2. Check all six role permissions.
 - **Test data:** approved with no reason; rejected with reason='Repairs', alternative='Try Studio C', both, or whitespace only.
 - **Expected:** Only Venue Staff receive decision permission. Approval needs no text; rejection requires one trimmed nonblank field. Unknown decisions invalid.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
@@ -1349,13 +1350,90 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_bookings.mjs` and existing calendar presentation tests; full Node suite, 93 passed.
 
+## S-83 — Assign Event Requests from Unassigned Queue
+
+Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
+and both in-app notification recipients confirmed by the developer on
+2026-10-08. Executed in the full Node unit run on 2026-10-08.
+
+### TC-FRONTEND-081 — Lead access and routes fail closed for every other role
+
+- **Scenario:** Only the Event Coordinator Lead receives queue and assignment
+  controls.
+- **Pre-conditions:** Frontend role/access helpers loaded.
+- **Steps:** Inspect dashboard path and permissions for every recognized role.
+- **Test data:** `event_coordinator_lead`, `event_coordinator`,
+  `event_organiser`, `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** The Lead resolves to `/dashboard/event-coordinator-lead` and
+  has view-unassigned and assign-event permissions. No other role has either
+  permission; unknown roles resolve to no access.
+- **Actual:** Only the Lead received both permissions and its dedicated dashboard; all other roles failed closed.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — “only coordinator leads can view and assign the unassigned queue”
+
+### TC-FRONTEND-082 — queue and assignment helpers preserve the API contract
+
+- **Scenario:** Browser helpers use credentialled S-83 endpoints without
+  adding protected assignment or organiser data.
+- **Pre-conditions:** Mocked `requestJSON`/fetch.
+- **Steps:** List the queue, list coordinator choices, and assign one event.
+- **Test data:** Event and coordinator ids from the S-83 unit specification.
+- **Expected:** GETs target `/event-requests/unassigned` and
+  `/event-requests/coordinators`; assignment posts only
+  `{"coordinator_id":"<id>"}` to
+  `/event-requests/{event_id}/assignment`. `401`, `403`, `404`, `409`, `422`,
+  `5xx`, and network failures produce explicit messages and never update the
+  local queue as if assignment succeeded.
+- **Actual:** Both list calls and the assignment POST used credentialled Kong paths and only the Coordinator id body; error mappings were actionable.
+- **Status:** Pass
+- **Evidence:** `test_event_assignments.mjs` — “lead assignment helpers use the composite routes through Kong”
+
+### TC-FRONTEND-083 — the Lead can review basic information and assign from the queue
+
+- **Scenario:** The Lead dashboard exposes the confirmed decision workflow.
+- **Pre-conditions:** Queue has `Autumn Forum`; coordinator choices A and B;
+  assignment to B succeeds.
+- **Steps:** Render the dashboard, inspect the request, select B, assign, and
+  inspect the resulting list.
+- **Test data:** Event `2026-10-20 18:00`–`21:00`, attendance `120`, organiser
+  `Ada Organiser`; coordinators A and B.
+- **Expected:** The card displays event name, complete start/end, attendance,
+  and organiser. The select contains A and B. Successful assignment announces
+  B accessibly and removes the event from the queue without a page reload. An
+  empty queue has a clear empty state; loading and retryable errors are shown.
+- **Actual:** The dashboard contract includes every required field, Coordinator choices, accessible feedback, empty/error states, and removal after confirmed success.
+- **Status:** Pass
+- **Evidence:** `test_event_assignments.mjs` — “lead queue presents the required details and removes an assigned card”
+
+### TC-FRONTEND-084 — organiser and coordinator dashboards display persistent notifications
+
+- **Scenario:** Both confirmed recipients can see assignment notifications
+  after navigation or reload.
+- **Pre-conditions:** The notifications helper returns the recipient's saved
+  assignment notification.
+- **Steps:** Render organiser and coordinator dashboards, then rerender after
+  a simulated reload; separately render an empty inbox and a failed request.
+- **Test data:** `Autumn Forum has been assigned to Alex Coordinator`, event id,
+  and created timestamp.
+- **Expected:** Each recipient dashboard shows a labelled notification region
+  containing the saved message and timestamp on both renders. Empty state is
+  unobtrusive; a failed request shows an error rather than pretending the
+  inbox is empty. No email/external delivery helper exists.
+- **Actual:** Both recipient dashboards render the shared server-backed inbox with message/time, loading, empty, and error states; no external delivery helper exists.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs` — “organiser and coordinator dashboards render the persistent inbox states”
+
 ## S-75 — configure venue setup and turnaround time
 
 Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** S-83, merged into `sprint3` first, used
+> TC-FRONTEND-081–084 and TC-E2E-226. S-75's cases with those numbers are
+> now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep theirs.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 
-## TC-FRONTEND-081 — the venue form records both times as hours and minutes, digits only
+## TC-FRONTEND-088 — the venue form records both times as hours and minutes, digits only
 
 > **Changed by the developer on 2026-10-08:** each time is entered as two
 > boxes, hours and minutes, that accept digits only. They are still stored
@@ -1376,7 +1454,7 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the venue form records both times as hours and minutes, digits only`
 
-## TC-FRONTEND-082 — the request screen applies setup and turnaround to opening hours
+## TC-FRONTEND-089 — the request screen applies setup and turnaround to opening hours
 
 - **Steps:** `venueFit` and the "open then" filter for Studio B on a Thursday
   at 08:00–10:00, 08:30–10:00 and 18:00–19:30.
@@ -1387,7 +1465,7 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the request screen applies setup and turnaround to opening hours`
 
-## TC-FRONTEND-083 — the calendar shows the event's time and the venue's time in use
+## TC-FRONTEND-090 — the calendar shows the event's time and the venue's time in use
 
 - **Steps:** Build the 2026-11-12 day for Studio B with A confirmed and B held.
 - **Expected:** "Booked 10:00–12:00 · venue in use 09:30–12:45" and
@@ -1398,7 +1476,7 @@ Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the calendar shows the event time and the time the venue is in use`
 
-## TC-FRONTEND-084 — a clashing booking shows a warning to its Coordinator
+## TC-FRONTEND-091 — a clashing booking shows a warning to its Coordinator
 
 - **Steps:** `bookingClashMessage(booking)` for B with the clash from
   TC-VENUEBOOKINGS-053, and for a booking with `clashes: []`.

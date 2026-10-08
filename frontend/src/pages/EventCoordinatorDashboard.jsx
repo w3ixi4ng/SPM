@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import NotificationPanel from '../components/NotificationPanel.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueFilters from '../components/VenueFilters.jsx'
 import VenueList from '../components/VenueList.jsx'
@@ -194,6 +195,8 @@ export default function EventCoordinatorDashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        <NotificationPanel />
 
         <div className="max-w-3xl">
           <Tabs active={activeTab} onSelect={selectTab} />

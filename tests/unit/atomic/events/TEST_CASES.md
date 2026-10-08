@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
-| Environment | Python 3.12.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 108 passed in this suite; 509 passed across `tests/unit` |
+| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
+| Result | 122 passed in this suite; 711 passed across `tests/unit` |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -1459,3 +1459,70 @@ is full).
 - **Actual:** Equal end, earlier end date and missing end_time each returned `422` without querying storage.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_an_invalid_window_is_refused`
+
+---
+
+## S-83 — unassigned queue and atomic assignment state
+
+Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
+confirmed by the developer on 2026-10-08. Executed on the confirmed branch in
+the full unit run on 2026-10-08.
+
+## TC-EVENTS-108 — internal creation permits an unassigned submitted request
+
+- **Scenario:** The events service persists the new S-83 initial state.
+- **Pre-conditions:** The fake insert returns the submitted event.
+- **Steps:** `POST /events/internal` with complete event and organiser data but
+  no coordinator id.
+- **Test data:** Event `Autumn Forum`; organiser
+  `11111111-1111-4111-8111-111111111111`.
+- **Expected:** `201`; the inserted row is `submitted`, has a non-null
+  `submitted_at`, and has `assigned_coordinator_id=null`.
+- **Actual:** The internal insert stored `submitted`, a timestamp, and a null Coordinator.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_submission_can_start_unassigned`
+
+## TC-EVENTS-109 — the internal queue contains only submitted unassigned events
+
+- **Scenario:** Queue membership is determined by event state, not by the
+  caller's UI filtering.
+- **Pre-conditions:** Storage contains an unassigned submission, an assigned
+  submission, a draft, a returned event, and a planning event.
+- **Steps:** `GET /internal/events/unassigned`.
+- **Test data:** Five rows with the states above.
+- **Expected:** `200` with only the unassigned submitted row, ordered by
+  `submitted_at` oldest first; the storage query filters `status=submitted`
+  and `assigned_coordinator_id is null` and selects the agreed basic fields.
+- **Actual:** The storage query applied both filters and oldest-first ordering.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_unassigned_queue_filters_and_orders_in_storage`
+
+## TC-EVENTS-110 — assignment is conditional and idempotent for the same coordinator
+
+- **Scenario:** A Lead's valid assignment changes one event without allowing a
+  stale second owner.
+- **Pre-conditions:** The first conditional update returns the submitted event
+  assigned to coordinator A. A repeated request for A reads that same row.
+- **Steps:** `POST /internal/events/{event_id}/assignment` twice with A.
+- **Test data:** Shared event and coordinator A UUIDs.
+- **Expected:** Both responses are `200`; the first response reports
+  `assignment_created=true`, the retry `false`. The write is filtered by id,
+  `status=submitted`, and null coordinator; organiser id and event name are
+  returned for notification creation.
+- **Actual:** The first conditional write reported created; the same-target retry read the existing row and reported not created.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_assignment_is_conditional_and_same_target_idempotent`
+
+## TC-EVENTS-111 — a missing, ineligible-state, or differently assigned event is rejected
+
+- **Scenario:** The atomic service distinguishes missing state from a stale
+  assignment without overwriting either.
+- **Pre-conditions:** The conditional update matches no row; the follow-up
+  read returns no event, a draft/returned event, or coordinator B in turn.
+- **Steps:** Attempt assignment to coordinator A for every state.
+- **Test data:** Unknown event; draft; returned; event assigned to B.
+- **Expected:** Unknown returns `404`; wrong state and different existing
+  owner return `409`; no unconditional update occurs.
+- **Actual:** Missing returned `404`; draft, returned, planning, and a different existing owner returned `409` without overwrite.
+- **Status:** Pass
+- **Evidence:** `test_s83.py::test_internal_assignment_rejects_a_different_existing_owner`, `test_s83.py::test_internal_assignment_rejects_wrong_state_targets`, `test_s83.py::test_internal_assignment_returns_404_for_a_missing_event`

@@ -3,6 +3,7 @@ import { ArrowRight, Check, Loader2, LogOut } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import NotificationPanel from '../components/NotificationPanel.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   eventErrorMessage,
@@ -283,6 +284,8 @@ export default function Dashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        {role === 'event_organiser' && <NotificationPanel />}
 
         {hasPermission(role, PERMISSIONS.CREATE_EVENT) ? (
           <div className="space-y-6">

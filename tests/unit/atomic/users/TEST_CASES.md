@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
-| Environment | Python 3.12.4, pytest 9.1.1, FastAPI 0.141.1, supabase-py 2.31.0. No network, no database, no Docker. |
-| Result | 33 passed in this suite; 509 passed across `tests/unit` |
+| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Environment | Python 3.14.8, pytest 9.1.1. No network, no database, no Docker. |
+| Result | 35 passed in this suite; 711 passed across `tests/unit` |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -390,7 +390,7 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Pre-conditions:** The Auth admin listing returns four users: two with
   `app_metadata.role="event_coordinator"`, one `event_organiser`, one with no
   role; the profile table holds a row for each.
-- **Steps:** `GET /users/coordinators`.
+- **Steps:** `GET /internal/users/coordinators`.
 - **Test data:** As above.
 - **Expected:** `200`; response contains exactly the two coordinators' `id`,
   `name`, `email` — no password, role, or other field; the other two accounts
@@ -405,7 +405,7 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
   list, not an error — the composite treats this the same as everyone being
   busy.
 - **Pre-conditions:** The Auth admin listing returns no user with that role.
-- **Steps:** `GET /users/coordinators`.
+- **Steps:** `GET /internal/users/coordinators`.
 - **Test data:** None.
 - **Expected:** `200`, `[]`.
 - **Actual:** As expected.
@@ -443,3 +443,20 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** `200`, `[]`, with no profile-table query.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_technical_support_listing_is_empty_when_no_one_holds_the_role`
+
+## TC-USERS-031 — internal profile lookup resolves queue organisers without exposing roles
+
+- **Scenario:** The S-83 composite can display organisers while the users
+  service remains the sole owner of profiles.
+- **Pre-conditions:** Profiles exist for ids A and B; an unknown id is also
+  requested.
+- **Steps:** `POST /internal/users/profiles` with all three ids, including A twice.
+- **Test data:** A `11111111-1111-4111-8111-111111111111`; B
+  `22222222-2222-4222-8222-222222222222`; unknown
+  `99999999-9999-4999-8999-999999999999`.
+- **Expected:** `200` with A and B once each, containing only id, name, and
+  email; the unknown id is absent. An empty input returns `200 []` without a
+  database call, and an oversized/invalid body returns `422`.
+- **Actual:** Known ids were returned once with profile fields only; empty input returned `[]` without storage access.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_profile_lookup_returns_known_unique_profiles`

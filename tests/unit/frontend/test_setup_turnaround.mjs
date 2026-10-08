@@ -45,7 +45,7 @@ const D = {
   start_time: '12:15:00', end_time: '12:45:00', status: 'pending', clashes: [],
 }
 
-// --- TC-FRONTEND-081 -------------------------------------------------------
+// --- TC-FRONTEND-088 -------------------------------------------------------
 test('the venue form records both times as hours and minutes, digits only', () => {
   const empty = emptyVenueForm()
   assert.deepEqual(
@@ -78,7 +78,7 @@ test('the venue form records both times as hours and minutes, digits only', () =
   assert.equal(payload.turnaround_minutes, 75)
 })
 
-// --- TC-FRONTEND-082 -------------------------------------------------------
+// --- TC-FRONTEND-089 -------------------------------------------------------
 test('the request screen applies setup and turnaround to opening hours', () => {
   const at = (startTime, endTime) => ({ date: '2026-11-12', startTime, endTime })
   assert.deepEqual(venueFit(EVENT, STUDIO_B, at('08:30', '10:00')), [])
@@ -94,7 +94,7 @@ test('the request screen applies setup and turnaround to opening hours', () => {
   assert.deepEqual(venueFit(EVENT, plain, at('08:00', '20:00')), [])
 })
 
-// --- TC-FRONTEND-083 -------------------------------------------------------
+// --- TC-FRONTEND-090 -------------------------------------------------------
 test('the calendar shows the event time and the time the venue is in use', () => {
   const entries = [
     { state: 'confirmed', start_date: '2026-11-12', end_date: '2026-11-12', start_time: '10:00:00', end_time: '12:00:00' },
@@ -110,7 +110,7 @@ test('the calendar shows the event time and the time the venue is in use', () =>
   assert.equal(setupTurnaroundLabel(GAP), 'Setup 30 min · Turnaround 45 min')
 })
 
-// --- TC-FRONTEND-084 -------------------------------------------------------
+// --- TC-FRONTEND-091 -------------------------------------------------------
 test('a clashing booking shows a warning to its Coordinator', () => {
   assert.equal(bookingClashMessage(B),
     'Clashes with another confirmed booking on 12 Nov 2026, 10:00–12:00 (venue in use 09:30–12:45) '
