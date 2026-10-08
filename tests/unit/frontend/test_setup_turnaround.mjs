@@ -13,8 +13,10 @@ import {
   venueFit,
 } from '../../../frontend/src/lib/venueBookings.js'
 import {
+  digitsOnly,
   emptyVenueForm,
   filterVenues,
+  splitMinutes,
   emptyVenueFilters,
   validateVenueEditForm,
   validateVenueForm,
@@ -44,26 +46,36 @@ const D = {
 }
 
 // --- TC-FRONTEND-081 -------------------------------------------------------
-test('the venue form records both times, 0 or more', () => {
+test('the venue form records both times as hours and minutes, digits only', () => {
   const empty = emptyVenueForm()
-  assert.equal(empty.setupMinutes, '0')
-  assert.equal(empty.turnaroundMinutes, '0')
+  assert.deepEqual(
+    [empty.setupHours, empty.setupMins, empty.turnaroundHours, empty.turnaroundMins],
+    ['0', '0', '0', '0'],
+  )
+  // 30 and 45 minutes load as 0 h 30 min and 0 h 45 min; 135 as 2 h 15 min.
   const edit = venueToEditForm(STUDIO_B)
-  assert.equal(edit.setupMinutes, '30')
-  assert.equal(edit.turnaroundMinutes, '45')
+  assert.deepEqual([edit.setupHours, edit.setupMins, edit.turnaroundHours, edit.turnaroundMins], ['0', '30', '0', '45'])
+  assert.deepEqual(splitMinutes(135), { hours: '2', mins: '15' })
 
-  for (const value of ['', '-1', '1.5']) {
-    for (const [field, key] of [['setupMinutes', 'setup_minutes'], ['turnaroundMinutes', 'turnaround_minutes']]) {
-      assert.equal(validateVenueForm({ ...empty, [field]: value })[key], 'Enter whole minutes, 0 or more.', `${field}=${value}`)
-      assert.equal(validateVenueEditForm({ ...edit, [field]: value })[key], 'Enter whole minutes, 0 or more.')
-    }
+  // Only digits get into a box.
+  assert.equal(digitsOnly('1a-2.5 e'), '125')
+  assert.equal(digitsOnly(''), '')
+
+  for (const [field, key] of [['setupHours', 'setup_minutes'], ['setupMins', 'setup_minutes'],
+    ['turnaroundHours', 'turnaround_minutes'], ['turnaroundMins', 'turnaround_minutes']]) {
+    assert.equal(validateVenueForm({ ...empty, [field]: '' })[key], 'Enter whole hours and minutes, 0 or more.', field)
+    assert.equal(validateVenueEditForm({ ...edit, [field]: '' })[key], 'Enter whole hours and minutes, 0 or more.')
   }
-  assert.equal(validateVenueForm({ ...empty, setupMinutes: '0' }).setup_minutes, undefined)
+  assert.equal(validateVenueForm({ ...empty, setupMins: '60' }).setup_minutes, 'Minutes must be between 0 and 59.')
+  assert.equal(validateVenueForm({ ...empty, setupMins: '59' }).setup_minutes, undefined)
   assert.deepEqual(validateVenueEditForm(edit), {})
 
-  const payload = venueFormToPayload({ ...empty, name: 'X', location: 'Y', capacity: '5', setupMinutes: ' 30 ', turnaroundMinutes: '45' })
+  const payload = venueFormToPayload({
+    ...empty, name: 'X', location: 'Y', capacity: '5',
+    setupHours: '0', setupMins: '30', turnaroundHours: '1', turnaroundMins: '15',
+  })
   assert.equal(payload.setup_minutes, 30)
-  assert.equal(payload.turnaround_minutes, 45)
+  assert.equal(payload.turnaround_minutes, 75)
 })
 
 // --- TC-FRONTEND-082 -------------------------------------------------------

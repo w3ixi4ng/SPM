@@ -14,13 +14,13 @@ test('edit form loads only editable values and copies arrays', () => {
   const venue = { name: 'Hall', location: 'Block A', capacity: 250, facilities: ['projector'], accessibility: [] }
   const form = venueToEditForm(venue)
   // S-75: a venue saved before setup/turnaround existed loads them as 0.
-  assert.deepEqual(form, { location: 'Block A', capacity: '250', facilities: ['projector'], accessibility: [], setupMinutes: '0', turnaroundMinutes: '0' })
+  assert.deepEqual(form, { location: 'Block A', capacity: '250', facilities: ['projector'], accessibility: [], setupHours: '0', setupMins: '0', turnaroundHours: '0', turnaroundMins: '0' })
   form.facilities.push('wifi')
   assert.deepEqual(venue.facilities, ['projector'])
 })
 
 test('edit validation does not require protected create fields', () => {
-  const times = { setupMinutes: '0', turnaroundMinutes: '0' }
+  const times = { setupHours: '0', setupMins: '0', turnaroundHours: '0', turnaroundMins: '0' }
   assert.deepEqual(validateVenueEditForm({ location: 'Block B', capacity: '100', ...times }), {})
   for (const capacity of ['', '0', '-1', '1.5', 'abc', '2147483648']) {
     assert.ok(validateVenueEditForm({ location: 'Block B', capacity, ...times }).capacity)
@@ -35,7 +35,7 @@ test('load and PATCH use cookies and only the editable fields', async (t) => {
     return { ok: true, status: 200, json: async () => ({ capacity: 100 }) }
   })
   await getVenue('venue-id')
-  assert.deepEqual(await updateVenue('venue-id', { location: ' Block B ', capacity: '100', facilities: [], accessibility: [], setupMinutes: '30', turnaroundMinutes: '45', name: 'Forbidden', operating_hours: [] }), { capacity: 100 })
+  assert.deepEqual(await updateVenue('venue-id', { location: ' Block B ', capacity: '100', facilities: [], accessibility: [], setupHours: '0', setupMins: '30', turnaroundHours: '0', turnaroundMins: '45', name: 'Forbidden', operating_hours: [] }), { capacity: 100 })
   assert.equal(calls[0].url, '/api/venues/venue-id')
   assert.equal(calls[0].options.credentials, 'include')
   assert.equal(calls[1].options.method, 'PATCH')
