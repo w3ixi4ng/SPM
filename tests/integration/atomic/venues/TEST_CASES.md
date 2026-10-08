@@ -98,6 +98,6 @@ the test project.
 - **Expected:** The first read shows 0/0 (column default). The update is
   stored as 30/45. `-5` is `422` from the service and the database check
   would refuse it too. Cleanup deletes the venue.
-- **Actual:** —
-- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
-- **Evidence:** —
+- **Actual:** A venue inserted without the columns read as 0/0; PATCH stored 30/45; -5 was 422.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/venues/test_setup_turnaround.py::test_times_are_stored_default_to_zero_and_can_be_updated`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed across venues, bookings and venue_bookings integration.

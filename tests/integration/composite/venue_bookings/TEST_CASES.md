@@ -193,6 +193,6 @@ in the test project.
 - **Expected:** Step 3: the A–B pair is listed, and B carries the clash
   warning. A and B are unchanged in `bookings.bookings`. Step 4: `409` "…in
   use until 12:45." Cleanup deletes every row created.
-- **Actual:** —
-- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
-- **Evidence:** —
+- **Actual:** Through Kong: no clashes at 0/0; after Staff saved 30/45 the A–B pair was listed and B carried the 10:00 clash; both bookings unchanged; 12:00–12:30 refused "…in use until 12:45."
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_setup_turnaround.py::test_new_times_flag_the_clash_and_govern_the_next_request`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
