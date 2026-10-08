@@ -676,7 +676,7 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
     10:00–12:00 · venue in use 09:30–12:45".
 - **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept; the Coordinator saw the warning with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Booked 10:00–12:00 · venue in use 09:30–12:45".
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 10 passed across the eight affected journey files.
+- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; rerun 2026-10-08 with the hours/minutes boxes on a stack rebuilt from `.env.test`; full e2e suite: 26 passed.
 
 ## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
 
