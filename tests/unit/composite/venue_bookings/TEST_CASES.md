@@ -878,16 +878,21 @@ Confirmed by the developer on 2026-10-05 after CI returned a transient
 ## S-75 — configure venue setup and turnaround time
 
 Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** TC-FRONTEND-081–084 and TC-E2E-226 were
+> already in use (S-43 on `main`, S-83 on `sprint3`). S-75's cases with
+> those numbers are now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep
+> theirs.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 
 **Acceptance criteria → cases (all layers)**
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| AC1: Venue Staff record a setup time and a turnaround time per venue, in minutes | VENUES-033, 035, 036, 104, FRONTEND-081, E2E-226 |
-| AC2: Neither can be negative; 0 is accepted | VENUES-034, FRONTEND-081 |
-| AC3: The times can be updated at any time and the saved values are used whenever availability is checked or conflicts are detected | VENUES-035, BOOKINGS-039–041, 109, VENUEBOOKINGS-050–052, 056, 107, FRONTEND-082, 083, E2E-226 |
-| AC4: Bookings that clash under new times are identified and flagged for the assigned Coordinator, never removed or cancelled | VENUEBOOKINGS-053–055, 057, 058, 107, FRONTEND-084, 085, E2E-226 |
+| AC1: Venue Staff record a setup time and a turnaround time per venue, in minutes | VENUES-033, 035, 036, 104, FRONTEND-088, E2E-228 |
+| AC2: Neither can be negative; 0 is accepted | VENUES-034, FRONTEND-088 |
+| AC3: The times can be updated at any time and the saved values are used whenever availability is checked or conflicts are detected | VENUES-035, BOOKINGS-039–041, 109, VENUEBOOKINGS-050–052, 056, 107, FRONTEND-089, 090, E2E-228 |
+| AC4: Bookings that clash under new times are identified and flagged for the assigned Coordinator, never removed or cancelled | VENUEBOOKINGS-053–055, 057, 058, 107, FRONTEND-085, 091, E2E-228 |
 | Developer request: compact pending list, each request on its own page | VENUEBOOKINGS-058, FRONTEND-086, 087, E2E-227 |
 
 The conditions agreed with the developer on 2026-10-07 (with the Week 7

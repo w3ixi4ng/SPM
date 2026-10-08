@@ -1413,6 +1413,11 @@ Specification updated by the developer on 2026-10-05.
 ## S-75 — configure venue setup and turnaround time
 
 Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** TC-FRONTEND-081–084 and TC-E2E-226 were
+> already in use (S-43 on `main`, S-83 on `sprint3`). S-75's cases with
+> those numbers are now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep
+> theirs.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 
@@ -1517,7 +1522,11 @@ Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
 and both in-app notification recipients confirmed by the developer on
 2026-10-08. Executed in the full Node unit run on 2026-10-08.
 
-### TC-FRONTEND-081 — Lead access and routes fail closed for every other role
+> **Renumbered 2026-10-08 from TC-FRONTEND-081–084:** S-43 had already used
+> TC-FRONTEND-081–083 on `main`. Cases are now TC-FRONTEND-092–095, in the
+> same order.
+
+### TC-FRONTEND-092 — Lead access and routes fail closed for every other role
 
 - **Scenario:** Only the Event Coordinator Lead receives queue and assignment
   controls.
@@ -1532,7 +1541,7 @@ and both in-app notification recipients confirmed by the developer on
 - **Status:** Pass
 - **Evidence:** `test_access.mjs` — “only coordinator leads can view and assign the unassigned queue”
 
-### TC-FRONTEND-082 — queue and assignment helpers preserve the API contract
+### TC-FRONTEND-093 — queue and assignment helpers preserve the API contract
 
 - **Scenario:** Browser helpers use credentialled S-83 endpoints without
   adding protected assignment or organiser data.
@@ -1549,7 +1558,7 @@ and both in-app notification recipients confirmed by the developer on
 - **Status:** Pass
 - **Evidence:** `test_event_assignments.mjs` — “lead assignment helpers use the composite routes through Kong”
 
-### TC-FRONTEND-083 — the Lead can review basic information and assign from the queue
+### TC-FRONTEND-094 — the Lead can review basic information and assign from the queue
 
 - **Scenario:** The Lead dashboard exposes the confirmed decision workflow.
 - **Pre-conditions:** Queue has `Autumn Forum`; coordinator choices A and B;
@@ -1566,7 +1575,7 @@ and both in-app notification recipients confirmed by the developer on
 - **Status:** Pass
 - **Evidence:** `test_event_assignments.mjs` — “lead queue presents the required details and removes an assigned card”
 
-### TC-FRONTEND-084 — organiser and coordinator dashboards display persistent notifications
+### TC-FRONTEND-095 — organiser and coordinator dashboards display persistent notifications
 
 - **Scenario:** Both confirmed recipients can see assignment notifications
   after navigation or reload.

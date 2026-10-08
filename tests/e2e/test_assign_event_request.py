@@ -1,4 +1,4 @@
-"""TC-E2E-226 -- manual Lead assignment and persistent notifications."""
+"""TC-E2E-229 -- manual Lead assignment and persistent notifications."""
 
 import re
 import uuid
@@ -21,7 +21,7 @@ def _choose_time(page, label, displayed_time):
     page.get_by_role("option", name=displayed_time, exact=True).click()
 
 
-# --- TC-E2E-226 -----------------------------------------------------------
+# --- TC-E2E-229 -----------------------------------------------------------
 def test_lead_assigns_request_and_both_recipients_are_notified(
     page, make_user, sign_in
 ):

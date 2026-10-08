@@ -9,7 +9,7 @@ import {
   listUnassignedEventRequests,
 } from '../../../frontend/src/lib/eventAssignments.js'
 
-// --- TC-FRONTEND-082 -----------------------------------------------------
+// --- TC-FRONTEND-093 -----------------------------------------------------
 test('lead assignment helpers use the composite routes through Kong', async () => {
   const originalFetch = globalThis.fetch
   const calls = []
@@ -50,7 +50,7 @@ test('assignment failures give the lead actionable feedback', () => {
   assert.match(assignmentErrorMessage({ status: 502 }), /retry/i)
 })
 
-// --- TC-FRONTEND-083 -----------------------------------------------------
+// --- TC-FRONTEND-094 -----------------------------------------------------
 test('lead queue presents the required details and removes an assigned card', () => {
   const source = readFileSync(
     new URL('../../../frontend/src/pages/EventCoordinatorLeadDashboard.jsx', import.meta.url),

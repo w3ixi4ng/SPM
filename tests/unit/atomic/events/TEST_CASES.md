@@ -1546,7 +1546,9 @@ the full unit run on 2026-10-08.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_submission_can_start_unassigned`
 
-## TC-EVENTS-109 — the internal queue contains only submitted unassigned events
+## TC-EVENTS-114 — the internal queue contains only submitted unassigned events
+
+> **Renumbered 2026-10-08 from TC-EVENTS-109, which S-43 had already used on `main`.**
 
 - **Scenario:** Queue membership is determined by event state, not by the
   caller's UI filtering.
@@ -1561,7 +1563,9 @@ the full unit run on 2026-10-08.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_unassigned_queue_filters_and_orders_in_storage`
 
-## TC-EVENTS-110 — assignment is conditional and idempotent for the same coordinator
+## TC-EVENTS-115 — assignment is conditional and idempotent for the same coordinator
+
+> **Renumbered 2026-10-08 from TC-EVENTS-110, which S-43 had already used on `main`.**
 
 - **Scenario:** A Lead's valid assignment changes one event without allowing a
   stale second owner.
@@ -1577,7 +1581,9 @@ the full unit run on 2026-10-08.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_assignment_is_conditional_and_same_target_idempotent`
 
-## TC-EVENTS-111 — a missing, ineligible-state, or differently assigned event is rejected
+## TC-EVENTS-116 — a missing, ineligible-state, or differently assigned event is rejected
+
+> **Renumbered 2026-10-08 from TC-EVENTS-111, which S-43 had already used on `main`.**
 
 - **Scenario:** The atomic service distinguishes missing state from a stale
   assignment without overwriting either.

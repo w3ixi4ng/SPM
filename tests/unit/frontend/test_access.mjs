@@ -164,7 +164,7 @@ test('only technical support can view its assigned support events', () => {
   }
 })
 
-// --- TC-FRONTEND-081 -----------------------------------------------------
+// --- TC-FRONTEND-092 -----------------------------------------------------
 test('only coordinator leads can view and assign the unassigned queue', () => {
   for (const role of Object.keys(ROLE_ACCESS)) {
     const isLead = role === 'event_coordinator_lead'

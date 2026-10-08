@@ -1,7 +1,7 @@
-"""TC-E2E-226 and 227 (S-75): setup and turnaround times, and Venue Staff's
+"""TC-E2E-228 and 227 (S-75): setup and turnaround times, and Venue Staff's
 compact request list with one page per request.
 
-The counting rules are TC-VENUEBOOKINGS-050 onward and TC-FRONTEND-081
+The counting rules are TC-VENUEBOOKINGS-050 onward and TC-FRONTEND-088
 onward. These prove the venue form, the clash list, the Coordinator's
 warning, the calendar and the request page work together through Kong.
 """
@@ -44,7 +44,7 @@ def world(admin, make_user):
     return coordinator, staff, organiser, venue, event_a, event_b
 
 
-# --- TC-E2E-226 -----------------------------------------------------------
+# --- TC-E2E-228 -----------------------------------------------------------
 def test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned(admin, page, make_user, sign_in):
     coordinator, staff, _, venue, event_a, event_b = world(admin, make_user)
 

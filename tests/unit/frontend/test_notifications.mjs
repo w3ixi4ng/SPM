@@ -7,7 +7,7 @@ import {
   notificationErrorMessage,
 } from '../../../frontend/src/lib/notifications.js'
 
-// --- TC-FRONTEND-083 -----------------------------------------------------
+// --- TC-FRONTEND-094 -----------------------------------------------------
 test('notifications load through Kong using the authenticated session', async () => {
   const originalFetch = globalThis.fetch
   let recorded
@@ -40,7 +40,7 @@ test('notification failures map to safe messages', () => {
   )
 })
 
-// --- TC-FRONTEND-084 -----------------------------------------------------
+// --- TC-FRONTEND-095 -----------------------------------------------------
 test('organiser and coordinator dashboards render the persistent inbox states', () => {
   const panel = readFileSync(
     new URL('../../../frontend/src/components/NotificationPanel.jsx', import.meta.url),

@@ -690,10 +690,15 @@ Confirmed by the developer on 2026-10-05.
 ## S-75 — configure venue setup and turnaround time
 
 Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** TC-FRONTEND-081–084 and TC-E2E-226 were
+> already in use (S-43 on `main`, S-83 on `sprint3`). S-75's cases with
+> those numbers are now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep
+> theirs.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 **Blocked** until the S-75 SQL has been run in the test project.
 
-## TC-E2E-226 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
+## TC-E2E-228 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
 
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
@@ -716,7 +721,7 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 ## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
 
 - **Scenario:** The list stays short; the work happens on the request's page.
-- **Pre-conditions:** As TC-E2E-226, plus a pending request P.
+- **Pre-conditions:** As TC-E2E-228, plus a pending request P.
 - **Steps:**
   1. Staff open their dashboard.
   2. Click P's row; reload the page.
@@ -737,7 +742,9 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 10 passed.
 
-## TC-E2E-226 — Lead assigns an unassigned request and both recipients are notified
+## TC-E2E-229 — Lead assigns an unassigned request and both recipients are notified
+
+> **Renumbered 2026-10-08 from TC-E2E-226, which S-43 had already used on `main`.**
 
 - **Scenario:** A real browser proves the S-83 role routing, Kong routes,
   queue UI, assignment controls, coordinator visibility, and persistent
