@@ -194,6 +194,6 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   `setup_minutes=30&turnaround_minutes=45`, then 13:15–14:00 with the same.
 - **Expected:** `409` "…in use until 12:45.", then `201`. Cleanup deletes
   every row.
-- **Actual:** —
-- **Status:** Blocked — the S-75 section of `backend/sql/venues.sql` has not been run in the test project yet.
-- **Evidence:** —
+- **Actual:** 12:30–13:00 was 409 ending "…it is in use until 12:45."; 13:15–14:00 was 201.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_setup_turnaround.py::test_the_setup_turnaround_gap_is_enforced_against_real_rows`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
