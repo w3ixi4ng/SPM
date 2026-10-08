@@ -1,10 +1,12 @@
 name: SAST Scan with Semgrep
 
 on:
+  # main, and each sprint's release branch (sprint3, sprint4, ...): story
+  # branches merge into the sprint branch, which merges into main at the end.
   pull_request:
-    branches: [main]
+    branches: [main, 'sprint*']
   push:
-    branches: [main]
+    branches: [main, 'sprint*']
   workflow_dispatch:
 
 concurrency:
