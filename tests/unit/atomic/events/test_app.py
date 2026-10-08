@@ -1364,7 +1364,7 @@ def test_internal_support_action_preserves_unassigned_requirement(client, db):
     assert values["technical_support_assigned_at"] is None
 
 
-# --- TC-EVENTS-101 --------------------------------------------------------
+# --- TC-EVENTS-113 (was TC-EVENTS-101) -----------------------------------
 def test_internal_support_action_requires_current_planning_assignment(client, db):
     _support_target_select(db).execute.return_value = SimpleNamespace(data=[])
 

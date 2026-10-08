@@ -1396,7 +1396,9 @@ staff member.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_support_action_preserves_unassigned_requirement`
 
-## TC-EVENTS-101 — stale or failed support writes never report success
+## TC-EVENTS-113 — stale or failed support writes never report success
+
+> **Renumbered 2026-10-08 from TC-EVENTS-101, which the integration suite had used first (TC-EVENTS-101, draft-to-submission round trip).**
 
 - **Scenario:** The target must still be the same Coordinator's planning event
   when the atomic write happens.
@@ -1528,7 +1530,9 @@ Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
 confirmed by the developer on 2026-10-08. Executed on the confirmed branch in
 the full unit run on 2026-10-08.
 
-## TC-EVENTS-108 — internal creation permits an unassigned submitted request
+## TC-EVENTS-112 — internal creation permits an unassigned submitted request
+
+> **Renumbered 2026-10-08 from TC-EVENTS-108, which S-44 had already used for an integration case.**
 
 - **Scenario:** The events service persists the new S-83 initial state.
 - **Pre-conditions:** The fake insert returns the submitted event.
