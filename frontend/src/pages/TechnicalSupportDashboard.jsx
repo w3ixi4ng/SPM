@@ -1,10 +1,11 @@
-import { Archive, CalendarSearch, CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
+import { Archive, CalendarCheck, CalendarSearch, CheckCircle2, LogOut, Package, PackagePlus, Pencil, Plus, Wrench } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
-import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
+import { listEquipmentRequirements } from '../lib/equipmentRequirements.js'
+import { eventStatusMeta } from '../lib/eventRequests.js'
 import {
   canRetireEquipment,
   equipmentErrorMessage,
@@ -13,6 +14,11 @@ import {
   listEquipment,
   retireEquipment,
 } from '../lib/equipment.js'
+import {
+  assignedEventWork,
+  listTechnicalSupportEvents,
+  technicalSupportWorkErrorMessage,
+} from '../lib/technicalSupportAssignments.js'
 
 const C = {
   ink: '#10192B',
@@ -44,6 +50,7 @@ export default function TechnicalSupportDashboard({ role }) {
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
   const [catalogue, setCatalogue] = useState({ status: 'loading', items: [], error: null })
+  const [assignments, setAssignments] = useState({ status: 'loading', events: [], error: null })
   const [notice, setNotice] = useState(location.state?.notice ?? null)
   const [retirement, setRetirement] = useState({ itemId: null, error: null })
 
@@ -61,9 +68,39 @@ export default function TechnicalSupportDashboard({ role }) {
   // oxlint-disable-next-line react/set-state-in-effect
   useEffect(() => { void loadCatalogue() }, [loadCatalogue])
 
+  const loadAssignments = useCallback(async () => {
+    try {
+      const [events, requirements] = await Promise.all([
+        listTechnicalSupportEvents(),
+        listEquipmentRequirements(),
+      ])
+      setAssignments({
+        status: 'ready',
+        events: assignedEventWork(events, requirements),
+        error: null,
+      })
+    } catch (error) {
+      setAssignments({
+        status: 'error',
+        events: [],
+        error: technicalSupportWorkErrorMessage(error),
+      })
+    }
+  }, [])
+
+  // The event and requirement reads are one dashboard view. A failure must
+  // stay a failure rather than looking like an empty assignment list.
+  // oxlint-disable-next-line react/set-state-in-effect
+  useEffect(() => { void loadAssignments() }, [loadAssignments])
+
   function retryCatalogue() {
     setCatalogue((current) => ({ ...current, status: 'loading', error: null }))
     void loadCatalogue()
+  }
+
+  function retryAssignments() {
+    setAssignments((current) => ({ ...current, status: 'loading', error: null }))
+    void loadAssignments()
   }
 
   useEffect(() => {
@@ -231,15 +268,74 @@ export default function TechnicalSupportDashboard({ role }) {
           )}
         </section>
 
-        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl mb-10" style={{ borderColor: C.line }} aria-labelledby="requirements-heading">
+        <section className="border rounded-sm p-7 sm:p-8 max-w-3xl mb-10" style={{ borderColor: C.line }} aria-labelledby="assigned-events-heading">
           <div className="flex items-center gap-2 mb-3">
-            <Package size={18} aria-hidden="true" style={{ color: C.teal }} />
-            <h2 id="requirements-heading" className="font-display text-2xl" style={{ color: C.ink }}>Event equipment requirements</h2>
+            <CalendarCheck size={18} aria-hidden="true" style={{ color: C.teal }} />
+            <h2 id="assigned-events-heading" className="font-display text-2xl" style={{ color: C.ink }}>Assigned events</h2>
           </div>
           <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
-            Requirements recorded by Event Coordinators for upcoming events.
+            Active events assigned to you and the equipment you are responsible for preparing.
           </p>
-          <EquipmentRequirementsPanel />
+          {assignments.status === 'loading' && (
+            <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading assigned events…</p>
+          )}
+          {assignments.status === 'error' && (
+            <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
+              <p role="alert">{assignments.error}</p>
+              <button type="button" onClick={retryAssignments} className="underline mt-1" style={{ color: C.teal }}>Try again</button>
+            </div>
+          )}
+          {assignments.status === 'ready' && assignments.events.length === 0 && (
+            <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No active events are assigned to you.</p>
+          )}
+          {assignments.status === 'ready' && assignments.events.length > 0 && (
+            <ul className="space-y-4" aria-label="Assigned events">
+              {assignments.events.map((event) => {
+                const statusMeta = eventStatusMeta(event.status)
+                return (
+                  <li key={event.id} className="border rounded-sm p-5" style={{ borderColor: C.line }}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{event.name}</h3>
+                        <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>
+                          {event.start_date} · {event.start_time?.slice(0, 5)}–{event.end_time?.slice(0, 5)}
+                        </p>
+                      </div>
+                      <span
+                        className="font-ui text-xs font-medium px-2.5 py-1 rounded-sm"
+                        style={{ color: statusMeta.color, backgroundColor: `${statusMeta.color}1F` }}
+                      >
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                    {event.technical_support_details && (
+                      <p className="font-ui text-sm mt-4" style={{ color: C.ink }}>
+                        <span style={{ color: C.inkFaint }}>Support notes: </span>
+                        {event.technical_support_details}
+                      </p>
+                    )}
+                    <div className="mt-4">
+                      <p className="font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>
+                        Required equipment
+                      </p>
+                      {event.equipment_requirements.length === 0 ? (
+                        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No equipment requirements recorded.</p>
+                      ) : (
+                        <ul className="divide-y" style={{ borderColor: C.line }} aria-label={`${event.name} equipment requirements`}>
+                          {event.equipment_requirements.map((requirement) => (
+                            <li key={requirement.id} className="py-2 first:pt-0 last:pb-0 flex justify-between gap-4 font-ui text-sm">
+                              <span style={{ color: C.ink }}>{requirement.equipment.type}</span>
+                              <span style={{ color: C.inkFaint }}>×{requirement.required_quantity}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </section>
 
         <section className="border rounded-sm p-7 sm:p-8 max-w-3xl" style={{ borderColor: C.line }}>

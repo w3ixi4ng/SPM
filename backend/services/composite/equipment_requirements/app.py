@@ -91,6 +91,37 @@ async def _assigned_event(
     return response.json()
 
 
+async def _support_assigned_event(
+    event_id: UUID,
+    request: Request,
+    events: httpx.AsyncClient,
+) -> dict:
+    response = await _call(
+        "Events",
+        events.get(
+            f"/events/support-assigned/{event_id}", cookies=request.cookies
+        ),
+    )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="Event not found or not assigned to you")
+    if response.status_code != 200:
+        raise _unavailable("Events")
+    return response.json()
+
+
+async def _support_assigned_events(
+    request: Request,
+    events: httpx.AsyncClient,
+) -> list[dict]:
+    response = await _call(
+        "Events",
+        events.get("/events/support-assigned", cookies=request.cookies),
+    )
+    if response.status_code != 200:
+        raise _unavailable("Events")
+    return response.json()
+
+
 def _require_planning(event: dict) -> None:
     if event.get("status") != "planning":
         raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
@@ -235,8 +266,16 @@ async def list_requirements(
         if event_id is None:
             raise HTTPException(status_code=422, detail="event_id is required for a Coordinator")
         await _assigned_event(event_id, request, events)
+        params = {"event_id": str(event_id)}
+    elif event_id is not None:
+        await _support_assigned_event(event_id, request, events)
+        params = {"event_id": str(event_id)}
+    else:
+        assigned = await _support_assigned_events(request, events)
+        if not assigned:
+            return []
+        params = [("event_ids", row["id"]) for row in assigned]
 
-    params = {"event_id": str(event_id)} if event_id is not None else None
     return await _equipment_response(
         equipment.get(INTERNAL_PATH, params=params),
     )

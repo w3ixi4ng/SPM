@@ -17,6 +17,8 @@ queries another service's tables.
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
+| `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning` and `confirmed` events. |
+| `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -40,20 +42,26 @@ All event endpoints except health authenticate the `sb_access_token` and
 trusted `app_metadata.role` against the permission shown above.
 
 The centralized policy recognizes every project role. All may view their own
-frontend dashboard; Event Organiser and Event Coordinator workflows are
-currently defined:
+frontend dashboard. Event Organiser, Event Coordinator, Venue Staff, and
+Technical Support workflows have the following event permissions:
 
 | Role | Permissions |
 | --- | --- |
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own` |
 | `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
-| `technical_support` | `dashboard:view` |
+| `technical_support` | `dashboard:view`, `events:view_support_assigned` |
 | `attendee` | `dashboard:view` |
 
 `events:view_assigned` is read-only. `events:decide` (S-14) is the one write
 a coordinator can make: approve, reject, or return a request assigned to
 them — never edit its fields directly.
+
+`events:view_support_assigned` is also read-only. Both Technical Support
+routes derive the staff id from the verified session, never a query or path
+parameter. They include only live assignments (`planning` and `confirmed`).
+An event assigned to another staff member, or an inactive assignment, returns
+`404` from the item route so it cannot be distinguished from a missing event.
 
 The remaining internal and attendee roles intentionally receive no
 speculative event permissions. Their permissions can expand when a
@@ -202,6 +210,10 @@ null until the assigned coordinator decides (S-14) — see
 
 `GET /events` returns an array containing only rows whose `organiser_id`
 matches the verified user. An organiser with no requests receives `[]`.
+
+`GET /events/support-assigned` returns only `planning` and `confirmed` rows
+whose `assigned_technical_support_id` matches the verified Technical Support
+user, most recently updated first. No assigned active events returns `[]`.
 
 `GET /health` returns:
 

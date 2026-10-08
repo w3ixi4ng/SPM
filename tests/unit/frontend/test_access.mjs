@@ -150,3 +150,13 @@ test('only coordinators can request technical support assignment', () => {
     )
   }
 })
+
+test('only technical support can view its assigned support events', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    assert.equal(
+      hasPermission(role, PERMISSIONS.VIEW_SUPPORT_ASSIGNED_EVENTS),
+      role === 'technical_support',
+      role,
+    )
+  }
+})

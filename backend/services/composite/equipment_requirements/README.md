@@ -1,16 +1,16 @@
 # Equipment requirements service
 
-Composite service for S-40. It verifies the signed-in user with `users`, asks
-`events` whether that Coordinator is currently assigned and the event is in
-`planning`, then stores requirements through the `equipment` atomic service.
-It owns no database.
+Composite service for S-40 and the S-43 Technical Support visibility flow. It
+verifies the signed-in user with `users`, asks `events` for the caller's
+current assignment, then reads or stores requirements through the `equipment`
+atomic service. It owns no database.
 
 ## Endpoints
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | Public | Process health check. |
-| `GET` | `/equipment-requirements?event_id=<uuid>` | Coordinator, Technical Support | List requirements. Coordinators must supply an assigned event; Technical Support may omit it to list all. |
+| `GET` | `/equipment-requirements?event_id=<uuid>` | Coordinator, Technical Support | List requirements. Coordinators must supply their assigned planning event. Technical Support may supply one of their active assigned events, or omit it to list requirements across all of their active assigned events. |
 | `PUT` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Create or replace a quantity while the currently assigned event is in planning. |
 | `DELETE` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Remove a requirement while the currently assigned event is in planning. |
 | `GET` | `/equipment-requirements/availability` | Technical Support | S-44: how many of each active item are free for a window. See [Availability check](#availability-check-s-44). |
@@ -26,6 +26,13 @@ It owns no database.
 The service derives `recorded_by_coordinator_id` from the verified session.
 That field is audit information only: every authorization decision asks the
 events service for the event's current assignment.
+
+For Technical Support, the service never trusts a staff id from the browser.
+It obtains the authenticated user's `planning` and `confirmed` assignments
+from `/events/support-assigned`, then passes only those event ids to the
+equipment service. If there are no active assignments it returns `[]` without
+requesting the global requirements collection. Supplying an event assigned to
+someone else, or an inactive event, returns `404`.
 
 ## Response
 
@@ -51,6 +58,7 @@ Successful writes and reads return an equipment requirement:
 }
 ```
 
+`GET` returns `200` with an array; no matching requirements returns `[]`.
 `DELETE` returns `204`. Errors use `401` for no session, `403` for the wrong
 role, `404` for a missing/unassigned event or item, `409` outside planning,
 `422` for invalid input, and `502` when a dependency is unavailable.
@@ -141,4 +149,3 @@ Tests: `pytest tests/unit/composite/equipment_requirements`, then on a
 freshly recreated `.env.test` stack
 `pytest tests/integration/composite/equipment_requirements tests/integration/atomic/events`
 and `pytest tests/e2e/test_check_equipment_availability.py`.
-

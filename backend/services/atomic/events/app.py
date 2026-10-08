@@ -139,6 +139,21 @@ def _get_assigned_event(event_id: UUID, coordinator_id: str, db: Client):
     return result.data[0]
 
 
+def _get_support_assigned_event(event_id: UUID, staff_id: str, db: Client):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("id", str(event_id))
+        .eq("assigned_technical_support_id", staff_id)
+        .in_("status", ["planning", "confirmed"])
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
+
+
 def _decided_now() -> str:
     """The decision timestamp -- same reasoning as _submitted_now: set by
     the service so a client cannot backdate its own decision.
@@ -231,6 +246,34 @@ def get_assigned_event(
     db: Client = Depends(get_db),
 ):
     return _get_assigned_event(event_id, str(user.id), db)
+
+
+# Registered before /events/{event_id}, as for the Coordinator assignment
+# routes above. Technical Support sees only active work currently assigned to
+# its verified user id; historical cancelled/completed assignments stay hidden.
+@app.get("/events/support-assigned", response_model=list[EventRead])
+def list_support_assigned_events(
+    user=Depends(require_permission("events:view_support_assigned")),
+    db: Client = Depends(get_db),
+):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("assigned_technical_support_id", str(user.id))
+        .in_("status", ["planning", "confirmed"])
+        .order("updated_at", desc=True)
+    )
+    return _execute(operation).data
+
+
+@app.get("/events/support-assigned/{event_id}", response_model=EventRead)
+def get_support_assigned_event(
+    event_id: UUID,
+    user=Depends(require_permission("events:view_support_assigned")),
+    db: Client = Depends(get_db),
+):
+    return _get_support_assigned_event(event_id, str(user.id), db)
 
 
 @app.get("/events/booking-status/{event_id}")

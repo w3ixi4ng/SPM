@@ -22,8 +22,25 @@ and redirect obvious unauthorized navigation, but this is not a security
 boundary: services must enforce the same permissions against the verified
 Supabase session.
 
-Only Event Organiser workflows are currently defined. Other roles receive a
-dashboard without operational controls rather than speculative functionality.
+Each dashboard exposes only the workflows already defined for its trusted
+role. Route guards are a presentation convenience; the services independently
+enforce every read and write against the verified session.
+
+## Technical Support assignments (S-43)
+
+The Technical Support dashboard keeps the Equipment Catalogue global: every
+Technical Support staff member can view and manage the shared catalogue. Its
+separate **Assigned events** section calls `GET /api/events/support-assigned`
+and `GET /api/equipment-requirements`, then groups each requirement under its
+event.
+
+Only `planning` and `confirmed` events assigned to the signed-in staff member
+are returned. Each card shows the event name, schedule, status, support notes,
+and only that event's required equipment and quantities. Cancelled or otherwise
+inactive events, another staff member's events, and their requirements are not
+rendered. An empty assignment list is shown distinctly from a load failure.
+The backend applies the same assignment filter; the frontend filter is only a
+defensive presentation check.
 
 ## Event requests
 

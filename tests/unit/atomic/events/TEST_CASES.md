@@ -1459,3 +1459,63 @@ is full).
 - **Actual:** Equal end, earlier end date and missing end_time each returned `422` without querying storage.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_an_invalid_window_is_refused`
+
+---
+
+## S-43 — assigned-event visibility for Technical Support
+
+Story: S-43 Auto-Assign Technical Support.
+Specification updated by the developer on 2026-10-05. Active means
+`planning` or `confirmed`; inactive assignments are not shown.
+
+## TC-EVENTS-109 — Technical Support lists only their active assigned events
+
+- **Scenario:** A Technical Support staff member sees the active events they
+  personally support and no other staff member's assignments.
+- **Pre-conditions:** The authenticated user is Technical Support A. Storage
+  contains A's planning event, A's confirmed event, A's cancelled event, B's
+  planning event, and an unassigned planning event.
+- **Steps:** `GET /events/support-assigned`.
+- **Test data:** Staff A and B UUIDs; the five events above with distinct
+  names and update times.
+- **Expected:** `200`; only A's planning and confirmed events are returned,
+  newest update first. The storage query filters
+  `assigned_technical_support_id=A` and status in `planning,confirmed`.
+- **Actual:** The list returned only A's planning and confirmed fixtures in
+  service order, and the mocked Supabase chain received both ownership and
+  active-status predicates before sorting by `updated_at` descending.
+- **Status:** Pass
+- **Evidence:** `test_support_assignments.py::test_technical_support_lists_only_its_active_assigned_events`
+
+## TC-EVENTS-110 — one support assignment cannot be read by another staff member
+
+- **Scenario:** Assignment visibility is enforced by the events service, not
+  by hiding a dashboard row.
+- **Pre-conditions:** Event A is active and assigned to Technical Support A;
+  Event B is active and assigned to B; Event C is cancelled and still stores
+  A's historical assignment.
+- **Steps:** As A, request each event at
+  `GET /events/support-assigned/{event_id}`.
+- **Test data:** Event A, B, and C UUIDs.
+- **Expected:** Event A returns `200` with its event details. Event B and
+  inactive Event C each return `404` without revealing their details.
+- **Actual:** A's active assignment returned `200`; the assignment/status
+  filtered empty result used for another worker, a cancelled assignment, and
+  a missing event returned the same `404` response.
+- **Status:** Pass
+- **Evidence:** `test_support_assignments.py::test_support_worker_reads_one_active_event_assigned_to_them`; `test_support_assignments.py::test_support_worker_cannot_read_unassigned_or_inactive_event`
+
+## TC-EVENTS-111 — support-assignment routes require the trusted role
+
+- **Scenario:** An assignment UUID alone never grants event visibility.
+- **Pre-conditions:** The target is an active event assigned to Technical
+  Support A.
+- **Steps:** Call both support-assignment routes as Coordinator, Organiser,
+  Venue Staff, Attendee, an unknown role, and with no session.
+- **Test data:** All listed roles and Event A's UUID.
+- **Expected:** Every authenticated non-Technical-Support role receives `403`;
+  no session receives `401`; storage is not queried after a role failure.
+- **Actual:** Both routes returned `403` for every listed non-support role and
+  `401` without a session; no rejected request reached the database mock.
+- **Status:** Pass
+- **Evidence:** `test_support_assignments.py::test_support_assignment_routes_reject_other_roles`; `test_support_assignments.py::test_support_assignment_routes_require_a_session`

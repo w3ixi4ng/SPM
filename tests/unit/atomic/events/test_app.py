@@ -294,10 +294,13 @@ def test_event_organiser_has_the_sprint_one_permissions():
 
 
 # --- TC-EVENTS-028 --------------------------------------------------------
-def test_other_known_roles_only_have_dashboard_permission():
+def test_other_known_roles_have_only_their_read_permissions():
     assert ROLE_PERMISSIONS["venue_staff"] == {"dashboard:view", "events:view_booking_status"}
-    for role in ("technical_support", "attendee"):
-        assert ROLE_PERMISSIONS[role] == {"dashboard:view"}
+    assert ROLE_PERMISSIONS["technical_support"] == {
+        "dashboard:view",
+        "events:view_support_assigned",
+    }
+    assert ROLE_PERMISSIONS["attendee"] == {"dashboard:view"}
 
 
 def test_venue_staff_can_read_only_an_events_booking_status(client, db, auth):
