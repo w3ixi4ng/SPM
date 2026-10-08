@@ -295,7 +295,8 @@ function VenueFormFields({ id }) {
         }
 
         .csp-input {
-          border: 1px solid ${C.line};
+          /* inkFaint, not line: a form control's edge needs 3:1 contrast. */
+          border: 1px solid ${C.inkFaint};
           background: ${C.paper};
           color: ${C.ink};
           transition: border-color 0.2s;
@@ -397,7 +398,7 @@ function VenueFormFields({ id }) {
               title="Setup & turnaround"
               hint="Minutes needed to prepare the venue before each event and to reset it afterwards. Bookings can't use this time, and it must fit inside opening hours. Use 0 for none."
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 items-end max-w-xl">
                 <TextField
                   id="setup_minutes"
                   label="Setup time (minutes)"
