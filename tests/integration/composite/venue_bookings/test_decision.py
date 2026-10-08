@@ -6,6 +6,15 @@ from .conftest import GATEWAY_BASE_URL, cookie_for, requires_env, _make_user
 pytestmark = requires_env
 
 
+# S-75 adds a live clash warning to listed rows (and, on held/confirmed rows,
+# the venue's setup and turnaround). These compare the booking itself.
+S75_FIELDS = {"clashes", "setup_minutes", "turnaround_minutes"}
+
+
+def booking_only(row):
+    return {key: value for key, value in row.items() if key not in S75_FIELDS}
+
+
 @pytest.fixture
 def other_coordinators(admin):
     created = []
@@ -40,7 +49,7 @@ def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_cl
         assert result.status_code == 200, result.text
         saved.append(result.json())
     listed = httpx.get(f'{GATEWAY_BASE_URL}/venue-bookings', headers=coordinator, params={'event_id': event_id}, timeout=20)
-    assert listed.status_code == 200 and listed.json() == saved
+    assert listed.status_code == 200 and [booking_only(row) for row in listed.json()] == saved
     assert [r['status'] for r in saved] == ['confirmed', 'rejected']
     assert saved[1]['decision_reason'] == 'Room needs repairs'
     assert saved[1]['decision_alternative'] == 'Try Studio C on Friday'
@@ -59,4 +68,4 @@ def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_cl
                              params={'event_id': event_id}, timeout=20)
         assert response.status_code == code
         if code == 200:
-            assert response.json() == saved
+            assert [booking_only(row) for row in response.json()] == saved

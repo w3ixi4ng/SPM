@@ -279,3 +279,15 @@ def test_the_fixed_paths_are_not_read_as_ids(client, studio_b):
 
     assert client.get("/venue-bookings/pending").status_code == 200
     assert client.get("/venue-bookings/clashes", params={"venue_id": VENUE_ID}).status_code == 200
+
+
+def test_a_rejection_never_depends_on_reading_the_venue(client, studio_b):
+    studio_b.user = me("venue_staff")
+    studio_b.venue = fake_response(404, {"detail": "Venue not found"})
+    studio_b.bookings.post = AsyncMock(return_value=fake_response(200, {**B, "status": "rejected"}))
+
+    response = client.post(f"/venue-bookings/{B['id']}/decision", json={"decision": "rejected", "reason": "Repairs"})
+
+    assert response.status_code == 200, response.text
+    studio_b.venues.get.assert_not_called()
+

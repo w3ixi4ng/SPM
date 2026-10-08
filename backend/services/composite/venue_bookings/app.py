@@ -399,7 +399,12 @@ async def decide_venue_booking(
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     await _authenticate(request, users, VENUE_STAFF_ROLE)
-    gap = await _venue_gap(booking_id, venues, bookings, request.cookies)
+    # Only a confirmation reserves time, so only it needs the venue's setup
+    # and turnaround; a rejection never depends on reading the venue.
+    gap = (
+        await _venue_gap(booking_id, venues, bookings, request.cookies)
+        if payload.decision == "approved" else {"setup_minutes": 0, "turnaround_minutes": 0}
+    )
     response = await _call("Bookings", bookings.post(
         f"/bookings/{booking_id}/decision",
         json=payload.model_dump(mode="json"), params=gap, cookies=request.cookies,

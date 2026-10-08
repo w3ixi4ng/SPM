@@ -21,7 +21,11 @@ def test_staff_decision_forwarded_with_credentials(client, services, decision):
     services.bookings.post.assert_awaited_once_with(f'/bookings/{BOOKING_ID}/decision',
         json={**payload, 'reason': 'Repairs'}, params={'setup_minutes': 0, 'turnaround_minutes': 0}, cookies={'sb_access_token': 'token'})
     services.events.get.assert_not_called()
-    assert services.venues.get.await_args.args[0] == f'/venues/{VENUE_ID}'
+    # Only an approval reserves time, so only it reads the venue's times.
+    if decision == 'approved':
+        assert services.venues.get.await_args.args[0] == f'/venues/{VENUE_ID}'
+    else:
+        services.venues.get.assert_not_called()
 
 
 @pytest.mark.parametrize('role', ['event_coordinator', 'event_organiser', 'technical_support', 'attendee'])
