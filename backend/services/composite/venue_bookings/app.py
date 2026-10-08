@@ -206,16 +206,27 @@ async def _with_clashes(rows: list[dict], venues, bookings, cookies) -> list[dic
     for row in checked:
         venue_id, day = str(row["venue_id"]), str(row["booking_date"])
         if venue_id not in venues_by_id:
-            venues_by_id[venue_id] = await _fetch("Venues", venues, f"/venues/{venue_id}", cookies, "Venue not found")
-        if (venue_id, day) not in days:
+            try:
+                venues_by_id[venue_id] = await _fetch(
+                    "Venues", venues, f"/venues/{venue_id}", cookies, "Venue not found"
+                )
+            except HTTPException as exc:
+                # A request whose venue no longer exists is still listed, just
+                # without a warning -- one bad row must not hide the others.
+                # Any other failure still fails the list rather than hide a clash.
+                if exc.status_code != status.HTTP_404_NOT_FOUND:
+                    raise
+                logger.warning("Booking %s refers to missing venue %s", row["id"], venue_id)
+                venues_by_id[venue_id] = None
+        if venues_by_id[venue_id] is not None and (venue_id, day) not in days:
             days[(venue_id, day)] = await _list(bookings, "/bookings", {"venue_id": venue_id, "from": day, "to": day})
 
     result = []
     for row in rows:
-        if row not in checked:
+        venue = venues_by_id.get(str(row.get("venue_id")))
+        if row not in checked or venue is None:
             result.append({**row, "clashes": []})
             continue
-        venue = venues_by_id[str(row["venue_id"])]
         same_day = days[(str(row["venue_id"]), str(row["booking_date"]))]
         result.append({
             **row,
