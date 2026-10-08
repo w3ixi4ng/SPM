@@ -5,8 +5,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
-`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py` and
-`test_venue_availability.py`.
+`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
+`test_venue_availability.py` and `test_assign_event_request.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -15,9 +15,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
+| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 17 passed |
+| Result | Targeted S-83 journey: 1 passed; full suite previously 17 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -764,7 +764,10 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   and coordinator each see their persistent in-app notification before and
   after reload; the unrelated user sees neither. No email/external action is
   performed.
-- **Actual:** Cannot run until the developer applies and exposes the required
-  dev/test Supabase schemas and the S-83 implementation exists.
-- **Status:** Blocked
-- **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified`
+- **Actual:** The organiser submitted the request, the Lead assigned it from
+  the queue, and the card disappeared. The coordinator saw the assigned event
+  and both recipients saw their own in-app notification before and after
+  reload; the unrelated user saw neither.
+- **Status:** Pass
+- **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified[chromium]`;
+  local Chromium run against the freshly rebuilt `.env.test` stack: 1 passed.
