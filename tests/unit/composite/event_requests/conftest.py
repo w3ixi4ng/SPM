@@ -24,6 +24,7 @@ SERVICE = (
 
 os.environ.setdefault("USERS_SERVICE_URL", "http://users:8001")
 os.environ.setdefault("EVENTS_SERVICE_URL", "http://events:8002")
+os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
 
 # Services use flat imports because each Docker image runs from its own
 # folder. Load this service while preserving any same-named modules another
@@ -48,7 +49,7 @@ finally:
 app = app_module.app
 get_users_client = clients_module.get_users_client
 get_events_client = clients_module.get_events_client
-random_module = app_module.random  # for monkeypatching random.choice in tie-break tests
+get_notifications_client = clients_module.get_notifications_client
 
 ORGANISER_ID = "11111111-1111-4111-8111-111111111111"
 COORDINATOR_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -115,12 +116,12 @@ def event_response(status_code=201, **overrides):
 
 
 def users_get_side_effect(coordinators=None, role="event_organiser", coordinators_status=200):
-    """A `.get(path, **kwargs)` side_effect covering /users/me and /users/coordinators."""
+    """A `.get(path, **kwargs)` side effect for Auth and Coordinator lookup."""
 
     async def _get(path, **kwargs):
         if path == "/users/me":
             return organiser_me_response(role=role)
-        if path == "/users/coordinators":
+        if path == "/internal/users/coordinators":
             if coordinators_status != 200:
                 return fake_response(coordinators_status, None)
             return coordinators_response(coordinators or [])
@@ -133,7 +134,7 @@ def users_get_raises_on_coordinators(exc):
     async def _get(path, **kwargs):
         if path == "/users/me":
             return organiser_me_response()
-        if path == "/users/coordinators":
+        if path == "/internal/users/coordinators":
             raise exc
         raise AssertionError(f"unexpected users.get({path!r})")
 
@@ -233,9 +234,15 @@ def events():
 
 
 @pytest.fixture
-def client(users, events):
+def notifications():
+    return MagicMock(post=AsyncMock())
+
+
+@pytest.fixture
+def client(users, events, notifications):
     app.dependency_overrides[get_users_client] = lambda: users
     app.dependency_overrides[get_events_client] = lambda: events
+    app.dependency_overrides[get_notifications_client] = lambda: notifications
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

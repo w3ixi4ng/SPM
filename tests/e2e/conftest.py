@@ -128,6 +128,9 @@ def make_user(admin):
         admin.schema("equipment").table("equipment").delete().eq(
             "created_by", user_id
         ).execute()
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user_id
+        ).execute()
         # users.users cascades from auth.users, so the profile goes with this.
         admin.auth.admin.delete_user(user_id)
 

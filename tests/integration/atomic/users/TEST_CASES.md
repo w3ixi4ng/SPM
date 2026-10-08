@@ -120,13 +120,13 @@ whether the case passes or fails, so the suite can be run twice in a row.
 
 ## TC-USERS-105 — coordinator listing against real Supabase
 
-- **Scenario:** Prove `GET /users/coordinators` against real Auth app metadata
+- **Scenario:** Prove `GET /internal/users/coordinators` against real Auth app metadata
   and the real `users.users` table, not the unit tests' fake.
 - **Pre-conditions:** `.env.test` targets the throwaway project; `users.sql` is
   applied and `users` exposed; the users service is running on port 8001. Two
   temporary Auth users are created: one with trusted role `event_coordinator`,
   one with trusted role `event_organiser`, each with a matching profile row.
-- **Steps:** 1. `GET /users/coordinators`. 2. Delete both Auth users and
+- **Steps:** 1. `GET /internal/users/coordinators`. 2. Delete both Auth users and
   profile rows.
 - **Test data:** Two `spm-users-<hex>@example.com` accounts.
 - **Expected:** `200`; response includes the coordinator account's id, name,

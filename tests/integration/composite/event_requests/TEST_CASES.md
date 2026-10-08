@@ -194,3 +194,46 @@ Verified runnable twice in a row.
   the staff id and parsed assignment instant unchanged.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_support_assignment_is_persisted_visible_and_idempotent`
+
+---
+
+## S-83 — Lead assignment journey
+
+Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
+and notification recipients confirmed by the developer on 2026-10-08.
+
+TC-EVENTREQUESTS-101 through TC-EVENTREQUESTS-104 specify the superseded
+automatic-assignment rule from S-12. They are retained as historical IDs but
+must no longer execute after S-83 replaces that workflow.
+
+## TC-EVENTREQUESTS-108 — submission, Lead assignment, and both notifications cross real boundaries
+
+- **Scenario:** Prove the complete S-83 workflow across Kong, trusted Auth
+  roles, users, events, notifications, the composite, and real Supabase rows.
+- **Pre-conditions:** Fresh `.env.test` stack; `users`, `events`, and
+  `notifications` schemas applied, granted, and exposed; temporary organiser,
+  Lead, coordinator A, and coordinator B exist. Coordinator A has an
+  overlapping event to prove conflicts do not block manual choice.
+- **Steps:** 1. Sign in as organiser and submit `Autumn Forum` through Kong.
+  2. Verify it has no coordinator. 3. Sign in as Lead and read the queue and
+  coordinator choices. 4. Assign conflicting coordinator A. 5. Read the queue
+  again. 6. Inspect the two persisted recipient rows. 7. Repeat the same
+  assignment with both rows present. 8. Reproduce the split-service failure
+  state on another event by committing only the atomic assignment, then retry
+  through the composite. 9. Delete one recipient row and retry again.
+  10. Attempt assignment to B. 11. Inspect and clean up real rows/users.
+- **Test data:** `Autumn Forum`, `2026-11-18 09:00`–`12:00`, attendance `120`;
+  A's overlapping event `10:00`–`11:00`.
+- **Expected:** Submission returns `201`, `submitted`, coordinator null and
+  appears in the Lead queue with basic event and organiser information. A is
+  offered and can be assigned despite overlap. The event leaves the queue and
+  the queue no longer contains it. A and the organiser each retain one
+  in-app assignment notification. Every
+  retry preserves A, creates any missing notification, and ends with exactly
+  one coordinator row and one organiser row; no duplicate is created when
+  both already exist. Changing the target to B returns `409`. Cleanup succeeds
+  and the case can run twice.
+- **Actual:** Cannot run until the developer applies and exposes the new
+  `notifications` schema in the test project.
+- **Status:** Blocked
+- **Evidence:** `test_app.py::test_lead_assignment_persists_notifications_and_repairs_missing_rows`

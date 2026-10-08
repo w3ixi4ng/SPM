@@ -4,6 +4,7 @@ import ProtectedRoute, { DashboardRedirect } from './components/ProtectedRoute.j
 import { PERMISSIONS, ROLE_ACCESS } from './lib/access.js'
 import Dashboard from './pages/Dashboard.jsx'
 import EventCoordinatorDashboard from './pages/EventCoordinatorDashboard.jsx'
+import EventCoordinatorLeadDashboard from './pages/EventCoordinatorLeadDashboard.jsx'
 import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
 import EquipmentAvailability from './pages/EquipmentAvailability.jsx'
@@ -24,6 +25,7 @@ import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
 const ROLE_DASHBOARDS = {
   event_organiser: Dashboard,
   event_coordinator: EventCoordinatorDashboard,
+  event_coordinator_lead: EventCoordinatorLeadDashboard,
   venue_staff: VenueStaffDashboard,
   technical_support: TechnicalSupportDashboard,
   attendee: Dashboard,

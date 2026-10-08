@@ -13,3 +13,4 @@ Each atomic service owns exactly one entity and its storage. Rules:
 | [`venues/`](venues/README.md) | Venues — capacity, facilities, layouts and hours |
 | [`bookings/`](bookings/README.md) | Venue booking requests |
 | [`equipment/`](equipment/README.md) | Equipment catalogue items and quantities |
+| [`notifications/`](notifications/README.md) | Persistent in-app notifications |

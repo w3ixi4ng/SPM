@@ -651,3 +651,35 @@ Confirmed by the developer on 2026-10-05.
   details after reload.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support[chromium]`; `tests/e2e/test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`; local run on 2026-10-05, branch `S-40/record-required-equipment`, freshly rebuilt `.env.test` stack: 2 passed.
+
+## TC-E2E-226 — Lead assigns an unassigned request and both recipients are notified
+
+- **Scenario:** A real browser proves the S-83 role routing, Kong routes,
+  queue UI, assignment controls, coordinator visibility, and persistent
+  notifications that lower-level suites cannot prove together.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; the new
+  `notifications` schema applied, granted, and exposed; temporary
+  organiser, Event Coordinator Lead, coordinator, and unrelated accounts.
+- **Steps:**
+  1. Sign in as the organiser and submit `Autumn Forum`.
+  2. Reload the organiser dashboard and confirm the request is under review
+     but unassigned.
+  3. Sign out, sign in as the Lead, and open the unassigned queue.
+  4. Inspect the event information, choose the coordinator, and assign.
+  5. Confirm the card leaves the queue.
+  6. Sign in as the coordinator, confirm the event is in their assigned list
+     and the assignment notification is visible, then reload and check again.
+  7. Sign in as the organiser, confirm their assignment notification is
+     visible, then reload and check again.
+  8. Sign in as the unrelated user and confirm neither notification appears.
+- **Test data:** `Autumn Forum`, `2026-11-18 09:00`–`12:00`, attendance `120`;
+  generated test-user addresses.
+- **Expected:** The Lead alone can complete assignment; the selected
+  coordinator receives the event; the queue no longer contains it; organiser
+  and coordinator each see their persistent in-app notification before and
+  after reload; the unrelated user sees neither. No email/external action is
+  performed.
+- **Actual:** Cannot run until the developer applies and exposes the required
+  dev/test Supabase schemas and the S-83 implementation exists.
+- **Status:** Blocked
+- **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified`
