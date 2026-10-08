@@ -291,3 +291,20 @@ def test_a_rejection_never_depends_on_reading_the_venue(client, studio_b):
     assert response.status_code == 200, response.text
     studio_b.venues.get.assert_not_called()
 
+
+def test_a_request_whose_venue_is_missing_is_still_listed(client, studio_b):
+    studio_b.user = me("venue_staff")
+    studio_b.venue = fake_response(404, {"detail": "Venue not found"})
+
+    response = client.get("/venue-bookings/pending")
+
+    assert response.status_code == 200, response.text
+    assert {item["id"]: item["clashes"] for item in response.json()} == {B["id"]: [], D["id"]: []}
+
+
+def test_a_failing_venues_service_still_fails_the_list(client, studio_b):
+    studio_b.user = me("venue_staff")
+    studio_b.venue = fake_response(500, {"detail": "private"})
+
+    assert client.get("/venue-bookings/pending").status_code == 502
+

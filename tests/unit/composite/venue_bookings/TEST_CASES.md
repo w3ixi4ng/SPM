@@ -996,10 +996,14 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 - **Scenario:** Staff see the warning where they act (AC4).
 - **Steps:** `GET /venue-bookings/pending` with B among the held requests.
 - **Expected:** B carries the same `clashes` as TC-VENUEBOOKINGS-053; pending
-  requests carry `clashes: []`.
+  requests carry `clashes: []`. A held request whose venue no longer exists
+  (`404` from venues) is still listed with `clashes: []`, so one bad row never
+  hides the others; a venues failure (`500`/unreachable) is still `502`.
+  (Added 2026-10-08 after leftover test rows with made-up venues emptied the
+  list on dev.)
 - **Actual:** Held B carried its clash; pending D had none.
 - **Status:** Pass
-- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_held_requests_in_the_staff_list_show_their_clashes`
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_held_requests_in_the_staff_list_show_their_clashes`; `…::test_a_request_whose_venue_is_missing_is_still_listed`; `…::test_a_failing_venues_service_still_fails_the_list`
 
 ## TC-VENUEBOOKINGS-056 — the calendar reports the venue's times
 
