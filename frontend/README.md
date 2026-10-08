@@ -7,12 +7,13 @@ service.
 ## Role-aware access
 
 On startup, `AuthProvider` calls `GET /users/me`. The response's trusted `role`
-selects one of five dashboards:
+selects one of six dashboards:
 
 | Role | Dashboard |
 | --- | --- |
 | `event_organiser` | `/dashboard/event-organiser` |
 | `event_coordinator` | `/dashboard/event-coordinator` |
+| `event_coordinator_lead` | `/dashboard/event-coordinator-lead` |
 | `venue_staff` | `/dashboard/venue-staff` |
 | `technical_support` | `/dashboard/technical-support` |
 | `attendee` | `/dashboard/attendee` |
@@ -22,8 +23,7 @@ and redirect obvious unauthorized navigation, but this is not a security
 boundary: services must enforce the same permissions against the verified
 Supabase session.
 
-Only Event Organiser workflows are currently defined. Other roles receive a
-dashboard without operational controls rather than speculative functionality.
+Each dashboard exposes only the controls permitted for that trusted role.
 
 ## Event requests
 
@@ -41,6 +41,19 @@ Each entry links back to `/events/{id}` for editing or read-only viewing.
 mapping. It never sends server-managed identity, ownership, status, or timestamp
 fields. Event requests are not persisted in browser storage and API failures do
 not silently report a save or submission.
+
+## S-83 assignment and notifications
+
+The Event Coordinator Lead dashboard loads the unassigned request queue and
+trusted Event Coordinator list through the `event_requests` composite. The
+Lead explicitly chooses a Coordinator for each request. The UI does not check
+or reject scheduling conflicts because that is not an S-83 business rule.
+
+Event Organiser and Event Coordinator dashboards load persistent in-app
+notifications from `GET /api/notifications`. Assignment creates one
+notification for each party. Retrying an assignment after a notification
+service failure is safe and does not duplicate either message. The product
+does not send assignment email or any external notification.
 
 ## Development
 

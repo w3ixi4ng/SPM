@@ -5,8 +5,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
-`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py` and
-`test_venue_availability.py`.
+`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
+`test_venue_availability.py` and `test_assign_event_request.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -15,9 +15,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
+| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 17 passed |
+| Result | Targeted S-83 journey: 1 passed; full suite previously 17 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -651,3 +651,38 @@ Confirmed by the developer on 2026-10-05.
   details after reload.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support[chromium]`; `tests/e2e/test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`; local run on 2026-10-05, branch `S-40/record-required-equipment`, freshly rebuilt `.env.test` stack: 2 passed.
+
+## TC-E2E-226 — Lead assigns an unassigned request and both recipients are notified
+
+- **Scenario:** A real browser proves the S-83 role routing, Kong routes,
+  queue UI, assignment controls, coordinator visibility, and persistent
+  notifications that lower-level suites cannot prove together.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; the new
+  `notifications` schema applied, granted, and exposed; temporary
+  organiser, Event Coordinator Lead, coordinator, and unrelated accounts.
+- **Steps:**
+  1. Sign in as the organiser and submit `Autumn Forum`.
+  2. Reload the organiser dashboard and confirm the request is under review
+     but unassigned.
+  3. Sign out, sign in as the Lead, and open the unassigned queue.
+  4. Inspect the event information, choose the coordinator, and assign.
+  5. Confirm the card leaves the queue.
+  6. Sign in as the coordinator, confirm the event is in their assigned list
+     and the assignment notification is visible, then reload and check again.
+  7. Sign in as the organiser, confirm their assignment notification is
+     visible, then reload and check again.
+  8. Sign in as the unrelated user and confirm neither notification appears.
+- **Test data:** `Autumn Forum`, `2026-11-18 09:00`–`12:00`, attendance `120`;
+  generated test-user addresses.
+- **Expected:** The Lead alone can complete assignment; the selected
+  coordinator receives the event; the queue no longer contains it; organiser
+  and coordinator each see their persistent in-app notification before and
+  after reload; the unrelated user sees neither. No email/external action is
+  performed.
+- **Actual:** The organiser submitted the request, the Lead assigned it from
+  the queue, and the card disappeared. The coordinator saw the assigned event
+  and both recipients saw their own in-app notification before and after
+  reload; the unrelated user saw neither.
+- **Status:** Pass
+- **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified[chromium]`;
+  local Chromium run against the freshly rebuilt `.env.test` stack: 1 passed.

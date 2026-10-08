@@ -54,11 +54,21 @@ services:
           - /api/equipment
         strip_path: true
 
+  - name: notifications
+    # Only the authenticated inbox is browser-facing. Internal batch creation
+    # lives at /internal/notifications and does not match this route.
+    url: http://notifications:8006/notifications
+    routes:
+      - name: notifications
+        paths:
+          - /api/notifications
+        strip_path: true
+
   - name: event-requests
     # Same pattern as events: keep /event-requests on the upstream URL so
     # /api/event-requests/{id}/submit reaches /event-requests/{id}/submit.
-    # Fronts submission and editing (both need a coordinator recheck);
-    # draft create/read/list stay on /api/events, which never needs one.
+    # Fronts submission, editing, the Lead's unassigned queue, and explicit
+    # assignment; draft create/read/list stay on /api/events.
     url: http://event_requests:8100/event-requests
     routes:
       - name: event-requests

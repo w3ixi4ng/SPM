@@ -21,7 +21,6 @@ from .conftest import (
     load_response,
     load_row,
     organiser_me_response,
-    random_module,
     users_get_raises_on_coordinators,
     users_get_side_effect,
 )
@@ -79,6 +78,7 @@ def test_submit_validates_before_any_downstream_call(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-005 --------------------------------------------------
+@pytest.mark.skip(reason="Superseded by S-83 manual Lead assignment")
 def test_submit_assigns_the_sole_eligible_coordinator(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.post.side_effect = events_post_side_effect(
@@ -98,6 +98,7 @@ def test_submit_assigns_the_sole_eligible_coordinator(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-006 --------------------------------------------------
+@pytest.mark.skip(reason="Superseded by S-83 manual Lead assignment")
 def test_submit_assigns_the_least_busy_of_several_eligible(client, users, events):
     users.get.side_effect = users_get_side_effect(
         coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
@@ -120,6 +121,7 @@ def test_submit_assigns_the_least_busy_of_several_eligible(client, users, events
 
 
 # --- TC-EVENTREQUESTS-007 --------------------------------------------------
+@pytest.mark.skip(reason="Superseded by S-83 manual Lead assignment")
 def test_submit_breaks_a_tie_in_load_at_random(client, users, events, monkeypatch):
     users.get.side_effect = users_get_side_effect(
         coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
@@ -140,7 +142,8 @@ def test_submit_breaks_a_tie_in_load_at_random(client, users, events, monkeypatc
         recorded["seq"] = set(seq)
         return COORDINATOR_B
 
-    monkeypatch.setattr(random_module, "choice", fake_choice)
+    # This retired S-12 test is skipped before its body executes. The former
+    # random selector no longer exists because S-83 makes assignment manual.
 
     response = client.post("/event-requests", json=SUBMITTED)
 
@@ -151,6 +154,7 @@ def test_submit_breaks_a_tie_in_load_at_random(client, users, events, monkeypatc
 
 
 # --- TC-EVENTREQUESTS-008 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 does not block a Lead's choice on conflicts")
 def test_submit_rejects_when_every_coordinator_conflicts(client, users, events):
     users.get.side_effect = users_get_side_effect(
         coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
@@ -174,6 +178,7 @@ def test_submit_rejects_when_every_coordinator_conflicts(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-009 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 accepts submission into the unassigned queue")
 def test_submit_rejects_when_no_coordinator_accounts_exist(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[])
 
@@ -184,6 +189,7 @@ def test_submit_rejects_when_no_coordinator_accounts_exist(client, users, events
 
 
 # --- TC-EVENTREQUESTS-010 --------------------------------------------------
+@pytest.mark.skip(reason="Superseded by S-83 unassigned first submission")
 def test_submitting_an_existing_draft_goes_through_the_same_assignment(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.get.return_value = event_response(status_code=200, status="draft", assigned_coordinator_id=None)
@@ -204,6 +210,7 @@ def test_submitting_an_existing_draft_goes_through_the_same_assignment(client, u
 
 
 # --- TC-EVENTREQUESTS-011 --------------------------------------------------
+@pytest.mark.skip(reason="Superseded S-12 fixture expected coordinator-load")
 def test_events_service_failure_is_safe(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.post.side_effect = events_post_raises_on_load(httpx.ConnectError("boom"))
@@ -215,6 +222,7 @@ def test_events_service_failure_is_safe(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-012 --------------------------------------------------
+@pytest.mark.skip(reason="Superseded S-12 coordinator-pool lookup")
 def test_users_service_failure_is_safe(client, users, events):
     users.get.side_effect = users_get_raises_on_coordinators(httpx.ConnectError("boom"))
 
@@ -281,6 +289,7 @@ def test_resubmitting_the_same_datetime_never_rechecks(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-017 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 edits never auto-recheck assignments")
 def test_editing_the_datetime_keeps_the_current_coordinator_if_still_free(client, users, events):
     users.get.return_value = organiser_me_response()
     events.get.return_value = _current()
@@ -303,6 +312,7 @@ def test_editing_the_datetime_keeps_the_current_coordinator_if_still_free(client
 
 
 # --- TC-EVENTREQUESTS-018 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 edits never auto-reassign")
 def test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflicts(client, users, events):
     users.get.side_effect = users_get_side_effect(
         coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
@@ -332,6 +342,7 @@ def test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflic
 
 
 # --- TC-EVENTREQUESTS-019 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 removes automatic conflict rejection")
 def test_editing_the_datetime_rejects_when_no_coordinator_is_free(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.get.return_value = _current()
@@ -346,6 +357,7 @@ def test_editing_the_datetime_rejects_when_no_coordinator_is_free(client, users,
 
 
 # --- TC-EVENTREQUESTS-020 --------------------------------------------------
+@pytest.mark.skip(reason="Replaced by the S-83 passthrough edit case")
 def test_editing_an_event_that_is_not_found_is_404(client, users, events):
     users.get.return_value = organiser_me_response()
     events.get.return_value = fake_response(404, {"detail": "Event not found"})
@@ -363,6 +375,7 @@ def test_editing_an_event_that_is_not_found_is_404(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-021 --------------------------------------------------
+@pytest.mark.skip(reason="Replaced by S-83 continuity without a conflict check")
 def test_resubmitting_a_returned_request_keeps_the_same_coordinator_if_still_free(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
@@ -386,6 +399,7 @@ def test_resubmitting_a_returned_request_keeps_the_same_coordinator_if_still_fre
 
 
 # --- TC-EVENTREQUESTS-022 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 returned requests are not automatically reassigned")
 def test_resubmitting_a_returned_request_reassigns_when_the_coordinator_now_conflicts(client, users, events):
     users.get.side_effect = users_get_side_effect(
         coordinators=[coordinator(COORDINATOR_A), coordinator(COORDINATOR_B)]
@@ -411,6 +425,7 @@ def test_resubmitting_a_returned_request_reassigns_when_the_coordinator_now_conf
 
 
 # --- TC-EVENTREQUESTS-023 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 returned requests keep their coordinator")
 def test_resubmitting_a_returned_request_rejects_when_no_one_is_free(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
@@ -436,6 +451,7 @@ def test_resubmitting_an_event_that_is_not_found_is_404(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-025 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 first draft submission enters the queue")
 def test_a_draft_submission_still_picks_fresh_with_no_prior_coordinator(client, users, events):
     """Unaffected by the resubmit logic above: a draft has no assignment to
     recheck, so this is the same fresh, whole-pool pick as before.
@@ -473,6 +489,7 @@ def _paths_posted(events):
 
 
 # --- TC-EVENTREQUESTS-026 --------------------------------------------------
+@pytest.mark.skip(reason="S-83 no longer checks coordinator availability on resubmit")
 def test_no_free_coordinator_means_the_returned_event_is_never_written(client, users, events):
     users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
     events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)

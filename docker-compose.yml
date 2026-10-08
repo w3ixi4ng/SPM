@@ -40,6 +40,8 @@ services:
         condition: service_healthy
       equipment:
         condition: service_healthy
+      notifications:
+        condition: service_healthy
       event_requests:
         condition: service_healthy
       venue_bookings:
@@ -152,10 +154,13 @@ services:
     environment:
       USERS_SERVICE_URL: ${USERS_SERVICE_URL}
       EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
+      NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
     depends_on:
       users:
         condition: service_healthy
       events:
+        condition: service_healthy
+      notifications:
         condition: service_healthy
     healthcheck:
       test:
@@ -207,6 +212,28 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8005/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  notifications:
+    build: ./backend/services/atomic/notifications
+    ports:
+      - "${NOTIFICATIONS_SERVICE_PORT:-8006}:8006"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8006/health').read()",
         ]
       interval: 10s
       timeout: 5s
