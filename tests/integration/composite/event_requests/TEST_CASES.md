@@ -8,9 +8,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | 7 passed in this suite; 30 passed across `tests/integration` |
+| Result | Targeted S-83 case: 1 passed; run together with the notification boundary case: 2 passed |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -233,7 +233,10 @@ must no longer execute after S-83 replaces that workflow.
   one coordinator row and one organiser row; no duplicate is created when
   both already exist. Changing the target to B returns `409`. Cleanup succeeds
   and the case can run twice.
-- **Actual:** Cannot run until the developer applies and exposes the new
-  `notifications` schema in the test project.
-- **Status:** Blocked
-- **Evidence:** `test_app.py::test_lead_assignment_persists_notifications_and_repairs_missing_rows`
+- **Actual:** The Lead assigned coordinator A despite the overlapping event;
+  the event left the queue and both notifications persisted. Same-target
+  retries kept the assignment and exactly two notification rows, recreated
+  either missing row, and a different-target retry returned `409`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_lead_assignment_persists_notifications_and_repairs_missing_rows`;
+  targeted local run against the freshly rebuilt `.env.test` stack: 1 passed.

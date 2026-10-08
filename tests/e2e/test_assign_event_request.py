@@ -11,8 +11,8 @@ pytestmark = requires_env
 def _choose_date(page, label, year, month_index, day):
     page.get_by_label(label).click()
     picker = page.get_by_role("dialog", name="Choose a date")
-    picker.get_by_label("Month").select_option(str(month_index))
-    picker.get_by_label("Year").select_option(str(year))
+    picker.get_by_label("Month", exact=True).select_option(str(month_index))
+    picker.get_by_label("Year", exact=True).select_option(str(year))
     picker.get_by_role("button", name=str(day), exact=True).click()
 
 
