@@ -15,7 +15,15 @@ def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, 
     organiser = make_user("event_organiser")
     suffix = uuid.uuid4().hex[:6]
     venue_name = f"spm-e2e S38 Venue {suffix}"
-    venue_id = str(uuid.uuid4())
+    # A real venue: since S-75 a confirmation reads the venue's setup and
+    # turnaround. Attributed to the staff member, so make_user's teardown
+    # deletes it.
+    venue_id = admin.schema("venues").table("venues").insert({
+        "name": venue_name, "location": "10 Anson Road", "capacity": 150,
+        "room_layouts": ["theatre"], "facilities": [], "accessibility": [],
+        "operating_hours": [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
+        "created_by": staff["id"],
+    }).execute().data[0]["id"]
 
     events = []
     bookings = []
