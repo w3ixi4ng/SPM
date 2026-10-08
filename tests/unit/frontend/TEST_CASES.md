@@ -1355,18 +1355,26 @@ Story: S-75 Configure Venue Setup and Turnaround Time.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
 
-## TC-FRONTEND-081 — the venue form records both times, 0 or more
+## TC-FRONTEND-081 — the venue form records both times as hours and minutes, digits only
+
+> **Changed by the developer on 2026-10-08:** each time is entered as two
+> boxes, hours and minutes, that accept digits only. They are still stored
+> and sent as total minutes.
 
 - **Steps:** Build an empty venue form and an edit form from a venue with
-  30/45; validate with `""`, `-1`, `1.5` and `0` in each field; build both
-  payloads.
-- **Expected:** An empty form starts at `"0"`/`"0"`; the edit form loads
-  `"30"`/`"45"`. Blank, `-1` and `1.5` → "Enter whole minutes, 0 or more." on
-  that field; `0` is fine. Payloads send integers, and the edit payload
-  includes the two times alongside the existing editable fields.
-- **Actual:** Empty form 0/0, edit form 30/45; blank, -1 and 1.5 gave the message on both forms; integers sent.
+  30/45. Check what `digitsOnly` keeps from `"1a-2.5 e"`. Validate with a
+  blank box, minutes `60` and `59`. Build a payload with 0 h 30 min and
+  1 h 15 min.
+- **Expected:**
+  - An empty form starts at 0 h 0 min for both; the edit form loads 0 h 30
+    min and 0 h 45 min (135 minutes would be 2 h 15 min).
+  - Only digits get into a box: `"125"`.
+  - A blank box → "Enter whole hours and minutes, 0 or more." on that time;
+    minutes `60` → "Minutes must be between 0 and 59."; `59` is fine.
+  - Payloads send total minutes: 30 and 75.
+- **Actual:** As expected on both forms.
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the venue form records both times, 0 or more`
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the venue form records both times as hours and minutes, digits only`
 
 ## TC-FRONTEND-082 — the request screen applies setup and turnaround to opening hours
 

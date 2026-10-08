@@ -16,6 +16,7 @@ import {
   validateVenueForm,
   venueErrorMessage,
   venueFieldErrorsToForm,
+  digitsOnly,
 } from '../lib/venues.js'
 import { getVenueClashes } from '../lib/venueBookings.js'
 
@@ -42,8 +43,8 @@ const FOCUS_FOR = {
   facilities: 'input[name="facilities"]',
   accessibility: 'input[name="accessibility"]',
   description: '#description',
-  setup_minutes: '#setup_minutes',
-  turnaround_minutes: '#turnaround_minutes',
+  setup_minutes: '#setup_hours',
+  turnaround_minutes: '#turnaround_hours',
 }
 
 function focusFirstError(errors) {
@@ -72,7 +73,7 @@ function Section({ title, hint, children }) {
   return (
     <section className="py-8 first:pt-0 border-t first:border-t-0" style={{ borderColor: C.line }}>
       <h2 className="font-display text-2xl mb-1" style={{ color: C.ink }}>{title}</h2>
-      {hint && <p className="font-ui text-sm mb-5 max-w-md" style={{ color: C.inkFaint }}>{hint}</p>}
+      {hint && <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>{hint}</p>}
       <div className="grid gap-6">{children}</div>
     </section>
   )
@@ -101,6 +102,45 @@ function TextField({ id, label, value, onChange, error, required, inputMode, hin
       />
       <FieldError id={errorId} message={error} />
     </div>
+  )
+}
+
+// S-75: a duration as two digit-only boxes, hours and minutes. Anything
+// that isn't a digit is dropped as it is typed.
+function DurationField({ name, legend, hours, mins, onHours, onMins, error }) {
+  const errorId = `${name}-duration-error`
+  const box = (id, label, value, onChange, maxLength) => (
+    <div className="flex-1">
+      <label htmlFor={id} className="block font-ui text-xs mb-1" style={{ color: C.inkFaint }}>{label}</label>
+      <input
+        id={id}
+        name={id}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        autoComplete="off"
+        maxLength={maxLength}
+        aria-label={`${legend.split(' ')[0]} ${label.toLowerCase()}`}
+        value={value}
+        onChange={(event) => onChange(digitsOnly(event.target.value))}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? errorId : undefined}
+        className="csp-input w-full rounded-sm px-4 py-3 font-ui text-sm"
+      />
+    </div>
+  )
+  return (
+    <fieldset className="border-0 p-0 m-0">
+      <legend className="font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+        {legend}
+        <span style={{ color: C.inkFaint }}> (required)</span>
+      </legend>
+      <div className="flex gap-3">
+        {box(`${name}_hours`, 'Hours', hours, onHours, undefined)}
+        {box(`${name}_mins`, 'Minutes', mins, onMins, 2)}
+      </div>
+      <FieldError id={errorId} message={error} />
+    </fieldset>
   )
 }
 
@@ -328,7 +368,7 @@ function VenueFormFields({ id }) {
         <h1 className="font-display text-4xl sm:text-5xl leading-tight mb-3" style={{ color: C.ink }}>
           {editing ? `Edit ${venueName || 'venue'}` : 'New venue'}
         </h1>
-        <p className="font-ui text-base leading-relaxed mb-10 max-w-md" style={{ color: C.inkFaint }}>
+        <p className="font-ui text-base leading-relaxed mb-10" style={{ color: C.inkFaint }}>
           {editing ? 'Update location, capacity, setup and turnaround times, facilities and accessibility. Existing booking requests remain unchanged.' : 'Once saved, the venue can receive booking requests. Fields marked required must be filled in first.'}
         </p>
 
@@ -396,25 +436,25 @@ function VenueFormFields({ id }) {
 
             <Section
               title="Setup & turnaround"
-              hint="Minutes needed to prepare the venue before each event and to reset it afterwards. Bookings can't use this time, and it must fit inside opening hours. Use 0 for none."
+              hint="Time needed to prepare the venue before each event and to reset it afterwards. Bookings can't use this time, and it must fit inside opening hours. Use 0 hours 0 minutes for none."
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 items-end max-w-xl">
-                <TextField
-                  id="setup_minutes"
-                  label="Setup time (minutes)"
-                  required
-                  inputMode="numeric"
-                  value={form.setupMinutes}
-                  onChange={update('setupMinutes')}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
+                <DurationField
+                  name="setup"
+                  legend="Setup time"
+                  hours={form.setupHours}
+                  mins={form.setupMins}
+                  onHours={update('setupHours')}
+                  onMins={update('setupMins')}
                   error={errors.setup_minutes}
                 />
-                <TextField
-                  id="turnaround_minutes"
-                  label="Turnaround time (minutes)"
-                  required
-                  inputMode="numeric"
-                  value={form.turnaroundMinutes}
-                  onChange={update('turnaroundMinutes')}
+                <DurationField
+                  name="turnaround"
+                  legend="Turnaround time"
+                  hours={form.turnaroundHours}
+                  mins={form.turnaroundMins}
+                  onHours={update('turnaroundHours')}
+                  onMins={update('turnaroundMins')}
                   error={errors.turnaround_minutes}
                 />
               </div>

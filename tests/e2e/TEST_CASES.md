@@ -665,7 +665,8 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   `D+3`: A confirmed 10:00–12:00 and B held 12:30–14:00 (B's event assigned
   to the Coordinator).
 - **Steps:**
-  1. Staff edit the venue: setup 30, turnaround 45; save.
+  1. Staff edit the venue: setup 0 h 30 min, turnaround 0 h 45 min; save.
+     (Hours and minutes boxes since the developer's change of 2026-10-08.)
   2. The Coordinator opens B's event, then the venue's calendar on `D+3`.
 - **Expected:**
   - Step 1: the times are saved, and the page lists A and B as clashing.

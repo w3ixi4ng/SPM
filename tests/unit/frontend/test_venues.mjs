@@ -29,8 +29,10 @@ const COMPLETE_FORM = {
     mon: { open: '09:00', close: '18:00' },
   },
   // S-75: setup and turnaround, as the form starts them.
-  setupMinutes: '0',
-  turnaroundMinutes: '0',
+  setupHours: '0',
+  setupMins: '0',
+  turnaroundHours: '0',
+  turnaroundMins: '0',
   created_by: 'must-not-be-sent',
 }
 

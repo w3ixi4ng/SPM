@@ -52,8 +52,9 @@ def test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_war
     sign_in(staff)
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     page.get_by_role("link", name=f"Edit {venue['name']}", exact=True).click()
-    page.get_by_label("Setup time (minutes)").fill("30")
-    page.get_by_label("Turnaround time (minutes)").fill("45")
+    # Hours and minutes boxes; hours stay 0.
+    page.get_by_label("Setup minutes").fill("30")
+    page.get_by_label("Turnaround minutes").fill("45")
     page.get_by_role("button", name="Save venue").click()
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     clashing = page.get_by_role("list", name="Clashing bookings")

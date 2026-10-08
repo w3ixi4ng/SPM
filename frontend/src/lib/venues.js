@@ -43,28 +43,44 @@ export function emptyVenueForm() {
     roomLayouts: [],
     // A day is open when it has an entry here; a missing day is closed.
     hours: {},
-    // S-75: minutes to prepare before an event and reset after it.
-    setupMinutes: '0',
-    turnaroundMinutes: '0',
+    // S-75: time to prepare before an event and reset after it, entered as
+    // hours and minutes and sent as total minutes.
+    setupHours: '0',
+    setupMins: '0',
+    turnaroundHours: '0',
+    turnaroundMins: '0',
   }
 }
 
-// S-75: setup and turnaround are whole minutes, 0 or more, no maximum.
-const MINUTES_ERROR = 'Enter whole minutes, 0 or more.'
+// S-75: the two times, each kept as hours and minutes in the form. Keys are
+// the API field names, so a service error lands on the right pair of boxes.
+const DURATIONS = [['setup', 'setup_minutes'], ['turnaround', 'turnaround_minutes']]
+
+// The boxes take digits only: anything else is dropped as it is typed.
+export function digitsOnly(value) {
+  return String(value ?? '').replace(/\D/g, '')
+}
+
+// 135 -> { hours: '2', mins: '15' }
+export function splitMinutes(total) {
+  const minutes = Number(total ?? 0)
+  return { hours: String(Math.floor(minutes / 60)), mins: String(minutes % 60) }
+}
 
 function minutesErrors(form) {
   const errors = {}
-  for (const [field, key] of [['setupMinutes', 'setup_minutes'], ['turnaroundMinutes', 'turnaround_minutes']]) {
-    if (!/^\d+$/.test(String(form[field] ?? '').trim())) errors[key] = MINUTES_ERROR
+  for (const [name, key] of DURATIONS) {
+    const hours = String(form[`${name}Hours`] ?? '').trim()
+    const mins = String(form[`${name}Mins`] ?? '').trim()
+    if (!/^\d+$/.test(hours) || !/^\d+$/.test(mins)) errors[key] = 'Enter whole hours and minutes, 0 or more.'
+    else if (Number(mins) > 59) errors[key] = 'Minutes must be between 0 and 59.'
   }
   return errors
 }
 
 function minutesPayload(form) {
-  return {
-    setup_minutes: Number(String(form.setupMinutes).trim()),
-    turnaround_minutes: Number(String(form.turnaroundMinutes).trim()),
-  }
+  const total = (name) => Number(form[`${name}Hours`]) * 60 + Number(form[`${name}Mins`])
+  return { setup_minutes: total('setup'), turnaround_minutes: total('turnaround') }
 }
 
 // "HH:MM" moved by `minutes`, kept within the day: an occupied window never
@@ -191,14 +207,19 @@ export function createVenue(form) {
   })
 }
 
+function durationFields(name, total) {
+  const { hours, mins } = splitMinutes(total)
+  return { [`${name}Hours`]: hours, [`${name}Mins`]: mins }
+}
+
 export function venueToEditForm(venue) {
   return {
     location: venue.location,
     capacity: String(venue.capacity),
     facilities: [...venue.facilities],
     accessibility: [...venue.accessibility],
-    setupMinutes: String(venue.setup_minutes ?? 0),
-    turnaroundMinutes: String(venue.turnaround_minutes ?? 0),
+    ...durationFields('setup', venue.setup_minutes),
+    ...durationFields('turnaround', venue.turnaround_minutes),
   }
 }
 
