@@ -33,8 +33,10 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/events/technical-support-load` | Conflict and current live workload for candidate Technical Support Staff against a requested window. |
 | `POST` | `/events/overlapping` | S-44: the `planning` and `confirmed` events overlapping a window, for the `equipment_requirements` composite's availability check. |
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
-| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
-| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
+| `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
+| `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
+| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
+| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
 
 All event endpoints except health authenticate the `sb_access_token` and
@@ -376,11 +378,30 @@ must never set them:
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `organiser_id` | uuid | The organiser the composite already authenticated — not derived from a session here. |
-| `assigned_coordinator_id` | uuid | The coordinator the composite already chose. |
+| `assigned_coordinator_id` | uuid or null | Existing assignment to preserve; S-83 submissions use null until a Lead assigns the request. |
 
 Same responses and status codes as the public routes they mirror
 (`201`/`200`, `404` for another organiser's draft, `409` for an event that is
 not currently `draft` or `returned`).
+
+### `GET /internal/events/unassigned` and assignment
+
+The internal queue returns only `submitted` events with a null
+`assigned_coordinator_id`, oldest `submitted_at` first. The S-83 composite
+adds organiser profiles; this atomic service does not read user storage.
+
+`POST /internal/events/{event_id}/assignment` accepts:
+
+```json
+{"coordinator_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+```
+
+It conditionally updates a submitted, unassigned event and returns the event
+plus `assignment_created: true`. Repeating the same Coordinator assignment
+returns `200` with `assignment_created: false`; this lets the composite repair
+a failed notification write. A different existing assignment or changed
+status returns `409`, and a missing event returns `404`. This atomic route does
+not evaluate schedule conflicts.
 
 ### `PATCH /events/{event_id}/internal`
 

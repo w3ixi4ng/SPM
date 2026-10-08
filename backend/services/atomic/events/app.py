@@ -29,6 +29,8 @@ from schemas import (
     InternalEventSubmit,
     InternalTechnicalSupportAssignment,
     InternalEventUpdate,
+    InternalCoordinatorAssignment,
+    InternalCoordinatorAssignmentResult,
     OverlappingEvent,
     OverlappingEventsRequest,
     TechnicalSupportLoad,
@@ -290,6 +292,19 @@ def get_booking_status(
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
     return result.data[0]
+
+
+@app.get("/internal/events/unassigned", response_model=list[EventRead])
+def list_unassigned_events(db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("status", "submitted")
+        .is_("assigned_coordinator_id", "null")
+        .order("submitted_at")
+    )
+    return _execute(operation).data
 
 
 @app.get("/events/{event_id}", response_model=EventRead)
@@ -701,6 +716,54 @@ def create_submitted_event_internal(
             detail="Could not create event",
         )
     return result.data[0]
+
+
+@app.post(
+    "/internal/events/{event_id}/assignment",
+    response_model=InternalCoordinatorAssignmentResult,
+)
+def assign_coordinator_internal(
+    event_id: UUID,
+    payload: InternalCoordinatorAssignment,
+    db: Client = Depends(get_db),
+):
+    """Conditionally assign one submitted request.
+
+    A repeat for the same coordinator is idempotent so the composite can
+    safely repair notification delivery after an uncertain downstream
+    failure. A different coordinator is a real concurrent-write conflict.
+    """
+    coordinator_id = str(payload.coordinator_id)
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({"assigned_coordinator_id": coordinator_id})
+        .eq("id", str(event_id))
+        .eq("status", "submitted")
+        .is_("assigned_coordinator_id", "null")
+        .select("*")
+    )
+    result = _execute(operation)
+    if result.data:
+        return {**result.data[0], "assignment_created": True}
+
+    current = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = current.data[0]
+    if (
+        event["status"] == "submitted"
+        and event.get("assigned_coordinator_id") == coordinator_id
+    ):
+        return {**event, "assignment_created": False}
+
+    raise HTTPException(
+        status_code=409,
+        detail="This event request is no longer available for assignment",
+    )
 
 
 @app.post("/events/{event_id}/submit/internal", response_model=EventRead)

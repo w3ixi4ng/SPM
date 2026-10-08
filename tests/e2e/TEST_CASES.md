@@ -737,3 +737,34 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 10 passed.
 
+## TC-E2E-226 — Lead assigns an unassigned request and both recipients are notified
+
+- **Scenario:** A real browser proves the S-83 role routing, Kong routes,
+  queue UI, assignment controls, coordinator visibility, and persistent
+  notifications that lower-level suites cannot prove together.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; the new
+  `notifications` schema applied, granted, and exposed; temporary
+  organiser, Event Coordinator Lead, coordinator, and unrelated accounts.
+- **Steps:**
+  1. Sign in as the organiser and submit `Autumn Forum`.
+  2. Reload the organiser dashboard and confirm the request is under review
+     but unassigned.
+  3. Sign out, sign in as the Lead, and open the unassigned queue.
+  4. Inspect the event information, choose the coordinator, and assign.
+  5. Confirm the card leaves the queue.
+  6. Sign in as the coordinator, confirm the event is in their assigned list
+     and the assignment notification is visible, then reload and check again.
+  7. Sign in as the organiser, confirm their assignment notification is
+     visible, then reload and check again.
+  8. Sign in as the unrelated user and confirm neither notification appears.
+- **Test data:** `Autumn Forum`, `2026-11-18 09:00`–`12:00`, attendance `120`;
+  generated test-user addresses.
+- **Expected:** The Lead alone can complete assignment; the selected
+  coordinator receives the event; the queue no longer contains it; organiser
+  and coordinator each see their persistent in-app notification before and
+  after reload; the unrelated user sees neither. No email/external action is
+  performed.
+- **Actual:** Cannot run until the developer applies and exposes the required
+  dev/test Supabase schemas and the S-83 implementation exists.
+- **Status:** Blocked
+- **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified`

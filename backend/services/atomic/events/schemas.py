@@ -351,12 +351,22 @@ class InternalTechnicalSupportAssignment(BaseModel):
 # session on the public routes.
 class InternalEventCreate(EventSubmittedCreate):
     organiser_id: UUID
-    assigned_coordinator_id: UUID
+    assigned_coordinator_id: UUID | None = None
 
 
 class InternalEventSubmit(EventSubmittedCreate):
     organiser_id: UUID
-    assigned_coordinator_id: UUID
+    assigned_coordinator_id: UUID | None = None
+
+
+class InternalCoordinatorAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+
+
+class InternalCoordinatorAssignmentResult(EventRead):
+    assignment_created: bool
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

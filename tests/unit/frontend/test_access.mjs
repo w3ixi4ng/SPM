@@ -11,6 +11,7 @@ import {
 const EXPECTED_DASHBOARDS = {
   event_organiser: '/dashboard/event-organiser',
   event_coordinator: '/dashboard/event-coordinator',
+  event_coordinator_lead: '/dashboard/event-coordinator-lead',
   venue_staff: '/dashboard/venue-staff',
   technical_support: '/dashboard/technical-support',
   attendee: '/dashboard/attendee',
@@ -63,6 +64,7 @@ test('only venue staff create venues and only venue staff and coordinators view 
   const expected = {
     venue_staff: [true, true],
     event_coordinator: [false, true],
+    event_coordinator_lead: [false, false],
     event_organiser: [false, false],
     technical_support: [false, false],
     attendee: [false, false],
@@ -79,6 +81,7 @@ test('only venue staff create venues and only venue staff and coordinators view 
 test('only coordinators request venues and only venue staff see pending requests', () => {
   const expected = {
     event_coordinator: [true, false],
+    event_coordinator_lead: [false, false],
     venue_staff: [false, true],
     event_organiser: [false, false],
     technical_support: [false, false],
@@ -158,5 +161,14 @@ test('only technical support can view its assigned support events', () => {
       role === 'technical_support',
       role,
     )
+  }
+})
+
+// --- TC-FRONTEND-081 -----------------------------------------------------
+test('only coordinator leads can view and assign the unassigned queue', () => {
+  for (const role of Object.keys(ROLE_ACCESS)) {
+    const isLead = role === 'event_coordinator_lead'
+    assert.equal(hasPermission(role, PERMISSIONS.VIEW_UNASSIGNED_EVENTS), isLead, role)
+    assert.equal(hasPermission(role, PERMISSIONS.ASSIGN_EVENT_COORDINATOR), isLead, role)
   }
 })

@@ -131,6 +131,9 @@ def organiser_session(admin, auth_client):
             "event_ids": event_ids,
         }
     finally:
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user["id"]
+        ).execute()
         for event_id in event_ids:
             admin.schema("events").table("events").delete().eq("id", event_id).execute()
         admin.auth.admin.delete_user(user["id"])
@@ -143,6 +146,9 @@ def coordinator(admin):
     try:
         yield user["id"]
     finally:
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user["id"]
+        ).execute()
         admin.auth.admin.delete_user(user["id"])
 
 
@@ -156,6 +162,25 @@ def coordinator_session(admin, auth_client):
         )
         yield {"user_id": user["id"], "access_token": signed_in.session.access_token}
     finally:
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user["id"]
+        ).execute()
+        admin.auth.admin.delete_user(user["id"])
+
+
+@pytest.fixture
+def lead_session(admin, auth_client):
+    """A signed-in Event Coordinator Lead for the S-83 queue."""
+    user = _make_user(admin, "event_coordinator_lead")
+    try:
+        signed_in = auth_client.auth.sign_in_with_password(
+            {"email": user["email"], "password": user["password"]}
+        )
+        yield {"user_id": user["id"], "access_token": signed_in.session.access_token}
+    finally:
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user["id"]
+        ).execute()
         admin.auth.admin.delete_user(user["id"])
 
 

@@ -6,7 +6,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
 from database import get_auth, get_db
-from schemas import CurrentUserRead, LoginRequest, SignUpRequest, UserRead
+from schemas import CurrentUserRead, LoginRequest, ProfileLookupRequest, SignUpRequest, UserRead
 from security import (
     ACCESS_COOKIE,
     clear_session_cookies,
@@ -262,13 +262,28 @@ def me(user=Depends(get_current_user), db: Client = Depends(get_db)):
 # No Kong route exists for this -- see the events service README's "Internal
 # routes" section. Only the event_requests composite calls it, to find who it
 # can assign an event request to.
-@app.get("/users/coordinators", response_model=list[UserRead])
+@app.get("/internal/users/coordinators", response_model=list[UserRead])
 def list_coordinators(db: Client = Depends(get_db)):
     coordinator_ids = _list_user_ids_with_role(db, COORDINATOR_ROLE)
     if not coordinator_ids:
         return []
 
     res = db.schema(SCHEMA).table(TABLE).select("*").in_("id", coordinator_ids).execute()
+    return res.data
+
+
+@app.post("/internal/users/profiles", response_model=list[UserRead])
+def lookup_profiles(payload: ProfileLookupRequest, db: Client = Depends(get_db)):
+    """Internal batch lookup for composites that must present user names.
+
+    The response deliberately contains profiles only, never trusted roles or
+    Auth secrets. Eligibility continues to come from the role-specific pool
+    endpoints above.
+    """
+    if not payload.ids:
+        return []
+    ids = [str(user_id) for user_id in payload.ids]
+    res = db.schema(SCHEMA).table(TABLE).select("id,name,email").in_("id", ids).execute()
     return res.data
 
 

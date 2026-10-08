@@ -12,6 +12,8 @@ export const PERMISSIONS = Object.freeze({
   VIEW_SUPPORT_ASSIGNED_EVENTS: 'events:view_support_assigned',
   DECIDE_EVENT: 'events:decide',
   ASSIGN_TECHNICAL_SUPPORT: 'events:assign_technical_support',
+  VIEW_UNASSIGNED_EVENTS: 'events:view_unassigned',
+  ASSIGN_EVENT_COORDINATOR: 'events:assign_coordinator',
   REQUEST_VENUE_BOOKING: 'venue_bookings:create',
   VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
   DECIDE_VENUE_BOOKING: 'venue_bookings:decide',
@@ -64,6 +66,16 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.REQUEST_VENUE_BOOKING,
       PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
+    ]),
+  }),
+  event_coordinator_lead: Object.freeze({
+    label: 'Event Coordinator Lead',
+    dashboardPath: '/dashboard/event-coordinator-lead',
+    description: 'Review unassigned event requests and assign an Event Coordinator.',
+    permissions: Object.freeze([
+      ...DASHBOARD_PERMISSION,
+      PERMISSIONS.VIEW_UNASSIGNED_EVENTS,
+      PERMISSIONS.ASSIGN_EVENT_COORDINATOR,
     ]),
   }),
   venue_staff: Object.freeze({
