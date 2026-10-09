@@ -7,7 +7,7 @@ clients are faked; no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
 | Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
 | Result | 80 passed, 17 superseded S-12 cases skipped; 832 passed, 17 skipped across `tests/unit` |
 

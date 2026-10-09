@@ -14,7 +14,7 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
 | Environment | Node.js; no network or Supabase |
 | Result | 119 passed |
 
