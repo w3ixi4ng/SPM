@@ -196,3 +196,35 @@ in the test project.
 - **Actual:** Through Kong: no clashes at 0/0; after Staff saved 30/45 the A–B pair was listed and B carried the 10:00 clash; both bookings unchanged; 12:00–12:30 refused "…in use until 12:45."
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_setup_turnaround.py::test_new_times_flag_the_clash_and_govern_the_next_request`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Not yet executed.
+No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
+
+### TC-VENUEBOOKINGS-108 — an overlapping approval is refused by name, and a confirmed clash stays listed for review
+
+- **Scenario:** Real services and Kong agree on the refusal and the review
+  list (S-76 AC3, AC5).
+- **Pre-conditions:** A fresh `.env.test` stack. Venue Staff, a Coordinator,
+  a test venue open `thu` 08:00–20:00 at setup and turnaround 0, three
+  planning events. On 2026-11-12: A confirmed 10:00–12:00 ("Alumni talk"),
+  C confirmed 13:00–14:00, B pending 12:00–12:45 (none overlapping
+  at 0/0, so the rows are valid before step 1).
+- **Steps:**
+  1. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`,
+     `turnaround_minutes: 45`.
+  2. Staff approve B through `/api/venue-bookings/{B}/decision`.
+  3. Staff `GET /api/venue-bookings/clashes` (no `venue_id`).
+- **Expected:**
+  - Step 2: `409` "Can't confirm this booking: it overlaps Alumni talk
+    (confirmed), which occupies <venue> on 12 Nov 2026 from 09:30 to 12:45
+    (event 10:00–12:00, 30 min setup, 45 min turnaround)." B is still
+    pending in `bookings.bookings`.
+  - Step 3: the test venue is listed with the A–C pair (both confirmed).
+  - A and C are unchanged in `bookings.bookings`. Cleanup deletes every row
+    created.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

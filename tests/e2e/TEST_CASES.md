@@ -778,3 +778,30 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Status:** Pass
 - **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified[chromium]`;
   local Chromium run against the freshly rebuilt `.env.test` stack: 1 passed.
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Not yet executed.
+
+## TC-E2E-230 — Venue Staff are told which booking blocks an approval, and a confirmed clash stays on the dashboard
+
+- **Scenario:** The refusal and the standing review list as Venue Staff see
+  them, across a reload (S-76 AC3, AC5).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
+  test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
+  `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00, both confirmed when
+  the venue was 0/0.
+- **Steps:**
+  1. Staff open B from the request list and approve it.
+  2. Staff open the dashboard, then reload it.
+- **Expected:**
+  - Step 1: an alert reads "Can't confirm this booking: it overlaps Alumni
+    talk (confirmed), which occupies <venue> on <D+3> from 09:30 to 12:45
+    (event 10:00–12:00, 30 min setup, 45 min turnaround)." B stays pending.
+  - Step 2: "Clashes to review" lists the venue with the C–E pair, before
+    and after the reload, with no Dismiss button. Nothing is removed.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

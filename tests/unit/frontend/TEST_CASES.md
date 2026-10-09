@@ -1592,3 +1592,36 @@ and both in-app notification recipients confirmed by the developer on
 - **Actual:** Both recipient dashboards render the shared server-backed inbox with message/time, loading, empty, and error states; no external delivery helper exists.
 - **Status:** Pass
 - **Evidence:** `test_notifications.mjs` — “organiser and coordinator dashboards render the persistent inbox states”
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Not yet executed.
+
+### TC-FRONTEND-096 — a refused approval or hold shows which booking is in the way
+
+- **Scenario:** Venue Staff read the service's conflict message, not
+  "already decided" (S-76 AC3).
+- **Steps:** `bookingDecisionErrorMessage(error)` and
+  `holdActionErrorMessage(error)` with `status: 409` and the TC-BOOKINGS-042
+  details; then with `409` "This booking request has already been decided".
+- **Expected:** The conflict detail is returned verbatim. The "already
+  decided" 409 still gives "This request has already been decided. Reload
+  the list to see the latest requests."
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+### TC-FRONTEND-097 — Venue Staff's clashes to review are fetched and labelled
+
+- **Scenario:** The dashboard's standing review list (S-76 AC5).
+- **Steps:** `getClashesToReview()` with a fake `fetch`; then
+  `clashReviewHeading(venue)` for Studio B with one pair and for Hall C with
+  two.
+- **Expected:** `GET /api/venue-bookings/clashes` with credentials and no
+  `venue_id`. Headings: "Studio B · 1 pair · setup 30 min, turnaround 45 min"
+  and "Hall C · 2 pairs · setup 15 min, turnaround 15 min". Each pair still
+  reads as `clashPairLabel` (TC-FRONTEND-085).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
