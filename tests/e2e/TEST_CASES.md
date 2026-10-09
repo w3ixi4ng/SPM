@@ -16,9 +16,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-83 journey: 1 passed; full suite previously 17 passed |
+| Result | Targeted S-84 journey: 1 passed; S-83 regression journey: 1 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -794,6 +794,11 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   removal notification; B gains access and receives the assignment
   notification; the organiser sees the owner-change notification. All three
   persist after reload and no external delivery occurs.
-- **Actual:** Cannot run until the S-84 SQL is applied to the test project.
-- **Status:** Blocked
-- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`
+- **Actual:** The Lead card showed Alex as current owner and reassigned the
+  event to Blair despite Blair's overlap. Alex lost the event and saw the
+  removal notification; Blair gained the event and saw the assignment; the
+  organiser saw the named owner change. Every message survived reload.
+- **Status:** Pass
+- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
+  local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
+  1 passed.
