@@ -36,6 +36,7 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
 | `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
 | `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `confirmed`, and `returned` events, newest update first. |
+| `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, and `confirmed` events, newest update first. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
@@ -205,6 +206,13 @@ the Lead's assignment; an organiser's own request can never set it.
 S-84 owner-to-owner transfer. The composite supplies the current owner and
 version when reassigning, so a stale request cannot overwrite newer work.
 See [Internal routes](#internal-routes-composite-only).
+
+S-85's internal coordinator-overview route is read-only and recognizes
+`submitted`, `under_review`, `returned`, `planning`, and `confirmed` as active.
+It excludes null assignments and every other lifecycle state. S-85 does not
+create or transition event statuses and makes no schema change; it only
+defines how an assigned `under_review` row is treated when that workflow state
+is supplied by its owning lifecycle feature.
 
 The four `technical_support_*` fields are controlled by the S-43 assignment
 flow. They record whether support was explicitly requested, the optional

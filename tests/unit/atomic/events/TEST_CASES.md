@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, pre-commit working tree |
 | Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 132 passed in this suite; 735 passed across `tests/unit` |
+| Result | 151 passed in this suite; 832 passed, 17 skipped across `tests/unit` |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -1654,3 +1654,47 @@ confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
   returned `409` without an update.
 - **Status:** Pass
 - **Evidence:** `test_s84.py::test_internal_reassignment_rejects_missing_ineligible_and_unassigned_events`
+
+---
+
+## S-85 — coordinator oversight event source
+
+Story: S-85 View Coordinator Assignments and Active Events. Acceptance
+criteria and test cases confirmed by the developer on 2026-10-09. Executed
+locally on 2026-10-09.
+
+## TC-EVENTS-117 — oversight lists exactly the five confirmed active statuses
+
+- **Scenario:** The events service supplies the complete active assigned-event
+  set without making role, profile, or grouping decisions.
+- **Pre-conditions:** Supabase is mocked; the query returns one assigned event
+  for each accepted status.
+- **Steps:** `GET /internal/events/coordinator-overview` and inspect the
+  storage query and response validation.
+- **Test data:** `submitted`, `under_review`, `returned`, `planning`, and
+  `confirmed` assigned to coordinator A.
+- **Expected:** The query includes exactly those five statuses, excludes null
+  `assigned_coordinator_id` values, orders newest updates first, and accepts
+  all five statuses in the response contract.
+- **Actual:** The response accepted one row in each confirmed status; storage
+  received the exact five-status filter, excluded null owners, and ordered by
+  descending update time.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_internal_oversight_uses_all_five_active_statuses`
+
+## TC-EVENTS-118 — oversight excludes unassigned and inactive events at storage
+
+- **Scenario:** Draft, rejected, cancelled, completed, and unassigned events
+  cannot enter the Lead's oversight source.
+- **Pre-conditions:** Supabase is mocked.
+- **Steps:** Inspect the filters used by
+  `GET /internal/events/coordinator-overview`.
+- **Test data:** The five inactive/unassigned states plus the five active
+  states from TC-EVENTS-117.
+- **Expected:** Filtering is performed by the atomic owner: only the five
+  active statuses and non-null owners are selected. The route performs no
+  write and no other-service call.
+- **Actual:** The read query contained only the five active values and the
+  non-null-owner filter; no insert, update, or delete operation was made.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_internal_oversight_excludes_unassigned_and_inactive_events`

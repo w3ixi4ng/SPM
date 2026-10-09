@@ -7,7 +7,7 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
 `test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
-`test_reassign_event_coordinator.py`.
+`test_reassign_event_coordinator.py`, and `test_coordinator_overview.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -16,9 +16,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, pre-commit working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-84 journey: 1 passed; S-83 regression journey: 1 passed |
+| Result | Targeted S-85 journey and S-84 regression: 2 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -802,3 +802,26 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
   local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
   1 passed.
+
+## TC-E2E-230 — Lead oversees every Coordinator and sees reassignment move work
+
+- **Scenario:** A real browser proves the S-85 grouped oversight view, idle
+  Coordinator visibility, event summary, and S-84 refresh/update behaviour.
+- **Pre-conditions:** Fresh `.env.test` stack; organiser, Lead, coordinators A
+  and B; one submitted event assigned to A while B has no active assignment.
+- **Steps:** Sign in as Lead; inspect both Coordinator groups, counts, and the
+  event summary; reassign A→B with the existing control; inspect both groups
+  and counts without reloading, then reload and inspect again.
+- **Test data:** `Autumn Forum`, submitted, organiser Ada,
+  `2026-11-18 09:00`–`12:00`.
+- **Expected:** A initially contains the event with count 1 and B is visible
+  with count 0. The summary shows name, status, organiser, date/time, and
+  current Coordinator. After reassignment the event appears only under B,
+  counts are A=0/B=1 immediately and after reload, and the S-83 queue remains
+  present. Non-Lead access remains denied by the existing role journey.
+- **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
+  event summary. Reassignment moved the card to Blair and changed the counts
+  to 0/1 immediately; the same grouping survived reload and the queue remained
+  visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`

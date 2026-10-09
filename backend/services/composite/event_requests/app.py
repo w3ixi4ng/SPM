@@ -404,6 +404,84 @@ async def list_active_assignments(
     ]
 
 
+@app.get("/event-requests/coordinator-overview")
+async def coordinator_overview(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """Group active assigned events under every trusted Coordinator.
+
+    S-85 owns no persistence. Events supplies lifecycle-filtered rows and
+    Users supplies the trusted Coordinator pool plus organiser profiles.
+    Keeping empty groups is deliberate: a Lead needs to see idle
+    Coordinators as well as current work.
+    """
+    await _authenticate_lead(request, users)
+    coordinators = await _coordinator_pool(users)
+
+    try:
+        response = await events.get("/internal/events/coordinator-overview")
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+
+    rows = response.json()
+    coordinator_by_id = {item["id"]: item for item in coordinators}
+    organiser_ids = [row["organiser_id"] for row in rows]
+    missing_owner_ids = [
+        row["assigned_coordinator_id"]
+        for row in rows
+        if row["assigned_coordinator_id"] not in coordinator_by_id
+    ]
+    profiles = await _profiles_by_id(users, organiser_ids + missing_owner_ids)
+
+    groups = {
+        item["id"]: {
+            "coordinator": item,
+            "active_assignment_count": 0,
+            "events": [],
+        }
+        for item in coordinators
+    }
+
+    for row in rows:
+        owner_id = row["assigned_coordinator_id"]
+        if owner_id not in groups:
+            owner = profiles.get(
+                owner_id,
+                {"id": owner_id, "name": "Unknown coordinator", "email": None},
+            )
+            groups[owner_id] = {
+                "coordinator": owner,
+                "active_assignment_count": 0,
+                "events": [],
+            }
+
+        owner = groups[owner_id]["coordinator"]
+        organiser = profiles.get(
+            row["organiser_id"],
+            {"id": row["organiser_id"], "name": "Unknown organiser", "email": None},
+        )
+        groups[owner_id]["events"].append(
+            {**row, "organiser": organiser, "coordinator": owner}
+        )
+
+    for group in groups.values():
+        group["active_assignment_count"] = len(group["events"])
+
+    ordered = sorted(
+        groups.values(),
+        key=lambda group: (
+            (group["coordinator"].get("name") or "").casefold(),
+            group["coordinator"]["id"],
+        ),
+    )
+    return {"coordinators": ordered}
+
+
 @app.post("/event-requests/{event_id}/assignment")
 async def assign_event_request(
     event_id: UUID,

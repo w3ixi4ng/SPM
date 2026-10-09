@@ -46,6 +46,13 @@ logger = logging.getLogger(__name__)
 SCHEMA = "events"
 TABLE = "events"
 ACTIVE_ASSIGNMENT_STATUSES = ["submitted", "planning", "confirmed", "returned"]
+OVERSIGHT_ACTIVE_STATUSES = [
+    "submitted",
+    "under_review",
+    "returned",
+    "planning",
+    "confirmed",
+]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -317,6 +324,25 @@ def list_active_assigned_events(db: Client = Depends(get_db)):
         .table(TABLE)
         .select("*")
         .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .not_.is_("assigned_coordinator_id", "null")
+        .order("updated_at", desc=True)
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/coordinator-overview", response_model=list[EventRead])
+def list_coordinator_overview_events(db: Client = Depends(get_db)):
+    """Return assigned active rows for the S-85 composite read model.
+
+    The atomic service owns lifecycle filtering. Role checks, trusted
+    Coordinator profiles, grouping, and counts span Users and Events and
+    therefore stay in the composite service.
+    """
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .in_("status", OVERSIGHT_ACTIVE_STATUSES)
         .not_.is_("assigned_coordinator_id", "null")
         .order("updated_at", desc=True)
     )

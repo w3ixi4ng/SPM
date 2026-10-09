@@ -56,14 +56,15 @@ test('lead dashboard presents and updates active assignments', () => {
   )
 
   for (const contract of [
-    'Assigned active events',
+    'Coordinator oversight',
     'event.organiser?.name',
     'event.coordinator?.name',
-    'listActiveAssignments()',
+    'listCoordinatorOverview()',
     'coordinator.id !== event.assigned_coordinator_id',
     'reassignEvent(',
     'event.coordinator_assignment_version',
-    'No active events are currently assigned.',
+    'moveAssignmentInOverview(',
+    'No active events assigned.',
   ]) {
     assert.match(source, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }

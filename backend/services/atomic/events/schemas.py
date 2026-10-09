@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 class EventStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    # S-85 includes assigned events being actively handled at this stage in
+    # the Lead's oversight read model. Persistence transitions into this
+    # state belong to the workflow that owns the review, not to S-85.
+    UNDER_REVIEW = "under_review"
     # S-14: the outcomes of a coordinator's decision on a submitted request.
     # REJECTED is terminal; RETURNED goes back to the organiser to edit and
     # resubmit as the same record. S-36: an approval moves the event to

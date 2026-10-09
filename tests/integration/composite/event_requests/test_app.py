@@ -714,3 +714,127 @@ def test_reassignment_transfers_access_and_repairs_notifications(
             "assigned_coordinator_id": coordinator_session["user_id"],
             "coordinator_assignment_version": 2,
         }
+
+
+# --- TC-EVENTREQUESTS-110 ---------------------------------------------------
+def test_coordinator_overview_groups_and_tracks_reassignment(
+    organiser_session,
+    coordinator_session,
+    second_coordinator_session,
+    lead_session,
+    admin,
+):
+    organiser_headers = {
+        "Cookie": f"sb_access_token={organiser_session['access_token']}"
+    }
+    lead_headers = {"Cookie": f"sb_access_token={lead_session['access_token']}"}
+    first_id = coordinator_session["user_id"]
+    second_id = second_coordinator_session["user_id"]
+
+    admin.schema("users").table("users").update({"name": "Alex Coordinator"}).eq(
+        "id", first_id
+    ).execute()
+    admin.schema("users").table("users").update({"name": "Blair Coordinator"}).eq(
+        "id", second_id
+    ).execute()
+
+    def notification_count(event_id):
+        return len(
+            admin.schema("notifications")
+            .table("notifications")
+            .select("id")
+            .eq("event_id", event_id)
+            .execute()
+            .data
+        )
+
+    def group(response, coordinator_id):
+        return next(
+            item
+            for item in response.json()["coordinators"]
+            if item["coordinator"]["id"] == coordinator_id
+        )
+
+    with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0) as gateway:
+        created = request_with_retry(
+            gateway,
+            "POST",
+            "/event-requests",
+            headers=organiser_headers,
+            json={**SUBMITTED, "name": "S-85 oversight forum"},
+        )
+        assert created.status_code == 201, created.text
+        event = created.json()
+        organiser_session["event_ids"].append(event["id"])
+
+        assigned = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": first_id},
+        )
+        assert assigned.status_code == 200, assigned.text
+        after_assignment_notifications = notification_count(event["id"])
+
+        initial = request_with_retry(
+            gateway,
+            "GET",
+            "/event-requests/coordinator-overview",
+            headers=lead_headers,
+        )
+        assert initial.status_code == 200, initial.text
+        first = group(initial, first_id)
+        second = group(initial, second_id)
+        assert first["active_assignment_count"] == 1
+        assert second["active_assignment_count"] == 0
+        assert second["events"] == []
+        summary = next(row for row in first["events"] if row["id"] == event["id"])
+        assert summary["name"] == "S-85 oversight forum"
+        assert summary["status"] == "submitted"
+        assert summary["organiser"]["id"] == organiser_session["user_id"]
+        assert summary["coordinator"]["name"] == "Alex Coordinator"
+        assert summary["start_date"] == SUBMITTED["start_date"]
+        assert summary["start_time"].startswith(SUBMITTED["start_time"])
+        assert notification_count(event["id"]) == after_assignment_notifications
+
+        moved = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json={
+                "coordinator_id": second_id,
+                "expected_coordinator_id": first_id,
+                "expected_assignment_version": 0,
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        after_reassignment_notifications = notification_count(event["id"])
+
+        refreshed = request_with_retry(
+            gateway,
+            "GET",
+            "/event-requests/coordinator-overview",
+            headers=lead_headers,
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        first = group(refreshed, first_id)
+        second = group(refreshed, second_id)
+        assert first["active_assignment_count"] == 0
+        assert first["events"] == []
+        assert second["active_assignment_count"] == 1
+        moved_summary = next(
+            row for row in second["events"] if row["id"] == event["id"]
+        )
+        assert moved_summary["coordinator"]["name"] == "Blair Coordinator"
+        assert moved_summary["coordinator_assignment_version"] == 1
+        assert notification_count(event["id"]) == after_reassignment_notifications
+
+        denied = request_with_retry(
+            gateway,
+            "GET",
+            "/event-requests/coordinator-overview",
+            headers=organiser_headers,
+        )
+        assert denied.status_code == 403, denied.text

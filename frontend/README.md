@@ -87,6 +87,21 @@ Coordinator, and Organiser receive persistent in-app notifications. Retrying
 after notification failure is idempotent, and no email/external delivery is
 used.
 
+## S-85 coordinator oversight
+
+The Event Coordinator Lead dashboard groups active work under every trusted
+Event Coordinator and keeps Coordinators with zero assignments visible. Each
+group shows its active-assignment count; each event shows its name, lifecycle
+status, organiser, complete date/time window, and current Coordinator.
+
+The overview is loaded from
+`GET /api/event-requests/coordinator-overview`. Its active set is
+`submitted`, `under_review`, `returned`, `planning`, and `confirmed` with a
+non-null assignment. Loading, empty-pool, zero-assignment, and service-failure
+states are distinct. The S-83 unassigned queue and S-84 reassignment controls
+remain on the same dashboard. A successful reassignment moves the event
+between the displayed groups and updates both counts without a reload.
+
 ## Development
 
 From this directory:

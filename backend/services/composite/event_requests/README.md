@@ -14,6 +14,10 @@ Coordinator. Schedule conflicts do not block that decision. Reassignment
 transfers event access and persistently notifies the former Coordinator, new
 Coordinator, and Event Organiser.
 
+Story S-85 adds a read-only oversight view. It groups all active assigned
+events under their current Coordinator, includes trusted Coordinators with no
+active work, and exposes an assignment count for each group.
+
 The existing S-43 Technical Support workflow remains available to assigned
 Event Coordinators.
 
@@ -28,6 +32,7 @@ Event Coordinators.
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted Event Coordinator accounts available for manual selection. |
 | `POST` | `/event-requests/{event_id}/assignment` | Event Coordinator Lead | Assigns the selected Coordinator and creates both notifications. |
 | `GET` | `/event-requests/assigned-active` | Event Coordinator Lead | Lists assigned active events with organiser, current Coordinator, and assignment version. |
+| `GET` | `/event-requests/coordinator-overview` | Event Coordinator Lead | Groups active assigned events under every Coordinator, including zero-assignment Coordinators. |
 | `POST` | `/event-requests/{event_id}/reassignment` | Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
@@ -123,6 +128,60 @@ event write succeeds but notification persistence fails, the endpoint returns
 and upserts any missing rows without duplicates. Once a newer transfer has
 incremented the version, an old retry returns `409` and cannot move the event
 back.
+
+## Coordinator oversight (S-85)
+
+`GET /event-requests/coordinator-overview` accepts no parameters or body. Only
+an authenticated `event_coordinator_lead` may call it. Active means
+`submitted`, `under_review`, `returned`, `planning`, or `confirmed`, and an
+event must have a current `assigned_coordinator_id`. Unassigned, draft,
+rejected, cancelled, and completed events are excluded by Events before the
+composite groups them.
+
+The response contains every trusted Event Coordinator, including those with
+no current work:
+
+```json
+{
+  "coordinators": [
+    {
+      "coordinator": {
+        "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "name": "Alex Coordinator",
+        "email": "alex@example.com"
+      },
+      "active_assignment_count": 1,
+      "events": [
+        {
+          "id": "33333333-3333-4333-8333-333333333333",
+          "name": "Autumn Forum",
+          "status": "under_review",
+          "organiser": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Ada Organiser",
+            "email": "ada@example.com"
+          },
+          "coordinator": {
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "Alex Coordinator",
+            "email": "alex@example.com"
+          },
+          "start_date": "2026-11-18",
+          "start_time": "09:00:00",
+          "end_date": "2026-11-18",
+          "end_time": "12:00:00",
+          "coordinator_assignment_version": 0
+        }
+      ]
+    }
+  ]
+}
+```
+
+The event objects retain the Events response fields in addition to the shown
+summary. S-85 writes no state and creates no notification. S-84 reassignment
+remains the only transfer action; after it succeeds, the next overview read
+places the event under the new Coordinator with updated counts.
 
 ## Technical Support assignment (S-43)
 
