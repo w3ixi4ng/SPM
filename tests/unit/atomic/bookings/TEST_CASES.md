@@ -366,6 +366,15 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
+> **Superseded in part by S-76 (2026-10-09).** Where S-38 and S-76 differ,
+> S-76 applies: two bookings overlap when their *occupied periods* (start −
+> setup to end + turnaround) overlap, so back-to-back is allowed only when
+> the venue's setup and turnaround are 0 or the occupied periods just touch;
+> and Venue Staff's refusal now reads "Can't confirm this booking: it
+> overlaps <event> (<status>), which occupies <venue> on <date> from … to …"
+> (TC-BOOKINGS-042). These cases still pass as written: they use no setup or
+> turnaround, and the new message still identifies the venue, date and time.
+
 ### TC-BOOKINGS-023 — Confirmation rejects every overlap with an existing confirmed booking
 
 - **Scenario:** A venue cannot acquire two confirmed bookings whose date and

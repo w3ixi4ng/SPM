@@ -149,6 +149,10 @@ its grants.
 - **Expected:** One returns `201`. The other returns `409`, saying the winner
   is "already tentatively held on 12 Nov 2026 from …". Exactly one row exists
   for that venue and date.
+  *Changed by S-76 (2026-10-09), which supersedes S-38/S-33 wording:* the
+  refused hold reads "Can't hold this booking: it overlaps spm-test
+  availability (tentatively held), which occupies Studio B on 12 Nov 2026
+  from …". Not re-run since.
 - **Actual:** Of two simultaneous overlapping requests one returned `201` and one `409` "already tentatively held"; exactly one row stored.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_two_simultaneous_overlapping_requests_produce_exactly_one_hold`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.

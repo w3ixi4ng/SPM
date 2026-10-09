@@ -460,6 +460,9 @@ active again and proves S-38 at the confirmation boundary.
   Event B is not confirmed; the page identifies Studio B, `12 Nov 2026`, and
   `09:00`–`12:00` as the conflict. Event B remains Pending after reload, and
   its Coordinator never sees a confirmed booking for that unavailable slot.
+  *S-76 (2026-10-09), which supersedes S-38 where they differ:* the alert
+  now reads "Can't confirm this booking: it overlaps <Event A> (confirmed),
+  which occupies <venue> on 12 Nov 2026 from 09:00 to 12:00." Not re-run since.
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; restored after S-33 and rerun locally on 2026-10-01: 1 passed.

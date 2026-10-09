@@ -215,7 +215,9 @@ test('hold and block conflicts are shown in the server\'s words', () => {
     assert.deepEqual(venueBookingErrorMessages(new ApiError(detail, 409)), [detail])
   }
   assert.equal(bookingDecisionErrorMessage(new ApiError(BLOCKED, 409)), BLOCKED)
-  assert.equal(bookingDecisionErrorMessage(new ApiError(CONFIRMED, 409)), CONFIRMED)
+  // S-76 replaced S-38's wording on approval; a Coordinator's request keeps CONFIRMED.
+  const overlap = "Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 10:00 to 12:00."
+  assert.equal(bookingDecisionErrorMessage(new ApiError(overlap, 409)), overlap)
   assert.match(
     bookingDecisionErrorMessage(new ApiError('This booking request has already been decided', 409)),
     /^This request has already been decided/,

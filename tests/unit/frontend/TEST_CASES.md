@@ -913,6 +913,15 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
+> **Superseded in part by S-76 (2026-10-09).** Where S-38 and S-76 differ,
+> S-76 applies: two bookings overlap when their *occupied periods* (start −
+> setup to end + turnaround) overlap, so back-to-back is allowed only when
+> the venue's setup and turnaround are 0 or the occupied periods just touch;
+> and Venue Staff's refusal now reads "Can't confirm this booking: it
+> overlaps <event> (<status>), which occupies <venue> on <date> from … to …"
+> (TC-BOOKINGS-042). These cases still pass as written: they use no setup or
+> turnaround, and the new message still identifies the venue, date and time.
+
 ### TC-FRONTEND-056 — An overlapping confirmation displays the identified conflict
 
 - **Scenario:** Venue Staff receive actionable conflict feedback and no false
@@ -1234,6 +1243,10 @@ is open `mon`–`fri` `08:00`–`18:00`.
   does this for every `409`. The decision helper, which today recognises only
   "already confirmed", now also recognises "is unavailable from". Other `409`s
   still say "This request has already been decided…".
+  *S-76 (2026-10-09), which supersedes S-38 where they differ:* the decision
+  helper passes S-76's "Can't confirm this booking: it overlaps …" detail
+  instead of S-38's "… is already confirmed on …"; a Coordinator's request
+  keeps the S-38/S-30 wording.
 - **Actual:** All three details returned exactly; the decision helper returned the block and S-38 details, and the generic message otherwise.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — hold and block conflicts are shown in the server's words`
