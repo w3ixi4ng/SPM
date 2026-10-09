@@ -5,7 +5,7 @@ Covers the real notifications service against the test Supabase project.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/atomic/notifications` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
 | Environment | `.env.test`; fresh full stack; notifications schema applied, granted, and exposed |
 | Result | 1 passed |
 
@@ -36,4 +36,5 @@ Covers the real notifications service against the test Supabase project.
   deleting either recipient row followed by a retry recreated only that row.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_assignment_notifications_persist_and_are_recipient_private`;
-  targeted local run against the freshly rebuilt `.env.test` stack: 1 passed.
+  S-83 regression run against the freshly rebuilt S-84 `.env.test` stack on
+  2026-10-09: 1 passed.

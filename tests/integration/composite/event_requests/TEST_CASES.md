@@ -9,9 +9,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | Targeted S-83 case: 1 passed; run together with the notification boundary case: 2 passed |
+| Result | Targeted S-84 case: 1 passed; S-83 regression cases: 2 passed across the composite and notifications suites |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -255,6 +255,11 @@ must no longer execute after S-83 replaces that workflow.
 - **Expected:** Conflict does not block B. Access moves A→B. Exact retries
   preserve B and repair only missing notifications, always ending at exactly
   three. The stale request returns `409` and cannot revert the newer owner.
-- **Actual:** Cannot run until the S-84 SQL is applied to the test project.
-- **Status:** Blocked
-- **Evidence:** `test_app.py::test_reassignment_transfers_access_and_repairs_notifications`
+- **Actual:** The Lead reassigned the event to the overlapping Coordinator;
+  access moved A→B and exactly three version-1 notifications persisted.
+  Repeating created no duplicates, deleting the organiser row followed by a
+  retry repaired it, and the stale A/v0→B request returned `409` after the
+  newer B/v1→A transition without reverting version 2.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_reassignment_transfers_access_and_repairs_notifications`;
+  local run against a freshly rebuilt `.env.test` stack on 2026-10-09: 1 passed.
