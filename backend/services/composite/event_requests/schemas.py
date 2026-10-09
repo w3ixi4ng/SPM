@@ -149,3 +149,11 @@ class CoordinatorAssignmentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     coordinator_id: UUID
+
+
+class CoordinatorReassignmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+    expected_coordinator_id: UUID
+    expected_assignment_version: int = Field(ge=0)

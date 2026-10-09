@@ -3,7 +3,8 @@
 Atomic FastAPI service for persistent in-app notifications. It owns
 `notifications.notifications`; no other service reads or writes that table.
 
-Story: S-83 Assign Event Requests from Unassigned Queue.
+Stories: S-83 Assign Event Requests from Unassigned Queue and S-84 Reassign
+Event Coordinator.
 
 ## Endpoints
 
@@ -33,7 +34,9 @@ Story: S-83 Assign Event Requests from Unassigned Queue.
 ```
 
 All fields are required. The batch contains 1–20 rows and cannot repeat a
-deduplication key. Currently `event_assignment` is the only supported kind.
+deduplication key. Supported kinds are `event_assignment` and
+`event_reassignment`. S-84 sends a three-row reassignment batch whose keys
+include the event's monotonic assignment version.
 
 ## Response
 

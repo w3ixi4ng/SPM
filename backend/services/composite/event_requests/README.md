@@ -9,6 +9,11 @@ trusted Event Coordinator; schedule overlap and current workload do not block
 that choice. Assignment creates persistent in-app notifications for the
 Coordinator and Event Organiser. No email or external notification is sent.
 
+Story S-84 lets the Lead reassign an active event to any other trusted Event
+Coordinator. Schedule conflicts do not block that decision. Reassignment
+transfers event access and persistently notifies the former Coordinator, new
+Coordinator, and Event Organiser.
+
 The existing S-43 Technical Support workflow remains available to assigned
 Event Coordinators.
 
@@ -22,6 +27,8 @@ Event Coordinators.
 | `GET` | `/event-requests/unassigned` | Event Coordinator Lead | Lists submitted requests whose `assigned_coordinator_id` is null, oldest submission first, including organiser details. |
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted Event Coordinator accounts available for manual selection. |
 | `POST` | `/event-requests/{event_id}/assignment` | Event Coordinator Lead | Assigns the selected Coordinator and creates both notifications. |
+| `GET` | `/event-requests/assigned-active` | Event Coordinator Lead | Lists assigned active events with organiser, current Coordinator, and assignment version. |
+| `POST` | `/event-requests/{event_id}/reassignment` | Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
@@ -89,6 +96,34 @@ the idempotent notification batch, creates any missing row, and does not
 duplicate an existing row. A retry with a different Coordinator returns
 `409`.
 
+## Coordinator reassignment (S-84)
+
+Reassignment accepts the selected Coordinator plus the current owner and
+version displayed by the Lead:
+
+```json
+{
+  "coordinator_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "expected_coordinator_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "expected_assignment_version": 0
+}
+```
+
+The selected id must be a different trusted `event_coordinator`. Events are
+eligible while `submitted`, `planning`, `confirmed`, or `returned`; draft,
+rejected, cancelled, unassigned, missing, or stale targets are not changed.
+The atomic write compares the expected owner and version, then increments the
+version. It deliberately performs no availability or conflict check.
+
+A successful transfer creates one persistent `event_reassignment`
+notification for the former Coordinator, new Coordinator, and Organiser.
+Keys are `event_reassignment:{event_id}:{version}:{recipient_id}`. If the
+event write succeeds but notification persistence fails, the endpoint returns
+`502`; repeating the identical request recognizes the committed transition
+and upserts any missing rows without duplicates. Once a newer transfer has
+incremented the version, an old retry returns `409` and cannot move the event
+back.
+
 ## Technical Support assignment (S-43)
 
 The Technical Support `POST` accepts optional notes:
@@ -110,7 +145,7 @@ with no assignee and returns `assignment_state: "unassigned"`.
 | `401` | No valid session. |
 | `403` | The trusted role is not permitted for the endpoint. |
 | `404` | The event is missing or not accessible to the caller. |
-| `409` | Assignment lost a concurrent race, targets another existing Coordinator, or an event is no longer in the required lifecycle state. |
+| `409` | Assignment/reassignment lost a concurrent race, used a stale version, or the event is no longer in the required lifecycle state. |
 | `422` | Invalid input, including selecting an id that is not a trusted Event Coordinator. |
 | `502` | A required atomic service failed or returned an unexpected response. For assignment, retrying the same request is safe. |
 

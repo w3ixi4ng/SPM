@@ -97,6 +97,51 @@ def test_internal_batch_is_idempotent_by_deduplication_key(client, db):
         assert call.kwargs["on_conflict"] == "deduplication_key"
 
 
+def test_internal_batch_accepts_three_reassignment_recipients(client, db):
+    former = RECIPIENT
+    new = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    body = {
+        "notifications": [
+            {
+                "recipient_id": recipient,
+                "event_id": EVENT_ID,
+                "event_name": "Autumn Forum",
+                "kind": "event_reassignment",
+                "message": message,
+                "deduplication_key": f"event_reassignment:{EVENT_ID}:1:{recipient}",
+            }
+            for recipient, message in (
+                (former, "Autumn Forum has been reassigned to Blair."),
+                (new, "You have been assigned to Autumn Forum."),
+                (ORGANISER, "Autumn Forum has been reassigned from Alex to Blair."),
+            )
+        ]
+    }
+    rows = [
+        notification_row(
+            recipient,
+            index,
+            kind="event_reassignment",
+            message=item["message"],
+            deduplication_key=item["deduplication_key"],
+        )
+        for index, (recipient, item) in enumerate(
+            ((row["recipient_id"], row) for row in body["notifications"]), start=1
+        )
+    ]
+    db.schema.return_value.table.return_value.upsert.return_value.execute.return_value = (
+        SimpleNamespace(data=rows)
+    )
+
+    response = client.post("/internal/notifications", json=body)
+
+    assert response.status_code == 201
+    assert len(response.json()) == 3
+    sent = db.schema.return_value.table.return_value.upsert.call_args.args[0]
+    assert {row["recipient_id"] for row in sent} == {former, new, ORGANISER}
+    assert all(row["kind"] == "event_reassignment" for row in sent)
+
+
 def test_duplicate_keys_in_one_batch_are_rejected_before_storage(client, db):
     body = batch()
     body["notifications"][1]["deduplication_key"] = body["notifications"][0]["deduplication_key"]

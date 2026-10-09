@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
 | Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 122 passed in this suite; 711 passed across `tests/unit` |
+| Result | 132 passed in this suite; 735 passed across `tests/unit` |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -1526,3 +1526,61 @@ the full unit run on 2026-10-08.
 - **Actual:** Missing returned `404`; draft, returned, planning, and a different existing owner returned `409` without overwrite.
 - **Status:** Pass
 - **Evidence:** `test_s83.py::test_internal_assignment_rejects_a_different_existing_owner`, `test_s83.py::test_internal_assignment_rejects_wrong_state_targets`, `test_s83.py::test_internal_assignment_returns_404_for_a_missing_event`
+
+---
+
+## S-84 — atomic coordinator reassignment
+
+Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
+confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
+
+## TC-EVENTS-112 — active assigned events are listed for Lead orchestration
+
+- **Scenario:** The atomic service supplies the assigned work that can be
+  reassigned without making role or profile decisions.
+- **Steps:** `GET /internal/events/assigned-active`.
+- **Expected:** Storage selects assigned events in `submitted`, `planning`,
+  `confirmed`, or `returned`, excludes null owners, and orders newest updates
+  first. Draft, rejected, and cancelled rows cannot enter the result.
+- **Actual:** The query used the four active statuses, excluded null owners,
+  and ordered by newest update.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_internal_active_assignments_filter_status_owner_and_order`
+
+## TC-EVENTS-113 — reassignment compare-and-set transfers an active event
+
+- **Scenario:** A request based on the current owner and assignment version
+  changes exactly one event without checking schedule conflicts.
+- **Steps:** Reassign coordinator A at version 0 to B.
+- **Expected:** `200`; B becomes owner, A is retained as the previous owner,
+  version becomes 1, and `reassignment_created=true`. The write is conditional
+  on id, active status, A, and version 0; no schedule query occurs.
+- **Actual:** The conditional write transferred A to B, retained A as the
+  previous owner, and incremented version 0 to 1 without an availability call.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_internal_reassignment_uses_versioned_compare_and_set`
+
+## TC-EVENTS-114 — exact retry is idempotent but stale requests cannot revert a newer owner
+
+- **Scenario:** Notification repair is safe even after later reassignment.
+- **Steps:** Retry A/v0→B after it committed; then retry that request after a
+  later B/v1→A transition.
+- **Expected:** The first retry returns `200`, version 1 and
+  `reassignment_created=false`; the stale retry returns `409` and performs no
+  write. A request selecting the current owner without matching retry metadata
+  also returns `409`.
+- **Actual:** The exact retry returned the stored transition without a write;
+  stale-version and same-owner requests returned `409`.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_internal_reassignment_retry_is_idempotent`, `test_s84.py::test_internal_reassignment_rejects_stale_or_same_owner_requests`
+
+## TC-EVENTS-115 — missing and ineligible events are unchanged
+
+- **Scenario:** Rejected, cancelled, draft, unassigned, and missing events are
+  not reassignment targets.
+- **Expected:** Missing returns `404`; every other invalid state returns `409`;
+  no unconditional update occurs.
+- **Actual:** Missing returned `404`; every ineligible or unassigned row
+  returned `409` without an update.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_internal_reassignment_rejects_missing_ineligible_and_unassigned_events`

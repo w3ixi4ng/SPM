@@ -30,8 +30,14 @@ create table if not exists notifications.notifications (
   constraint notifications_deduplication_key_not_blank
     check (btrim(deduplication_key) <> ''),
   constraint notifications_kind_allowed
-    check (kind in ('event_assignment'))
+    check (kind in ('event_assignment', 'event_reassignment'))
 );
+
+-- S-84 upgrade path for an existing notifications table.
+alter table notifications.notifications
+  drop constraint if exists notifications_kind_allowed;
+alter table notifications.notifications add constraint notifications_kind_allowed
+  check (kind in ('event_assignment', 'event_reassignment'));
 
 -- Every inbox query filters by recipient and shows newest first.
 create index if not exists notifications_recipient_created_idx

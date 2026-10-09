@@ -55,6 +55,20 @@ notification for each party. Retrying an assignment after a notification
 service failure is safe and does not duplicate either message. The product
 does not send assignment email or any external notification.
 
+## S-84 coordinator reassignment
+
+The Lead dashboard also lists assigned active events with their organiser and
+current Coordinator. The Lead chooses any different trusted Coordinator; the
+UI does not filter scheduling conflicts. A successful action updates the card
+without a reload and transfers the event between Coordinator workspaces.
+
+The browser submits the displayed current owner and assignment version with
+the new Coordinator id. A stale `409` asks the Lead to reload rather than
+silently overwriting a newer transfer. The former Coordinator, new
+Coordinator, and Organiser receive persistent in-app notifications. Retrying
+after notification failure is idempotent, and no email/external delivery is
+used.
+
 ## Development
 
 From this directory:

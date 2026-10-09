@@ -4,7 +4,8 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
 `test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
-S-83 also adds `test_event_assignments.mjs` and `test_notifications.mjs`.
+S-83 adds `test_event_assignments.mjs` and `test_notifications.mjs`; S-84
+adds `test_event_reassignments.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -12,9 +13,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
 | Environment | Node.js; no network or Supabase |
-| Result | 100 passed |
+| Result | 104 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -1422,3 +1423,42 @@ and both in-app notification recipients confirmed by the developer on
 - **Actual:** Both recipient dashboards render the shared server-backed inbox with message/time, loading, empty, and error states; no external delivery helper exists.
 - **Status:** Pass
 - **Evidence:** `test_notifications.mjs` — “organiser and coordinator dashboards render the persistent inbox states”
+
+## S-84 — Reassign Event Coordinator
+
+Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
+confirmed by the developer on 2026-10-08. Executed in the full Node unit run
+on 2026-10-09.
+
+### TC-FRONTEND-085 — reassignment helpers preserve the versioned API contract
+
+- **Expected:** The browser lists `/event-requests/assigned-active` and posts
+  target id, expected current id, and expected assignment version to
+  `/event-requests/{id}/reassignment`, always through credentialled Kong paths.
+  Errors provide actionable Lead feedback.
+- **Actual:** Both credentialled Kong routes and the three versioned request
+  fields matched the contract; errors mapped to actionable messages.
+- **Status:** Pass
+- **Evidence:** `test_event_reassignments.mjs::reassignment helpers use versioned composite routes`
+
+### TC-FRONTEND-086 — the Lead can reassign from the assigned-event section
+
+- **Expected:** Each active card shows event, organiser, current Coordinator,
+  and a choice containing every other Coordinator. Successful reassignment
+  updates the displayed owner/version without reload; the same owner cannot be
+  selected and stale conflicts ask the Lead to reload.
+- **Actual:** The assigned-event cards show both people, exclude the current
+  owner from choices, update locally after success, and expose empty/loading
+  states.
+- **Status:** Pass
+- **Evidence:** `test_event_reassignments.mjs::lead dashboard presents and updates active assignments`
+
+### TC-FRONTEND-087 — reassignment notifications remain visible to all recipients
+
+- **Expected:** Existing persistent inbox rendering supports
+  `event_reassignment` messages for former Coordinator, new Coordinator, and
+  Organiser across reload, with no email helper.
+- **Actual:** `event_reassignment` is accepted by the existing server-backed
+  inbox and the shared panel contains no external-delivery code.
+- **Status:** Pass
+- **Evidence:** `test_event_reassignments.mjs::reassignment uses the persistent in-app inbox`

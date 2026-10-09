@@ -6,11 +6,12 @@ Auth are faked; no network, database, or Docker is used.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/notifications` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue` |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
 | Environment | Unit fakes only |
-| Result | Pass — 8 passed |
+| Result | Pass — 9 passed; 735 passed across `tests/unit` |
 
-**Story:** S-83 Assign Event Requests from Unassigned Queue.
+**Stories:** S-83 Assign Event Requests from Unassigned Queue and S-84
+Reassign Event Coordinator.
 
 **Confirmed notification requirement:** a successful assignment creates a
 persistent in-app notification for both the newly assigned Event Coordinator
@@ -110,3 +111,16 @@ and the Event Organiser. No email or external delivery is required.
 - **Actual:** Select and upsert failures returned safe `500` responses without fabricated rows.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_notification_storage_failures_are_safe`
+
+## TC-NOTIFICATIONS-008 — reassignment accepts all three persistent recipients
+
+- **Scenario:** S-84 uses the same atomic inbox for the former Coordinator,
+  new Coordinator, and Event Organiser.
+- **Steps:** Submit one `event_reassignment` batch containing all three.
+- **Expected:** `201`; one upsert contains exactly three distinct recipients
+  and version-scoped deduplication keys. A repeated batch is covered by the
+  same unique-key idempotency rule as TC-NOTIFICATIONS-006.
+- **Actual:** One upsert accepted the three distinct reassignment recipients
+  and their version-scoped keys.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_internal_batch_accepts_three_reassignment_recipients`
