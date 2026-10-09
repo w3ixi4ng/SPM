@@ -1,15 +1,15 @@
 # Test cases — event_requests service (unit)
 
-Covers `test_app.py` and `test_s83.py`: the composite workflows spanning the
+Covers `test_app.py`, `test_s83.py`, and `test_s84.py`: the composite workflows spanning the
 events, users, and notifications atomic services. All three outbound HTTP
 clients are faked; no network, database, or Docker.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
 | Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 56 passed, 17 superseded S-12 cases skipped; 711 passed across `tests/unit` |
+| Result | 69 passed, 17 superseded S-12 cases skipped; 735 passed across `tests/unit` |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -821,3 +821,70 @@ branch `S-83/assign-event-requests-from-unassigned-queue`.
 - **Actual:** Event queue, organiser lookup, event assignment, and notification connection failures returned the named safe `502` without fabricated success.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_s83_dependency_failures_are_safe`
+
+---
+
+## S-84 — Reassign Event Coordinator
+
+Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
+confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
+
+## TC-EVENTREQUESTS-053 — only a Lead can list or reassign active assignments
+
+- **Expected:** A Lead can call the assigned-active list and reassignment
+  action. Authenticated non-Leads receive `403`; no session receives `401`;
+  downstream services are untouched on denial.
+- **Actual:** Non-Leads and missing sessions were rejected before any events
+  or notification call.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_only_a_lead_can_list_or_reassign_active_assignments`
+
+## TC-EVENTREQUESTS-054 — assigned events include trusted organiser and owner profiles
+
+- **Expected:** The Lead list returns basic event information, assignment
+  version, organiser profile, and current Coordinator profile. Missing profile
+  data falls back safely to the opaque id.
+- **Actual:** The Lead list joined organiser and current-owner profiles while
+  preserving the event's assignment version.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_lead_lists_active_assignments_with_profiles`
+
+## TC-EVENTREQUESTS-055 — any trusted different Coordinator may be selected
+
+- **Expected:** A trusted Coordinator is accepted despite an overlapping
+  schedule; a non-Coordinator or selecting the current owner returns `422`
+  before the event write.
+- **Actual:** A trusted different Coordinator was accepted without a load
+  query; same-owner and untrusted targets returned `422`.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_lead_reassigns_without_schedule_filtering`, `test_s84.py::test_reassignment_rejects_invalid_or_same_target`
+
+## TC-EVENTREQUESTS-056 — reassignment notifies former owner, new owner, and organiser
+
+- **Expected:** One internal notification batch contains exactly those three
+  recipients with `event_reassignment` messages and keys scoped by event,
+  returned assignment version, and recipient. No external channel is called.
+- **Actual:** One batch contained exactly the former owner, new owner, and
+  organiser with version-scoped reassignment keys.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_reassignment_creates_three_persistent_notifications`
+
+## TC-EVENTREQUESTS-057 — retry repairs any missing reassignment notification
+
+- **Expected:** If the event transition commits but notification persistence
+  fails, the identical request returns `502`; retry receives the same version
+  and previous owner, preserves the new owner, and sends the same three keys.
+  Notification upsert creates only missing rows and never duplicates.
+- **Actual:** The first notification failure returned `502`; retry used the
+  same three keys and preserved the committed event transition.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_reassignment_retry_repairs_notifications_idempotently`
+
+## TC-EVENTREQUESTS-058 — missing, ineligible, stale, and dependency failures remain explicit
+
+- **Expected:** Atomic `404`/`409` results are preserved. Users, events, and
+  notification outages return named `502` responses; later calls are skipped.
+- **Actual:** Atomic `404`/`409` responses were preserved and a simulated
+  events outage returned the named `502` without fabricated success.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_reassignment_preserves_atomic_conflicts`, `test_s84.py::test_reassignment_dependency_failures_are_safe`

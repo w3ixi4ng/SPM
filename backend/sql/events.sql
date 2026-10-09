@@ -57,7 +57,12 @@ create table if not exists events.events (
   -- schema per service rule (see AGENTS.md) does not allow. Like
   -- organiser_id, it is an opaque id the users service is the source of
   -- truth for.
-  assigned_coordinator_id    uuid,
+  assigned_coordinator_id         uuid,
+  -- S-84: the previous owner and monotonic version make a reassignment
+  -- retryable across the events/notifications service boundary. The version
+  -- also prevents a delayed old retry from reverting a newer transfer.
+  previous_coordinator_id         uuid,
+  coordinator_assignment_version integer not null default 0,
 
   -- S-43: requested by the assigned Coordinator during planning. The staff
   -- id is opaque: users remains the source of truth and no cross-schema
@@ -236,8 +241,42 @@ create table if not exists events.events (
           or (assigned_technical_support_id is not null and technical_support_assigned_at is not null)
         )
       )
+    ),
+
+  constraint events_coordinator_assignment_version_nonnegative
+    check (coordinator_assignment_version >= 0),
+
+  constraint events_previous_coordinator_distinct
+    check (
+      previous_coordinator_id is null
+      or (
+        assigned_coordinator_id is not null
+        and previous_coordinator_id <> assigned_coordinator_id
+      )
     )
 );
+
+-- S-84 upgrade path for existing projects. Already-assigned events start at
+-- version 0; their first real reassignment moves to version 1.
+alter table events.events
+  add column if not exists previous_coordinator_id uuid,
+  add column if not exists coordinator_assignment_version integer not null default 0;
+
+alter table events.events
+  drop constraint if exists events_coordinator_assignment_version_nonnegative;
+alter table events.events add constraint events_coordinator_assignment_version_nonnegative
+  check (coordinator_assignment_version >= 0);
+
+alter table events.events
+  drop constraint if exists events_previous_coordinator_distinct;
+alter table events.events add constraint events_previous_coordinator_distinct
+  check (
+    previous_coordinator_id is null
+    or (
+      assigned_coordinator_id is not null
+      and previous_coordinator_id <> assigned_coordinator_id
+    )
+  );
 
 -- S-43 upgrade path for an existing events table. These statements are
 -- intentionally idempotent so this canonical file can be applied to both an

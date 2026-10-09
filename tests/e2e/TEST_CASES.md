@@ -6,7 +6,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_record_equipment.py`, `test_update_equipment.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
 `test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
-`test_venue_availability.py` and `test_assign_event_request.py`.
+`test_venue_availability.py`, `test_assign_event_request.py`, and
+`test_reassign_event_coordinator.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -15,9 +16,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, commit `86d0265` plus test-evidence working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-83 journey: 1 passed; full suite previously 17 passed |
+| Result | Targeted S-84 journey: 1 passed; S-83 regression journey: 1 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -778,3 +779,26 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Status:** Pass
 - **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified[chromium]`;
   local Chromium run against the freshly rebuilt `.env.test` stack: 1 passed.
+
+## TC-E2E-227 — Lead reassigns an active event and all affected users are informed
+
+- **Scenario:** A real browser proves the S-84 Lead controls, access transfer,
+  and persistent in-app notifications.
+- **Pre-conditions:** Fresh `.env.test` stack with S-84 SQL; organiser, Lead,
+  coordinator A, and coordinator B; an active event assigned to A.
+- **Steps:** As Lead, open assigned events and move A→B. Sign in as A, B, and
+  the organiser in turn and inspect event access and notifications, including
+  reload persistence.
+- **Expected:** The Lead sees the current owner and can select B despite
+  overlap. The card updates to B; A loses event access and receives the
+  removal notification; B gains access and receives the assignment
+  notification; the organiser sees the owner-change notification. All three
+  persist after reload and no external delivery occurs.
+- **Actual:** The Lead card showed Alex as current owner and reassigned the
+  event to Blair despite Blair's overlap. Alex lost the event and saw the
+  removal notification; Blair gained the event and saw the assignment; the
+  organiser saw the named owner change. Every message survived reload.
+- **Status:** Pass
+- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
+  local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
+  1 passed.

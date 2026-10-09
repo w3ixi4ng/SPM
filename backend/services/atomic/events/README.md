@@ -35,6 +35,8 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
 | `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
+| `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `confirmed`, and `returned` events, newest update first. |
+| `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
@@ -183,6 +185,7 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "required_facilities": ["projector"],
   "required_accessibility": ["wheelchair_access"],
   "assigned_coordinator_id": null,
+  "coordinator_assignment_version": 0,
   "technical_support_required": false,
   "technical_support_details": null,
   "assigned_technical_support_id": null,
@@ -196,9 +199,12 @@ Create endpoints return `201`; list, get, update, and submit-existing return
 }
 ```
 
-`assigned_coordinator_id` is null until the `event_requests` composite
-assigns a coordinator on submission; an organiser's own request can never set
-it. See [Internal routes](#internal-routes-composite-only).
+`assigned_coordinator_id` is null until the `event_requests` composite records
+the Lead's assignment; an organiser's own request can never set it.
+`coordinator_assignment_version` starts at `0` and increments for each real
+S-84 owner-to-owner transfer. The composite supplies the current owner and
+version when reassigning, so a stale request cannot overwrite newer work.
+See [Internal routes](#internal-routes-composite-only).
 
 The four `technical_support_*` fields are controlled by the S-43 assignment
 flow. They record whether support was explicitly requested, the optional

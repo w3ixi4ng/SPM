@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from clients import get_events_client, get_notifications_client, get_users_client
 from schemas import (
     CoordinatorAssignmentCreate,
+    CoordinatorReassignmentCreate,
     EventRequestSubmit,
     EventRequestUpdate,
     TechnicalSupportRequest,
@@ -123,6 +124,20 @@ async def _coordinator_pool(users: httpx.AsyncClient) -> list[dict]:
     if response.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail="Users service unavailable")
     return response.json()
+
+
+async def _profiles_by_id(users: httpx.AsyncClient, ids: list[str]) -> dict[str, dict]:
+    unique_ids = list(dict.fromkeys(ids))
+    if not unique_ids:
+        return {}
+    try:
+        response = await users.post("/internal/users/profiles", json={"ids": unique_ids})
+    except httpx.HTTPError as exc:
+        logger.exception("Users service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Users service unavailable") from exc
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Users service unavailable")
+    return {profile["id"]: profile for profile in response.json()}
 
 
 async def _assigned_event(
@@ -324,16 +339,7 @@ async def list_unassigned_requests(
 
     rows = response.json()
     organiser_ids = list(dict.fromkeys(row["organiser_id"] for row in rows))
-    profiles: dict[str, dict] = {}
-    if organiser_ids:
-        try:
-            profile_response = await users.post("/internal/users/profiles", json={"ids": organiser_ids})
-        except httpx.HTTPError as exc:
-            logger.exception("Users service unavailable", exc_info=exc)
-            raise HTTPException(status_code=502, detail="Users service unavailable") from exc
-        if profile_response.status_code != status.HTTP_200_OK:
-            raise HTTPException(status_code=502, detail="Users service unavailable")
-        profiles = {profile["id"]: profile for profile in profile_response.json()}
+    profiles = await _profiles_by_id(users, organiser_ids)
 
     return [
         {
@@ -354,6 +360,48 @@ async def list_assignment_coordinators(
 ):
     await _authenticate_lead(request, users)
     return await _coordinator_pool(users)
+
+
+@app.get("/event-requests/assigned-active")
+async def list_active_assignments(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    await _authenticate_lead(request, users)
+    try:
+        response = await events.get("/internal/events/assigned-active")
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+
+    rows = response.json()
+    profile_ids = [
+        profile_id
+        for row in rows
+        for profile_id in (row["organiser_id"], row["assigned_coordinator_id"])
+    ]
+    profiles = await _profiles_by_id(users, profile_ids)
+    return [
+        {
+            **row,
+            "organiser": profiles.get(
+                row["organiser_id"],
+                {"id": row["organiser_id"], "name": "Unknown organiser", "email": None},
+            ),
+            "coordinator": profiles.get(
+                row["assigned_coordinator_id"],
+                {
+                    "id": row["assigned_coordinator_id"],
+                    "name": "Unknown coordinator",
+                    "email": None,
+                },
+            ),
+        }
+        for row in rows
+    ]
 
 
 @app.post("/event-requests/{event_id}/assignment")
@@ -411,6 +459,99 @@ async def assign_event_request(
                 "event_name": event_name,
                 "kind": "event_assignment",
                 "message": f"{coordinator['name']} has been assigned to {event_name}.",
+                "deduplication_key": f"{key_prefix}:{organiser_id}",
+            },
+        ]
+    }
+    try:
+        notification_response = await notifications.post(
+            "/internal/notifications", json=batch
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Notifications service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Notifications service unavailable") from exc
+    if notification_response.status_code != status.HTTP_201_CREATED:
+        raise HTTPException(status_code=502, detail="Notifications service unavailable")
+    return event
+
+
+@app.post("/event-requests/{event_id}/reassignment")
+async def reassign_event_request(
+    event_id: UUID,
+    payload: CoordinatorReassignmentCreate,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    await _authenticate_lead(request, users)
+    target_id = str(payload.coordinator_id)
+    expected_id = str(payload.expected_coordinator_id)
+    if target_id == expected_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose a different valid Event Coordinator",
+        )
+
+    coordinators = await _coordinator_pool(users)
+    by_id = {item["id"]: item for item in coordinators}
+    target = by_id.get(target_id)
+    if target is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Selected user is not an Event Coordinator",
+        )
+
+    try:
+        event_response = await events.post(
+            f"/internal/events/{event_id}/reassignment",
+            json=payload.model_dump(mode="json"),
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if event_response.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT):
+        raise HTTPException(
+            status_code=event_response.status_code,
+            detail=event_response.json().get("detail"),
+        )
+    if event_response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+
+    event = event_response.json()
+    event_name = event["name"]
+    organiser_id = event["organiser_id"]
+    previous_id = event["previous_coordinator_id"]
+    version = event["coordinator_assignment_version"]
+    previous = by_id.get(
+        previous_id,
+        {"id": previous_id, "name": "the previous Event Coordinator"},
+    )
+    key_prefix = f"event_reassignment:{event_id}:{version}"
+    batch = {
+        "notifications": [
+            {
+                "recipient_id": target_id,
+                "event_id": str(event_id),
+                "event_name": event_name,
+                "kind": "event_reassignment",
+                "message": f"You have been assigned to {event_name}.",
+                "deduplication_key": f"{key_prefix}:{target_id}",
+            },
+            {
+                "recipient_id": previous_id,
+                "event_id": str(event_id),
+                "event_name": event_name,
+                "kind": "event_reassignment",
+                "message": f"{event_name} has been reassigned to {target['name']}. You are no longer the assigned Event Coordinator.",
+                "deduplication_key": f"{key_prefix}:{previous_id}",
+            },
+            {
+                "recipient_id": organiser_id,
+                "event_id": str(event_id),
+                "event_name": event_name,
+                "kind": "event_reassignment",
+                "message": f"{event_name} has been reassigned from {previous['name']} to {target['name']}.",
                 "deduplication_key": f"{key_prefix}:{organiser_id}",
             },
         ]
