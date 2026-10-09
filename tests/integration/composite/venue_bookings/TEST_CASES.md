@@ -132,6 +132,11 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   4. Reassign test event to C2 using controlled fixture setup; read as C1,C2,C3.
 - **Test data:** reason='Room needs repairs'; alternative='Try Studio C on Friday'; C1 original, C2 new assigned, C3 unrelated.
 - **Expected:** Decided rows leave pending list; Coordinator reads Confirmed/Rejected with exact saved explanation. The original requester loses access after reassignment, as before; currently assigned Coordinators retain access; unrelated Coordinators are denied. Requester access after reassignment remains an open team requirement. Requests and event/venue records are not rewritten by decision.
+  *Clarified 2026-10-09:* "not rewritten" means every field the event and
+  venue rows had before keeps its value. A column added to the shared test
+  project mid-run (CI on S-76 failed when `events.events` gained
+  `previous_coordinator_id` and `coordinator_assignment_version` outside the
+  repo's SQL) is not a rewrite.
 - **Actual:** Approval and rejection passed through Kong and the real services; decided requests left the pending list; the permitted Coordinator saw Confirmed and Rejected with the exact saved explanation. Existing reassignment access remained unchanged, and event and venue records were not rewritten.
 - **Status:** Pass
 - **Evidence:** `test_decision.py::test_saved_decisions_visible_only_under_existing_event_access`; local `.env.test` execution.
