@@ -681,7 +681,13 @@ a caller that passes none gets today's behaviour). Two bookings clash when
 ## S-76 — detect booking conflicts incl. setup and turnaround
 
 Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
-Confirmed by the developer on 2026-10-09. Not yet executed.
+Confirmed by the developer on 2026-10-09. Unit cases last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0: `pytest tests/unit` 814 passed, 17 skipped.
+
+> **Changed by S-76:** the overlap detail Venue Staff get on approve and hold
+> is now the TC-BOOKINGS-042 wording. The tests behind TC-BOOKINGS-040 and
+> the S-33/S-38 overlap tests (`test_decision.py`, `test_hold.py`) assert it
+> instead of the old `… is already confirmed on …` text; what they check is
+> otherwise unchanged.
 
 S-75 already widens every overlap check by the venue's setup and turnaround
 (TC-BOOKINGS-039, 040). S-76 adds two things here: an approval or hold that
@@ -720,9 +726,9 @@ never names another event.
   4. `"Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 12:00 to 13:00."` — no setup/turnaround clause.
   5. The step-1 detail, not a 500.
   In every case B is not updated and stays pending.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Approve and hold refused with the specified details, a held neighbour named as tentatively held, 0/0 without the bracket, and the 23P01 race gave the step-1 detail; B never updated.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_refused_approval_names_the_booking_and_its_occupied_period`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_refused_hold_says_the_same`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_held_booking_in_the_way_is_named_as_tentatively_held`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_with_no_setup_or_turnaround_the_occupied_period_is_the_event`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_race_lost_at_the_database_gives_the_same_message`
 
 ### TC-BOOKINGS-043 — every live booking from a date can be listed at once
 
@@ -741,6 +747,6 @@ never names another event.
   3. As step 1, also filtered to Studio B.
   Existing filters (`status=pending|held|actionable`, `event_id`, the
   venue/date-range calendar read) behave as before.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Live list filtered held/confirmed from the date with no venue filter, ordered venue, date, start; 422 without `from`; narrowed by `venue_id`. Existing list tests still pass.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_every_live_booking_from_a_date_is_listed_at_once`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_needs_a_start_date`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_can_be_narrowed_to_one_venue`

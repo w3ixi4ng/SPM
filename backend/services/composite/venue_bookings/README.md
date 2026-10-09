@@ -33,6 +33,7 @@ all read attempts fail, the existing safe `502` response is returned.
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
 | `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround. |
+| `GET` | `/venue-bookings/clashes` | `venue_staff` | S-76: the same pairs for every venue that has any — Venue Staff's standing clashes to review. |
 | `GET` | `/venue-bookings/{id}` | `venue_staff` | S-75: one request, with its clash warning, for its own page. Decided requests are returned too. |
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30: mark whole days of a venue unavailable. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
@@ -168,8 +169,10 @@ for request/response examples, SQL migration and exact test commands.
 
 Errors use `{"detail":"..."}`: 401 `Not authenticated`; 403 `Permission denied`;
 404 `Booking not found`; 409 `This booking request has already been decided`,
-or an S-38 conflict such as `Studio B is already confirmed on 12 Nov 2026
-from 10:00 to 12:00.`;
+or an S-76 conflict naming the booking in the way, such as `Can't confirm
+this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on
+12 Nov 2026 from 09:30 to 12:45 (event 10:00–12:00, 30 min setup, 45 min
+turnaround).` (holds: `Can't hold this booking: …`);
 422 `Please check the decision and provide a reason or alternative when rejecting`
 for downstream validation. Local body validation uses the existing 422
 `detail`/`errors` response. Unavailable downstream services return safe 502
@@ -292,6 +295,16 @@ from the venues service each time). This service applies that everywhere:
     ```
 - **Calendar:** `GET /venue-bookings/availability` adds `setup_minutes` and
   `turnaround_minutes`.
+- **Clashes to review (S-76):** `GET /venue-bookings/clashes` with no
+  `venue_id` (Venue Staff) reads every venue and every live booking from today
+  (`GET /bookings?status=live&from=`) once, and returns the venues with at
+  least one clashing pair, by venue name, each pair as above:
+  ```json
+  {"venues": [{"venue_id": "…", "venue_name": "Hall C", "setup_minutes": 15, "turnaround_minutes": 15, "pairs": [ … ]}]}
+  ```
+  `{"venues": []}` when nothing clashes. A booking whose venue no longer
+  exists is skipped; venues or bookings failing is `502`, never an empty
+  list. Other roles `403`.
 
 `GET /venue-bookings/{id}` (Venue Staff) returns one request as the pending
 list does, with `clashes`; `404` `{"detail": "Booking not found"}`; other

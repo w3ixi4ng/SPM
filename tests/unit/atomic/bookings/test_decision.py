@@ -128,7 +128,11 @@ def test_confirmation_reports_existing_overlap(client, db, auth, start_time, end
     response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
 
     assert response.status_code == 409
-    assert response.json()['detail'] == 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
+    # S-76: Venue Staff are told whose booking it is and when it occupies the venue.
+    assert response.json()['detail'] == (
+        "Can't confirm this booking: it overlaps Alumni networking evening (confirmed), "
+        'which occupies Studio B on 12 Nov 2026 from 10:00 to 12:00.'
+    )
     table(db).update.assert_not_called()
 
 
@@ -168,4 +172,8 @@ def test_database_overlap_race_returns_identified_conflict(client, db, auth):
     response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
 
     assert response.status_code == 409
-    assert response.json()['detail'] == 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
+    # S-76: Venue Staff are told whose booking it is and when it occupies the venue.
+    assert response.json()['detail'] == (
+        "Can't confirm this booking: it overlaps Alumni networking evening (confirmed), "
+        'which occupies Studio B on 12 Nov 2026 from 10:00 to 12:00.'
+    )

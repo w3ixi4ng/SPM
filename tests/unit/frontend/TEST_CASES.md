@@ -1596,7 +1596,7 @@ and both in-app notification recipients confirmed by the developer on
 ## S-76 — detect booking conflicts incl. setup and turnaround
 
 Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
-Confirmed by the developer on 2026-10-09. Not yet executed.
+Confirmed by the developer on 2026-10-09. Last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0: `node --test tests/unit/frontend/test_*.mjs` 113 passed.
 
 ### TC-FRONTEND-096 — a refused approval or hold shows which booking is in the way
 
@@ -1608,9 +1608,9 @@ Confirmed by the developer on 2026-10-09. Not yet executed.
 - **Expected:** The conflict detail is returned verbatim. The "already
   decided" 409 still gives "This request has already been decided. Reload
   the list to see the latest requests."
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Both conflict details returned verbatim; "already decided" gave the existing message.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_booking_conflicts.mjs — a refused approval or hold shows which booking is in the way`
 
 ### TC-FRONTEND-097 — Venue Staff's clashes to review are fetched and labelled
 
@@ -1622,6 +1622,6 @@ Confirmed by the developer on 2026-10-09. Not yet executed.
   `venue_id`. Headings: "Studio B · 1 pair · setup 30 min, turnaround 45 min"
   and "Hall C · 2 pairs · setup 15 min, turnaround 15 min". Each pair still
   reads as `clashPairLabel` (TC-FRONTEND-085).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** `GET /api/venue-bookings/clashes` with credentials and no `venue_id`; both headings and the pair label as specified.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_booking_conflicts.mjs — Venue Staff's clashes to review are fetched and labelled`

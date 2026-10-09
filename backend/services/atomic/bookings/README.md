@@ -23,6 +23,7 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release a replaced request. |
 | `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or on a blocked day is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
+| `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/bookings?venue_id={id}&from={date}&to={date}` | S-30: one venue's requests dated in the range, every status, by date then start time. |
 | `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
@@ -170,7 +171,7 @@ Auth app metadata; time comes from the server. No request snapshot is rewritten.
 | 401 | `{"detail":"Not authenticated"}` — sign in again, including after an expired access token |
 | 403 | `{"detail":"Permission denied"}` — only Venue Staff may decide |
 | 404 | `{"detail":"Booking not found"}` |
-| 409 | Already decided: `{"detail":"This booking request has already been decided"}`. Overlap: `{"detail":"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00."}` |
+| 409 | Already decided: `{"detail":"This booking request has already been decided"}`. Overlap (S-76): `{"detail":"Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 10:00 to 12:00."}` |
 | 422 | `{"detail":"Please check the details you entered","errors":{"body":"Value error, Provide a reason or alternative to reject this request"}}` — body validation; field/path errors vary |
 | 500 | `{"detail":"Booking storage unavailable"}` — database failure; unexpected failures use `{"detail":"Internal server error"}` |
 
@@ -346,4 +347,20 @@ booking times: it blocks raw overlaps even under a race, but not the
 setup/turnaround gap. Storing each venue's times on its bookings to enforce
 the gap there would mean rewriting bookings whenever a venue's times change,
 which S-75 says must never silently alter bookings.
+
+### S-76 — Venue Staff's refusal names the booking in the way
+
+`POST /bookings/{id}/decision` (approve) and `POST /bookings/{id}/hold` are
+Venue Staff only, so their overlap `409` names the event in the way and gives
+the whole period it occupies the venue:
+
+```json
+{"detail": "Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 09:30 to 12:45 (event 10:00–12:00, 30 min setup, 45 min turnaround)."}
+```
+
+A hold says `Can't hold this booking: …`; a held booking in the way is
+`(tentatively held)`; with no setup or turnaround the bracketed part is left
+off. The same detail comes back when the database constraint wins a race.
+`POST /bookings` (a Coordinator's request) keeps the S-75 wording and never
+names another event.
 

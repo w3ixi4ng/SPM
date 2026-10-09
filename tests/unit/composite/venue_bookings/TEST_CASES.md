@@ -1048,7 +1048,7 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 ## S-76 — detect booking conflicts incl. setup and turnaround
 
 Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
-Confirmed by the developer on 2026-10-09. Not yet executed.
+Confirmed by the developer on 2026-10-09. Unit cases last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0.
 
 **Acceptance criteria → cases (all layers)**
 
@@ -1087,9 +1087,9 @@ The conditions agreed with the developer on 2026-10-09:
   `POST /venue-bookings/{B}/hold`.
 - **Expected:** `409` with each detail unchanged. A `409` "This booking
   request has already been decided" still maps as before.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Both 409 details reached Venue Staff unchanged; "already decided" still mapped as before.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_a_refused_approval_reaches_venue_staff_unchanged`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_an_already_decided_request_still_says_so`
 
 ### TC-VENUEBOOKINGS-060 — Venue Staff list every clash to review, across venues
 
@@ -1113,6 +1113,6 @@ The conditions agreed with the developer on 2026-10-09:
   2. `403`.
   3. `502` both times — never an empty list.
   `GET /venue-bookings/clashes?venue_id=…` is unchanged (TC-VENUEBOOKINGS-054).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Hall C (F–G) then Studio B (A–B′) with their times; Studio D and the missing venue left out; one `status=live&from=2026-11-10` read; no writes; other roles 403; venues or bookings failing 502; the `venue_id` form unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_venue_staff_list_every_clash_to_review`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_reviewing_clashes_changes_nothing`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_only_venue_staff_review_clashes`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_a_failing_service_is_a_502_never_an_empty_list`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_one_venue_is_still_listed_as_before`
