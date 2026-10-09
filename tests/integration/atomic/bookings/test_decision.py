@@ -6,7 +6,7 @@ from threading import Barrier
 
 import httpx
 import pytest
-from supabase import create_client
+from tests.supabase_client import create_client
 
 from .conftest import BASE_URL, requires_env
 
