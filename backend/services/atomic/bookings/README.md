@@ -198,7 +198,9 @@ session verification. Confirm both setups before real integration/browser tests.
 For S-38, copy the entire block between `BEGIN S-38 DATA-PRESERVING MIGRATION`
 and `END S-38 DATA-PRESERVING MIGRATION` into the SQL Editor of both projects.
 It installs `btree_gist` and adds a partial exclusion constraint over confirmed
-rows. The range is `[start,end)`, so back-to-back bookings are allowed. Pending
+rows. The range is `[start,end)`, so back-to-back event times pass the
+constraint; the service itself also requires the venue's setup and turnaround
+between bookings (S-75, S-76 — see below). Pending
 and rejected requests do not reserve a slot. If existing confirmed rows already
 overlap, the transaction fails without changing the schema; resolve those rows
 with the team and rerun it.
@@ -232,7 +234,9 @@ Open Kong, or run `npm.cmd run dev` from frontend for hot reload.
 **Holds.** A `pending` request is actionable but does not reserve a slot. A
 Venue Staff member explicitly changes it to `held`; held and confirmed rows
 are exclusive. Back-to-back ranges are allowed because the end time is not
-part of the occupied range.
+part of the occupied range — once the venue's setup and turnaround are added
+(S-76 supersedes S-38 here): with 30 min setup and 45 min turnaround, a
+booking may start no earlier than 75 minutes after the previous one ends.
 `POST /bookings` refuses, with the `409`s above, a request that overlaps a
 pending or confirmed request for the same venue and date, or that falls on a
 blocked day. The range is `[start,end)`, so back-to-back requests are fine;
