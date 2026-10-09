@@ -224,6 +224,9 @@ class EventRead(BaseModel):
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
+    # Monotonic compare-and-set token for S-84 reassignment. Initial S-83
+    # assignment remains version 0; every real owner-to-owner transfer adds 1.
+    coordinator_assignment_version: int = Field(default=0, ge=0)
     technical_support_required: bool = False
     technical_support_details: str | None = None
     assigned_technical_support_id: UUID | None = None
@@ -367,6 +370,19 @@ class InternalCoordinatorAssignment(BaseModel):
 
 class InternalCoordinatorAssignmentResult(EventRead):
     assignment_created: bool
+
+
+class InternalCoordinatorReassignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+    expected_coordinator_id: UUID
+    expected_assignment_version: int = Field(ge=0)
+
+
+class InternalCoordinatorReassignmentResult(EventRead):
+    previous_coordinator_id: UUID
+    reassignment_created: bool
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

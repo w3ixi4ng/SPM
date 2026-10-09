@@ -215,7 +215,7 @@ function DecisionForm({ eventId, onDecided }) {
 
 // What this Coordinator has already asked for, so a reload never leaves them
 // guessing whether a request went out.
-function VenueRequests({ eventId }) {
+function VenueRequests({ eventId, canRequest, notice }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
 
   useEffect(() => {
@@ -233,10 +233,16 @@ function VenueRequests({ eventId }) {
   }, [eventId])
 
   return (
-    <section className="mb-8" aria-labelledby="venue-requests-heading">
-      <h2 id="venue-requests-heading" className="font-display text-xl mb-4" style={{ color: C.ink }}>
-        Venue requests
-      </h2>
+    <section aria-labelledby="venue-requests-heading">
+      <div className="flex items-center gap-2 mb-2">
+        <Building2 size={18} aria-hidden="true" style={{ color: C.teal }} />
+        <h2 id="venue-requests-heading" className="font-display text-2xl" style={{ color: C.ink }}>
+          Venue requests
+        </h2>
+      </div>
+      <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
+        Ask Venue Staff to book a venue for this event, and follow each request&apos;s decision here.
+      </p>
       {state.status === 'loading' && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venue requests…</p>
       )}
@@ -285,6 +291,21 @@ function VenueRequests({ eventId }) {
             )
           })}
         </ul>
+      )}
+      {canRequest && (
+        <div className="flex flex-wrap items-center gap-4 mt-6">
+          <Link
+            to={`/coordinator/events/${eventId}/request-venue`}
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            <Building2 size={16} aria-hidden="true" />
+            Request venue
+          </Link>
+          <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
+            {notice}
+          </p>
+        </div>
       )}
     </section>
   )
@@ -427,7 +448,7 @@ export default function EventCoordinatorEventDetail() {
   const form = state.event ? eventResponseToForm(state.event) : null
   const isCoordinator = hasPermission(user?.role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS)
   const canAssignTechnicalSupport = hasPermission(user?.role, PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT)
-  const showVenueRequest = state.event && isCoordinator && canRequestVenue(state.event.status)
+  const showVenueRequest = Boolean(state.event) && canRequestVenue(state.event.status)
 
   return (
     <div className="min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
@@ -467,24 +488,6 @@ export default function EventCoordinatorEventDetail() {
               <DecisionRecord event={state.event} />
             )}
 
-            {showVenueRequest && (
-              <div className="flex flex-wrap items-center gap-4 mb-8">
-                <Link
-                  to={`/coordinator/events/${state.event.id}/request-venue`}
-                  className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
-                  style={{ backgroundColor: C.teal, color: C.paper }}
-                >
-                  <Building2 size={16} aria-hidden="true" />
-                  Request venue
-                </Link>
-                <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-                  {notice}
-                </p>
-              </div>
-            )}
-
-            {isCoordinator && <VenueRequests eventId={state.event.id} />}
-
             <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
               <h1 className="font-display text-3xl mb-8" style={{ color: C.ink }}>
                 {form.name || 'Untitled event request'}
@@ -515,7 +518,15 @@ export default function EventCoordinatorEventDetail() {
               className="border rounded-sm p-7 sm:p-8 mt-8"
               style={{ borderColor: C.line }}
             >
-              <section aria-labelledby="equipment-requirements-heading">
+              {isCoordinator && (
+                <VenueRequests eventId={state.event.id} canRequest={showVenueRequest} notice={notice} />
+              )}
+
+              <section
+                aria-labelledby="equipment-requirements-heading"
+                className={isCoordinator ? 'border-t pt-8 mt-8' : undefined}
+                style={{ borderColor: C.line }}
+              >
                 <h2 id="equipment-requirements-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
                   Required equipment
                 </h2>

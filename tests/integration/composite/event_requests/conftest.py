@@ -223,6 +223,22 @@ def second_coordinator(admin):
         admin.auth.admin.delete_user(user["id"])
 
 
+@pytest.fixture
+def second_coordinator_session(admin, auth_client):
+    """A second signed-in Coordinator for S-84 access-transfer assertions."""
+    user = _make_user(admin, "event_coordinator")
+    try:
+        signed_in = auth_client.auth.sign_in_with_password(
+            {"email": user["email"], "password": user["password"]}
+        )
+        yield {"user_id": user["id"], "access_token": signed_in.session.access_token}
+    finally:
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user["id"]
+        ).execute()
+        admin.auth.admin.delete_user(user["id"])
+
+
 def all_coordinator_ids(admin) -> set[str]:
     """Every event_coordinator account that currently exists in the project.
 

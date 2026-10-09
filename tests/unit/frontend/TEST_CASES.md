@@ -4,7 +4,8 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
 `test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
-S-83 also adds `test_event_assignments.mjs` and `test_notifications.mjs`.
+S-83 adds `test_event_assignments.mjs` and `test_notifications.mjs`; S-84
+adds `test_event_reassignments.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -12,9 +13,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
 | Environment | Node.js; no network or Supabase |
-| Result | 100 passed |
+| Result | 104 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 

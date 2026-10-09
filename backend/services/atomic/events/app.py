@@ -31,6 +31,8 @@ from schemas import (
     InternalEventUpdate,
     InternalCoordinatorAssignment,
     InternalCoordinatorAssignmentResult,
+    InternalCoordinatorReassignment,
+    InternalCoordinatorReassignmentResult,
     OverlappingEvent,
     OverlappingEventsRequest,
     TechnicalSupportLoad,
@@ -43,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "events"
 TABLE = "events"
+ACTIVE_ASSIGNMENT_STATUSES = ["submitted", "planning", "confirmed", "returned"]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -303,6 +306,19 @@ def list_unassigned_events(db: Client = Depends(get_db)):
         .eq("status", "submitted")
         .is_("assigned_coordinator_id", "null")
         .order("submitted_at")
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/assigned-active", response_model=list[EventRead])
+def list_active_assigned_events(db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .not_.is_("assigned_coordinator_id", "null")
+        .order("updated_at", desc=True)
     )
     return _execute(operation).data
 
@@ -763,6 +779,103 @@ def assign_coordinator_internal(
     raise HTTPException(
         status_code=409,
         detail="This event request is no longer available for assignment",
+    )
+
+
+def _is_exact_reassignment_retry(
+    event: dict,
+    *,
+    target_id: str,
+    expected_id: str,
+    expected_version: int,
+) -> bool:
+    return (
+        event.get("status") in ACTIVE_ASSIGNMENT_STATUSES
+        and event.get("assigned_coordinator_id") == target_id
+        and event.get("previous_coordinator_id") == expected_id
+        and event.get("coordinator_assignment_version") == expected_version + 1
+    )
+
+
+@app.post(
+    "/internal/events/{event_id}/reassignment",
+    response_model=InternalCoordinatorReassignmentResult,
+)
+def reassign_coordinator_internal(
+    event_id: UUID,
+    payload: InternalCoordinatorReassignment,
+    db: Client = Depends(get_db),
+):
+    """Versioned compare-and-set transfer with exact-retry recognition.
+
+    The version prevents an old notification retry from reverting a newer
+    reassignment. Schedule conflicts are deliberately irrelevant: selecting
+    a suitable Coordinator is the Lead's business decision.
+    """
+    target_id = str(payload.coordinator_id)
+    expected_id = str(payload.expected_coordinator_id)
+    expected_version = payload.expected_assignment_version
+
+    current = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = current.data[0]
+
+    if _is_exact_reassignment_retry(
+        event,
+        target_id=target_id,
+        expected_id=expected_id,
+        expected_version=expected_version,
+    ):
+        return {**event, "reassignment_created": False}
+
+    if (
+        target_id == expected_id
+        or event.get("status") not in ACTIVE_ASSIGNMENT_STATUSES
+        or event.get("assigned_coordinator_id") != expected_id
+        or event.get("coordinator_assignment_version") != expected_version
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This event assignment has changed. Reload before reassigning.",
+        )
+
+    next_version = expected_version + 1
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(
+            {
+                "assigned_coordinator_id": target_id,
+                "previous_coordinator_id": expected_id,
+                "coordinator_assignment_version": next_version,
+            }
+        )
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", expected_id)
+        .eq("coordinator_assignment_version", expected_version)
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .select("*")
+    )
+    result = _execute(operation)
+    if result.data:
+        return {**result.data[0], "reassignment_created": True}
+
+    latest = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if latest.data and _is_exact_reassignment_retry(
+        latest.data[0],
+        target_id=target_id,
+        expected_id=expected_id,
+        expected_version=expected_version,
+    ):
+        return {**latest.data[0], "reassignment_created": False}
+    raise HTTPException(
+        status_code=409,
+        detail="This event assignment has changed. Reload before reassigning.",
     )
 
 
