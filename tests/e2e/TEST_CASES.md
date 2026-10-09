@@ -462,7 +462,8 @@ active again and proves S-38 at the confirmation boundary.
   its Coordinator never sees a confirmed booking for that unavailable slot.
   *S-76 (2026-10-09), which supersedes S-38 where they differ:* the alert
   now reads "Can't confirm this booking: it overlaps <Event A> (confirmed),
-  which occupies <venue> on 12 Nov 2026 from 09:00 to 12:00." Not re-run since.
+  which occupies <venue> on 12 Nov 2026 from 09:00 to 12:00." Re-run 2026-10-09
+  on the S-76 branch: pass (full e2e suite 29 passed).
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; restored after S-33 and rerun locally on 2026-10-01: 1 passed.
@@ -785,7 +786,7 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 ## S-76 — detect booking conflicts incl. setup and turnaround
 
 Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
-Confirmed by the developer on 2026-10-09. Not yet executed.
+Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 
 ## TC-E2E-230 — Venue Staff are told which booking blocks an approval, and a confirmed clash stays on the dashboard
 
@@ -805,6 +806,6 @@ Confirmed by the developer on 2026-10-09. Not yet executed.
     (event 10:00–12:00, 30 min setup, 45 min turnaround)." B stays pending.
   - Step 2: "Clashes to review" lists the venue with the C–E pair, before
     and after the reload, with no Dismiss button. Nothing is removed.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Approving B showed the specified alert naming Event A with 09:30–12:45; B stayed pending; "Clashes to review" listed the venue with C and E before and after reload, with no Dismiss; no booking removed.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_review_booking_conflicts.py::test_staff_are_told_which_booking_blocks_an_approval_and_the_clash_stays_listed[chromium]`; `.env.test` stack rebuilt from branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` at `8e7c69d` immediately before (bookings container on the test project's `SUPABASE_URL`), 2026-10-09; full e2e suite: 29 passed.

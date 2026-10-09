@@ -25,14 +25,14 @@ def test_an_overlapping_approval_is_refused_by_name_and_the_clash_stays_listed(
         saved = api.patch(f"/venues/{world['venue_id']}", headers=staff,
                           json={"setup_minutes": 30, "turnaround_minutes": 45})
         assert saved.status_code == 200, saved.text
-        venue_name = saved.json()["name"]
 
-        # 2. Approving B is refused, naming A and its occupied period.
+        # 2. Approving B is refused, naming A and its occupied period. The
+        #    venue name is the one saved on the booking, as in every refusal.
         refused = api.post(f"/venue-bookings/{b['id']}/decision", headers=staff, json={"decision": "approved"})
         assert refused.status_code == 409, refused.text
         assert refused.json()["detail"] == (
             f"Can't confirm this booking: it overlaps {a['event_name']} (confirmed), which occupies "
-            f"{venue_name} on 12 Nov 2026 from 09:30 to 12:45 "
+            f"{a['venue_name']} on 12 Nov 2026 from 09:30 to 12:45 "
             "(event 10:00–12:00, 30 min setup, 45 min turnaround)."
         )
 

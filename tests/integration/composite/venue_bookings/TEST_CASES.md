@@ -200,7 +200,7 @@ in the test project.
 ## S-76 — detect booking conflicts incl. setup and turnaround
 
 Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
-Confirmed by the developer on 2026-10-09. Not yet executed.
+Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
 
 ### TC-VENUEBOOKINGS-108 — an overlapping approval is refused by name, and a confirmed clash stays listed for review
@@ -225,6 +225,6 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
   - Step 3: the test venue is listed with the A–C pair (both confirmed).
   - A and C are unchanged in `bookings.bookings`. Cleanup deletes every row
     created.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Through Kong: after Staff saved 30/45, approving B was refused naming A with 09:30–12:45 (venue name as saved on the booking); the A–C confirmed pair was listed with no `venue_id`; A, C confirmed and B pending in `bookings.bookings`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_booking_conflicts.py::test_an_overlapping_approval_is_refused_by_name_and_the_clash_stays_listed`; `.env.test` stack rebuilt from branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` at `8e7c69d` immediately before (bookings container on the test project's `SUPABASE_URL`), 2026-10-09. Full suite: 42 passed, 1 failed (this test expected the venue's current name rather than the one saved on the booking; test fixed and rerun: pass), 5 skipped (S-83).
