@@ -1,7 +1,8 @@
 # Test cases — event_requests service (integration)
 
 Covers `tests/integration/composite/event_requests/test_app.py`: the real
-composite service in Docker, calling the real `events` and `users` services,
+composite service in Docker, calling the real `events`, `users`, and
+`notifications` services,
 against the test Supabase project. Proves the three services agree on shapes
 the unit tests cannot check, because their fakes agree with everything.
 
@@ -238,3 +239,20 @@ must no longer execute after S-83 replaces that workflow.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_lead_assignment_persists_notifications_and_repairs_missing_rows`;
   targeted local run against the freshly rebuilt `.env.test` stack: 1 passed.
+
+## TC-EVENTREQUESTS-109 — versioned reassignment transfers access and repairs three notifications
+
+- **Scenario:** Prove S-84 across Kong, Auth, users, events, notifications,
+  and real Supabase rows.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-84 events and
+  notifications SQL applied; organiser, Lead, coordinator A, and coordinator
+  B. A owns an active event and B has an overlapping event.
+- **Steps:** List active assignments; reassign A/v0 to B; verify both
+  Coordinator queues and three notification rows; repeat; delete each row and
+  retry; make a newer transition and retry the stale original request.
+- **Expected:** Conflict does not block B. Access moves A→B. Exact retries
+  preserve B and repair only missing notifications, always ending at exactly
+  three. The stale request returns `409` and cannot revert the newer owner.
+- **Actual:** Cannot run until the S-84 SQL is applied to the test project.
+- **Status:** Blocked
+- **Evidence:** `test_app.py::test_reassignment_transfers_access_and_repairs_notifications`
