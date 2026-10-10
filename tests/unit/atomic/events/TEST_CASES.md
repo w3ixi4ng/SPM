@@ -1727,12 +1727,11 @@ cases confirmed by the developer on 2026-10-10. Executed locally on
 - **Pre-conditions:** A confirmed event has no safety decision.
 - **Steps:** Record approval, rejection with reason, and changes requested with
   reason, each as Safety Officer D.
-- **Expected:** Status becomes `preparation`, `safety_rejected`, or
-  `safety_changes_requested`; decision, optional reason, D and a server time
-  are stored together.
-- **Actual:** All three outcomes stored the distinct status, current decision,
-  applicable reason, Safety Officer id and non-null server timestamp.
-- **Status:** Pass
+- **Expected:** Status becomes `preparation`, `safety_rejected`, or, after the
+  S-87 clarification, `planning`; decision, optional reason, D, a server time
+  and an immutable history entry are stored together.
+- **Actual:** Not executed against the S-87 specification.
+- **Status:** Not Executed
 - **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`
 
 ## TC-EVENTS-121 — safety decision validation is strict
@@ -1902,3 +1901,67 @@ owned by O, reason `"Keynote speaker withdrew and no replacement is available"`.
 - **Actual:** Both routes returned the three fields as stored with status `planning`; the other event had all three `null`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s62.py::test_the_request_is_returned_with_the_event`
+---
+
+## S-87 — Return after safety changes and resubmit
+
+Story: S-87 Return Event to Planning After Safety Changes Requested.
+Acceptance criteria and test cases confirmed by the developer on 2026-10-10.
+Not yet executed.
+
+## TC-EVENTS-130 — change request returns atomically to planning with history
+
+- **Pre-conditions:** A confirmed, undecided event has existing venue,
+  equipment and Technical Support arrangements.
+- **Steps:** Record `changes_requested` with a reason and Safety Officer id.
+- **Expected:** One conditional Events-row update changes the status to
+  `planning`, sets the current safety feedback, and appends review 1 to
+  `safety_review_history`. It does not update or clear any resource field.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s87.py::test_changes_requested_returns_to_planning_and_appends_immutable_history`
+
+## TC-EVENTS-131 — returned safety work belongs to its current Coordinator
+
+- **Pre-conditions:** A planning event is assigned to Coordinator A and its
+  current safety decision is `changes_requested`.
+- **Steps:** Read its returned-safety source as A and Coordinator B.
+- **Expected:** A receives the event and complete review history; B receives
+  `404` and no event data.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s87.py::test_only_currently_assigned_coordinator_can_open_returned_safety_work`
+
+## TC-EVENTS-132 — resubmission is limited to safety-returned planning events
+
+- **Steps:** Attempt the S-87 action for an ordinary planning event, a
+  confirmed event, and a planning event whose current decision is not
+  `changes_requested`.
+- **Expected:** Every attempt returns `409` before an update. This route does
+  not become the general S-17 confirmation workflow.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s87.py::test_only_safety_returned_planning_event_can_be_resubmitted`
+
+## TC-EVENTS-133 — resubmission preserves audit history and resources
+
+- **Pre-conditions:** Coordinator A owns a safety-returned planning event with
+  one history entry and existing resource fields.
+- **Steps:** Resubmit it for a fresh safety review.
+- **Expected:** One conditional update changes `planning` to `confirmed` and
+  clears only the four current safety-decision fields. History and all event
+  and resource fields remain unchanged, making the event eligible for S-86.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s87.py::test_resubmit_clears_only_current_blocker_and_preserves_history`
+
+## TC-EVENTS-134 — stale and concurrent resubmissions cannot overwrite
+
+- **Pre-conditions:** The eligibility read succeeds but the conditional write
+  loses a concurrent race.
+- **Steps:** Submit the S-87 transition.
+- **Expected:** Empty update result returns `409`; there is no fallback or
+  unconditional write and the prior review cannot be lost.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s87.py::test_repeated_or_concurrent_resubmit_is_409_without_fallback_write`

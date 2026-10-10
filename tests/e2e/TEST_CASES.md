@@ -931,7 +931,6 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.
-
 ## S-77 — mark venue temporarily unavailable
 
 Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
@@ -987,3 +986,21 @@ Coordinator.
 - **Actual:** In Chromium through Kong: the empty description was refused with "Describe the operational reason." and nothing stored; the saved panel said "1 booking needs alternative arrangements. Their Coordinators have been notified." and listed E as Booked; the Coordinator's dashboard showed the notification; E's page flagged K with the period and "Other operational reason: Water leak in ceiling", still Confirmed and Planning; K `confirmed` and E `planning` in the database.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_mark_venue_unavailable.py::test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_told`; `.env.test` stack recreated immediately before, 2026-10-12; `pytest tests/e2e`: 35 passed
+## TC-E2E-235 — requested safety changes complete a fresh review cycle
+
+- **Scenario:** The browser proves S-87 across both roles and the existing
+  arrangement workflow.
+- **Pre-conditions:** Fresh `.env.test` stack with S-87 Events SQL; confirmed
+  event with assigned Coordinator, Safety Officer, confirmed venue, equipment
+  requirement and Technical Support assignment.
+- **Steps:** Safety Officer requests changes; Coordinator sees the returned
+  marker and feedback; revises Technical Support notes; resubmits; Safety
+  Officer sees the event reappear and approves it; inspect storage.
+- **Test data:** Feedback `Move speakers away from the east emergency exit`;
+  revised notes `Speakers moved to the west wall away from emergency exits`.
+- **Expected:** The journey is `changes_requested → planning → revise/resubmit
+  → confirmed → Safety Officer queue → fresh approval → preparation`.
+  History contains both reviews, and the confirmed venue remains untouched.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`
