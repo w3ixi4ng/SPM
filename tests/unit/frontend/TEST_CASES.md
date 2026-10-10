@@ -1683,3 +1683,36 @@ in the full Node unit run on 2026-10-09.
   zero-assignment, and retryable failure copy.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.mjs::overview exposes loading empty and retryable error states`
+
+## S-86 — Operational Safety Check
+
+Story: S-86 Conduct Operational Safety Check. Acceptance criteria and test
+cases confirmed by the developer on 2026-10-10. Latest execution: not yet
+executed.
+
+### TC-FRONTEND-100 — Safety Officer routes use the composite contract
+
+- **Expected:** `safety_officer` has queue/decision permissions and its own
+  protected dashboard/detail routes. List, detail and decision helpers use
+  credentialled `/api/safety-checks` calls.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_safety_checks.mjs::safety-check helpers use credentialled composite routes`; `test_safety_checks.mjs::safety officer access and routes are registered`
+
+### TC-FRONTEND-101 — queue and detail expose all required states and evidence
+
+- **Expected:** Queue has loading, empty, failure/retry and populated states.
+  Detail shows event/organiser/schedule/attendance, venue capacity/layout/
+  accessibility/restrictions, technical assignment/notes, equipment and
+  special requirements, plus a success state after deciding.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_safety_checks.mjs::dashboard and detail expose all confirmed UI states and safety evidence`
+
+### TC-FRONTEND-102 — controlled errors remain actionable
+
+- **Expected:** Session, role, missing event, stale decision and dependency
+  failures have distinct actionable messages; a conflict never looks saved.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`

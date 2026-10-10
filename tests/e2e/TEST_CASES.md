@@ -825,3 +825,20 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   visible.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+## TC-E2E-231 — Safety Officer completes an Operational Safety Check
+
+- **Scenario:** A Safety Officer reviews the cross-service safety evidence and
+  approves a confirmed event through the browser.
+- **Pre-conditions:** Fresh `.env.test` stack with S-86 Events SQL; confirmed
+  undecided event; organiser, Coordinator, Technical Support, venue staff and
+  Safety Officer accounts; confirmed venue and equipment requirement.
+- **Steps:** Sign in as Safety Officer; open the queue event; inspect attendance,
+  venue restriction/capacity, technical notes and equipment; approve; inspect
+  the stored Events row.
+- **Test data:** 120 attendees, capacity 200 theatre, wheelchair access, north
+  exit restriction, speaker placement note and four wireless microphones.
+- **Expected:** All evidence is visible; approval shows a success state and
+  stores `preparation`, `approved`, and the authenticated Safety Officer id.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event`

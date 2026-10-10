@@ -1698,3 +1698,56 @@ locally on 2026-10-09.
   non-null-owner filter; no insert, update, or delete operation was made.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_internal_oversight_excludes_unassigned_and_inactive_events`
+
+---
+
+## S-86 — Operational Safety Check persistence
+
+Story: S-86 Conduct Operational Safety Check. Acceptance criteria and test
+cases confirmed by the developer on 2026-10-10. Latest execution: not yet
+executed.
+
+## TC-EVENTS-119 — only confirmed undecided events enter the safety queue
+
+- **Pre-conditions:** Supabase is mocked with one `confirmed` row whose
+  `safety_decision` is null.
+- **Steps:** `GET /internal/events/safety-review`; open missing, non-confirmed,
+  and already-decided ids.
+- **Expected:** Storage filters by `confirmed` and null decision, oldest update
+  first. Missing is `404`; ineligible/already decided is `409`.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_confirmed_events`; `test_s86.py::test_safety_detail_distinguishes_missing_from_ineligible`
+
+## TC-EVENTS-120 — safety outcomes are distinct and audited
+
+- **Pre-conditions:** A confirmed event has no safety decision.
+- **Steps:** Record approval, rejection with reason, and changes requested with
+  reason, each as Safety Officer D.
+- **Expected:** Status becomes `preparation`, `safety_rejected`, or
+  `safety_changes_requested`; decision, optional reason, D and a server time
+  are stored together.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`
+
+## TC-EVENTS-121 — safety decision validation is strict
+
+- **Steps:** Submit blank/missing reasons for rejection/change request, a
+  reason with approval, and an unknown decision.
+- **Expected:** Each returns `422` before storage. Approval requires no reason;
+  the other two require a non-blank reason.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s86.py::test_invalid_safety_decisions_are_rejected_before_storage`
+
+## TC-EVENTS-122 — missing, stale, repeated and concurrent decisions do not overwrite
+
+- **Pre-conditions:** Missing event; already-decided event; and a confirmed
+  event whose compare-and-set loses a concurrent race.
+- **Steps:** Attempt a safety decision in each state.
+- **Expected:** Missing is `404`; every stale/repeated/racing attempt is `409`;
+  the conditional write requires id, `confirmed`, and null safety decision.
+- **Actual:** Not executed.
+- **Status:** Not Executed
+- **Evidence:** `test_s86.py::test_missing_event_is_404_and_stale_event_is_409_without_update`; `test_s86.py::test_empty_conditional_update_reports_concurrent_decision_without_overwrite`
