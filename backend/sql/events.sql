@@ -98,6 +98,10 @@ create table if not exists events.events (
   safety_decision_reason     text,
   safety_officer_id          uuid,
   safety_decided_at          timestamptz,
+  -- S-87: append-only audit records for every completed safety review. The
+  -- current decision fields above may be cleared when revised arrangements
+  -- are resubmitted; this history is never cleared or replaced.
+  safety_review_history      jsonb not null default '[]'::jsonb,
 
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
@@ -241,6 +245,9 @@ create table if not exists events.events (
       or safety_decision in ('approved', 'rejected', 'changes_requested')
     ),
 
+  constraint events_safety_review_history_array
+    check (jsonb_typeof(safety_review_history) = 'array'),
+
   constraint events_safety_state_consistent
     check (
       (
@@ -271,7 +278,7 @@ create table if not exists events.events (
         and btrim(safety_decision_reason) <> ''
         and safety_officer_id is not null
         and safety_decided_at is not null
-        and status = 'safety_changes_requested'
+        and status = 'planning'
       )
     ),
 
@@ -342,13 +349,35 @@ alter table events.events
   add column if not exists assigned_technical_support_id uuid,
   add column if not exists technical_support_assigned_at timestamptz;
 
--- S-86 upgrade path. Safe to run repeatedly. The four fields form one
--- current decision record and remain null on every pre-S-86 row.
+-- S-86/S-87 upgrade path. The four scalar fields form the current decision;
+-- S-87 adds an append-only JSON history so resubmission can clear the current
+-- blocker without deleting its audit record.
 alter table events.events
   add column if not exists safety_decision text,
   add column if not exists safety_decision_reason text,
   add column if not exists safety_officer_id uuid,
-  add column if not exists safety_decided_at timestamptz;
+  add column if not exists safety_decided_at timestamptz,
+  add column if not exists safety_review_history jsonb not null default '[]'::jsonb;
+
+-- Preserve pre-S-87 current decisions as review 1 before any lifecycle
+-- migration. Reapplying the file is harmless because only empty histories are
+-- backfilled.
+update events.events
+set safety_review_history = jsonb_build_array(
+  jsonb_build_object(
+    'review_number', 1,
+    'decision', safety_decision,
+    'reason', safety_decision_reason,
+    'safety_officer_id', safety_officer_id,
+    'decided_at', safety_decided_at
+  )
+)
+where safety_decision is not null
+  and safety_review_history = '[]'::jsonb;
+
+alter table events.events drop constraint if exists events_safety_review_history_array;
+alter table events.events add constraint events_safety_review_history_array
+  check (jsonb_typeof(safety_review_history) = 'array');
 
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
@@ -376,6 +405,14 @@ alter table events.events add constraint events_safety_decision_allowed
   );
 
 alter table events.events drop constraint if exists events_safety_state_consistent;
+-- Existing S-86 change requests used the transient status below. S-87 makes
+-- their return automatic while the preserved current decision marks why the
+-- event is back in planning.
+update events.events
+set status = 'planning'
+where status = 'safety_changes_requested'
+  and safety_decision = 'changes_requested';
+
 alter table events.events add constraint events_safety_state_consistent
   check (
     (
@@ -406,7 +443,7 @@ alter table events.events add constraint events_safety_state_consistent
       and btrim(safety_decision_reason) <> ''
       and safety_officer_id is not null
       and safety_decided_at is not null
-      and status = 'safety_changes_requested'
+      and status = 'planning'
     )
   );
 

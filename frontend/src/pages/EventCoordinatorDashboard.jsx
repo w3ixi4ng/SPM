@@ -282,6 +282,11 @@ export default function EventCoordinatorDashboard({ role }) {
                             <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
                               {event.start_date} at {event.start_time?.slice(0, 5)}{event.venue && ` · ${event.venue}`}
                             </p>
+                            {event.status === 'planning' && event.safety_decision === 'changes_requested' && (
+                              <p className="font-ui text-xs font-medium mt-1" style={{ color: '#B5842B' }}>
+                                Returned after safety review
+                              </p>
+                            )}
                           </div>
                           <span
                             className="font-ui text-xs font-medium px-2.5 py-1 rounded-sm shrink-0"

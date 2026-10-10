@@ -41,6 +41,8 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `GET` | `/internal/events/safety-review` | S-86 queue source: list `confirmed` events with no current safety decision, oldest update first. |
 | `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
 | `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
+| `GET` | `/internal/events/{event_id}/safety-return?coordinator_id=…` | S-87: return a planning event's preserved safety feedback only when the supplied Coordinator is its current assignee. |
+| `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
@@ -206,6 +208,7 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "safety_decision_reason": null,
   "safety_officer_id": null,
   "safety_decided_at": null,
+  "safety_review_history": [],
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
@@ -232,12 +235,23 @@ Coordinator decision:
 
 - `approved` moves the event to `preparation`;
 - `rejected` moves it to `safety_rejected`, not generic `rejected`;
-- `changes_requested` moves it to `safety_changes_requested` for S-87.
+- `changes_requested` appends an immutable history record and returns the event
+  directly to `planning`, while remaining the current blocking decision.
 
 Rejection and changes require a nonblank reason; approval forbids one. The
 service stores the verified Safety Officer id and server time. A conditional
 update matching `confirmed` plus null `safety_decision` makes repeated, stale,
 and concurrent decisions return `409` without overwrite.
+
+S-87's narrow resubmission action applies only to a `planning` event whose
+current decision is `changes_requested` and whose current assignee matches the
+verified Coordinator supplied by the composite. It changes the event to
+`confirmed` and clears only the current safety fields. The append-only
+`safety_review_history` remains intact, so the prior feedback is never lost;
+the null current decision makes the event eligible for a completely fresh
+S-86 review. The same conditional write makes stale, repeated, reassigned, or
+concurrent attempts return `409`. No venue, equipment, Technical Support, or
+event-information field is changed.
 
 The four `technical_support_*` fields are controlled by the S-43 assignment
 flow. They record whether support was explicitly requested, the optional
@@ -262,7 +276,7 @@ user, most recently updated first. No assigned active events returns `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14, S-36, S-43, S-86)
+## Status model (S-14, S-36, S-43, S-86, S-87)
 
 ```
 draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
@@ -272,7 +286,8 @@ draft ──submit──> submitted ──approve──> planning   (venue/equip
 
 planning ──arrangements confirmed──> confirmed ──safety approve──> preparation
                                           │────safety reject────> safety_rejected
-                                          └──request changes───> safety_changes_requested
+                                          └──request changes───> planning
+                                                └──S-87 resubmit──> confirmed
 ```
 
 For S-86, `confirmed` is the documented interpretation that required venue and
@@ -292,8 +307,9 @@ planning-to-confirmed transition is outside S-86.
 - **preparation** — the Safety Officer approved the arrangements.
 - **safety_rejected** — the safety arrangement was rejected; this is distinct
   from the original request's generic `rejected` state.
-- **safety_changes_requested** — the Safety Officer requested changes; S-87
-  owns routing this back to the relevant planning stage.
+- **safety_changes_requested** — retained only as a legacy-compatible enum for
+  pre-S-87 data; applying the S-87 SQL migrates such rows to `planning` while
+  preserving their decision in history.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.

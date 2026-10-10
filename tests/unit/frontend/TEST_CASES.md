@@ -1933,7 +1933,8 @@ Their tests were updated and re-run with S-77, and pass.
 ## S-87 — returned safety feedback and resubmission
 
 Story: S-87 Return Event to Planning After Safety Changes Requested.
-Acceptance criteria and tests confirmed on 2026-10-10. Not yet executed.
+Acceptance criteria and tests confirmed on 2026-10-10. Executed in the full
+Node unit run on 2026-10-10: 124 passed.
 
 ### TC-FRONTEND-112 — Coordinator safety-return API contract
 
@@ -1942,8 +1943,9 @@ Acceptance criteria and tests confirmed on 2026-10-10. Not yet executed.
 - **Expected:** Credentialled requests use
   `/api/safety-checks/coordinator/events/{id}` and its `/resubmit` action;
   resubmission is POST.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** Both helpers used the required credentialled routes and the
+  resubmission helper sent POST.
+- **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::safety-check helpers use credentialled composite routes`
 
 ### TC-FRONTEND-113 — returned event states and feedback are prominent
@@ -1953,14 +1955,16 @@ Acceptance criteria and tests confirmed on 2026-10-10. Not yet executed.
   loading/error states, reason, Safety Officer, decision time, history,
   current planning state, resubmit control, and success feedback while the
   existing venue/equipment/Technical Support controls remain available.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** Both pages contain the returned marker and detail contains every
+  feedback, lifecycle, loading and success contract while retaining the
+  existing resource sections.
+- **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::Coordinator detail presents returned feedback and resubmission states`
 
 ### TC-FRONTEND-114 — returned-safety failures are controlled
 
 - **Expected:** Session expiry, wrong ownership/role, stale transition and
   service outage have specific controlled messages and never show success.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** All four failure classes map to controlled, actionable copy.
+- **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`

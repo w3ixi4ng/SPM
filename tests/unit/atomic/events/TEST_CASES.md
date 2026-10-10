@@ -1730,8 +1730,9 @@ cases confirmed by the developer on 2026-10-10. Executed locally on
 - **Expected:** Status becomes `preparation`, `safety_rejected`, or, after the
   S-87 clarification, `planning`; decision, optional reason, D, a server time
   and an immutable history entry are stored together.
-- **Actual:** Not executed against the S-87 specification.
-- **Status:** Not Executed
+- **Actual:** All outcomes stored the required current fields and appended one
+  history record; requested changes returned directly to `planning`.
+- **Status:** Pass
 - **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`
 
 ## TC-EVENTS-121 — safety decision validation is strict
@@ -1907,7 +1908,8 @@ owned by O, reason `"Keynote speaker withdrew and no replacement is available"`.
 
 Story: S-87 Return Event to Planning After Safety Changes Requested.
 Acceptance criteria and test cases confirmed by the developer on 2026-10-10.
-Not yet executed.
+Executed locally on 2026-10-10 in the full Python unit run: 876 passed,
+17 skipped.
 
 ## TC-EVENTS-130 — change request returns atomically to planning with history
 
@@ -1917,8 +1919,9 @@ Not yet executed.
 - **Expected:** One conditional Events-row update changes the status to
   `planning`, sets the current safety feedback, and appends review 1 to
   `safety_review_history`. It does not update or clear any resource field.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** The single conditional update set planning/current feedback and
+  appended review 1 without including any resource field in the update.
+- **Status:** Pass
 - **Evidence:** `test_s87.py::test_changes_requested_returns_to_planning_and_appends_immutable_history`
 
 ## TC-EVENTS-131 — returned safety work belongs to its current Coordinator
@@ -1928,8 +1931,9 @@ Not yet executed.
 - **Steps:** Read its returned-safety source as A and Coordinator B.
 - **Expected:** A receives the event and complete review history; B receives
   `404` and no event data.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** Coordinator A received the complete row and history; B received
+  `404` from the assignment-scoped lookup.
+- **Status:** Pass
 - **Evidence:** `test_s87.py::test_only_currently_assigned_coordinator_can_open_returned_safety_work`
 
 ## TC-EVENTS-132 — resubmission is limited to safety-returned planning events
@@ -1939,8 +1943,8 @@ Not yet executed.
   `changes_requested`.
 - **Expected:** Every attempt returns `409` before an update. This route does
   not become the general S-17 confirmation workflow.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** All three ineligible states returned `409` and made no update.
+- **Status:** Pass
 - **Evidence:** `test_s87.py::test_only_safety_returned_planning_event_can_be_resubmitted`
 
 ## TC-EVENTS-133 — resubmission preserves audit history and resources
@@ -1951,8 +1955,10 @@ Not yet executed.
 - **Expected:** One conditional update changes `planning` to `confirmed` and
   clears only the four current safety-decision fields. History and all event
   and resource fields remain unchanged, making the event eligible for S-86.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** The result was confirmed with null current safety fields and the
+  original history; the update payload contained exactly those five lifecycle
+  fields and no history/resource field.
+- **Status:** Pass
 - **Evidence:** `test_s87.py::test_resubmit_clears_only_current_blocker_and_preserves_history`
 
 ## TC-EVENTS-134 — stale and concurrent resubmissions cannot overwrite
@@ -1962,6 +1968,7 @@ Not yet executed.
 - **Steps:** Submit the S-87 transition.
 - **Expected:** Empty update result returns `409`; there is no fallback or
   unconditional write and the prior review cannot be lost.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** An empty conditional result returned `409` after exactly one
+  write attempt.
+- **Status:** Pass
 - **Evidence:** `test_s87.py::test_repeated_or_concurrent_resubmit_is_409_without_fallback_write`
