@@ -22,6 +22,9 @@ class EventStatus(str, Enum):
     # status moves on.
     PLANNING = "planning"
     CONFIRMED = "confirmed"
+    PREPARATION = "preparation"
+    SAFETY_REJECTED = "safety_rejected"
+    SAFETY_CHANGES_REQUESTED = "safety_changes_requested"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
     RETURNED = "returned"
@@ -31,6 +34,12 @@ class DecisionValue(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     RETURNED = "returned"
+
+
+class SafetyDecisionValue(str, Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CHANGES_REQUESTED = "changes_requested"
 
 
 # S-36: the event's venue requirements use the venue catalogue's fixed sets,
@@ -242,6 +251,13 @@ class EventRead(BaseModel):
     decision_reason: str | None
     decision_comment: str | None
     decided_at: datetime | None
+    # S-86: the current Operational Safety Check. These fields are separate
+    # from the Coordinator's original request decision above: rejecting a
+    # safety arrangement does not retroactively reject the event request.
+    safety_decision: SafetyDecisionValue | None = None
+    safety_decision_reason: str | None = None
+    safety_officer_id: UUID | None = None
+    safety_decided_at: datetime | None = None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
@@ -387,6 +403,33 @@ class InternalCoordinatorReassignment(BaseModel):
 class InternalCoordinatorReassignmentResult(EventRead):
     previous_coordinator_id: UUID
     reassignment_created: bool
+
+
+class InternalSafetyDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: SafetyDecisionValue
+    reason: str | None = None
+    safety_officer_id: UUID
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalise_reason(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_matches_decision(self):
+        if self.decision in (
+            SafetyDecisionValue.REJECTED,
+            SafetyDecisionValue.CHANGES_REQUESTED,
+        ):
+            if self.reason is None:
+                raise ValueError("reason is required to reject or request changes")
+        elif self.reason is not None:
+            raise ValueError("reason is not accepted when approving a safety check")
+        return self
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

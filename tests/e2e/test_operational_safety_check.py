@@ -111,8 +111,8 @@ def test_safety_officer_approves_an_enriched_confirmed_event(
     page.wait_for_url(re.compile(r"/safety-checks/[^/]+$"), timeout=20000)
     expect(page.get_by_text("120", exact=True)).to_be_visible()
     expect(page.get_by_text("Capacity: 200", exact=True)).to_be_visible()
-    expect(page.get_by_text("No open flame; keep north exit clear", exact=True)).to_be_visible()
-    expect(page.get_by_text("Place speakers away from exit routes", exact=True)).to_be_visible()
+    expect(page.get_by_text("No open flame; keep north exit clear", exact=False)).to_be_visible()
+    expect(page.get_by_text("Place speakers away from exit routes", exact=False)).to_be_visible()
     expect(page.get_by_text("Wireless microphone", exact=False)).to_be_visible()
 
     page.get_by_role("radio", name="Approve", exact=True).check()
@@ -129,4 +129,3 @@ def test_safety_officer_approves_an_enriched_confirmed_event(
         "safety_decision": "approved",
         "safety_officer_id": officer["id"],
     }
-

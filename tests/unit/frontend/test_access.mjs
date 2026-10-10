@@ -14,6 +14,7 @@ const EXPECTED_DASHBOARDS = {
   event_coordinator_lead: '/dashboard/event-coordinator-lead',
   venue_staff: '/dashboard/venue-staff',
   technical_support: '/dashboard/technical-support',
+  safety_officer: '/dashboard/safety-officer',
   attendee: '/dashboard/attendee',
 }
 
@@ -67,6 +68,7 @@ test('only venue staff create venues and only venue staff and coordinators view 
     event_coordinator_lead: [false, false],
     event_organiser: [false, false],
     technical_support: [false, false],
+    safety_officer: [false, false],
     attendee: [false, false],
   }
 
@@ -85,6 +87,7 @@ test('only coordinators request venues and only venue staff see pending requests
     venue_staff: [false, true],
     event_organiser: [false, false],
     technical_support: [false, false],
+    safety_officer: [false, false],
     attendee: [false, false],
   }
 

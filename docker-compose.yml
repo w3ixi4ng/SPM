@@ -48,6 +48,8 @@ services:
         condition: service_healthy
       equipment_requirements:
         condition: service_healthy
+      safety_checks:
+        condition: service_healthy
       frontend:
         condition: service_healthy
     healthcheck:
@@ -298,6 +300,42 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8102/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  # Authenticates Safety Officers and combines event, organiser, confirmed
+  # venue, technical-support and equipment data without owning storage.
+  safety_checks:
+    build: ./backend/services/composite/safety_checks
+    ports:
+      - "${SAFETY_CHECKS_SERVICE_PORT:-8103}:8103"
+    environment:
+      USERS_SERVICE_URL: ${USERS_SERVICE_URL}
+      EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
+      VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
+      BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
+      EQUIPMENT_SERVICE_URL: ${EQUIPMENT_SERVICE_URL:-http://equipment:8005}
+    depends_on:
+      users:
+        condition: service_healthy
+      events:
+        condition: service_healthy
+      venues:
+        condition: service_healthy
+      bookings:
+        condition: service_healthy
+      equipment:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8103/health').read()",
         ]
       interval: 10s
       timeout: 5s

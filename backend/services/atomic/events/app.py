@@ -33,10 +33,12 @@ from schemas import (
     InternalCoordinatorAssignmentResult,
     InternalCoordinatorReassignment,
     InternalCoordinatorReassignmentResult,
+    InternalSafetyDecision,
     OverlappingEvent,
     OverlappingEventsRequest,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
+    SafetyDecisionValue,
 )
 from security import clear_session_cookies
 
@@ -347,6 +349,92 @@ def list_coordinator_overview_events(db: Client = Depends(get_db)):
         .order("updated_at", desc=True)
     )
     return _execute(operation).data
+
+
+@app.get("/internal/events/safety-review", response_model=list[EventRead])
+def list_safety_review_events(db: Client = Depends(get_db)):
+    """S-86 queue source.
+
+    `confirmed` is this project's lifecycle interpretation that the venue and
+    technical arrangements are ready for Operational Safety Check. The
+    atomic owner filters out any row whose current safety decision exists.
+    """
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("status", "confirmed")
+        .is_("safety_decision", "null")
+        .order("updated_at", desc=False)
+    )
+    return _execute(operation).data
+
+
+def _safety_review_event(event_id: UUID, db: Client) -> dict:
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = result.data[0]
+    if event.get("status") != "confirmed" or event.get("safety_decision") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This event is not awaiting an Operational Safety Check",
+        )
+    return event
+
+
+@app.get("/internal/events/safety-review/{event_id}", response_model=EventRead)
+def get_safety_review_event(event_id: UUID, db: Client = Depends(get_db)):
+    return _safety_review_event(event_id, db)
+
+
+_STATUS_AFTER_SAFETY_DECISION = {
+    SafetyDecisionValue.APPROVED: "preparation",
+    SafetyDecisionValue.REJECTED: "safety_rejected",
+    SafetyDecisionValue.CHANGES_REQUESTED: "safety_changes_requested",
+}
+
+
+@app.post(
+    "/internal/events/safety-review/{event_id}/decision",
+    response_model=EventRead,
+)
+def record_safety_decision(
+    event_id: UUID,
+    payload: InternalSafetyDecision,
+    db: Client = Depends(get_db),
+):
+    """Atomically record the first current safety decision.
+
+    The read gives missing/stale callers a useful status. The conditional
+    update is still authoritative: if another officer decides after the read,
+    only one update can match and the loser receives 409 without overwrite.
+    """
+    _safety_review_event(event_id, db)
+    values = {
+        "status": _STATUS_AFTER_SAFETY_DECISION[payload.decision],
+        "safety_decision": payload.decision.value,
+        "safety_decision_reason": payload.reason,
+        "safety_officer_id": str(payload.safety_officer_id),
+        "safety_decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(event_id))
+        .eq("status", "confirmed")
+        .is_("safety_decision", "null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(
+            status_code=409,
+            detail="This Operational Safety Check has already been decided",
+        )
+    return result.data[0]
 
 
 @app.get("/events/{event_id}", response_model=EventRead)

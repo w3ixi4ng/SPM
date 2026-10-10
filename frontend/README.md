@@ -7,7 +7,7 @@ service.
 ## Role-aware access
 
 On startup, `AuthProvider` calls `GET /users/me`. The response's trusted `role`
-selects one of six dashboards:
+selects a role dashboard:
 
 | Role | Dashboard |
 | --- | --- |
@@ -16,6 +16,7 @@ selects one of six dashboards:
 | `event_coordinator_lead` | `/dashboard/event-coordinator-lead` |
 | `venue_staff` | `/dashboard/venue-staff` |
 | `technical_support` | `/dashboard/technical-support` |
+| `safety_officer` | `/dashboard/safety-officer` |
 | `attendee` | `/dashboard/attendee` |
 
 The shared presentation policy lives in `src/lib/access.js`. Route guards hide
@@ -101,6 +102,21 @@ non-null assignment. Loading, empty-pool, zero-assignment, and service-failure
 states are distinct. The S-83 unassigned queue and S-84 reassignment controls
 remain on the same dashboard. A successful reassignment moves the event
 between the displayed groups and updates both counts without a reload.
+
+## S-86 operational safety checks
+
+Safety Officers load `GET /api/safety-checks` and open an eligible confirmed
+event at `/safety-checks/{id}`. The detail combines organiser and schedule,
+confirmed venue capacity/layout/accessibility/restrictions, Technical Support
+assignment/notes, equipment requirements, and the event's special
+requirements. Loading, empty, controlled failure, detail and success states
+are distinct.
+
+The browser posts only `decision` and the applicable reason. The composite
+derives the Safety Officer id from the verified session. Approval advances to
+`preparation`; rejection uses `safety_rejected`; requested changes use
+`safety_changes_requested`. Conflicts never display success, and S-86 sends no
+notification.
 
 ## Development
 

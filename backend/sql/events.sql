@@ -91,6 +91,14 @@ create table if not exists events.events (
   -- submitted_at is cleared-then-reset across a draft/submit cycle.
   decided_at                 timestamptz,
 
+  -- S-86: the current Operational Safety Check is independent of the Event
+  -- Coordinator's original request decision above. A safety rejection is a
+  -- rejection of the arrangements, not a rejection of the event request.
+  safety_decision            text,
+  safety_decision_reason     text,
+  safety_officer_id          uuid,
+  safety_decided_at          timestamptz,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -105,7 +113,11 @@ create table if not exists events.events (
   -- underway. There is no 'approved' status; approved is only ever the
   -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned')),
+    check (status in (
+      'draft', 'submitted', 'under_review', 'planning', 'confirmed',
+      'preparation', 'safety_rejected', 'safety_changes_requested',
+      'cancelled', 'rejected', 'returned'
+    )),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -186,8 +198,11 @@ create table if not exists events.events (
   -- always do.
   constraint events_decision_matches_status
     check (
-      (status in ('draft', 'submitted') and decision is null)
-      or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
+      (status in ('draft', 'submitted', 'under_review') and decision is null)
+      or (status in (
+        'planning', 'confirmed', 'preparation', 'safety_rejected',
+        'safety_changes_requested', 'cancelled', 'rejected', 'returned'
+      ) and decision is not null)
     ),
 
   constraint events_decision_allowed
@@ -218,6 +233,46 @@ create table if not exists events.events (
     check (
       (decision is null and decided_at is null)
       or (decision is not null and decided_at is not null)
+    ),
+
+  constraint events_safety_decision_allowed
+    check (
+      safety_decision is null
+      or safety_decision in ('approved', 'rejected', 'changes_requested')
+    ),
+
+  constraint events_safety_state_consistent
+    check (
+      (
+        safety_decision is null
+        and safety_decision_reason is null
+        and safety_officer_id is null
+        and safety_decided_at is null
+        and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+      )
+      or (
+        safety_decision = 'approved'
+        and safety_decision_reason is null
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'preparation'
+      )
+      or (
+        safety_decision = 'rejected'
+        and safety_decision_reason is not null
+        and btrim(safety_decision_reason) <> ''
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'safety_rejected'
+      )
+      or (
+        safety_decision = 'changes_requested'
+        and safety_decision_reason is not null
+        and btrim(safety_decision_reason) <> ''
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'safety_changes_requested'
+      )
     ),
 
   constraint events_technical_support_details_not_blank
@@ -287,15 +342,72 @@ alter table events.events
   add column if not exists assigned_technical_support_id uuid,
   add column if not exists technical_support_assigned_at timestamptz;
 
+-- S-86 upgrade path. Safe to run repeatedly. The four fields form one
+-- current decision record and remain null on every pre-S-86 row.
+alter table events.events
+  add column if not exists safety_decision text,
+  add column if not exists safety_decision_reason text,
+  add column if not exists safety_officer_id uuid,
+  add column if not exists safety_decided_at timestamptz;
+
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
-  check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned'));
+  check (status in (
+    'draft', 'submitted', 'under_review', 'planning', 'confirmed',
+    'preparation', 'safety_rejected', 'safety_changes_requested',
+    'cancelled', 'rejected', 'returned'
+  ));
 
 alter table events.events drop constraint if exists events_decision_matches_status;
 alter table events.events add constraint events_decision_matches_status
   check (
-    (status in ('draft', 'submitted') and decision is null)
-    or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
+    (status in ('draft', 'submitted', 'under_review') and decision is null)
+    or (status in (
+      'planning', 'confirmed', 'preparation', 'safety_rejected',
+      'safety_changes_requested', 'cancelled', 'rejected', 'returned'
+    ) and decision is not null)
+  );
+
+alter table events.events drop constraint if exists events_safety_decision_allowed;
+alter table events.events add constraint events_safety_decision_allowed
+  check (
+    safety_decision is null
+    or safety_decision in ('approved', 'rejected', 'changes_requested')
+  );
+
+alter table events.events drop constraint if exists events_safety_state_consistent;
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'preparation'
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_changes_requested'
+    )
   );
 
 alter table events.events
@@ -343,6 +455,10 @@ create index if not exists events_events_assigned_technical_support_id_idx
   on events.events (assigned_technical_support_id)
   where status in ('planning', 'confirmed')
     and assigned_technical_support_id is not null;
+
+create index if not exists events_events_pending_safety_review_idx
+  on events.events (updated_at)
+  where status = 'confirmed' and safety_decision is null;
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.

@@ -1704,8 +1704,8 @@ locally on 2026-10-09.
 ## S-86 — Operational Safety Check persistence
 
 Story: S-86 Conduct Operational Safety Check. Acceptance criteria and test
-cases confirmed by the developer on 2026-10-10. Latest execution: not yet
-executed.
+cases confirmed by the developer on 2026-10-10. Executed locally on
+2026-10-10.
 
 ## TC-EVENTS-119 — only confirmed undecided events enter the safety queue
 
@@ -1715,8 +1715,9 @@ executed.
   and already-decided ids.
 - **Expected:** Storage filters by `confirmed` and null decision, oldest update
   first. Missing is `404`; ineligible/already decided is `409`.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** The queue used both storage predicates and oldest-update order;
+  missing returned `404`, while wrong state/current decision returned `409`.
+- **Status:** Pass
 - **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_confirmed_events`; `test_s86.py::test_safety_detail_distinguishes_missing_from_ineligible`
 
 ## TC-EVENTS-120 — safety outcomes are distinct and audited
@@ -1727,8 +1728,9 @@ executed.
 - **Expected:** Status becomes `preparation`, `safety_rejected`, or
   `safety_changes_requested`; decision, optional reason, D and a server time
   are stored together.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** All three outcomes stored the distinct status, current decision,
+  applicable reason, Safety Officer id and non-null server timestamp.
+- **Status:** Pass
 - **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`
 
 ## TC-EVENTS-121 — safety decision validation is strict
@@ -1737,8 +1739,8 @@ executed.
   reason with approval, and an unknown decision.
 - **Expected:** Each returns `422` before storage. Approval requires no reason;
   the other two require a non-blank reason.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** Every invalid combination returned `422` before an update.
+- **Status:** Pass
 - **Evidence:** `test_s86.py::test_invalid_safety_decisions_are_rejected_before_storage`
 
 ## TC-EVENTS-122 — missing, stale, repeated and concurrent decisions do not overwrite
@@ -1748,6 +1750,7 @@ executed.
 - **Steps:** Attempt a safety decision in each state.
 - **Expected:** Missing is `404`; every stale/repeated/racing attempt is `409`;
   the conditional write requires id, `confirmed`, and null safety decision.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** Missing returned `404`; stale and empty compare-and-set updates
+  returned `409` without a second/unconditional write.
+- **Status:** Pass
 - **Evidence:** `test_s86.py::test_missing_event_is_404_and_stale_event_is_409_without_update`; `test_s86.py::test_empty_conditional_update_reports_concurrent_decision_without_overwrite`

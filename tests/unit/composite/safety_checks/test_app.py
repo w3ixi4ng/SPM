@@ -75,6 +75,26 @@ def test_only_safety_officers_can_access_queue(client, services, me_response, ex
     services["events"].get.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    "me_response,expected",
+    [
+        (response(401, {"detail": "Not authenticated"}), 401),
+        (me("event_coordinator"), 403),
+    ],
+)
+def test_only_safety_officers_can_submit_decisions(
+    client, services, me_response, expected
+):
+    services["users"].get.return_value = me_response
+
+    result = client.post(
+        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+    )
+
+    assert result.status_code == expected
+    services["events"].post.assert_not_awaited()
+
+
 def test_queue_returns_only_events_selected_by_confirmed_undecided_source(client, services):
     authorize(services)
     services["events"].get.return_value = response(200, [event()])
@@ -249,4 +269,3 @@ def test_detail_dependency_failures_are_controlled_and_never_write(client, servi
 
     assert result.status_code == 502
     services["events"].post.assert_not_awaited()
-

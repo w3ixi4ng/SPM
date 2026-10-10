@@ -37,6 +37,9 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
 | `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `confirmed`, and `returned` events, newest update first. |
 | `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, and `confirmed` events, newest update first. |
+| `GET` | `/internal/events/safety-review` | S-86 queue source: list `confirmed` events with no current safety decision, oldest update first. |
+| `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
+| `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
@@ -195,6 +198,10 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "decision_reason": null,
   "decision_comment": null,
   "decided_at": null,
+  "safety_decision": null,
+  "safety_decision_reason": null,
+  "safety_officer_id": null,
+  "safety_decided_at": null,
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
@@ -213,6 +220,20 @@ It excludes null assignments and every other lifecycle state. S-85 does not
 create or transition event statuses and makes no schema change; it only
 defines how an assigned `under_review` row is treated when that workflow state
 is supplied by its owning lifecycle feature.
+
+S-86 interprets `confirmed` as meaning the event's required venue and
+technical arrangements have been confirmed and are ready for Operational
+Safety Check. The safety result is deliberately separate from the original
+Coordinator decision:
+
+- `approved` moves the event to `preparation`;
+- `rejected` moves it to `safety_rejected`, not generic `rejected`;
+- `changes_requested` moves it to `safety_changes_requested` for S-87.
+
+Rejection and changes require a nonblank reason; approval forbids one. The
+service stores the verified Safety Officer id and server time. A conditional
+update matching `confirmed` plus null `safety_decision` makes repeated, stale,
+and concurrent decisions return `409` without overwrite.
 
 The four `technical_support_*` fields are controlled by the S-43 assignment
 flow. They record whether support was explicitly requested, the optional
@@ -237,18 +258,22 @@ user, most recently updated first. No assigned active events returns `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14, S-36, S-43)
+## Status model (S-14, S-36, S-43, S-86)
 
 ```
 draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
                     ▲   │ ────reject───> rejected   (terminal)
                     │   └─────return───> returned
                     └──edit + resubmit──────┘
+
+planning ──arrangements confirmed──> confirmed ──safety approve──> preparation
+                                          │────safety reject────> safety_rejected
+                                          └──request changes───> safety_changes_requested
 ```
 
-`confirmed` is now a valid stored state because S-43 must include confirmed
-events when checking Technical Support commitments. S-43 does not introduce a
-transition into it. `completed` and `cancelled` remain later workflow states.
+For S-86, `confirmed` is the documented interpretation that required venue and
+technical arrangements are confirmed. The earlier story that performs the
+planning-to-confirmed transition is outside S-86.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
@@ -258,9 +283,13 @@ transition into it. `completed` and `cancelled` remain later workflow states.
   `decision=approved`). Venue booking requests are made against events in
   this status. No further submit action; edits still go through the same
   `PATCH`.
-- **confirmed** — a live commitment for Technical Support workload and
-  overlap checks. This story defines how it is counted, not how an event
-  moves from planning to confirmed.
+- **confirmed** — venue and technical arrangements are ready for safety review;
+  also a live commitment for Technical Support workload and overlap checks.
+- **preparation** — the Safety Officer approved the arrangements.
+- **safety_rejected** — the safety arrangement was rejected; this is distinct
+  from the original request's generic `rejected` state.
+- **safety_changes_requested** — the Safety Officer requested changes; S-87
+  owns routing this back to the relevant planning stage.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.
@@ -300,11 +329,10 @@ recorded. `404` if the caller is not the assigned coordinator.
 
 ## Internal routes (composite-only)
 
-These six exist for the `event_requests` composite service
-([`backend/services/composite/event_requests`](../../composite/event_requests/README.md)),
-which is the only caller — there is no Kong route for any of them, and they
-carry no session-derived authorization of their own. A browser cannot reach
-them from outside the Docker network.
+These routes support the repository's composite services. There is no Kong
+route for any of them, and they carry no session-derived authorization of
+their own. A browser cannot reach them from outside the Docker network; each
+calling composite authenticates and authorizes its workflow first.
 
 ### `POST /events/coordinator-load`
 
