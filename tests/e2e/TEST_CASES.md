@@ -7,7 +7,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
 `test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
-`test_reassign_event_coordinator.py`, and `test_coordinator_overview.py`.
+`test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
+`test_operational_safety_check.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -16,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Last run | 2026-10-10, branch `S-86/conduct-operational-safety-check`, commit `49a0f8b` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-85 journey and S-84 regression: 2 passed |
+| Result | Targeted S-86 journey plus S-84/S-85 regressions: 3 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -825,6 +826,7 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   visible.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
 - **Scenario:** A Safety Officer reviews the cross-service safety evidence and
@@ -839,6 +841,12 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   exit restriction, speaker placement note and four wireless microphones.
 - **Expected:** All evidence is visible; approval shows a success state and
   stores `preparation`, `approved`, and the authenticated Safety Officer id.
-- **Actual:** Not executed.
-- **Status:** Not Executed
-- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event`
+- **Actual:** Chromium showed the organiser, attendance, schedule, venue
+  capacity/layout/accessibility/restriction, Technical Support assignment and
+  notes, equipment, and special requirements. Approval showed the success
+  state and stored `preparation`, `approved`, the authenticated Safety Officer
+  id and a server timestamp.
+- **Status:** Pass
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
+  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
+  S-86 plus S-84/S-85 regressions, 3 passed.
