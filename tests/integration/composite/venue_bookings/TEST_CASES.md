@@ -233,3 +233,43 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
 - **Actual:** Through Kong: after Staff saved 30/45, approving B was refused naming A with 09:30–12:45 (venue name as saved on the booking); the A–C confirmed pair was listed with no `venue_id`; A, C confirmed and B pending in `bookings.bookings`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_booking_conflicts.py::test_an_overlapping_approval_is_refused_by_name_and_the_clash_stays_listed`; `.env.test` stack rebuilt from branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` at `8e7c69d` immediately before (bookings container on the test project's `SUPABASE_URL`), 2026-10-09. Full suite: 42 passed, 1 failed (this test expected the venue's current name rather than the one saved on the booking; test fixed and rerun: pass), 5 skipped (S-83).
+
+## S-79 — book multiple venues for one event
+
+Story: S-79 Book Multiple Venues for One Event.
+Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
+No schema change: S-79 needs only the SQL already in `backend/sql/`.
+For the criteria mapping and the agreed decisions, see the S-79 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-VENUEBOOKINGS-109 — one event holds bookings at several venues through Kong
+
+- **Scenario:** With real services behind Kong, one event keeps several
+  bookings, each is checked on its own, and all are listed with their
+  statuses (AC1, AC2, AC3).
+- **Pre-conditions:** A fresh `.env.test` stack. A Coordinator assigned to a
+  planning event E (`2026-11-12` 09:00–18:00, attendance 120), and Venue
+  Staff. Three test venues, all open `thu` 08:00–20:00 with setup and
+  turnaround 0: Main Hall (capacity 300), Studio (150) and Seminar Room (40).
+  Only held and confirmed rows reserve time (S-33), so Venue Staff hold
+  booking 1 before the rest.
+- **Steps:** As the Coordinator, through `/api/venue-bookings`:
+  1. Request Main Hall, 09:00–17:00; Venue Staff hold it.
+  2. Request Studio, 13:00–15:00 (same time, different venue).
+  3. Request Seminar Room, 13:00–15:00.
+  4. Request Main Hall, 16:00–18:00.
+  5. `GET /api/venue-bookings?event_id=E`.
+- **Expected:**
+  1. `201`, then `200` for the hold.
+  2. `201`. In `bookings.bookings`, booking 1 is still `held` with no
+     `hold_release_reason`.
+  3. `422`, naming capacity (40 < 120).
+  4. `409` "… is already tentatively held on …", because the event's own
+     booking 1 holds Main Hall.
+  5. `200` with exactly bookings 1 (`held`) and 2 (`pending`), both with
+     `event_id` E.
+  `bookings.bookings` holds exactly two rows for E. Cleanup deletes every
+  row created.
+- **Actual:** Through Kong: Main Hall `201` and held; Studio at the same time `201` with Main Hall still `held`, no release reason; Seminar Room `422` (40 < 120); Main Hall 16:00–18:00 `409` "…already tentatively held on…"; the list returned exactly the two, held and pending; two rows stored for E.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_multiple_venues.py::test_one_event_holds_bookings_at_several_venues`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-11; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 18 passed.

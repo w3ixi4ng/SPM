@@ -20,6 +20,7 @@ import {
   canRequestVenue,
   listVenueBookingsForEvent,
   shortTime,
+  venueRequestLinkLabel,
 } from '../lib/venueBookings.js'
 import {
   canRequestTechnicalSupport,
@@ -241,7 +242,7 @@ function VenueRequests({ eventId, canRequest, notice }) {
         </h2>
       </div>
       <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
-        Ask Venue Staff to book a venue for this event, and follow each request&apos;s decision here.
+        Ask Venue Staff to book each venue this event needs, and follow each request&apos;s decision here.
       </p>
       {state.status === 'loading' && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venue requests…</p>
@@ -300,7 +301,7 @@ function VenueRequests({ eventId, canRequest, notice }) {
             style={{ backgroundColor: C.teal, color: C.paper }}
           >
             <Building2 size={16} aria-hidden="true" />
-            Request venue
+            {venueRequestLinkLabel(state.bookings)}
           </Link>
           <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
             {notice}

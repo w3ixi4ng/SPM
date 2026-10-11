@@ -1724,6 +1724,28 @@ run on 2026-10-10.
 - **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
 
+## S-79 — book multiple venues for one event
+
+Story: S-79 Book Multiple Venues for One Event.
+Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
+
+### TC-FRONTEND-103 — the event page offers "Add another venue" once a venue is requested
+
+- **Scenario:** After the first request, an "Add another venue" link leads
+  back to the same request screen (S-79 AC1).
+- **Pre-conditions:** `frontend/src/lib/venueBookings.js` imported directly.
+- **Steps:** Call the helper that labels the event page's request link with
+  each list of the event's bookings.
+- **Test data:** `[]`; `[{status: "held"}]`;
+  `[{status: "rejected"}]`; `[{status: "pending"}, {status: "confirmed"}]`.
+- **Expected:** `"Request venue"` for `[]`, and `"Add another venue"` for each
+  of the others (a rejected request still counts as one that was asked for).
+  Both labels link to `/coordinator/events/:id/request-venue`, and neither is
+  shown when `canRequestVenue(status)` is false (unchanged).
+- **Actual:** "Request venue" for `[]`; "Add another venue" for the held, rejected and pending+confirmed lists. Link target and planning-only display unchanged (TC-FRONTEND-029).
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs::the event page offers Add another venue once a venue is requested`; `node --test tests/unit/frontend/test_*.mjs`: 126 passed, 2026-10-11.
+
 ## S-62 — request event cancellation
 
 Story: S-62 Request Event Cancellation.
