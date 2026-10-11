@@ -63,6 +63,7 @@ def test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled(
     # 1. The dashboard flags the request.
     sign_in(coordinator)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
+    page.get_by_role("tab", name="Events").click()
     row = page.get_by_role("listitem").filter(has_text=event["name"])
     expect(row.get_by_text("Cancellation requested", exact=True)).to_be_visible(timeout=20000)
     row.get_by_role("link").first.click()

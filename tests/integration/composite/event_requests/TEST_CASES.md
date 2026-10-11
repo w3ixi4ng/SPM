@@ -287,8 +287,7 @@ must no longer execute after S-83 replaces that workflow.
 
 Story: S-61 Review and Approve Cancellation Request.
 Confirmed by the developer on 2026-10-11.
-**Blocked** until the S-61 section of `backend/sql/events.sql` has been run in
-the test project. The criteria mapping and agreed decisions are in the S-61
+The S-61 SQL was applied to dev and test on 2026-10-11. The criteria mapping and agreed decisions are in the S-61
 section of `tests/unit/atomic/events/TEST_CASES.md`.
 
 ### TC-EVENTREQUESTS-111 — approving through Kong cancels the event and frees its venue and equipment
@@ -319,6 +318,6 @@ section of `tests/unit/atomic/events/TEST_CASES.md`.
   4. `200`. E2 is still `planning`, with decision `declined` and the reason.
   5. `200`. E2's decision fields are cleared and the new reason is stored.
   Cleanup deletes every row created.
-- **Actual:** Not run: the S-61 section of `backend/sql/events.sql` has not yet been applied to the test project.
-- **Status:** Blocked
-- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`
+- **Actual:** Through Kong: approving E1 returned `200` `cancelled` with `released_bookings` 2; E1 stored `cancelled`, approved by K with a time; no booking rows left for E1; the calendar for 12 Nov had no entries; the projector showed 0 reserved, 1 available. Declining E2 kept it `planning` with the reason; the Organiser's new request returned `200` and cleared all four decision fields.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 21 passed, 5 skipped (pre-existing S-83 supersessions).
