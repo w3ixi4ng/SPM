@@ -258,11 +258,34 @@ class EventRead(BaseModel):
     safety_decision_reason: str | None = None
     safety_officer_id: UUID | None = None
     safety_decided_at: datetime | None = None
+    # S-62: the Organiser's cancellation request, all null until one is sent.
+    # Requesting never changes status.
+    cancellation_reason: str | None = None
+    cancellation_requested_at: datetime | None = None
+    cancellation_requested_by: UUID | None = None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class CancellationRequestCreate(BaseModel):
+    """S-62: only the reason comes from the browser. Who asked and when are
+    set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_is_trimmed_and_not_blank(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("reason is required")
+        return value
 
 
 class EventOptions(BaseModel):

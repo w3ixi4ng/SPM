@@ -317,6 +317,8 @@ Supabase clients mocked. They use no network, database, or Docker.
 
 ## TC-EVENTS-027 — Event Organiser permissions
 
+> **S-62 (2026-10-11):** the expected set now also includes `events:request_cancellation`.
+
 - **Scenario:** The public organiser role has exactly the supported Sprint 1 permissions.
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the `event_organiser` permission set.
@@ -1754,3 +1756,149 @@ cases confirmed by the developer on 2026-10-10. Executed locally on
   returned `409` without a second/unconditional write.
 - **Status:** Pass
 - **Evidence:** `test_s86.py::test_missing_event_is_404_and_stale_event_is_409_without_update`; `test_s86.py::test_empty_conditional_update_reports_concurrent_decision_without_overwrite`
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+A new organiser route, `POST /events/{id}/cancellation-request`, reached by the
+browser through Kong at `/api/events/{id}/cancellation-request`. IDs continue
+from the next unused number, as agreed on 2026-09-30 (this file's 001–099
+range is full).
+
+**Acceptance criteria → cases (all layers)**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: The Organiser can start a cancellation request for an eligible event they may access | EVENTS-123, 124, 126, FRONTEND-104, E2E-233 |
+| AC2: The Organiser must confirm the request before it is submitted | E2E-233 |
+| AC3: A submitted request is kept with the event | EVENTS-123, 129, 130 |
+| AC4: The Organiser is told the request was submitted | E2E-233 |
+| AC5: Submitting does not show the event as cancelled | EVENTS-123, 130, FRONTEND-104, E2E-233 |
+| AC6: If submission fails, the status is unchanged and the Organiser is told | EVENTS-127, 128, FRONTEND-105 |
+
+Decisions agreed with the developer on 2026-10-11:
+
+- **Eligible statuses:** `submitted`, `under_review`, `planning`, `confirmed`,
+  `preparation`, `safety_changes_requested`. Not `draft`, `returned`,
+  `rejected`, `cancelled` or `safety_rejected`.
+- **Reason:** required free text, trimmed, 1–1000 characters.
+- **Stored on the event** as `cancellation_reason`,
+  `cancellation_requested_at` and `cancellation_requested_by` in
+  `events.events`. One request per event; no history.
+- **The event's status never changes** when a request is submitted.
+- **A second request while one exists is refused** with `409`.
+- **Out of scope:** reviewing, completing or withdrawing a request, and
+  notifying anyone. Those are a later story.
+
+**Shared test data.** Organiser O (`11111111-…`), event E (`33333333-…`)
+owned by O, reason `"Keynote speaker withdrew and no replacement is available"`.
+
+## TC-EVENTS-123 — the Organiser requests cancellation of an eligible event
+
+- **Scenario:** A request is stored on the event and its status is unchanged
+  (AC1, AC3, AC5).
+- **Pre-conditions:** O signed in. The fake returns E, owned by O, with no
+  cancellation request, in each eligible status in turn. The conditional
+  update returns the row with the three fields set.
+- **Steps:** `POST /events/E/cancellation-request` with the test data, once
+  per eligible status.
+- **Test data:** `{"reason": "  Keynote speaker withdrew and no replacement is available  "}`;
+  statuses `submitted`, `under_review`, `planning`, `confirmed`,
+  `preparation`, `safety_changes_requested`.
+- **Expected:** `200` with the event, its `status` unchanged, and
+  `cancellation_reason` set to the trimmed reason,
+  `cancellation_requested_by` set to O, and `cancellation_requested_at` set.
+  The update writes exactly those three fields, never `status`.
+  `cancellation_requested_at` is a server time, never from the body. The
+  update is guarded by id, `organiser_id` O, an eligible status, and
+  `cancellation_requested_at` being null.
+- **Actual:** Each of the six statuses returned `200` with the status unchanged and the trimmed reason, requester and time set; the update wrote only the three cancellation fields, guarded by id, organiser, eligible status and a null `cancellation_requested_at`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_the_organiser_requests_cancellation_of_an_eligible_event`
+
+## TC-EVENTS-124 — an event that is not eligible cannot have a request
+
+- **Scenario:** Only live, submitted events can be asked to be cancelled
+  (AC1).
+- **Pre-conditions:** O signed in. The fake returns E, owned by O, in each
+  ineligible status.
+- **Steps:** `POST /events/E/cancellation-request` with a valid reason.
+- **Test data:** statuses `draft`, `returned`, `rejected`, `cancelled`,
+  `safety_rejected`.
+- **Expected:** `409` "This event can't be cancelled from its current
+  status." No update is made.
+- **Actual:** Each ineligible status returned `409` "This event can't be cancelled from its current status." with no update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_an_event_that_is_not_eligible_cannot_have_a_request`
+
+## TC-EVENTS-125 — a missing, blank or too-long reason is refused
+
+- **Scenario:** The reason is required (AC1).
+- **Pre-conditions:** O signed in; E eligible.
+- **Steps:** `POST /events/E/cancellation-request` with each body.
+- **Test data:** `{}`; `{"reason": ""}`; `{"reason": "   "}`;
+  `{"reason": "x" * 1001}`; `{"reason": "ok", "cancellation_requested_at": "2020-01-01T00:00:00Z"}`.
+- **Expected:** `422` for each. The last is refused because extra fields are
+  forbidden. No database call is made.
+- **Actual:** All five bodies returned `422` before any database call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_a_missing_blank_or_too_long_reason_is_refused`
+
+## TC-EVENTS-126 — only the event's own Organiser can request its cancellation
+
+- **Scenario:** The event must be one the Organiser may access (AC1).
+- **Pre-conditions:** The owned-event lookup returns no row for another
+  organiser's or a missing event.
+- **Steps:** `POST /events/E/cancellation-request` with a valid reason as:
+  1. no session;
+  2. each of `event_coordinator`, `venue_staff`, `technical_support`,
+     `attendee`;
+  3. O, for an event owned by someone else;
+  4. O, for a missing id.
+- **Expected:** 1 → `401`; 2 → `403`; 3 and 4 → `404` "Event not found". No
+  update in any case.
+- **Actual:** No session `401`; the four other roles `403`; someone else's or a missing event `404` "Event not found"; no update in any case.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_no_session_is_401`; `tests/unit/atomic/events/test_s62.py::test_other_roles_are_403`; `tests/unit/atomic/events/test_s62.py::test_someone_elses_or_a_missing_event_is_404`
+
+## TC-EVENTS-127 — a second request is refused and the first is kept
+
+- **Scenario:** A request already exists, or one lands between the read and
+  the write (AC6).
+- **Pre-conditions:** O signed in.
+  1. E is `planning` with `cancellation_requested_at` already set.
+  2. E is `planning` with no request, but the conditional update matches
+     nothing (another tab got there first).
+- **Steps:** `POST /events/E/cancellation-request` with a valid reason.
+- **Expected:** 1 → `409` "A cancellation request has already been sent for
+  this event." with no update. 2 → `409` with the same detail and no second,
+  unguarded write. In both cases the stored reason is untouched.
+- **Actual:** An existing request returned `409` with no update; a lost race returned `409` after the one guarded write, with no retry.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_a_second_request_is_refused_and_the_first_kept`; `tests/unit/atomic/events/test_s62.py::test_a_request_that_loses_a_race_is_refused_without_overwriting`
+
+## TC-EVENTS-128 — a storage failure leaves the event as it was
+
+- **Scenario:** Submission fails and nothing is recorded (AC6).
+- **Pre-conditions:** O signed in; E `planning`; the update raises.
+- **Steps:** `POST /events/E/cancellation-request` with a valid reason.
+- **Expected:** `500` "Event storage unavailable". The only write attempted
+  was the guarded one, which never includes `status`.
+- **Actual:** `500` "Event storage unavailable"; the one write attempted was the guarded one, without `status`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_a_storage_failure_leaves_the_event_as_it_was`
+
+## TC-EVENTS-129 — the request is returned with the event
+
+- **Scenario:** A stored request is part of the event the Organiser reads
+  (AC3).
+- **Pre-conditions:** O signed in. The fake returns E `planning` with the
+  three cancellation fields set, plus a second event with none.
+- **Steps:** `GET /events/E`; `GET /events`.
+- **Expected:** Both return E with `cancellation_reason`,
+  `cancellation_requested_at` and `cancellation_requested_by` as stored,
+  and `status` `planning`. The second event has all three as `null`.
+- **Actual:** Both routes returned the three fields as stored with status `planning`; the other event had all three `null`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s62.py::test_the_request_is_returned_with_the_event`

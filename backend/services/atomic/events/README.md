@@ -19,6 +19,7 @@ queries another service's tables.
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning` and `confirmed` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
+| `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -55,7 +56,7 @@ Technical Support workflows have the following event permissions:
 
 | Role | Permissions |
 | --- | --- |
-| `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own` |
+| `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
 | `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned` |
@@ -198,6 +199,9 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "decision_reason": null,
   "decision_comment": null,
   "decided_at": null,
+  "cancellation_reason": null,
+  "cancellation_requested_at": null,
+  "cancellation_requested_by": null,
   "safety_decision": null,
   "safety_decision_reason": null,
   "safety_officer_id": null,
@@ -326,6 +330,36 @@ Returns `200` with the updated event, `decided_at` set. `status` becomes
 `returned`. `409` if the request is not currently `submitted` —
 including a decision already made, since a decision cannot be changed once
 recorded. `404` if the caller is not the assigned coordinator.
+
+## Cancellation requests (S-62)
+
+**`POST /events/{event_id}/cancellation-request`** is for the organiser who
+owns the event only. It is reached through Kong at
+`/api/events/{event_id}/cancellation-request`.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Trimmed; 1–1000 characters. Any other field is a `422`. |
+
+```json
+{"reason": "Keynote speaker withdrew and no replacement is available"}
+```
+
+Returns `200` with the event. `cancellation_reason`,
+`cancellation_requested_at` (server time) and `cancellation_requested_by`
+(the caller) are set. **`status` is unchanged**: the event is not cancelled
+until a later review completes it. There is one request per event, and it
+comes back on `GET /events` and `GET /events/{event_id}`.
+
+| Status | When |
+| --- | --- |
+| `401` | No valid session. |
+| `403` | Not an `event_organiser`. |
+| `404` | `Event not found`: missing, or not the caller's. |
+| `409` | `This event can't be cancelled from its current status.`: only `submitted`, `under_review`, `planning`, `confirmed`, `preparation` and `safety_changes_requested` qualify. |
+| `409` | `A cancellation request has already been sent for this event.`: also returned when another request lands between the read and the write. |
+| `422` | Missing, blank or over-long `reason`, or an extra field. |
+| `500` | `Event storage unavailable`: nothing was recorded. |
 
 ## Internal routes (composite-only)
 

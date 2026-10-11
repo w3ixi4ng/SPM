@@ -269,3 +269,62 @@ export function decideEventRequest(id, { decision, reason, comment }) {
     body: JSON.stringify(body),
   })
 }
+
+// S-62: an Organiser asks for a live event to be cancelled. The request is
+// stored on the event and its status does not change -- the event is only
+// cancelled once a later review completes it. Mirrors the events service's
+// _CANCELLABLE_STATUSES, which stays authoritative.
+const CANCELLABLE_STATUSES = new Set([
+  'submitted', 'under_review', 'planning', 'confirmed', 'preparation', 'safety_changes_requested',
+])
+export const CANCELLATION_REASON_MAX = 1000
+
+export function canRequestCancellation(event) {
+  return CANCELLABLE_STATUSES.has(event?.status) && !event?.cancellation_requested_at
+}
+
+export function cancellationRequestedLabel(event) {
+  if (!event?.cancellation_requested_at) return null
+  const day = new Date(event.cancellation_requested_at).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  })
+  return `Cancellation requested on ${day}`
+}
+
+// The dashboard's tag beside the status badge. A separate tag, never a
+// status: the event keeps its own status until the request is reviewed.
+export function organiserCancellationTag(event) {
+  return event?.cancellation_requested_at ? 'Cancellation requested' : null
+}
+
+export function validateCancellationReason(reason) {
+  const trimmed = (reason ?? '').trim()
+  if (!trimmed) return 'Enter a reason for cancelling.'
+  if (trimmed.length > CANCELLATION_REASON_MAX) return 'Keep the reason to 1000 characters.'
+  return null
+}
+
+export function cancellationSentMessage(status) {
+  const label = organiserStatusMeta(status).label.toLowerCase()
+  return `Cancellation request sent. Your event stays in ${label} until it has been reviewed.`
+}
+
+const UNCHANGED = 'Your event has not changed.'
+
+export function cancellationErrorMessage(error) {
+  if (error.status === 409 && error.message) return `${error.message} ${UNCHANGED}`
+  if (error.status === 422) return `Enter a reason of up to 1000 characters. ${UNCHANGED}`
+  if (error.status === 404) return `This event was not found or does not belong to you. ${UNCHANGED}`
+  if (error.status === 401) return `Your session has expired. Sign in again and retry. ${UNCHANGED}`
+  if (error.status === 403) return `Your role can't request cancellations. ${UNCHANGED}`
+  if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${UNCHANGED}`
+  return `The cancellation request couldn't be sent. Try again in a moment. ${UNCHANGED}`
+}
+
+export function requestEventCancellation(id, reason) {
+  return requestJSON(`/events/${encodeURIComponent(id)}/cancellation-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason.trim() }),
+  })
+}

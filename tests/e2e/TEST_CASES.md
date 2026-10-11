@@ -893,3 +893,41 @@ Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/bo
 - **Actual:** Chromium through Kong: "Request venue" sent the Hall request; "Add another venue" reached the request screen and sent the Studio request; after a reload both rows showed 12 Nov 2026, their times and "Pending".
 - **Status:** Pass
 - **Evidence:** `test_book_multiple_venues.py::test_a_coordinator_adds_a_second_venue_and_sees_both_with_their_status[chromium]`; `.env.test` stack recreated immediately before, 2026-10-11. With `test_tentative_hold.py` and `test_request_venue.py`: 4 passed, 1 failed (TC-E2E-223, did not reproduce); rerun of the S-79 and S-33 files: 4 passed.
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+TC-E2E-232 is skipped because S-79's unmerged branch uses it.
+
+## TC-E2E-233 — Organiser confirms a cancellation request and the event is not shown as cancelled
+
+- **Scenario:** The confirm step, the success message and the unchanged
+  status all work in a real browser through Kong (S-62 AC1, AC2, AC4, AC5).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; the S-62 SQL applied; Chromium. An Organiser who owns a `planning`
+  event E.
+- **Steps:**
+  1. Sign in and open E. Click **Request cancellation**; a panel opens.
+  2. Enter the reason and click **Review request**. The panel asks "Cancel
+     this event?" and quotes the reason. Click **Keep event**.
+  3. Open the panel again, enter the reason, click **Review request**, then
+     **Send cancellation request**.
+  4. Reload the page.
+  5. Go back to the dashboard (added 2026-10-11).
+- **Test data:** Reason `"Keynote speaker withdrew"`.
+- **Expected:**
+  - After step 2, the panel is closed and `events.events` has no
+    cancellation request for E.
+  - After step 3, the page says "Cancellation request sent. Your event stays
+    in planning until it has been reviewed."
+  - After step 4, the status badge still reads "Planning", the page shows
+    "Cancellation requested on <today>" with the reason, and **Request
+    cancellation** is gone. `events.events` has E still `planning`, with the
+    reason stored.
+  - After step 5, E's row on the dashboard shows "Planning" and, beside
+    it, "Cancellation requested".
+  Cleanup deletes every row created.
+- **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.

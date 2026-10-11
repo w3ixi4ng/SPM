@@ -13,6 +13,7 @@ from supabase import Client
 from authorization import require_permission
 from database import get_db
 from schemas import (
+    CancellationRequestCreate,
     CoordinatorLoad,
     CoordinatorLoadRequest,
     DecisionCreate,
@@ -543,6 +544,53 @@ def submit_draft(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
+    return result.data[0]
+
+
+# S-62: an Organiser may ask for a live event to be cancelled. Drafts can be
+# abandoned, and returned, rejected and already-ended events have nothing to
+# cancel. Requesting records the request on the event and never changes its
+# status -- a later review does that.
+_CANCELLABLE_STATUSES = (
+    "submitted", "under_review", "planning", "confirmed", "preparation",
+    "safety_changes_requested",
+)
+_NOT_CANCELLABLE = "This event can't be cancelled from its current status."
+_ALREADY_REQUESTED = "A cancellation request has already been sent for this event."
+
+
+@app.post("/events/{event_id}/cancellation-request", response_model=EventRead)
+def request_cancellation(
+    event_id: UUID,
+    payload: CancellationRequestCreate,
+    user=Depends(require_permission("events:request_cancellation")),
+    db: Client = Depends(get_db),
+):
+    organiser_id = str(user.id)
+    existing = _get_owned_event(event_id, organiser_id, db)
+    if existing["status"] not in _CANCELLABLE_STATUSES:
+        raise HTTPException(status_code=409, detail=_NOT_CANCELLABLE)
+    if existing.get("cancellation_requested_at"):
+        raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
+
+    # Guarded like submit: a status change or a request from another tab
+    # between the read and this write matches nothing instead of overwriting.
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({
+            "cancellation_reason": payload.reason,
+            "cancellation_requested_at": _submitted_now(),
+            "cancellation_requested_by": organiser_id,
+        })
+        .eq("id", str(event_id))
+        .eq("organiser_id", organiser_id)
+        .in_("status", _CANCELLABLE_STATUSES)
+        .is_("cancellation_requested_at", "null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
     return result.data[0]
 
 

@@ -437,6 +437,33 @@ alter table events.events add constraint events_technical_support_state_consiste
     )
   );
 
+-- S-62 upgrade path. Safe to run repeatedly. An Organiser's cancellation
+-- request is stored on the event: one per event, all three fields set
+-- together or none. Requesting never changes status -- the event is only
+-- cancelled once a later review completes it.
+alter table events.events
+  add column if not exists cancellation_reason text,
+  add column if not exists cancellation_requested_at timestamptz,
+  add column if not exists cancellation_requested_by uuid;
+
+alter table events.events
+  drop constraint if exists events_cancellation_request_consistent;
+alter table events.events add constraint events_cancellation_request_consistent
+  check (
+    (
+      cancellation_reason is null
+      and cancellation_requested_at is null
+      and cancellation_requested_by is null
+    )
+    or (
+      cancellation_reason is not null
+      and btrim(cancellation_reason) <> ''
+      and char_length(cancellation_reason) <= 1000
+      and cancellation_requested_at is not null
+      and cancellation_requested_by is not null
+    )
+  );
+
 -- Event access is scoped by the authenticated organiser, so this supports
 -- owner-filtered reads and updates without scanning the full table.
 create index if not exists events_events_organiser_id_idx

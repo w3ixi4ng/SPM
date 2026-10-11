@@ -289,6 +289,8 @@ def test_event_organiser_has_the_sprint_one_permissions():
         "events:view_own",
         "events:update_own_draft",
         "events:submit_own",
+        # S-62
+        "events:request_cancellation",
     }
     assert ROLE_PERMISSIONS["event_organiser"] == EVENT_ORGANISER_PERMISSIONS
 
