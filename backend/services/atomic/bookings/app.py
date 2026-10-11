@@ -19,7 +19,7 @@ from supabase import Client
 
 from database import get_db
 from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision, HoldRelease
-from security import require_user, require_venue_staff
+from security import require_event_coordinator, require_user, require_venue_staff
 
 app = FastAPI(title="Bookings Service")
 logger = logging.getLogger(__name__)
@@ -343,6 +343,22 @@ def release_hold(
     if result.data:
         return result.data[0]
     raise HTTPException(status_code=409, detail="Only a tentative hold can be released")
+
+
+@app.delete("/internal/events/{event_id}/bookings")
+def delete_event_bookings(
+    event_id: UUID,
+    _coordinator=Depends(require_event_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-61: a cancelled event holds no venue time. Every booking for it is
+    removed, whatever its status, so its slots show as available. Called by
+    the event_requests composite after it has checked the Coordinator is
+    assigned to the event and the event is cancelled. Safe to repeat."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).delete().eq("event_id", str(event_id))
+    )
+    return {"deleted": len(result.data or [])}
 
 
 @app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)

@@ -29,6 +29,7 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
 | `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's blocks touching the range, by start date. |
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
+| `DELETE` | `/internal/events/{event_id}/bookings` | S-61, Event Coordinator session only: delete every booking for a cancelled event, whatever its status, so its times are available again. Returns `200` `{"deleted": <count>}`; safe to repeat (`{"deleted": 0}`). Called only by the `event_requests` composite after the event is cancelled. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
 | `GET` | `/health` | Liveness check. |
 

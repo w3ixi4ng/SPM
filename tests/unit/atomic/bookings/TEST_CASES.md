@@ -759,3 +759,50 @@ never names another event.
 - **Actual:** Live list filtered held/confirmed from the date with no venue filter, ordered venue, date, start; 422 without `from`; narrowed by `venue_id`. Existing list tests still pass.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_every_live_booking_from_a_date_is_listed_at_once`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_needs_a_start_date`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_can_be_narrowed_to_one_venue`
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+A new composite-only route, `DELETE /internal/events/{event_id}/bookings`, called by
+the `event_requests` composite when a Coordinator approves a cancellation.
+Like every bookings route it has no Kong entry. The criteria mapping and
+agreed decisions are in the S-61 section of
+`tests/unit/atomic/events/TEST_CASES.md`.
+
+### TC-BOOKINGS-044 — an approved cancellation removes every booking for the event
+
+- **Scenario:** The cancelled event no longer holds any venue time (S-61 AC2).
+- **Pre-conditions:** A Coordinator session; the fake's delete returns three
+  rows for event E (one `pending`, one `held`, one `confirmed`).
+- **Steps:** `DELETE /internal/events/E/bookings` with the Coordinator's cookie.
+- **Expected:** `200` `{"deleted": 3}`. One delete filtered by `event_id` E
+  only (every status). Nothing is written to `bookings.blocks`.
+- **Actual:** `200` `{"deleted": 3}`; one delete filtered by `event_id` only.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_event_cancelled.py::test_an_approved_cancellation_removes_every_booking_for_the_event`
+
+### TC-BOOKINGS-045 — removing an event's bookings twice is safe
+
+- **Scenario:** A retry after a partial failure finds nothing left (S-61
+  decision 7).
+- **Pre-conditions:** As TC-BOOKINGS-044, but the delete returns no rows.
+- **Steps:** `DELETE /internal/events/E/bookings`.
+- **Expected:** `200` `{"deleted": 0}`.
+- **Actual:** `200` `{"deleted": 0}`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_event_cancelled.py::test_removing_an_events_bookings_twice_is_safe`
+
+### TC-BOOKINGS-046 — only a Coordinator session can remove an event's bookings
+
+- **Scenario:** The route can't be used to wipe bookings by anyone else.
+- **Steps:** `DELETE /internal/events/E/bookings`:
+  1. without a session;
+  2. as each of `event_organiser`, `venue_staff`, `technical_support`,
+     `attendee`;
+  3. as a Coordinator, with the delete raising.
+- **Expected:** 1 → `401`; 2 → `403`; 3 → `500` with the service's storage
+  error. No delete in 1 and 2.
+- **Actual:** No session `401`; four other roles `403` with no delete; a storage failure `500` "Booking storage unavailable".
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_event_cancelled.py::test_without_a_session_nothing_is_removed`; `tests/unit/atomic/bookings/test_event_cancelled.py::test_other_roles_cannot_remove_an_events_bookings`; `tests/unit/atomic/bookings/test_event_cancelled.py::test_a_storage_failure_is_a_500`

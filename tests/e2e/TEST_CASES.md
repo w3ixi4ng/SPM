@@ -931,3 +931,40 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+
+## TC-E2E-234 — Coordinator approves a cancellation and the event shows as Cancelled for both sides
+
+- **Scenario:** The Coordinator's review journey works through Kong, the
+  venue booking disappears, and the Organiser sees the result (S-61 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; the S-61 SQL applied; Chromium. Coordinator K assigned to
+  `planning` event E, owned by Organiser O. E has a pending cancellation
+  request ("Keynote speaker withdrew") and one `confirmed` booking of a test
+  venue.
+- **Steps:**
+  1. K signs in. E's row on the dashboard shows "Cancellation requested".
+     K opens E.
+  2. The page shows the Organiser's reason. K clicks **Approve
+     cancellation**. The panel says "1 venue booking will be removed and its
+     time freed." K clicks **Keep event**.
+  3. K clicks **Approve cancellation** again, then **Cancel event**.
+  4. K reloads the page.
+  5. O signs in and opens the dashboard.
+- **Expected:**
+  - After step 2, nothing has changed in `events.events` or
+    `bookings.bookings`.
+  - After step 3, the page says "Event cancelled. 1 venue booking was
+    released."
+  - After step 4, the badge reads "Cancelled", the venue requests list is
+    empty, and no decision buttons remain. `bookings.bookings` has no rows
+    for E.
+  - After step 5, E's row reads "Cancelled" with no tag beside it.
+  Cleanup deletes every row created.
+- **Actual:** Not run: the S-61 section of `backend/sql/events.sql` has not yet been applied to the test project.
+- **Status:** Blocked
+- **Evidence:** `tests/e2e/test_approve_cancellation.py::test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled[chromium]`

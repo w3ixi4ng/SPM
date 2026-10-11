@@ -157,3 +157,14 @@ class CoordinatorReassignmentCreate(BaseModel):
     coordinator_id: UUID
     expected_coordinator_id: UUID
     expected_assignment_version: int = Field(ge=0)
+
+
+class CancellationDecision(BaseModel):
+    """S-61: the Coordinator's decision on a cancellation request. Only the
+    shape is checked here; the events service enforces the rules (a reason
+    when declining, none when approving) and answers with its own 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]
+    reason: str | None = None

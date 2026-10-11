@@ -25,6 +25,7 @@ SERVICE = (
 os.environ.setdefault("USERS_SERVICE_URL", "http://users:8001")
 os.environ.setdefault("EVENTS_SERVICE_URL", "http://events:8002")
 os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
+os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 
 # Services use flat imports because each Docker image runs from its own
 # folder. Load this service while preserving any same-named modules another
@@ -50,6 +51,7 @@ app = app_module.app
 get_users_client = clients_module.get_users_client
 get_events_client = clients_module.get_events_client
 get_notifications_client = clients_module.get_notifications_client
+get_bookings_client = clients_module.get_bookings_client
 
 ORGANISER_ID = "11111111-1111-4111-8111-111111111111"
 COORDINATOR_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -239,10 +241,17 @@ def notifications():
 
 
 @pytest.fixture
-def client(users, events, notifications):
+def bookings():
+    """S-61: fakes the bookings-service AsyncClient."""
+    return MagicMock(delete=AsyncMock())
+
+
+@pytest.fixture
+def client(users, events, notifications, bookings):
     app.dependency_overrides[get_users_client] = lambda: users
     app.dependency_overrides[get_events_client] = lambda: events
     app.dependency_overrides[get_notifications_client] = lambda: notifications
+    app.dependency_overrides[get_bookings_client] = lambda: bookings
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

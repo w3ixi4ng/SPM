@@ -13,6 +13,7 @@ from supabase import Client
 from authorization import require_permission
 from database import get_db
 from schemas import (
+    CancellationDecisionCreate,
     CancellationRequestCreate,
     CoordinatorLoad,
     CoordinatorLoadRequest,
@@ -570,7 +571,9 @@ def request_cancellation(
     existing = _get_owned_event(event_id, organiser_id, db)
     if existing["status"] not in _CANCELLABLE_STATUSES:
         raise HTTPException(status_code=409, detail=_NOT_CANCELLABLE)
-    if existing.get("cancellation_requested_at"):
+    # S-61: after a decline the Organiser may ask again; the new request
+    # replaces the old one and its decision.
+    if existing.get("cancellation_requested_at") and existing.get("cancellation_decision") != "declined":
         raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
 
     # Guarded like submit: a status change or a request from another tab
@@ -582,15 +585,68 @@ def request_cancellation(
             "cancellation_reason": payload.reason,
             "cancellation_requested_at": _submitted_now(),
             "cancellation_requested_by": organiser_id,
+            "cancellation_decision": None,
+            "cancellation_decision_reason": None,
+            "cancellation_decided_by": None,
+            "cancellation_decided_at": None,
         })
         .eq("id", str(event_id))
         .eq("organiser_id", organiser_id)
         .in_("status", _CANCELLABLE_STATUSES)
-        .is_("cancellation_requested_at", "null")
+        .or_("cancellation_requested_at.is.null,cancellation_decision.eq.declined")
     )
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
+    return result.data[0]
+
+
+_NO_REQUEST = "There is no cancellation request to decide for this event."
+_ALREADY_DECIDED = "This cancellation request has already been decided."
+
+
+@app.post("/events/{event_id}/cancellation-decision", response_model=EventRead)
+def decide_cancellation(
+    event_id: UUID,
+    payload: CancellationDecisionCreate,
+    user=Depends(require_permission("events:decide_cancellation")),
+    db: Client = Depends(get_db),
+):
+    """S-61: the assigned Coordinator approves (the event becomes cancelled) or
+    declines (the status stays) a pending cancellation request. Only the
+    event changes here; the event_requests composite releases its bookings."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if not existing.get("cancellation_requested_at"):
+        raise HTTPException(status_code=409, detail=_NO_REQUEST)
+    decided = existing.get("cancellation_decision")
+    if decided:
+        # Approving again is how a failed booking release is retried, so it
+        # succeeds without writing anything.
+        if decided == "approved" and payload.decision == "approved":
+            return existing
+        raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
+
+    changes = {
+        "cancellation_decision": payload.decision,
+        "cancellation_decision_reason": payload.reason,
+        "cancellation_decided_by": coordinator_id,
+        "cancellation_decided_at": _submitted_now(),
+    }
+    if payload.decision == "approved":
+        changes["status"] = "cancelled"
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(changes)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .not_.is_("cancellation_requested_at", "null")
+        .is_("cancellation_decision", "null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
     return result.data[0]
 
 

@@ -36,6 +36,7 @@ Event Coordinators.
 | `POST` | `/event-requests/{event_id}/reassignment` | Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
+| `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
 `GET /event-requests/health` is the gateway-compatible health alias.
@@ -197,6 +198,43 @@ the least-loaded conflict-free trusted Technical Support account, breaking
 ties by ascending UUID. If none is available, it persists the requirement
 with no assignee and returns `assignment_state: "unassigned"`.
 
+## Cancellation decision (S-61)
+
+**`POST /event-requests/{event_id}/cancellation-decision`**, through Kong at
+`/api/event-requests/{event_id}/cancellation-decision`.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `decision` | `"approved"` \| `"declined"` | yes | |
+| `reason` | string | when declining | 1–1000 characters. Not accepted when approving. |
+
+```json
+{"decision": "declined", "reason": "The venue is non-refundable; move the date instead"}
+```
+
+The events service checks the session, that the caller is the event's
+assigned Coordinator, and that a cancellation request is pending, and then
+records the decision. Its answer (`200`, `401`, `403`, `404`, `409`, `422`)
+is passed on unchanged.
+
+- **Declined:** `200` with the event. Its status is unchanged and
+  `cancellation_decision` is `declined` with the reason. Bookings are not
+  touched.
+- **Approved:** the event becomes `cancelled`, and then every venue booking
+  for it is deleted through the bookings service, so its times show as
+  available. Equipment needs no call, because only `planning` and `confirmed`
+  events reserve it. The response is `200` with the event plus
+  `released_bookings`:
+
+```json
+{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2}
+```
+
+| Status | Detail | Meaning |
+| --- | --- | --- |
+| `502` | `The events service is unavailable. Nothing was changed.` | No decision was recorded. |
+| `502` | `The event is cancelled, but its venue bookings were not released. Approve again to release them.` | Approving again is safe. The event is not written a second time, and the bookings are removed. |
+
 ## Errors
 
 | Status | When |
@@ -215,6 +253,7 @@ with no assignee and returns `assignment_state: "unassigned"`.
 | `USERS_SERVICE_URL` | Users service, e.g. `http://users:8001`. |
 | `EVENTS_SERVICE_URL` | Events service, e.g. `http://events:8002`. |
 | `NOTIFICATIONS_SERVICE_URL` | Notifications service, e.g. `http://notifications:8006`. |
+| `BOOKINGS_SERVICE_URL` | S-61: bookings service, e.g. `http://bookings:8004`. |
 
 ## Running and tests
 

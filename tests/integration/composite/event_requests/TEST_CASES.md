@@ -282,3 +282,43 @@ must no longer execute after S-83 replaces that workflow.
   received `403`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_overview_groups_and_tracks_reassignment`
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+**Blocked** until the S-61 section of `backend/sql/events.sql` has been run in
+the test project. The criteria mapping and agreed decisions are in the S-61
+section of `tests/unit/atomic/events/TEST_CASES.md`.
+
+### TC-EVENTREQUESTS-111 — approving through Kong cancels the event and frees its venue and equipment
+
+- **Scenario:** Real services agree that a cancelled event holds nothing, and
+  a decline keeps everything (S-61 AC1–AC3).
+- **Pre-conditions:** A fresh `.env.test` stack; the S-61 SQL applied.
+  - Coordinator K, Organiser O, Venue Staff S, and a venue V open `thu`
+    08:00–20:00.
+  - An equipment item Q with quantity 1.
+  - Event E1: `planning`, assigned to K, owned by O, `2026-11-12`
+    09:00–18:00. It has a pending cancellation request, a `confirmed` booking
+    of V 09:00–12:00, a `held` booking of V 13:00–15:00, and a requirement
+    for 1 × Q.
+  - Event E2: `planning`, assigned to K, with a pending request.
+- **Steps:**
+  1. K `POST /api/event-requests/E1/cancellation-decision` `{"decision": "approved"}`.
+  2. S `GET /api/venue-bookings/availability?venue_id=V&from=2026-11-12&to=2026-11-12`.
+  3. K checks equipment availability for Q on `2026-11-12` 09:00–18:00.
+  4. K declines E2 with reason "Move the date instead".
+  5. O `POST /api/events/E2/cancellation-request` `{"reason": "Still need to cancel"}`.
+- **Expected:**
+  1. `200`, `status` `cancelled`, `released_bookings` 2. In
+     `events.events`, E1 is `cancelled` with decision `approved` by K and a
+     decision time. `bookings.bookings` has no rows for E1.
+  2. 12 Nov shows nothing booked or held at V.
+  3. Q shows 1 available.
+  4. `200`. E2 is still `planning`, with decision `declined` and the reason.
+  5. `200`. E2's decision fields are cleared and the new reason is stored.
+  Cleanup deletes every row created.
+- **Actual:** Not run: the S-61 section of `backend/sql/events.sql` has not yet been applied to the test project.
+- **Status:** Blocked
+- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`

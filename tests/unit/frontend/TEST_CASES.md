@@ -1810,3 +1810,59 @@ TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Both requested events were tagged "Cancellation requested"; every status without a request, and an event without the field, gave `null`; labels stayed "Planning" and "Confirmed".
 - **Status:** Pass
 - **Evidence:** `test_event_cancellation.mjs::the dashboard tags an event with a pending cancellation request`; `node --test tests/unit/frontend/test_*.mjs`: 131 passed, 2026-10-11.
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+
+### TC-FRONTEND-107 — who sees what about a cancellation request
+
+- **Scenario:** The Coordinator is offered the decision only for a pending
+  request; the Organiser sees the outcome (S-61 AC1).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` and `access.js`
+  imported directly.
+- **Steps:** Call the helpers with each event.
+- **Test data:** pending request `{status: "planning", cancellation_requested_at: T, cancellation_decision: null}`;
+  declined `{…, cancellation_decision: "declined", cancellation_decision_reason: "Move the date instead"}`;
+  approved `{status: "cancelled", cancellation_requested_at: T, cancellation_decision: "approved"}`;
+  no request `{status: "planning", cancellation_requested_at: null}`.
+- **Expected:**
+  - The Coordinator may decide only the pending one.
+  - The Coordinator list tag is "Cancellation requested" for pending only.
+  - The status label for `cancelled` is "Cancelled".
+  - The Organiser's dashboard tag is "Cancellation requested" (pending),
+    "Cancellation declined" (declined), or none.
+  - The Organiser may request again for the declined one, but not the
+    pending or approved one.
+  - Only `event_coordinator` has `events:decide_cancellation`.
+- **Actual:** Only the pending request is decidable and tagged for the Coordinator; `cancelled` reads "Cancelled"; Organiser tags requested/declined/none; re-request allowed only after a decline; only `event_coordinator` has `events:decide_cancellation`.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::who sees what about a cancellation request`; `test_cancellation_decision.mjs::only event coordinators may decide cancellation requests, as in authorization.py`
+
+### TC-FRONTEND-108 — the decision call, its validation and every failure message
+
+- **Scenario:** The browser sends the decision through Kong, and a failure
+  says exactly what changed.
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:**
+  1. Approve `e 1/2`; decline `e 1/2` with `"  Move the date  "`.
+  2. Validate decline reasons `""`, `"   "`, 1001 characters, and `"ok"`.
+  3. Map errors `409` (service message), `502` (service message), `404`,
+     `500`, and a network failure (`0`).
+  4. Build the approval summary for 0, 1 and 2 bookings.
+- **Expected:**
+  1. `POST /api/event-requests/e%201%2F2/cancellation-decision` with
+     credentials and bodies `{"decision":"approved"}` and
+     `{"decision":"declined","reason":"Move the date"}`.
+  2. "Enter a reason for declining." for the first two; "Keep the reason
+     to 1000 characters." for the long one; none for `"ok"`.
+  3. `409` and `502` show the service's message. `404`, `500` and `0` end
+     with "Nothing was changed."
+  4. "No venue bookings to release." / "1 venue booking will be removed and
+     its time freed." / "2 venue bookings will be removed and their times
+     freed." Each is followed by "Equipment reserved for this event is
+     freed."
+- **Actual:** Both decisions posted to `/api/event-requests/e%201%2F2/cancellation-decision` with credentials and the expected bodies; reason messages, failure messages and the three summaries as specified.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::the decision posts through Kong`; `test_cancellation_decision.mjs::a decline needs a reason of at most 1000 characters`; `test_cancellation_decision.mjs::every failure says what changed`; `test_cancellation_decision.mjs::the approval summary names what is released`

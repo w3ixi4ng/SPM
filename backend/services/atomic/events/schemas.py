@@ -263,6 +263,11 @@ class EventRead(BaseModel):
     cancellation_reason: str | None = None
     cancellation_requested_at: datetime | None = None
     cancellation_requested_by: UUID | None = None
+    # S-61: the assigned Coordinator's latest decision on that request.
+    cancellation_decision: Literal["approved", "declined"] | None = None
+    cancellation_decision_reason: str | None = None
+    cancellation_decided_by: UUID | None = None
+    cancellation_decided_at: datetime | None = None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
@@ -286,6 +291,31 @@ class CancellationRequestCreate(BaseModel):
             if not value:
                 raise ValueError("reason is required")
         return value
+
+
+class CancellationDecisionCreate(BaseModel):
+    """S-61: approve, or decline with a reason. Who decided and when are
+    set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]
+    reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def blank_reason_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_only_when_declining(self):
+        if self.decision == "declined" and self.reason is None:
+            raise ValueError("reason is required when declining")
+        if self.decision == "approved" and self.reason is not None:
+            raise ValueError("reason is not accepted when approving")
+        return self
 
 
 class EventOptions(BaseModel):

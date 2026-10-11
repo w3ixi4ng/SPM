@@ -15,8 +15,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from clients import get_events_client, get_notifications_client, get_users_client
+from clients import get_bookings_client, get_events_client, get_notifications_client, get_users_client
 from schemas import (
+    CancellationDecision,
     CoordinatorAssignmentCreate,
     CoordinatorReassignmentCreate,
     EventRequestSubmit,
@@ -320,6 +321,62 @@ async def update_event_request(
     await _authenticate_organiser(request, users)
     changes = payload.model_dump(exclude_unset=True, mode="json")
     return await _forward_patch(events, event_id, changes, request.cookies)
+
+
+# S-61: what the events service may answer on a decision and is passed on as
+# it is. Anything else, or no answer, means nothing was changed.
+_DECISION_PASSTHROUGH = (200, 401, 403, 404, 409, 422)
+_EVENTS_DOWN = "The events service is unavailable. Nothing was changed."
+_BOOKINGS_NOT_RELEASED = (
+    "The event is cancelled, but its venue bookings were not released. "
+    "Approve again to release them."
+)
+
+
+@app.post("/event-requests/{event_id}/cancellation-decision")
+async def decide_cancellation(
+    event_id: UUID,
+    payload: CancellationDecision,
+    request: Request,
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-61: the assigned Coordinator approves or declines a cancellation
+    request. The events service checks the session, the assignment and the
+    request, and records the decision. On approval the event's venue
+    bookings are then removed so their times are free. Equipment needs no
+    call: only planning and confirmed events reserve it.
+
+    The event changes first. If the bookings can't be removed, approving
+    again is a no-op on the event and retries the removal."""
+    try:
+        decided = await events.post(
+            f"/events/{event_id}/cancellation-decision",
+            json=payload.model_dump(exclude_none=True),
+            cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail=_EVENTS_DOWN) from exc
+    if decided.status_code not in _DECISION_PASSTHROUGH:
+        raise HTTPException(status_code=502, detail=_EVENTS_DOWN)
+    if decided.status_code != status.HTTP_200_OK:
+        return JSONResponse(status_code=decided.status_code, content=decided.json())
+
+    event = decided.json()
+    if event.get("cancellation_decision") != "approved":
+        return event
+
+    try:
+        released = await bookings.delete(
+            f"/internal/events/{event_id}/bookings", cookies=request.cookies
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Bookings service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail=_BOOKINGS_NOT_RELEASED) from exc
+    if released.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail=_BOOKINGS_NOT_RELEASED)
+    return {**event, "released_bookings": released.json()["deleted"]}
 
 
 @app.get("/event-requests/unassigned")

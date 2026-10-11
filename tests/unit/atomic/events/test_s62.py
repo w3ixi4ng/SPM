@@ -44,10 +44,11 @@ def _live(status="planning", **changes):
 
 
 def _guarded_update(db, rows=None, error=None):
-    # .update().eq(id).eq(organiser_id).in_(status, [...]).is_(requested_at, null)
+    # .update().eq(id).eq(organiser_id).in_(status, [...])
+    #   .or_(no request yet, or the last one was declined) -- S-61
     operation = (
         db.schema.return_value.table.return_value.update.return_value
-        .eq.return_value.eq.return_value.in_.return_value.is_.return_value
+        .eq.return_value.eq.return_value.in_.return_value.or_.return_value
     )
     if error is not None:
         operation.execute.side_effect = error
@@ -84,7 +85,13 @@ def test_the_organiser_requests_cancellation_of_an_eligible_event(client, db, au
 
     _update(db).assert_called_once()
     written = _update(db).call_args.args[0]
-    assert set(written) == {"cancellation_reason", "cancellation_requested_at", "cancellation_requested_by"}
+    assert set(written) == {
+        "cancellation_reason", "cancellation_requested_at", "cancellation_requested_by",
+        # S-61: a new request clears any earlier decision.
+        "cancellation_decision", "cancellation_decision_reason",
+        "cancellation_decided_by", "cancellation_decided_at",
+    }
+    assert all(written[field] is None for field in written if field.startswith("cancellation_deci"))
     assert written["cancellation_reason"] == REASON
     assert written["cancellation_requested_by"] == ORGANISER_ID
     assert written["cancellation_requested_at"].startswith("20")
@@ -95,7 +102,9 @@ def test_the_organiser_requests_cancellation_of_an_eligible_event(client, db, au
     status_guard = chain.eq.return_value.eq.return_value.in_
     assert status_guard.call_args.args[0] == "status"
     assert set(status_guard.call_args.args[1]) == set(ELIGIBLE)
-    assert status_guard.return_value.is_.call_args.args == ("cancellation_requested_at", "null")
+    assert status_guard.return_value.or_.call_args.args == (
+        "cancellation_requested_at.is.null,cancellation_decision.eq.declined",
+    )
 
 
 # --- TC-EVENTS-124 ---------------------------------------------------------
