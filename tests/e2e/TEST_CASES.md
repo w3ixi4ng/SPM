@@ -8,7 +8,7 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
 `test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
-`test_operational_safety_check.py`.
+`test_operational_safety_check.py`, and `test_book_multiple_venues.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -607,6 +607,12 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 
 ## TC-E2E-223 — Tentative hold appears distinctly and releases for a replacement request
 
+> **S-79 (2026-10-11):** a second request no longer replaces the first. The
+> test (`test_tentative_hold_is_distinct_and_a_second_request_keeps_it`) now
+> expects the original to stay `held` with no release reason. Run 2026-10-11:
+> failed once in a three-file run and did not reproduce; passed alone and in
+> a rerun of `test_tentative_hold.py` with `test_book_multiple_venues.py`.
+
 - **Scenario:** Venue Staff place and observe a hold, then the Coordinator's changed request frees the old slot immediately (AC1–AC4).
 - **Pre-conditions:** Fresh `.env.test` stack with S-33 SQL applied, granted and exposed; Chromium; one Venue Staff member; assigned Coordinator; planning event with a Pending Studio B request.
 - **Steps:** Sign in as Venue Staff; place the hold; inspect availability; verify an overlapping request is blocked; sign in as the Coordinator and submit a replacement at a different time; return as Venue Staff and inspect availability without a full page reload; place a hold in the freed old slot.
@@ -860,3 +866,30 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
   local run on 2026-10-10 against the freshly recreated `.env.test` stack:
   S-86 plus S-84/S-85 regressions, 3 passed.
+
+## S-79 — book multiple venues for one event
+
+Story: S-79 Book Multiple Venues for One Event.
+Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
+
+## TC-E2E-232 — Coordinator adds a second venue to an event and sees both with their status
+
+- **Scenario:** The "Add another venue" journey works through Kong, and both
+  bookings are still on the event page after a reload (S-79 AC1, AC3).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; Chromium. A Coordinator assigned to a planning event E
+  (`2026-11-12` 08:00–18:00, attendance 120). Two test venues, both open
+  `thu` 08:00–20:00, with capacity 300 and 150.
+- **Steps:**
+  1. Sign in and open E. The link reads "Request venue".
+  2. Request the 300-seat venue for `2026-11-12` 09:00–17:00, then land back on E.
+  3. The link now reads "Add another venue". Follow it, request the 150-seat
+     venue for `2026-11-12` 13:00–15:00, then land back on E.
+  4. Reload the page.
+- **Test data:** As above.
+- **Expected:** After step 4, the "Venue requests" list for E shows both
+  venues, each with its date, times and the status label "Pending". Cleanup
+  deletes every row created.
+- **Actual:** Chromium through Kong: "Request venue" sent the Hall request; "Add another venue" reached the request screen and sent the Studio request; after a reload both rows showed 12 Nov 2026, their times and "Pending".
+- **Status:** Pass
+- **Evidence:** `test_book_multiple_venues.py::test_a_coordinator_adds_a_second_venue_and_sees_both_with_their_status[chromium]`; `.env.test` stack recreated immediately before, 2026-10-11. With `test_tentative_hold.py` and `test_request_venue.py`: 4 passed, 1 failed (TC-E2E-223, did not reproduce); rerun of the S-79 and S-33 files: 4 passed.

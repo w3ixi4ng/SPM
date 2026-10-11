@@ -20,7 +20,7 @@ internal-service contract. Atomic services never call the users service.
 | --- | --- | --- |
 | `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
 | `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold. The service records `held_by` and `held_at`; an overlapping live slot returns `409`. |
-| `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release a replaced request. |
+| `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
 | `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or on a blocked day is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
 | `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). |

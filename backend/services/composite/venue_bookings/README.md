@@ -25,7 +25,7 @@ all read attempts fail, the existing safe `502` response is returned.
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. |
+| `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. An event may have several (S-79). |
 | `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
@@ -89,6 +89,14 @@ the tentative hold, and only held and confirmed rows reserve time. Holds are
 exclusive. The bookings service refuses a request that overlaps another hold,
 a confirmed booking or a block, and this service passes its `409` through
 unchanged — see the table below.
+
+**Several venues per event (S-79).** An event can have any number of
+requests, at different venues, dates or times, and two may run at the same
+time in different venues. Each is checked on its own, as above. Capacity is
+always checked against the event's total expected attendance. A new request
+never replaces, releases or changes the event's other requests. Sending one
+that matches a pending or held request's venue, date and times exactly
+returns that request with `201` instead of storing a duplicate.
 
 Submitting a request writes nothing to the event — it is already in
 `planning` and stays there.

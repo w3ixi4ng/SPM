@@ -1,4 +1,8 @@
-"""TC-E2E-223/224 -- explicit tentative holds and automatic release (S-33)."""
+"""TC-E2E-223/224 -- explicit tentative holds and automatic release (S-33).
+
+S-79: a second request for the same event no longer replaces the first, so
+TC-E2E-223 now checks the hold survives it.
+"""
 
 import re
 import uuid
@@ -32,7 +36,7 @@ def booking_row(page, event_name):
     ).filter(has_text=event_name)
 
 
-def test_tentative_hold_is_distinct_and_replacement_releases_it(
+def test_tentative_hold_is_distinct_and_a_second_request_keeps_it(
     admin, page, make_user, sign_in
 ):
     coordinator = make_user("event_coordinator")
@@ -77,9 +81,7 @@ def test_tentative_hold_is_distinct_and_replacement_releases_it(
     stored = admin.schema("bookings").table("bookings").select(
         "id,status,hold_release_reason"
     ).eq("id", original["id"]).execute().data[0]
-    assert stored == {
-        "id": original["id"], "status": "pending", "hold_release_reason": "booking_replaced"
-    }
+    assert stored == {"id": original["id"], "status": "held", "hold_release_reason": None}
 
 
 @pytest.mark.parametrize("terminal_status", ["rejected", "cancelled"])
