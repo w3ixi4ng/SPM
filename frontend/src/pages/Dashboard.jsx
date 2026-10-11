@@ -8,6 +8,7 @@ import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   eventErrorMessage,
   listEventRequests,
+  organiserCancellationTag,
   organiserStatusMeta,
   organiserTabs,
 } from '../lib/eventRequests.js'
@@ -164,6 +165,7 @@ function EventRequestList({ refreshAuth }) {
         <ul className="divide-y" style={{ borderColor: C.line }}>
           {currentTab.events.map((event) => {
             const { label: statusLabel, color: statusColor } = organiserStatusMeta(event.status)
+            const cancellationTag = organiserCancellationTag(event)
             return (
               <li key={event.id} className="py-4 first:pt-0 last:pb-0">
                 <Link
@@ -188,6 +190,13 @@ function EventRequestList({ refreshAuth }) {
                     >
                       {statusLabel}
                     </span>
+                    {cancellationTag && (
+                      // S-62: beside the status, never instead of it.
+                      <span className="inline-flex items-center gap-1.5 font-ui text-xs" style={{ color: C.ink }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+                        {cancellationTag}
+                      </span>
+                    )}
                     <ArrowRight
                       size={16}
                       aria-hidden="true"

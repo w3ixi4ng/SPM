@@ -83,3 +83,9 @@ def test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cance
     row = stored(admin, event["id"])
     assert row["status"] == "planning"
     assert row["cancellation_reason"] == REASON
+
+    # 5. The dashboard row keeps the status and tags the request beside it.
+    page.goto("/dashboard/event-organiser")
+    dashboard_row = page.get_by_role("listitem").filter(has_text=event["name"])
+    expect(dashboard_row.get_by_text("Planning", exact=True)).to_be_visible(timeout=20000)
+    expect(dashboard_row.get_by_text("Cancellation requested", exact=True)).to_be_visible()

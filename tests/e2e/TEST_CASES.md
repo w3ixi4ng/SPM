@@ -881,6 +881,7 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
   3. Open the panel again, enter the reason, click **Review request**, then
      **Send cancellation request**.
   4. Reload the page.
+  5. Go back to the dashboard (added 2026-10-11).
 - **Test data:** Reason `"Keynote speaker withdrew"`.
 - **Expected:**
   - After step 2, the panel is closed and `events.events` has no
@@ -891,7 +892,9 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
     "Cancellation requested on <today>" with the reason, and **Request
     cancellation** is gone. `events.events` has E still `planning`, with the
     reason stored.
+  - After step 5, E's row on the dashboard shows "Planning" and, beside
+    it, "Cancellation requested".
   Cleanup deletes every row created.
-- **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason.
+- **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-62/request-event-cancellation` at `cb446d3`; S-62 SQL applied to dev and test. With `test_respond_to_return.py`: 2 passed.
+- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.

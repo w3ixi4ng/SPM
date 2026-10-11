@@ -8,6 +8,7 @@ import {
   cancellationRequestedLabel,
   cancellationSentMessage,
   canRequestCancellation,
+  organiserCancellationTag,
   organiserStatusMeta,
   requestEventCancellation,
   validateCancellationReason,
@@ -98,4 +99,18 @@ test('every failure says the event has not changed', () => {
   }
   assert.match(messages[3], /Try again/)
   assert.match(messages[4], /try again/)
+})
+
+// --- TC-FRONTEND-106 -------------------------------------------------------
+test('the dashboard tags an event with a pending cancellation request', () => {
+  const requestedAt = '2026-10-11T09:00:00Z'
+  assert.equal(organiserCancellationTag({ status: 'planning', cancellation_requested_at: requestedAt }), 'Cancellation requested')
+  assert.equal(organiserCancellationTag({ status: 'confirmed', cancellation_requested_at: requestedAt }), 'Cancellation requested')
+  for (const status of [...ELIGIBLE, ...INELIGIBLE]) {
+    assert.equal(organiserCancellationTag({ status, cancellation_requested_at: null }), null, status)
+  }
+  assert.equal(organiserCancellationTag({ status: 'planning' }), null)
+  // A tag beside the status, never a replacement for it.
+  assert.equal(organiserStatusMeta('planning').label, 'Planning')
+  assert.equal(organiserStatusMeta('confirmed').label, 'Confirmed')
 })

@@ -291,6 +291,12 @@ export function cancellationRequestedLabel(event) {
   return `Cancellation requested on ${day}`
 }
 
+// The dashboard's tag beside the status badge. A separate tag, never a
+// status: the event keeps its own status until the request is reviewed.
+export function organiserCancellationTag(event) {
+  return event?.cancellation_requested_at ? 'Cancellation requested' : null
+}
+
 export function validateCancellationReason(reason) {
   const trimmed = (reason ?? '').trim()
   if (!trimmed) return 'Enter a reason for cancelling.'

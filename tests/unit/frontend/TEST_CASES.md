@@ -1771,3 +1771,20 @@ TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
 - **Actual:** One `POST /api/events/e%201%2F2/cancellation-request` with credentials and the trimmed reason; reason messages as specified; all five failures end "Your event has not changed.", 409 leading with the service message.
 - **Status:** Pass
 - **Evidence:** `test_event_cancellation.mjs::the request posts the trimmed reason through Kong`; `test_event_cancellation.mjs::the reason is required and at most 1000 characters`; `test_event_cancellation.mjs::every failure says the event has not changed`
+
+### TC-FRONTEND-106 — the dashboard tags an event with a pending cancellation request
+
+- **Scenario:** The Organiser can see from the dashboard list which events are
+  waiting on a cancellation request, and the status is never replaced (S-62
+  AC5; added 2026-10-11 at the developer's request).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` imported directly.
+- **Steps:** Call the tag helper with each event.
+- **Test data:** `{status: "planning", cancellation_requested_at: "2026-10-11T09:00:00Z"}`;
+  `{status: "confirmed", cancellation_requested_at: "2026-10-11T09:00:00Z"}`; every
+  status with `cancellation_requested_at` null; `{status: "planning"}` with no such field.
+- **Expected:** "Cancellation requested" for the two requested events, and
+  `null` for the rest. `organiserStatusMeta` still gives "Planning" and
+  "Confirmed" for the first two.
+- **Actual:** Both requested events were tagged "Cancellation requested"; every status without a request, and an event without the field, gave `null`; labels stayed "Planning" and "Confirmed".
+- **Status:** Pass
+- **Evidence:** `test_event_cancellation.mjs::the dashboard tags an event with a pending cancellation request`; `node --test tests/unit/frontend/test_*.mjs`: 131 passed, 2026-10-11.
