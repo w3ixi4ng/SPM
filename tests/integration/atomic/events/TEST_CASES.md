@@ -123,8 +123,7 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 
 Story: S-62 Request Event Cancellation.
 Confirmed by the developer on 2026-10-11.
-**Blocked** until the S-62 section of `backend/sql/events.sql` has been run in
-the test project. For the criteria mapping and the agreed decisions, see the
+The S-62 SQL was applied to dev and test on 2026-10-11. For the criteria mapping and the agreed decisions, see the
 S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 
 ## TC-EVENTS-130 — a cancellation request is stored with the event through Kong
@@ -144,6 +143,6 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
   3. `409`.
   `events.events` read with the admin client agrees with step 2. Cleanup
   deletes E and O.
-- **Actual:** Not run: the S-62 section of `backend/sql/events.sql` has not yet been applied to the test project.
-- **Status:** Blocked
-- **Evidence:** `tests/integration/atomic/events/test_cancellation_request.py::test_a_cancellation_request_is_stored_with_the_event_through_kong`
+- **Actual:** Through Kong: the request returned `200`; `GET` showed status `planning` with the reason, requester and time; the second request returned `409`. `events.events` agreed.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_cancellation_request.py::test_a_cancellation_request_is_stored_with_the_event_through_kong`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-62/request-event-cancellation` at `cb446d3`; S-62 SQL applied to dev and test. `pytest tests/integration/atomic/events`: 6 passed.

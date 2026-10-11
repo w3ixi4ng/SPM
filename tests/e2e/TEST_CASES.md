@@ -892,6 +892,6 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
     cancellation** is gone. `events.events` has E still `planning`, with the
     reason stored.
   Cleanup deletes every row created.
-- **Actual:** Not run: the S-62 section of `backend/sql/events.sql` has not yet been applied to the test project.
-- **Status:** Blocked
-- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`
+- **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-62/request-event-cancellation` at `cb446d3`; S-62 SQL applied to dev and test. With `test_respond_to_return.py`: 2 passed.
