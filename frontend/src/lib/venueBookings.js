@@ -12,6 +12,12 @@ export function canRequestVenue(status) {
   return status === 'planning'
 }
 
+// S-79: an event can book several venues. Once one has been asked for --
+// whatever its status -- the same request screen adds another.
+export function venueRequestLinkLabel(bookings) {
+  return bookings.length > 0 ? 'Add another venue' : 'Request venue'
+}
+
 export function emptyVenueBookingForm(eventId) {
   return {
     eventId,

@@ -266,13 +266,13 @@ async def submit_venue_booking(
         return JSONResponse(status_code=422, content={"detail": UNSUITABLE, "errors": problems})
 
     # Read existing requests before writing so an identical retry is
-    # idempotent and a successful replacement can release the old hold.
+    # idempotent. S-79: an event may book several venues, so a new request
+    # never replaces or releases the event's other bookings.
     previous_response = await _get(
         "Bookings", bookings, "/bookings", params={"event_id": str(payload.event_id)}
     )
     if previous_response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    previous_holds = [row for row in previous_response.json() if row.get("status") == "held"]
 
     def slot(row):
         return (
@@ -282,11 +282,11 @@ async def submit_venue_booking(
             str(row["end_time"])[:5],
         )
 
-    replacement_slot = slot(payload.model_dump(mode="json"))
+    requested_slot = slot(payload.model_dump(mode="json"))
     existing = next(
         (
             row for row in previous_response.json()
-            if row.get("status") in ("pending", "held") and slot(row) == replacement_slot
+            if row.get("status") in ("pending", "held") and slot(row) == requested_slot
         ),
         None,
     )
@@ -305,17 +305,7 @@ async def submit_venue_booking(
         raise HTTPException(status_code=409, detail=conflict)
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
-    created = response.json()
-    for old in previous_holds:
-        if slot(old) == replacement_slot:
-            continue
-        released = await _call("Bookings", bookings.post(
-            f'/bookings/{old["id"]}/release',
-            json={"reason": "booking_replaced"}, cookies=request.cookies,
-        ))
-        if released.status_code != status.HTTP_200_OK:
-            raise _unavailable("Bookings")
-    return created
+    return response.json()
 
 
 @app.get("/venue-bookings")
