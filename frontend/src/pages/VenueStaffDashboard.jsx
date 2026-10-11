@@ -8,6 +8,8 @@ import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   clashPairLabel,
+  clashReviewHeading,
+  getClashesToReview,
   listPendingVenueBookings,
   pendingListErrorMessage,
   pendingRequestPath,
@@ -119,6 +121,70 @@ function PendingBookings({ bookings, loading, error, onRetry }) {
   )
 }
 
+// S-76: every venue's clashing bookings, worked out on each load, so a clash
+// stays here until Staff resolve it. Read-only: nothing is changed.
+function useClashesToReview(enabled) {
+  const [state, setState] = useState({ venues: [], loading: enabled, error: null })
+
+  const load = useCallback(() => getClashesToReview().then(
+    ({ venues }) => ({ venues, loading: false, error: null }),
+    (error) => ({ venues: [], loading: false, error: pendingListErrorMessage(error) }),
+  ), [])
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    let active = true
+    load().then((next) => { if (active) setState(next) })
+    return () => { active = false }
+  }, [enabled, load])
+
+  const reload = useCallback(() => {
+    setState((current) => ({ ...current, loading: true, error: null }))
+    load().then(setState)
+  }, [load])
+  return { ...state, reload }
+}
+
+function ClashesToReview({ venues, error, onRetry }) {
+  return (
+    <section className="max-w-3xl mb-12" aria-labelledby="clashes-heading">
+      <h2 id="clashes-heading" className="font-display text-3xl mb-2" style={{ color: C.ink }}>
+        Clashes to review
+      </h2>
+      {error ? (
+        <div className="font-ui text-sm" style={{ color: C.rose }}>
+          <p role="alert">{error}</p>
+          <button type="button" onClick={onRetry} className="underline mt-1" style={{ color: C.teal }}>
+            Try again
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="font-ui text-sm leading-relaxed max-w-md mb-6" style={{ color: C.inkFaint }}>
+            These bookings overlap once each venue&apos;s setup and turnaround times are counted.
+            Nothing has been changed or cancelled. Rearrange them with their Coordinators.
+          </p>
+          <ul className="divide-y" aria-label="Clashes to review">
+            {venues.map((venue) => (
+              <li key={venue.venue_id} className="py-4 first:pt-0" style={{ borderColor: C.line }}>
+                <h3 className="flex items-center gap-2 font-ui text-base font-medium" style={{ color: C.ink }}>
+                  <AlertTriangle size={16} aria-hidden="true" style={{ color: C.rose }} />
+                  {clashReviewHeading(venue)}
+                </h3>
+                <ul className="list-disc pl-6 mt-1 space-y-0.5 font-ui text-sm" style={{ color: C.inkFaint }}>
+                  {venue.pairs.map((pair) => (
+                    <li key={`${pair.first.id}-${pair.second.id}`}>{clashPairLabel(pair)}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  )
+}
+
 // S-75: right after Staff change a venue's setup/turnaround, the bookings
 // those times now make clash. Nothing has been changed or removed.
 function ClashList({ clashes, onDismiss }) {
@@ -155,6 +221,7 @@ export default function VenueStaffDashboard({ role }) {
   const canAdd = hasPermission(role, PERMISSIONS.CREATE_VENUE)
   const canSeePending = hasPermission(role, PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS)
   const pending = usePendingBookings(canSeePending)
+  const review = useClashesToReview(canSeePending)
   const { venues, loading, error, reload } = useVenueList()
   const location = useLocation()
   // Set by the venue form after a save. Read once, then cleared from history
@@ -252,6 +319,10 @@ export default function VenueStaffDashboard({ role }) {
               onRetry={pending.reload}
             />
           </section>
+        )}
+
+        {canSeePending && !review.loading && (review.error || review.venues.length > 0) && (
+          <ClashesToReview venues={review.venues} error={review.error} onRetry={review.reload} />
         )}
 
         <section className="max-w-3xl mb-12" aria-labelledby="venues-heading">

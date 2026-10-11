@@ -462,6 +462,10 @@ active again and proves S-38 at the confirmation boundary.
   Event B is not confirmed; the page identifies Studio B, `12 Nov 2026`, and
   `09:00`–`12:00` as the conflict. Event B remains Pending after reload, and
   its Coordinator never sees a confirmed booking for that unavailable slot.
+  *S-76 (2026-10-09), which supersedes S-38 where they differ:* the alert
+  now reads "Can't confirm this booking: it overlaps <Event A> (confirmed),
+  which occupies <venue> on 12 Nov 2026 from 09:00 to 12:00." Re-run 2026-10-09
+  on the S-76 branch: pass (full e2e suite 29 passed).
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; restored after S-33 and rerun locally on 2026-10-01: 1 passed.
@@ -781,24 +785,30 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified[chromium]`;
   local Chromium run against the freshly rebuilt `.env.test` stack: 1 passed.
 
-## TC-E2E-227 — Lead reassigns an active event and all affected users are informed
+## S-76 — detect booking conflicts incl. setup and turnaround
 
-- **Scenario:** A real browser proves the S-84 Lead controls, access transfer,
-  and persistent in-app notifications.
-- **Pre-conditions:** Fresh `.env.test` stack with S-84 SQL; organiser, Lead,
-  coordinator A, and coordinator B; an active event assigned to A.
-- **Steps:** As Lead, open assigned events and move A→B. Sign in as A, B, and
-  the organiser in turn and inspect event access and notifications, including
-  reload persistence.
-- **Expected:** The Lead sees the current owner and can select B despite
-  overlap. The card updates to B; A loses event access and receives the
-  removal notification; B gains access and receives the assignment
-  notification; the organiser sees the owner-change notification. All three
-  persist after reload and no external delivery occurs.
-- **Actual:** The Lead card showed Alex as current owner and reassigned the
-  event to Blair despite Blair's overlap. Alex lost the event and saw the
-  removal notification; Blair gained the event and saw the assignment; the
-  organiser saw the named owner change. Every message survived reload.
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
+
+## TC-E2E-230 — Venue Staff are told which booking blocks an approval, and a confirmed clash stays on the dashboard
+
+- **Scenario:** The refusal and the standing review list as Venue Staff see
+  them, across a reload (S-76 AC3, AC5).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
+  test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
+  `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00, both confirmed when
+  the venue was 0/0.
+- **Steps:**
+  1. Staff open B from the request list and approve it.
+  2. Staff open the dashboard, then reload it.
+- **Expected:**
+  - Step 1: an alert reads "Can't confirm this booking: it overlaps Alumni
+    talk (confirmed), which occupies <venue> on <D+3> from 09:30 to 12:45
+    (event 10:00–12:00, 30 min setup, 45 min turnaround)." B stays pending.
+  - Step 2: "Clashes to review" lists the venue with the C–E pair, before
+    and after the reload, with no Dismiss button. Nothing is removed.
+- **Actual:** Approving B showed the specified alert naming Event A with 09:30–12:45; B stayed pending; "Clashes to review" listed the venue with C and E before and after reload, with no Dismiss; no booking removed.
 - **Status:** Pass
 - **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
   local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:

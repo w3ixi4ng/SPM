@@ -107,8 +107,15 @@ def test_holds_and_confirmations_use_the_same_gap(client, db, auth, action, body
 
     response = client.post(f'/bookings/{BOOKING_ID}/{action}', params=GAP, json=body, cookies=COOKIE)
 
+    # S-76 (TC-BOOKINGS-042): Venue Staff get the booking in the way and its
+    # whole occupied period instead of IN_USE.
+    verb = 'hold' if action == 'hold' else 'confirm'
     assert response.status_code == 409
-    assert response.json() == {'detail': IN_USE}
+    assert response.json() == {'detail': (
+        f"Can't {verb} this booking: it overlaps Alumni networking evening (confirmed), "
+        'which occupies Studio B on 12 Nov 2026 from 09:30 to 12:45 '
+        '(event 10:00–12:00, 30 min setup, 45 min turnaround).'
+    )}
     query.neq.assert_called_once_with('id', BOOKING_ID)
     query.lt.assert_called_once_with('start_time', '15:15:00')
     query.gt.assert_called_once_with('end_time', '11:15:00')

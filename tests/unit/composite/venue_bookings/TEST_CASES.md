@@ -1044,3 +1044,75 @@ C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-1
 - **Actual:** B returned with its clash; a decided request returned with its status; unknown 404; Coordinator 403; /pending and /clashes still resolve.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_venue_staff_read_one_request_by_id`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_decided_request_is_returned_with_its_status`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_only_venue_staff_read_a_request`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_fixed_paths_are_not_read_as_ids`
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Unit cases last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0.
+
+**Acceptance criteria → cases (all layers)**
+
+S-75 already delivered most of the rule; its passing cases are listed
+against the S-76 criteria they cover, and new cases fill the gaps.
+
+| Acceptance criterion | Existing (S-75 / S-38) | New (S-76) |
+| --- | --- | --- |
+| AC1: Occupied period = start − setup to end + turnaround (10:00–12:00, 30/45 → 09:30–12:45) | VENUEBOOKINGS-053, BOOKINGS-039, FRONTEND-090, 091 | BOOKINGS-042 |
+| AC2: No two confirmed bookings at one venue with overlapping occupied periods | BOOKINGS-040, 109 | BOOKINGS-042 |
+| AC3: A blocked approval names the conflicting booking and its occupied period | — (message names the venue and time only, and gives "in use until" without a start) | BOOKINGS-042, VENUEBOOKINGS-059, 108, FRONTEND-096, E2E-230 |
+| AC4: Availability checks use the occupied period | BOOKINGS-039, VENUEBOOKINGS-050, 051, 056, FRONTEND-089, 090 | — |
+| AC5: Bookings that become conflicting are flagged for review, never removed | VENUEBOOKINGS-053–055, 057 (but confirmed–confirmed clashes are shown to Staff only once, right after saving, in router state) | BOOKINGS-043, VENUEBOOKINGS-060, 108, FRONTEND-097, E2E-230 |
+
+The conditions agreed with the developer on 2026-10-09:
+
+- The refusal names the other booking by **event name** and status, with its
+  **whole occupied period** and how it is made up. Only Venue Staff see it
+  (approve and hold). A Coordinator's refused request keeps S-75's wording
+  and never names another event.
+- "Flagged for review" means a standing **"Clashes to review"** section on the
+  Venue Staff dashboard, across every venue, worked out live on each load
+  (the S-75 rule: nothing stored, nothing changed). It stays until the clash
+  is resolved — it cannot be dismissed and survives a reload. The one-off list
+  after saving a venue stays as it is.
+
+**Shared test data.** As TC-BOOKINGS-042.
+
+### TC-VENUEBOOKINGS-059 — a refused approval reaches Venue Staff unchanged
+
+- **Scenario:** The composite passes the conflict through instead of
+  replacing it with "already decided" (S-76 AC3).
+- **Pre-conditions:** Venue Staff session; the bookings fake answers the
+  decision and the hold with `409` and the TC-BOOKINGS-042 details.
+- **Steps:** `POST /venue-bookings/{B}/decision` `{"decision":"approved"}`;
+  `POST /venue-bookings/{B}/hold`.
+- **Expected:** `409` with each detail unchanged. A `409` "This booking
+  request has already been decided" still maps as before.
+- **Actual:** Both 409 details reached Venue Staff unchanged; "already decided" still mapped as before.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_a_refused_approval_reaches_venue_staff_unchanged`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_an_already_decided_request_still_says_so`
+
+### TC-VENUEBOOKINGS-060 — Venue Staff list every clash to review, across venues
+
+- **Scenario:** Clashes stay flagged for Staff until resolved, including
+  confirmed–confirmed ones (S-76 AC5).
+- **Pre-conditions:** "Today" is 2026-11-10. Venues fake lists Studio B
+  (30/45), Hall C (15/15) and Studio D (0/0, no bookings). Bookings fake
+  returns A, held B′ (B held), F, G and a confirmed booking at a venue that
+  is no longer in the venues list.
+- **Steps:**
+  1. `GET /venue-bookings/clashes` as Venue Staff, no `venue_id`.
+  2. The same as a Coordinator.
+  3. Step 1 with venues, then bookings, failing.
+- **Expected:**
+  1. `200` `{"venues":[…]}`: Hall C with pair F–G, then Studio B with pair
+     A–B′, each pair as TC-VENUEBOOKINGS-054 (event name, coordinator, times,
+     occupied window, status), each venue with its `setup_minutes` and
+     `turnaround_minutes`. Ordered by venue name; Studio D and the missing
+     venue are not listed. Bookings is read once with
+     `status=live&from=2026-11-10`. No write to any service.
+  2. `403`.
+  3. `502` both times — never an empty list.
+  `GET /venue-bookings/clashes?venue_id=…` is unchanged (TC-VENUEBOOKINGS-054).
+- **Actual:** Hall C (F–G) then Studio B (A–B′) with their times; Studio D and the missing venue left out; one `status=live&from=2026-11-10` read; no writes; other roles 403; venues or bookings failing 502; the `venue_id` form unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_venue_staff_list_every_clash_to_review`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_reviewing_clashes_changes_nothing`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_only_venue_staff_review_clashes`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_a_failing_service_is_a_502_never_an_empty_list`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_one_venue_is_still_listed_as_before`

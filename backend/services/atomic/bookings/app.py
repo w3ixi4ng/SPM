@@ -73,23 +73,6 @@ def _booking(db: Client, booking_id: UUID):
     return result.data[0] if result.data else None
 
 
-def _overlap(db: Client, booking: dict):
-    operation = (
-        db.schema(SCHEMA).table(TABLE)
-        .select("id,status,venue_name,booking_date,start_time,end_time")
-        .eq("venue_id", booking["venue_id"])
-        .eq("booking_date", booking["booking_date"])
-        .eq("status", "confirmed")
-        .neq("id", booking["id"])
-        .lt("start_time", booking["end_time"])
-        .gt("end_time", booking["start_time"])
-        .order("start_time")
-        .limit(1)
-    )
-    result = _execute(operation)
-    return result.data[0] if result.data else None
-
-
 class Gap(NamedTuple):
     """S-75: the venue's current setup and turnaround minutes. A booking
     occupies its venue from start - setup to end + turnaround, so two
@@ -132,7 +115,7 @@ def _live_overlap(db: Client, booking: dict, gap: Gap = Gap()):
     is occupied, not just its own start and end."""
     operation = (
         db.schema(SCHEMA).table(TABLE)
-        .select("id,status,venue_name,booking_date,start_time,end_time")
+        .select("id,status,event_name,venue_name,booking_date,start_time,end_time")
         .eq("venue_id", booking["venue_id"])
         .eq("booking_date", booking["booking_date"])
         .in_("status", LIVE_STATUSES)
@@ -194,6 +177,27 @@ def _raise_overlap(conflict: dict, gap: Gap = Gap()):
     raise HTTPException(status_code=409, detail=_conflict_detail(conflict, gap))
 
 
+def _staff_conflict_detail(action: str, conflict: dict, gap: Gap) -> str:
+    """S-76: for Venue Staff only, who may see whose booking it is -- the
+    booking in the way and the whole window it occupies the venue."""
+    taken = "tentatively held" if conflict.get("status") == "held" else "confirmed"
+    start = str(conflict["start_time"])[:5]
+    end = str(conflict["end_time"])[:5]
+    detail = (
+        f"Can't {action} this booking: it overlaps {conflict['event_name']} ({taken}), "
+        f"which occupies {conflict['venue_name']} on {_date_label(conflict['booking_date'])} "
+        f"from {_shift(conflict['start_time'], -gap.setup)[:5]} "
+        f"to {_shift(conflict['end_time'], gap.turnaround)[:5]}"
+    )
+    if gap.minutes:
+        detail += f" (event {start}–{end}, {gap.setup} min setup, {gap.turnaround} min turnaround)"
+    return detail + "."
+
+
+def _raise_staff_overlap(action: str, conflict: dict, gap: Gap):
+    raise HTTPException(status_code=409, detail=_staff_conflict_detail(action, conflict, gap))
+
+
 def _raise_blocked(block: dict):
     raise HTTPException(
         status_code=409,
@@ -226,7 +230,7 @@ def decide_booking(
     if payload.decision == "approved":
         conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
         if conflict:
-            _raise_overlap(conflict, gap)
+            _raise_staff_overlap("confirm", conflict, gap)
         # S-30: a block added after the request was sent stops it being
         # confirmed. Rejecting it stays possible.
         block = _block_on(db, booking["venue_id"], booking["booking_date"])
@@ -249,9 +253,9 @@ def decide_booking(
     ).in_("status", ["pending", "held"]).execute()
     except Exception as exc:
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
-            conflict = _overlap(db, booking)
+            conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
-                _raise_overlap(conflict, gap)
+                _raise_staff_overlap("confirm", conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
@@ -276,7 +280,7 @@ def place_hold(
 
     conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
     if conflict:
-        _raise_overlap(conflict, gap)
+        _raise_staff_overlap("hold", conflict, gap)
     block = _block_on(db, booking["venue_id"], booking["booking_date"])
     if block:
         _raise_blocked(block)
@@ -296,7 +300,7 @@ def place_hold(
         if getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
-                _raise_overlap(conflict, gap)
+                _raise_staff_overlap("hold", conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
@@ -389,7 +393,7 @@ def _date_range(venue_id, from_date, to_date):
 
 @app.get("/bookings", response_model=list[BookingRead])
 def list_bookings(
-    booking_status: Literal["pending", "held", "actionable"] | None = Query(default=None, alias="status"),
+    booking_status: Literal["pending", "held", "actionable", "live"] | None = Query(default=None, alias="status"),
     event_id: UUID | None = None,
     venue_id: UUID | None = None,
     from_date: date | None = Query(default=None, alias="from"),
@@ -399,6 +403,22 @@ def list_bookings(
     # Always filtered: Venue Staff ask by status, a Coordinator by event, and
     # S-30's calendar by venue and date range. Nothing hands out every
     # booking at once.
+    if booking_status == "live":
+        # S-76: every held and confirmed booking from a date on, for Venue
+        # Staff's clashes to review. Always bounded by a start date.
+        if from_date is None:
+            raise HTTPException(status_code=422, detail="Filter live bookings by from")
+        operation = (
+            db.schema(SCHEMA).table(TABLE).select("*")
+            .in_("status", LIVE_STATUSES)
+            .gte("booking_date", from_date.isoformat())
+        )
+        if venue_id is not None:
+            operation = operation.eq("venue_id", str(venue_id))
+        return _execute(
+            operation.order("venue_id").order("booking_date").order("start_time")
+        ).data
+
     if venue_id is not None or from_date is not None or to_date is not None:
         _date_range(venue_id, from_date, to_date)
         operation = (

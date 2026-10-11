@@ -38,9 +38,13 @@ UNSUITABLE = "This venue can't take this booking"
 
 # The bookings service's identified 409s: a slot taken by a confirmed booking
 # (S-38) or a hold, or a day blocked by Venue Staff (S-30). These name only the
-# venue, date and times, so they are safe to pass to the caller. Any other 409
-# detail is not.
-CONFLICT_PHRASES = (" is already confirmed on ", " is already tentatively held on ", " is unavailable from ")
+# venue, date and times, so they are safe to pass to the caller. S-76's refused
+# approvals and holds also name the event in the way; only Venue Staff reach
+# those routes. Any other 409 detail is not passed on.
+CONFLICT_PHRASES = (
+    " is already confirmed on ", " is already tentatively held on ", " is unavailable from ",
+    "Can't confirm this booking: it overlaps ", "Can't hold this booking: it overlaps ",
+)
 INTERNAL_GET_ATTEMPTS = 3
 INTERNAL_GET_BACKOFF = (0.5, 1.0)
 
@@ -590,16 +594,21 @@ _FAR_FUTURE = "9999-12-31"
 
 @app.get("/venue-bookings/clashes")
 async def list_venue_clashes(
-    venue_id: UUID,
     request: Request,
+    venue_id: UUID | None = None,
     users: httpx.AsyncClient = Depends(get_users_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     """S-75: every pair of held/confirmed bookings at a venue, today on, that
     clash under its current setup and turnaround. Venue Staff see this right
-    after changing the times. Read-only."""
+    after changing the times. Read-only.
+
+    S-76: with no venue, every venue's clashes -- the standing list Venue
+    Staff review on their dashboard."""
     await _authenticate(request, users, VENUE_STAFF_ROLE)
+    if venue_id is None:
+        return await _clashes_to_review(venues, bookings, request.cookies)
     venue = await _fetch("Venues", venues, f"/venues/{venue_id}", request.cookies, "Venue not found")
     rows = await _list(bookings, "/bookings", {
         "venue_id": str(venue_id), "from": _today().isoformat(), "to": _FAR_FUTURE,
@@ -610,6 +619,34 @@ async def list_venue_clashes(
         **occupancy.gap_params(venue),
         "pairs": occupancy.clash_pairs(rows, venue, _today()),
     }
+
+
+async def _clashes_to_review(venues, bookings, cookies) -> dict:
+    """S-76: the venues with at least one clashing pair, by venue name, each
+    with its current setup and turnaround. Worked out live like S-75's
+    warnings: nothing is stored or changed. A booking whose venue no longer
+    exists is skipped; a failing service fails the list rather than read as
+    "no clashes"."""
+    today = _today()
+    listed = await _get("Venues", venues, "/venues", cookies=cookies)
+    if listed.status_code != status.HTTP_200_OK:
+        raise _unavailable("Venues")
+    rows = await _list(bookings, "/bookings", {"status": "live", "from": today.isoformat()})
+
+    by_venue: dict[str, list[dict]] = {}
+    for row in rows:
+        by_venue.setdefault(str(row["venue_id"]), []).append(row)
+    flagged = []
+    for venue in sorted(listed.json(), key=lambda venue: venue["name"]):
+        pairs = occupancy.clash_pairs(by_venue.get(str(venue["id"]), []), venue, today)
+        if pairs:
+            flagged.append({
+                "venue_id": venue["id"],
+                "venue_name": venue["name"],
+                **occupancy.gap_params(venue),
+                "pairs": pairs,
+            })
+    return {"venues": flagged}
 
 
 @app.get("/venue-bookings/{booking_id}")

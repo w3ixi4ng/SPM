@@ -73,8 +73,11 @@ def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, 
     open_request(page, events[1]["name"])
     page.get_by_role("radio", name="Approve", exact=True).check()
     page.get_by_role("button", name="Save decision").click()
-    expect(page.get_by_role("alert").filter(has_text="is already confirmed")).to_contain_text(
-        f"{venue_name} is already confirmed on 12 Nov 2026 from 09:00 to 12:00",
+    # S-76's wording, which replaced S-38's: the booking in the way and when
+    # it occupies the venue (setup and turnaround are 0 here).
+    expect(page.get_by_role("alert").filter(has_text="Can't confirm this booking")).to_contain_text(
+        f"it overlaps {events[0]['name']} (confirmed), which occupies {venue_name} "
+        "on 12 Nov 2026 from 09:00 to 12:00",
         timeout=20000,
     )
     page.reload()

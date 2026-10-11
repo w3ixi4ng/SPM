@@ -366,6 +366,15 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
+> **Superseded in part by S-76 (2026-10-09).** Where S-38 and S-76 differ,
+> S-76 applies: two bookings overlap when their *occupied periods* (start −
+> setup to end + turnaround) overlap, so back-to-back is allowed only when
+> the venue's setup and turnaround are 0 or the occupied periods just touch;
+> and Venue Staff's refusal now reads "Can't confirm this booking: it
+> overlaps <event> (<status>), which occupies <venue> on <date> from … to …"
+> (TC-BOOKINGS-042). These cases still pass as written: they use no setup or
+> turnaround, and the new message still identifies the venue, date and time.
+
 ### TC-BOOKINGS-023 — Confirmation rejects every overlap with an existing confirmed booking
 
 - **Scenario:** A venue cannot acquire two confirmed bookings whose date and
@@ -677,3 +686,76 @@ a caller that passes none gets today's behaviour). Two bookings clash when
 - **Actual:** 200 with the booking; unknown id 404 `Booking not found`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_setup_turnaround.py::test_a_booking_is_readable_by_id`
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Unit cases last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0: `pytest tests/unit` 814 passed, 17 skipped.
+
+> **Changed by S-76:** the overlap detail Venue Staff get on approve and hold
+> is now the TC-BOOKINGS-042 wording. The tests behind TC-BOOKINGS-040 and
+> the S-33/S-38 overlap tests (`test_decision.py`, `test_hold.py`) assert it
+> instead of the old `… is already confirmed on …` text; what they check is
+> otherwise unchanged.
+
+S-75 already widens every overlap check by the venue's setup and turnaround
+(TC-BOOKINGS-039, 040). S-76 adds two things here: an approval or hold that
+Venue Staff are refused names the booking in the way and its whole occupied
+period, and the composite can read every live booking from a date at once,
+so Venue Staff have one standing list of clashes to review.
+
+The Coordinator's refusal on `POST /bookings` stays as TC-BOOKINGS-039: it
+never names another event.
+
+**Shared test data.** As S-75: Studio B, setup 30, turnaround 45. On Thu
+2026-11-12: A **confirmed** 10:00–12:00, event "Alumni talk"; B **pending**
+12:30–14:00, event "Board lunch". Hall C, setup 15, turnaround 15: F
+**confirmed** 09:00–10:00 ("Morning yoga") and G **confirmed** 10:15–11:00
+("Book club") on 2026-11-12, both confirmed while Hall C was 0/0.
+
+### TC-BOOKINGS-042 — a refused approval names the conflicting booking and its occupied period
+
+- **Scenario:** Venue Staff see which booking blocks an approval, and when it
+  occupies the venue (S-76 AC1, AC2, AC3).
+- **Pre-conditions:** The fake returns A for the overlap query; B pending.
+- **Steps:**
+  1. `POST /bookings/{B}/decision?setup_minutes=30&turnaround_minutes=45`
+     with `{"decision":"approved"}`.
+  2. The same as a hold: `POST /bookings/{B}/hold` with the same parameters.
+  3. Step 1 again with A held instead of confirmed.
+  4. Step 1 again with `setup_minutes=0&turnaround_minutes=0` and A
+     overlapping B's raw times (A 12:00–13:00).
+  5. Step 1 with the check passing but the update failing with Postgres
+     `23P01` (the exclusion constraint), the re-read returning A.
+- **Test data:** as above.
+- **Expected:**
+  1. `409` `"Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 09:30 to 12:45 (event 10:00–12:00, 30 min setup, 45 min turnaround)."`
+  2. `409` with the same text starting `"Can't hold this booking: …"`.
+  3. `"… overlaps Alumni talk (tentatively held), which occupies …"`.
+  4. `"Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 12:00 to 13:00."` — no setup/turnaround clause.
+  5. The step-1 detail, not a 500.
+  In every case B is not updated and stays pending.
+- **Actual:** Approve and hold refused with the specified details, a held neighbour named as tentatively held, 0/0 without the bracket, and the 23P01 race gave the step-1 detail; B never updated.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_refused_approval_names_the_booking_and_its_occupied_period`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_refused_hold_says_the_same`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_held_booking_in_the_way_is_named_as_tentatively_held`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_with_no_setup_or_turnaround_the_occupied_period_is_the_event`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_race_lost_at_the_database_gives_the_same_message`
+
+### TC-BOOKINGS-043 — every live booking from a date can be listed at once
+
+- **Scenario:** The composite reads all held and confirmed bookings, every
+  venue, from today on, in one call (S-76 AC5).
+- **Pre-conditions:** The fake records the query.
+- **Steps:**
+  1. `GET /bookings?status=live&from=2026-11-10`.
+  2. `GET /bookings?status=live` with no `from`.
+  3. `GET /bookings?status=live&from=2026-11-10&venue_id=<Studio B>`.
+- **Expected:**
+  1. `200`; the query filters `status in (held, confirmed)` and
+     `booking_date >= 2026-11-10`, no venue filter, ordered by venue, date,
+     start time.
+  2. `422` — a live list is always bounded by a start date.
+  3. As step 1, also filtered to Studio B.
+  Existing filters (`status=pending|held|actionable`, `event_id`, the
+  venue/date-range calendar read) behave as before.
+- **Actual:** Live list filtered held/confirmed from the date with no venue filter, ordered venue, date, start; 422 without `from`; narrowed by `venue_id`. Existing list tests still pass.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_every_live_booking_from_a_date_is_listed_at_once`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_needs_a_start_date`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_can_be_narrowed_to_one_venue`

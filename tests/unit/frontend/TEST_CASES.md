@@ -915,6 +915,15 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
 
+> **Superseded in part by S-76 (2026-10-09).** Where S-38 and S-76 differ,
+> S-76 applies: two bookings overlap when their *occupied periods* (start −
+> setup to end + turnaround) overlap, so back-to-back is allowed only when
+> the venue's setup and turnaround are 0 or the occupied periods just touch;
+> and Venue Staff's refusal now reads "Can't confirm this booking: it
+> overlaps <event> (<status>), which occupies <venue> on <date> from … to …"
+> (TC-BOOKINGS-042). These cases still pass as written: they use no setup or
+> turnaround, and the new message still identifies the venue, date and time.
+
 ### TC-FRONTEND-056 — An overlapping confirmation displays the identified conflict
 
 - **Scenario:** Venue Staff receive actionable conflict feedback and no false
@@ -1236,6 +1245,10 @@ is open `mon`–`fri` `08:00`–`18:00`.
   does this for every `409`. The decision helper, which today recognises only
   "already confirmed", now also recognises "is unavailable from". Other `409`s
   still say "This request has already been decided…".
+  *S-76 (2026-10-09), which supersedes S-38 where they differ:* the decision
+  helper passes S-76's "Can't confirm this booking: it overlaps …" detail
+  instead of S-38's "… is already confirmed on …"; a Coordinator's request
+  keeps the S-38/S-30 wording.
 - **Actual:** All three details returned exactly; the decision helper returned the block and S-38 details, and the generic message otherwise.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — hold and block conflicts are shown in the server's words`
@@ -1595,24 +1608,12 @@ and both in-app notification recipients confirmed by the developer on
 - **Status:** Pass
 - **Evidence:** `test_notifications.mjs` — “organiser and coordinator dashboards render the persistent inbox states”
 
-## S-84 — Reassign Event Coordinator
+## S-76 — detect booking conflicts incl. setup and turnaround
 
-Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
-confirmed by the developer on 2026-10-08. Executed in the full Node unit run
-on 2026-10-09.
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0: `node --test tests/unit/frontend/test_*.mjs` 113 passed.
 
-### TC-FRONTEND-085 — reassignment helpers preserve the versioned API contract
-
-- **Expected:** The browser lists `/event-requests/assigned-active` and posts
-  target id, expected current id, and expected assignment version to
-  `/event-requests/{id}/reassignment`, always through credentialled Kong paths.
-  Errors provide actionable Lead feedback.
-- **Actual:** Both credentialled Kong routes and the three versioned request
-  fields matched the contract; errors mapped to actionable messages.
-- **Status:** Pass
-- **Evidence:** `test_event_reassignments.mjs::reassignment helpers use versioned composite routes`
-
-### TC-FRONTEND-086 — the Lead can reassign from the assigned-event section
+### TC-FRONTEND-096 — a refused approval or hold shows which booking is in the way
 
 - **Expected:** Each active card in the coordinator oversight section shows
   event, organiser, current Coordinator, and a choice containing every other
@@ -1623,15 +1624,19 @@ on 2026-10-09.
   owner from choices, update locally after success, and expose empty/loading
   states.
 - **Status:** Pass
-- **Evidence:** `test_event_reassignments.mjs::lead dashboard presents and updates active assignments`
+- **Evidence:** `tests/unit/frontend/test_booking_conflicts.mjs — a refused approval or hold shows which booking is in the way`
 
-### TC-FRONTEND-087 — reassignment notifications remain visible to all recipients
+### TC-FRONTEND-097 — Venue Staff's clashes to review are fetched and labelled
 
-- **Expected:** Existing persistent inbox rendering supports
-  `event_reassignment` messages for former Coordinator, new Coordinator, and
-  Organiser across reload, with no email helper.
-- **Actual:** `event_reassignment` is accepted by the existing server-backed
-  inbox and the shared panel contains no external-delivery code.
+- **Scenario:** The dashboard's standing review list (S-76 AC5).
+- **Steps:** `getClashesToReview()` with a fake `fetch`; then
+  `clashReviewHeading(venue)` for Studio B with one pair and for Hall C with
+  two.
+- **Expected:** `GET /api/venue-bookings/clashes` with credentials and no
+  `venue_id`. Headings: "Studio B · 1 pair · setup 30 min, turnaround 45 min"
+  and "Hall C · 2 pairs · setup 15 min, turnaround 15 min". Each pair still
+  reads as `clashPairLabel` (TC-FRONTEND-085).
+- **Actual:** `GET /api/venue-bookings/clashes` with credentials and no `venue_id`; both headings and the pair label as specified.
 - **Status:** Pass
 - **Evidence:** `test_event_reassignments.mjs::reassignment uses the persistent in-app inbox`
 

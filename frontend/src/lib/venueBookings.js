@@ -177,8 +177,9 @@ export function bookingDecisionErrorMessage(error) {
   if (error.status === 401) return 'Your session has expired. Please sign in again.'
   if (error.status === 403) return 'Only Venue Staff can decide booking requests.'
   if (error.status === 404) return 'This booking request could not be found. Reload the list.'
-  // S-38's overlap, or an S-30 block on the booking's day.
-  if (error.status === 409 && (error.message?.includes('already confirmed')
+  // An overlap (S-76's refusal, which replaced S-38's wording, naming the
+  // booking in the way and its occupied period) or an S-30 block that day.
+  if (error.status === 409 && (error.message?.startsWith("Can't confirm this booking:")
     || error.message?.includes('is unavailable from'))) return error.message
   if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
   if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
@@ -219,6 +220,18 @@ export function bookingClashMessage(booking) {
 
 export function getVenueClashes(venueId) {
   return requestJSON(`/venue-bookings/clashes?venue_id=${encodeURIComponent(venueId)}`)
+}
+
+// S-76: every venue's clashing pairs, for Venue Staff's standing review list.
+export function getClashesToReview() {
+  return requestJSON('/venue-bookings/clashes')
+}
+
+// "Studio B · 1 pair · setup 30 min, turnaround 45 min"
+export function clashReviewHeading(venue) {
+  const count = venue.pairs.length
+  return `${venue.venue_name} · ${count} ${count === 1 ? 'pair' : 'pairs'} · `
+    + `setup ${venue.setup_minutes} min, turnaround ${venue.turnaround_minutes} min`
 }
 
 function clashSide(side) {
