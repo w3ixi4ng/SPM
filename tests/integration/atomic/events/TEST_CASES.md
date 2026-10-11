@@ -118,3 +118,32 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** `200`; of the seeded events, exactly the planning 10:00 and confirmed 11:30 events were returned; rejected and back-to-back were not.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/events/test_overlapping.py::test_the_overlapping_events_query_works_against_the_real_table`; `.env.test` stack recreated immediately before; events container verified on the test project's `SUPABASE_URL`; 4 passed across the S-44 integration run.
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+**Blocked** until the S-62 section of `backend/sql/events.sql` has been run in
+the test project. For the criteria mapping and the agreed decisions, see the
+S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
+
+## TC-EVENTS-130 — a cancellation request is stored with the event through Kong
+
+- **Scenario:** The columns, grants and gateway route work together, and the
+  status is unchanged (AC3, AC5).
+- **Pre-conditions:** A fresh `.env.test` stack; the S-62 SQL applied. An
+  Organiser O who owns a `planning` event E (inserted by the admin client).
+- **Steps:** As O, through `/api/events`:
+  1. `POST /api/events/E/cancellation-request` `{"reason": "Keynote speaker withdrew"}`.
+  2. `GET /api/events/E`.
+  3. Repeat step 1.
+- **Expected:**
+  1. `200`.
+  2. `status` `planning`; `cancellation_reason` "Keynote speaker withdrew";
+     `cancellation_requested_by` O; `cancellation_requested_at` set.
+  3. `409`.
+  `events.events` read with the admin client agrees with step 2. Cleanup
+  deletes E and O.
+- **Actual:** Not run: the S-62 section of `backend/sql/events.sql` has not yet been applied to the test project.
+- **Status:** Blocked
+- **Evidence:** `tests/integration/atomic/events/test_cancellation_request.py::test_a_cancellation_request_is_stored_with_the_event_through_kong`

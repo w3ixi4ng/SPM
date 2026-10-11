@@ -29,6 +29,7 @@ const ORGANISER_CAPABILITIES = [
   [PERMISSIONS.VIEW_OWN_EVENTS, 'View your own requests'],
   [PERMISSIONS.UPDATE_OWN_EVENT_DRAFT, 'Update your own drafts'],
   [PERMISSIONS.SUBMIT_OWN_EVENT, 'Submit your own requests'],
+  [PERMISSIONS.REQUEST_EVENT_CANCELLATION, 'Request cancellation of your events'],
 ]
 
 function EventRequestList({ refreshAuth }) {

@@ -1723,3 +1723,51 @@ run on 2026-10-10.
 - **Actual:** All five failure classes mapped to distinct actionable copy.
 - **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
+
+### TC-FRONTEND-104 — the request is offered only for an eligible event without one
+
+- **Scenario:** The page offers the action only where the service accepts it,
+  and never shows a requested event as cancelled (S-62 AC1, AC5).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` and `access.js`
+  imported directly.
+- **Steps:** Call the eligibility helper with each event, and read the
+  Organiser's permissions.
+- **Test data:** `{status}` for every status, with
+  `cancellation_requested_at` null; `{status: "planning", cancellation_requested_at: "2026-10-11T09:00:00Z"}`.
+- **Expected:** `true` for `submitted`, `under_review`, `planning`,
+  `confirmed`, `preparation` and `safety_changes_requested`; `false` for the
+  rest and for the requested event. The requested event's status label is
+  still "Planning", and its marker reads "Cancellation requested on 11 Oct
+  2026". The `event_organiser` role has `events:request_cancellation`, and no
+  other role does.
+- **Actual:** Six eligible statuses offered, five refused, and the requested event refused; label still "Planning"; marker "Cancellation requested on 11 Oct 2026"; only `event_organiser` has `events:request_cancellation`.
+- **Status:** Pass
+- **Evidence:** `test_event_cancellation.mjs::cancellation is offered only for an eligible event without a request`; `test_event_cancellation.mjs::only event organisers may request cancellation, as in authorization.py`
+
+### TC-FRONTEND-105 — the request call and every failure message
+
+- **Scenario:** The browser posts the reason through Kong, and a failure says
+  the event was not changed (S-62 AC6).
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:**
+  1. Request cancellation of `e 1/2` with a reason.
+  2. Validate reasons `""`, `"   "`, 1001 characters, and `"ok"`.
+  3. Map errors `409` (with the service's message), `422`, `404`, `500`, and
+     a network failure (`0`).
+- **Expected:**
+  1. `POST /api/events/e%201%2F2/cancellation-request`, credentials included,
+     body `{"reason": "…"}`.
+  2. "Enter a reason for cancelling." for the first two; "Keep the reason to
+     1000 characters." for the long one; none for `"ok"`.
+  3. Every message ends with "Your event has not changed." The `409` message
+     starts with the service's message, and the `500` and network messages
+     say to try again.
+- **Actual:** One `POST /api/events/e%201%2F2/cancellation-request` with credentials and the trimmed reason; reason messages as specified; all five failures end "Your event has not changed.", 409 leading with the service message.
+- **Status:** Pass
+- **Evidence:** `test_event_cancellation.mjs::the request posts the trimmed reason through Kong`; `test_event_cancellation.mjs::the reason is required and at most 1000 characters`; `test_event_cancellation.mjs::every failure says the event has not changed`

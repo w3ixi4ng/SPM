@@ -860,3 +860,38 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
   local run on 2026-10-10 against the freshly recreated `.env.test` stack:
   S-86 plus S-84/S-85 regressions, 3 passed.
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+TC-E2E-232 is skipped because S-79's unmerged branch uses it.
+
+## TC-E2E-233 — Organiser confirms a cancellation request and the event is not shown as cancelled
+
+- **Scenario:** The confirm step, the success message and the unchanged
+  status all work in a real browser through Kong (S-62 AC1, AC2, AC4, AC5).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; the S-62 SQL applied; Chromium. An Organiser who owns a `planning`
+  event E.
+- **Steps:**
+  1. Sign in and open E. Click **Request cancellation**; a panel opens.
+  2. Enter the reason and click **Review request**. The panel asks "Cancel
+     this event?" and quotes the reason. Click **Keep event**.
+  3. Open the panel again, enter the reason, click **Review request**, then
+     **Send cancellation request**.
+  4. Reload the page.
+- **Test data:** Reason `"Keynote speaker withdrew"`.
+- **Expected:**
+  - After step 2, the panel is closed and `events.events` has no
+    cancellation request for E.
+  - After step 3, the page says "Cancellation request sent. Your event stays
+    in planning until it has been reviewed."
+  - After step 4, the status badge still reads "Planning", the page shows
+    "Cancellation requested on <today>" with the reason, and **Request
+    cancellation** is gone. `events.events` has E still `planning`, with the
+    reason stored.
+  Cleanup deletes every row created.
+- **Actual:** Not run: the S-62 section of `backend/sql/events.sql` has not yet been applied to the test project.
+- **Status:** Blocked
+- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`
