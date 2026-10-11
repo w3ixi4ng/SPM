@@ -7,7 +7,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
 `test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
-`test_reassign_event_coordinator.py`.
+`test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
+`test_operational_safety_check.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -16,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
+| Last run | 2026-10-10, branch `S-86/conduct-operational-safety-check`, commit `49a0f8b` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-84 journey: 1 passed; S-83 regression journey: 1 passed |
+| Result | Targeted S-86 journey plus S-84/S-85 regressions: 3 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -809,4 +810,53 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
     and after the reload, with no Dismiss button. Nothing is removed.
 - **Actual:** Approving B showed the specified alert naming Event A with 09:30–12:45; B stayed pending; "Clashes to review" listed the venue with C and E before and after reload, with no Dismiss; no booking removed.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_review_booking_conflicts.py::test_staff_are_told_which_booking_blocks_an_approval_and_the_clash_stays_listed[chromium]`; `.env.test` stack rebuilt from branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` at `8e7c69d` immediately before (bookings container on the test project's `SUPABASE_URL`), 2026-10-09; full e2e suite: 29 passed.
+- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
+  local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
+  1 passed.
+
+## TC-E2E-230 — Lead oversees every Coordinator and sees reassignment move work
+
+- **Scenario:** A real browser proves the S-85 grouped oversight view, idle
+  Coordinator visibility, event summary, and S-84 refresh/update behaviour.
+- **Pre-conditions:** Fresh `.env.test` stack; organiser, Lead, coordinators A
+  and B; one submitted event assigned to A while B has no active assignment.
+- **Steps:** Sign in as Lead; inspect both Coordinator groups, counts, and the
+  event summary; reassign A→B with the existing control; inspect both groups
+  and counts without reloading, then reload and inspect again.
+- **Test data:** `Autumn Forum`, submitted, organiser Ada,
+  `2026-11-18 09:00`–`12:00`.
+- **Expected:** A initially contains the event with count 1 and B is visible
+  with count 0. The summary shows name, status, organiser, date/time, and
+  current Coordinator. After reassignment the event appears only under B,
+  counts are A=0/B=1 immediately and after reload, and the S-83 queue remains
+  present. Non-Lead access remains denied by the existing role journey.
+- **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
+  event summary. Reassignment moved the card to Blair and changed the counts
+  to 0/1 immediately; the same grouping survived reload and the queue remained
+  visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+
+## TC-E2E-231 — Safety Officer completes an Operational Safety Check
+
+- **Scenario:** A Safety Officer reviews the cross-service safety evidence and
+  approves a confirmed event through the browser.
+- **Pre-conditions:** Fresh `.env.test` stack with S-86 Events SQL; confirmed
+  undecided event; organiser, Coordinator, Technical Support, venue staff and
+  Safety Officer accounts; confirmed venue and equipment requirement.
+- **Steps:** Sign in as Safety Officer; open the queue event; inspect attendance,
+  venue restriction/capacity, technical notes and equipment; approve; inspect
+  the stored Events row.
+- **Test data:** 120 attendees, capacity 200 theatre, wheelchair access, north
+  exit restriction, speaker placement note and four wireless microphones.
+- **Expected:** All evidence is visible; approval shows a success state and
+  stores `preparation`, `approved`, and the authenticated Safety Officer id.
+- **Actual:** Chromium showed the organiser, attendance, schedule, venue
+  capacity/layout/accessibility/restriction, Technical Support assignment and
+  notes, equipment, and special requirements. Approval showed the success
+  state and stored `preparation`, `approved`, the authenticated Safety Officer
+  id and a server timestamp.
+- **Status:** Pass
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
+  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
+  S-86 plus S-84/S-85 regressions, 3 passed.

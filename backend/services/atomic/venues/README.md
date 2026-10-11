@@ -15,6 +15,11 @@ another service's tables.
 | `GET` | `/venues/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
 
+`GET /internal/venues/{venue_id}` returns the same venue shape without
+session authorization for the `safety_checks` composite. Kong does not expose
+`/internal/venues`, and the composite authenticates the Safety Officer before
+calling it.
+
 Every endpoint except health authenticates the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorizes the
 trusted `app_metadata.role`:
@@ -267,4 +272,3 @@ at 0) and a check that neither is negative. `venues` is already exposed.
 
 Tests: `pytest tests/unit/atomic/venues`, then on a freshly recreated
 `.env.test` stack `pytest tests/integration/atomic/venues`.
-

@@ -157,3 +157,18 @@ def get_venue(
     if not result.data:
         raise HTTPException(status_code=404, detail="Venue not found")
     return result.data[0]
+
+
+@app.get("/internal/venues/{venue_id}", response_model=VenueRead)
+def get_venue_internal(venue_id: UUID, db: Client = Depends(get_db)):
+    """Composite-only venue detail for cross-service workflows.
+
+    Kong exposes only `/venues`, so this path cannot be called by a browser.
+    The safety_checks composite authenticates and authorizes the Safety
+    Officer before using it.
+    """
+    operation = db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(venue_id))
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Venue not found")
+    return result.data[0]

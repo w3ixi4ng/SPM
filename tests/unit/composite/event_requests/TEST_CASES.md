@@ -7,9 +7,9 @@ clients are faked; no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
 | Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 69 passed, 17 superseded S-12 cases skipped; 735 passed across `tests/unit` |
+| Result | 80 passed, 17 superseded S-12 cases skipped; 832 passed, 17 skipped across `tests/unit` |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -888,3 +888,91 @@ confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
   events outage returned the named `502` without fabricated success.
 - **Status:** Pass
 - **Evidence:** `test_s84.py::test_reassignment_preserves_atomic_conflicts`, `test_s84.py::test_reassignment_dependency_failures_are_safe`
+
+---
+
+## S-85 — View Coordinator Assignments and Active Events
+
+Story: S-85 View Coordinator Assignments and Active Events. Acceptance
+criteria and test cases confirmed by the developer on 2026-10-09. Executed
+locally on 2026-10-09.
+
+## TC-EVENTREQUESTS-059 — only an authenticated Lead can read oversight
+
+- **Scenario:** The coordinator overview is a Lead-only read operation.
+- **Pre-conditions:** Users returns a Lead, another trusted role, or no valid
+  session in turn.
+- **Steps:** `GET /event-requests/coordinator-overview` for every caller.
+- **Test data:** `event_coordinator_lead`, `event_coordinator`,
+  `event_organiser`, and anonymous.
+- **Expected:** The Lead receives `200`; authenticated non-Leads receive
+  `403`; anonymous receives `401`. Denied requests make no coordinator-pool,
+  event, profile, notification, or persistence call.
+- **Actual:** Anonymous, Organiser, and Coordinator requests were rejected
+  before Events, profile, notification, or write calls; the Lead cases below
+  returned the overview.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_only_a_lead_can_read_coordinator_overview`
+
+## TC-EVENTREQUESTS-060 — every Coordinator is grouped with an assignment count
+
+- **Scenario:** Oversight includes idle Coordinators as well as assigned ones.
+- **Pre-conditions:** The trusted coordinator pool contains A, B, and C;
+  active events contain two for A, one for B, and none for C.
+- **Steps:** Read the overview and inspect group ordering, membership, and
+  counts.
+- **Test data:** Three Coordinator profiles and three active events.
+- **Expected:** Exactly one group per trusted Coordinator is returned; counts
+  are A=2, B=1, C=0; C has an empty `events` list. Events are grouped only by
+  their current `assigned_coordinator_id`.
+- **Actual:** The response sorted A/B/C by name, grouped event counts 2/1/0,
+  and retained C with an empty event list.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_groups_events_and_keeps_zero_assignment_coordinators`
+
+## TC-EVENTREQUESTS-061 — event summaries contain trusted profiles and required fields
+
+- **Scenario:** Each grouped event gives the Lead the confirmed oversight
+  information without exposing unrelated user data.
+- **Pre-conditions:** Events returns active rows and Users returns organiser
+  profiles.
+- **Steps:** Read the overview and inspect one event summary.
+- **Test data:** `Autumn Forum`, `under_review`, organiser Ada, coordinator
+  Alex, `2026-11-18 09:00`–`12:00`.
+- **Expected:** The summary includes event id/name/status, organiser profile,
+  start/end date and time, current Coordinator profile, and S-84 assignment
+  version. Missing organiser profiles use the existing safe id fallback.
+- **Actual:** The enriched `under_review` summary contained every required
+  identity, schedule, status, and version field. A separate case accepted all
+  five active statuses in one group.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_enriches_event_summaries_with_profiles`
+
+## TC-EVENTREQUESTS-062 — empty oversight remains structurally complete
+
+- **Scenario:** A Lead can distinguish no active assignments from a failed
+  request.
+- **Pre-conditions:** The Coordinator pool exists but Events returns no active
+  assigned rows; separately, both are empty.
+- **Steps:** Read the overview for each state.
+- **Expected:** Existing Coordinators are returned with count 0 and empty
+  event lists; a completely empty pool returns `{"coordinators":[]}` with
+  `200`, never a fabricated error or missing shape.
+- **Actual:** An existing idle Coordinator returned count 0 and `events: []`;
+  an empty pool returned `{"coordinators": []}` without a profile call.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_handles_empty_events_and_empty_pool`
+
+## TC-EVENTREQUESTS-063 — upstream failures are controlled and read-only
+
+- **Scenario:** Users or Events outages do not produce partial or misleading
+  oversight data.
+- **Pre-conditions:** Authentication succeeds; coordinator-pool, event-list,
+  or organiser-profile calls raise or return a non-contract status in turn.
+- **Steps:** Read the overview for every failure.
+- **Expected:** A named `502` is returned, later calls are skipped where
+  possible, and notifications plus all write methods remain untouched.
+- **Actual:** Pool, Events, and profile failures each returned the named
+  controlled `502`; notification and Events write methods remained untouched.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_dependency_failures_are_controlled_and_read_only`

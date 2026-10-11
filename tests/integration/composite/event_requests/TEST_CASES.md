@@ -9,9 +9,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, commit `e68fbdf` plus test-evidence working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | Targeted S-84 case: 1 passed; S-83 regression cases: 2 passed across the composite and notifications suites |
+| Result | Targeted S-85 case and S-84 regression: 2 passed |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -261,3 +261,24 @@ must no longer execute after S-83 replaces that workflow.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_reassignment_transfers_access_and_repairs_notifications`;
   local run against a freshly rebuilt `.env.test` stack on 2026-10-09: 1 passed.
+
+## TC-EVENTREQUESTS-110 — oversight groups real assignments and follows reassignment
+
+- **Scenario:** Prove the S-85 overview contract across Kong, Auth, Users,
+  Events, and the real test database while preserving S-84 reassignment.
+- **Pre-conditions:** Fresh `.env.test` stack; organiser, Lead, coordinators A
+  and B; one submitted event assigned to A. B has no active assignment.
+- **Steps:** Read overview as Lead; verify both Coordinator groups and counts;
+  reassign A→B through S-84; read overview again; try the overview as an
+  organiser.
+- **Test data:** `Autumn Forum`, submitted, `2026-11-18 09:00`–`12:00`.
+- **Expected:** The first overview places the enriched event under A with
+  counts A=1/B=0. The second places it under B with A=0/B=1 and unchanged
+  event summary fields. The organiser receives `403`; no S-85 notification or
+  persistence state is created.
+- **Actual:** The first real overview returned A=1/B=0 with the enriched
+  submitted event. After S-84 moved it, the next returned A=0/B=1 with version
+  1; both overview reads left notification counts unchanged, and the Organiser
+  received `403`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_overview_groups_and_tracks_reassignment`

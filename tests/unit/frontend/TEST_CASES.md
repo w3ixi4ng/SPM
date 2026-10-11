@@ -5,7 +5,8 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
 S-83 adds `test_event_assignments.mjs` and `test_notifications.mjs`; S-84
-adds `test_event_reassignments.mjs`.
+adds `test_event_reassignments.mjs`; S-85 adds
+`test_coordinator_overview.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -13,9 +14,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
 | Environment | Node.js; no network or Supabase |
-| Result | 104 passed |
+| Result | 119 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -1614,15 +1615,14 @@ Confirmed by the developer on 2026-10-09. Last run 2026-10-09, branch `S-76/dete
 
 ### TC-FRONTEND-096 — a refused approval or hold shows which booking is in the way
 
-- **Scenario:** Venue Staff read the service's conflict message, not
-  "already decided" (S-76 AC3).
-- **Steps:** `bookingDecisionErrorMessage(error)` and
-  `holdActionErrorMessage(error)` with `status: 409` and the TC-BOOKINGS-042
-  details; then with `409` "This booking request has already been decided".
-- **Expected:** The conflict detail is returned verbatim. The "already
-  decided" 409 still gives "This request has already been decided. Reload
-  the list to see the latest requests."
-- **Actual:** Both conflict details returned verbatim; "already decided" gave the existing message.
+- **Expected:** Each active card in the coordinator oversight section shows
+  event, organiser, current Coordinator, and a choice containing every other
+  Coordinator. Successful reassignment updates the displayed owner/version
+  without reload; the same owner cannot be selected and stale conflicts ask
+  the Lead to reload.
+- **Actual:** The assigned-event cards show both people, exclude the current
+  owner from choices, update locally after success, and expose empty/loading
+  states.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_booking_conflicts.mjs — a refused approval or hold shows which booking is in the way`
 
@@ -1638,4 +1638,88 @@ Confirmed by the developer on 2026-10-09. Last run 2026-10-09, branch `S-76/dete
   reads as `clashPairLabel` (TC-FRONTEND-085).
 - **Actual:** `GET /api/venue-bookings/clashes` with credentials and no `venue_id`; both headings and the pair label as specified.
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_booking_conflicts.mjs — Venue Staff's clashes to review are fetched and labelled`
+- **Evidence:** `test_event_reassignments.mjs::reassignment uses the persistent in-app inbox`
+
+## S-85 — coordinator oversight
+
+Story: S-85 View Coordinator Assignments and Active Events. Acceptance
+criteria and test cases confirmed by the developer on 2026-10-09. Executed
+in the full Node unit run on 2026-10-09.
+
+### TC-FRONTEND-096 — overview helper preserves the read-only API contract
+
+- **Expected:** The browser performs one credentialled `GET` to
+  `/event-requests/coordinator-overview`. It sends no body and exposes no S-85
+  write helper. `401`, `403`, and service failures map to actionable Lead
+  messages.
+- **Actual:** One credentialled bodyless GET used the overview route; explicit
+  session, role, and service errors were mapped without adding a write helper.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::overview helper uses the credentialled read-only route`
+
+### TC-FRONTEND-097 — populated overview groups events and shows counts
+
+- **Expected:** The Lead dashboard renders every Coordinator group, including
+  count zero, and shows each event's name, status, organiser, complete
+  date/time window, and current Coordinator. The five active statuses are
+  presentable. Existing S-83 queue and S-84 reassignment controls remain.
+- **Actual:** The dashboard contract includes grouped Coordinator identity and
+  counts plus every confirmed event field, while retaining queue and
+  reassignment controls.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::lead dashboard renders grouped assignments and required summaries`
+
+### TC-FRONTEND-098 — reassignment moves an event and updates both counts
+
+- **Expected:** After the existing versioned S-84 reassignment succeeds, the
+  event is removed from its former group, inserted under the new Coordinator,
+  and both `active_assignment_count` values update without reload.
+- **Actual:** The pure state transition removed the event from A, inserted the
+  merged version under B, and changed counts from 1/0 to 0/1.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::successful reassignment updates oversight groups and counts`
+
+### TC-FRONTEND-099 — loading, empty, and controlled failure states are distinct
+
+- **Expected:** Initial loading is announced; an empty Coordinator pool and a
+  Coordinator with no assignments have clear non-error messages; an upstream
+  failure presents a retry control and never masquerades as empty data.
+- **Actual:** The dashboard exposes distinct loading, no-Coordinator,
+  zero-assignment, and retryable failure copy.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::overview exposes loading empty and retryable error states`
+
+## S-86 — Operational Safety Check
+
+Story: S-86 Conduct Operational Safety Check. Acceptance criteria and test
+cases confirmed by the developer on 2026-10-10. Executed in the full Node unit
+run on 2026-10-10.
+
+### TC-FRONTEND-100 — Safety Officer routes use the composite contract
+
+- **Expected:** `safety_officer` has queue/decision permissions and its own
+  protected dashboard/detail routes. List, detail and decision helpers use
+  credentialled `/api/safety-checks` calls.
+- **Actual:** The role, protected routes and three credentialled composite
+  helpers matched the confirmed contract.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::safety-check helpers use credentialled composite routes`; `test_safety_checks.mjs::safety officer access and routes are registered`
+
+### TC-FRONTEND-101 — queue and detail expose all required states and evidence
+
+- **Expected:** Queue has loading, empty, failure/retry and populated states.
+  Detail shows event/organiser/schedule/attendance, venue capacity/layout/
+  accessibility/restrictions, technical assignment/notes, equipment and
+  special requirements, plus a success state after deciding.
+- **Actual:** Source contracts include every queue/detail/success state and
+  required evidence field.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::dashboard and detail expose all confirmed UI states and safety evidence`
+
+### TC-FRONTEND-102 — controlled errors remain actionable
+
+- **Expected:** Session, role, missing event, stale decision and dependency
+  failures have distinct actionable messages; a conflict never looks saved.
+- **Actual:** All five failure classes mapped to distinct actionable copy.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`

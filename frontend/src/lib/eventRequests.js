@@ -103,6 +103,9 @@ const STATUS_META = {
   submitted: { label: 'Under Review', color: '#B5842B' },
   planning: { label: 'Planning', color: '#3F8F5F' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
+  preparation: { label: 'Preparation', color: '#3F8F5F' },
+  safety_rejected: { label: 'Safety Rejected', color: '#B25547' },
+  safety_changes_requested: { label: 'Safety Changes Requested', color: '#B5842B' },
   returned: { label: 'Action Required', color: '#B5842B' },
   rejected: { label: 'Rejected', color: '#B25547' },
 }
