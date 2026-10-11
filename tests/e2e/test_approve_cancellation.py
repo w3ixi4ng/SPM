@@ -87,7 +87,8 @@ def test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled(
     # 4. After a reload: Cancelled, no bookings, no decision buttons.
     page.reload()
     expect(page.get_by_text("Cancelled", exact=True).first).to_be_visible(timeout=20000)
-    expect(page.get_by_text("No venue requests sent yet.")).to_be_visible()
+    # The venue list loads on its own after the event, so wait as long as for the rest.
+    expect(page.get_by_text("No venue requests sent yet.")).to_be_visible(timeout=20000)
     expect(page.get_by_role("button", name="Approve cancellation")).to_have_count(0)
     assert event_row()["status"] == "cancelled"
     assert bookings_left() == []
@@ -102,3 +103,11 @@ def test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled(
     expect(organiser_row.get_by_text("Cancelled", exact=True)).to_be_visible(timeout=20000)
     expect(organiser_row.get_by_text("Cancellation requested", exact=True)).to_have_count(0)
     expect(organiser_row.get_by_text("Cancellation declined", exact=True)).to_have_count(0)
+
+    # The event page explains the cancellation, with no empty decision
+    # banner, and the event can no longer be edited.
+    organiser_row.get_by_role("link").first.click()
+    page.wait_for_url(re.compile(rf"/events/{event['id']}$"), timeout=20000)
+    expect(page.get_by_text("Your cancellation request was approved. This event is cancelled.")).to_be_visible(timeout=20000)
+    expect(page.get_by_text("This request has been approved and is in planning.")).to_have_count(0)
+    expect(page.get_by_label("Event name")).to_be_disabled()

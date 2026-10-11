@@ -872,11 +872,14 @@ export default function EventRequestForm() {
   const isPlanning = status === 'planning'
   const isRejected = status === 'rejected'
   const isReturned = status === 'returned'
+  // S-61: cancelled by the Coordinator on the Organiser's request.
+  const isCancelled = status === 'cancelled'
   // Planning and rejected are both decided -- neither is meant to be edited
   // further from here (rejected is enforced server-side too; planning is a
   // product choice, since re-editing an approved event without a fresh
-  // review would undercut the point of deciding on it at all).
-  const isLocked = isPlanning || isRejected
+  // review would undercut the point of deciding on it at all). A cancelled
+  // event is over, so there is nothing left to edit.
+  const isLocked = isPlanning || isRejected || isCancelled
   // A returned request still has to satisfy every submitted-required field
   // once resubmitted -- the same stricter check as an already-submitted or
   // planning one, not the permissive draft rules.
@@ -1171,7 +1174,9 @@ export default function EventRequestForm() {
             </p>
           )}
 
-          {decision && (
+          {/* The request decision's banner. A cancelled event keeps its old
+              decision, but the cancellation section below explains it. */}
+          {decision && !isCancelled && (
             <div
               className="rounded-sm px-4 py-3 mb-6"
               style={{
