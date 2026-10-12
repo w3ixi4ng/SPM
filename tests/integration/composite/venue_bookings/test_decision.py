@@ -8,7 +8,12 @@ pytestmark = requires_env
 
 # S-75 adds a live clash warning to listed rows (and, on held/confirmed rows,
 # the venue's setup and turnaround). These compare the booking itself.
-S75_FIELDS = {"clashes", "setup_minutes", "turnaround_minutes"}
+# Read-time fields the composite adds to each row: S-75's clash warning and the
+# venue's times, and S-77's alternative-arrangements flag.
+S75_FIELDS = {
+    "clashes", "setup_minutes", "turnaround_minutes",
+    "requires_alternative_arrangements", "unavailable_periods",
+}
 
 
 def booking_only(row):

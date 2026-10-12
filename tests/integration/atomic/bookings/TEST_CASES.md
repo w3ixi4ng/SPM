@@ -205,8 +205,9 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 ## S-77 — mark venue temporarily unavailable
 
 **Story:** S-77 Mark Venue Temporarily Unavailable. Confirmed by the
-developer on 2026-10-12. **Blocked** until the S-77 block in `backend/sql/bookings.sql` has been run
-in the test project.
+developer on 2026-10-12. Executed 2026-10-12 on branch
+`S-77/mark-venue-temporarily-unavailable`, after the S-77 block in
+`backend/sql/bookings.sql` was run in the test project.
 
 **Changes to existing cases.** TC-BOOKINGS-105's block gains times
 (`2026-11-13` `00:00` to `2026-11-17` `00:00`). Its Status resets to Not
@@ -234,9 +235,9 @@ Executed until re-run.
   4. `201`.
   5. One row, reason `equipment_failure`, `created_by` the staff id.
   Cleanup removes the block and the booking.
-- **Actual:** Not run: the S-77 SQL is not yet applied to the test project.
-- **Status:** Blocked — waiting on the S-77 `bookings.sql` and `notifications.sql` blocks in the test project
-- **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_a_timed_period_refuses_an_overlapping_request_and_allows_a_back_to_back_one`
+- **Actual:** Period saved `201` with `09:00:00`/`12:00:00` and listed with its times; `11:00`–`13:00` refused `409` with the exact detail and nothing stored; `12:00`–`14:00` `201`; one row with reason `equipment_failure` and the staff id.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_a_timed_period_refuses_an_overlapping_request_and_allows_a_back_to_back_one`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
 
 ### TC-BOOKINGS-111 — the database accepts only the story's reasons
 
@@ -251,6 +252,6 @@ Executed until re-run.
   4. with `end` before `start` (`2026-11-13` `12:00` to `2026-11-13` `09:00`).
 - **Expected:** 1 is stored. 2, 3 and 4 are each refused with Postgres error
   `23514` (check violation). Cleanup removes row 1.
-- **Actual:** Not run: the S-77 SQL is not yet applied to the test project.
-- **Status:** Blocked — waiting on the S-77 `bookings.sql` and `notifications.sql` blocks in the test project
-- **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_the_database_accepts_only_the_storys_periods`
+- **Actual:** `equipment_failure` stored; `internal_activity`, `other` with no note, and end before start each refused with `23514`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_the_database_accepts_only_the_storys_periods`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed

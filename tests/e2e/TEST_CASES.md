@@ -936,8 +936,8 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
 
 Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
 
-**Blocked** until both of these are run in the test project:
-- the S-77 SQL for `bookings` and `notifications`;
+Executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable`. Needs:
+- the S-77 SQL for `bookings` and `notifications` in the test project;
 - the whole `.env.test` stack, recreated immediately before.
 
 Validation, overlap rules and status codes are covered by the unit and
@@ -984,6 +984,6 @@ Coordinator.
     Corrected 2026-10-12 while writing the test.
   - With the admin client, K is still `confirmed` and E still `planning`.
   Cleanup deletes the block, K, the notification, E, the venue and both users.
-- **Actual:** Not run: the S-77 SQL is not yet applied to the test project.
-- **Status:** Blocked — waiting on the S-77 `bookings.sql` and `notifications.sql` blocks in the test project
-- **Evidence:** `tests/e2e/test_mark_venue_unavailable.py::test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_told`
+- **Actual:** In Chromium through Kong: the empty description was refused with "Describe the operational reason." and nothing stored; the saved panel said "1 booking needs alternative arrangements. Their Coordinators have been notified." and listed E as Booked; the Coordinator's dashboard showed the notification; E's page flagged K with the period and "Other operational reason: Water leak in ceiling", still Confirmed and Planning; K `confirmed` and E `planning` in the database.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_mark_venue_unavailable.py::test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_told`; `.env.test` stack recreated immediately before, 2026-10-12; `pytest tests/e2e`: 35 passed

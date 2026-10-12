@@ -278,7 +278,7 @@ For the criteria mapping and the agreed decisions, see the S-79 section of
 
 Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
 
-**Blocked** until both of these are run in the test project:
+Executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable`. Needs, in the test project:
 - the S-77 blocks in `backend/sql/bookings.sql`;
 - the S-77 change to `backend/sql/notifications.sql` (kind `venue_unavailable`).
 
@@ -316,9 +316,9 @@ Status resets to Not Executed until re-run.
   4. K's row is identical to the snapshot, still `confirmed`. The event's
      row is identical, still `planning`.
   Cleanup deletes the block, K, the notification and the shared fixtures.
-- **Actual:** Not run: the S-77 SQL is not yet applied to the test project.
-- **Status:** Blocked — waiting on the S-77 `bookings.sql` and `notifications.sql` blocks in the test project
-- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`
+- **Actual:** Through Kong: period `201` with exactly K affected and notified true; the Coordinator's inbox had one `venue_unavailable` notification naming the period and K's times; K flagged with the period; K and the event rows identical to their snapshots, still `confirmed` and `planning`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
 
 ### TC-VENUEBOOKINGS-111 — through Kong, a request and a hold inside the period are refused
 
@@ -341,6 +341,6 @@ Status resets to Not Executed until re-run.
   3. The hold returns `409` with the period's detail. Q stays `pending` in
      `bookings.bookings`.
   Cleanup deletes everything created.
-- **Actual:** Not run: the S-77 SQL is not yet applied to the test project.
-- **Status:** Blocked — waiting on the S-77 `bookings.sql` and `notifications.sql` blocks in the test project
-- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_through_kong_a_request_and_a_hold_inside_the_period_are_refused`
+- **Actual:** Through Kong: `15:00`–`16:00` refused `409` with the period's detail and nothing stored; `15:30`–`16:30` `201`; after re-marking `11:00`–`13:00`, holding Q `409` with that detail and Q still `pending`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_through_kong_a_request_and_a_hold_inside_the_period_are_refused`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
