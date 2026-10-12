@@ -1908,8 +1908,8 @@ owned by O, reason `"Keynote speaker withdrew and no replacement is available"`.
 
 Story: S-87 Return Event to Planning After Safety Changes Requested.
 Acceptance criteria and test cases confirmed by the developer on 2026-10-10.
-Executed locally on 2026-10-10 in the full Python unit run: 876 passed,
-17 skipped.
+Executed locally on 2026-10-12 at commit `b17b254` in the full Python unit
+run: 926 passed, 17 skipped.
 
 ## TC-EVENTS-130 — change request returns atomically to planning with history
 

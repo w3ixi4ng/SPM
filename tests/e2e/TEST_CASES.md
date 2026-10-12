@@ -864,8 +864,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   id and a server timestamp.
 - **Status:** Pass
 - **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
-  local run on 2026-10-12 against the freshly recreated `.env.test` stack:
-  S-86/S-87 plus S-84/S-85 regressions, 4 passed.
+  local run at commit `b17b254` on 2026-10-12 against the freshly recreated
+  `.env.test` stack: S-86/S-87 plus S-84/S-85 regressions, 4 passed.
 
 ## S-79 — book multiple venues for one event
 
@@ -1008,5 +1008,5 @@ Coordinator.
   both reviews, the revised notes and the original confirmed booking.
 - **Status:** Pass
 - **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
-  local run on 2026-10-12 against the freshly recreated `.env.test` stack:
-  S-86/S-87 plus S-84/S-85 regressions, 4 passed.
+  local run at commit `b17b254` on 2026-10-12 against the freshly recreated
+  `.env.test` stack: S-86/S-87 plus S-84/S-85 regressions, 4 passed.

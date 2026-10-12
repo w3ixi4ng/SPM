@@ -1933,8 +1933,8 @@ Their tests were updated and re-run with S-77, and pass.
 ## S-87 — returned safety feedback and resubmission
 
 Story: S-87 Return Event to Planning After Safety Changes Requested.
-Acceptance criteria and tests confirmed on 2026-10-10. Executed in the full
-Node unit run on 2026-10-10: 124 passed.
+Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
+2026-10-12 at commit `b17b254` in the full Node unit run: 133 passed.
 
 ### TC-FRONTEND-112 — Coordinator safety-return API contract
 
