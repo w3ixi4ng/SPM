@@ -21,13 +21,14 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
 | `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold. The service records `held_by` and `held_at`; an overlapping live slot returns `409`. |
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or on a blocked day is refused. |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or an unavailable period is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
 | `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/bookings?venue_id={id}&from={date}&to={date}` | S-30: one venue's requests dated in the range, every status, by date then start time. |
-| `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
-| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's blocks touching the range, by start date. |
+| `POST` | `/blocks` | S-30/S-77, Venue Staff only: mark a venue unavailable for a timed period. |
+| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's periods touching the range, by start date. |
+| `GET` | `/blocks/{id}` | S-77: one period, for the composite (internal). `404` `{"detail": "Block not found"}` if missing. |
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
 | `GET` | `/health` | Liveness check. |
@@ -238,18 +239,28 @@ part of the occupied range — once the venue's setup and turnaround are added
 (S-76 supersedes S-38 here): with 30 min setup and 45 min turnaround, a
 booking may start no earlier than 75 minutes after the previous one ends.
 `POST /bookings` refuses, with the `409`s above, a request that overlaps a
-pending or confirmed request for the same venue and date, or that falls on a
-blocked day. The range is `[start,end)`, so back-to-back requests are fine;
+pending or confirmed request for the same venue and date, or that overlaps an
+unavailable period (S-77). The range is `[start,end)`, so back-to-back requests are fine;
 rejected requests hold nothing. The database constraint
 `bookings_no_live_overlap` is the final authority, so of two simultaneous
 overlapping requests exactly one is stored. Rejecting a request releases its
 hold. A hold has no expiry.
 
-**Blocks.** Whole days, inclusive at both ends, a venue cannot be used. A
-block may cover existing holds and bookings; none of them is changed —
-Venue Staff reassign those events offline. A pending request on a blocked day
-can still be rejected, but approving it is `409` with the
-"is unavailable from" detail.
+**Blocks (unavailable periods, S-77).** A period a venue cannot be used, from
+`start_date` + `start_time` up to, but not including, `end_date` + `end_time`.
+A booking overlaps a period when the window it occupies the venue — start −
+setup to end + turnaround, from the `setup_minutes` and `turnaround_minutes`
+query parameters the composite passes — overlaps it. Touching is fine: a
+booking may end exactly when a period starts. A request, a hold or a
+confirmation that overlaps one is `409`:
+
+```json
+{"detail": "Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00."}
+```
+
+A period may cover existing holds and bookings; none of them is changed here.
+The `venue_bookings` composite identifies them and notifies their
+Coordinators. A request inside a period can still be rejected.
 
 ### `POST /blocks`
 
@@ -260,10 +271,12 @@ here as for decisions. The gateway equivalent is `POST /api/venue-bookings/block
 | --- | --- | --- | --- |
 | `venue_id` | UUID | yes | |
 | `venue_name` | string | yes | A snapshot from the venues service, for messages. Trimmed; not blank. |
-| `start_date` | date `YYYY-MM-DD` | yes | First unavailable day. |
-| `end_date` | date `YYYY-MM-DD` | yes | Last unavailable day; on or after `start_date`. |
-| `reason` | string | yes | `maintenance`, `renovation`, `safety`, `internal_activity` or `other`. |
-| `note` | string or null | no | Trimmed; blank becomes null. Required when `reason` is `other`. |
+| `start_date` | date `YYYY-MM-DD` | yes | |
+| `start_time` | time `HH:MM` | yes | |
+| `end_date` | date `YYYY-MM-DD` | yes | |
+| `end_time` | time `HH:MM` | yes | The end is exclusive, and must be after the start: `errors.body` "Value error, The period must end after it starts". |
+| `reason` | string | yes | `maintenance`, `equipment_failure`, `renovation`, `safety` or `other`. |
+| `note` | string or null | no | The description. Trimmed; blank becomes null. Required when `reason` is `other`: "Value error, Add a description when the reason is other". |
 
 `created_by` (the verified staff id) and `created_at` are set by the service;
 sending either, or any other unknown field, is `422`.
@@ -276,9 +289,11 @@ sending either, or any other unknown field, is `422`.
   "venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
   "venue_name": "Studio B",
   "start_date": "2026-11-13",
-  "end_date": "2026-11-16",
-  "reason": "maintenance",
-  "note": "Ceiling repair",
+  "start_time": "09:00:00",
+  "end_date": "2026-11-14",
+  "end_time": "17:00:00",
+  "reason": "equipment_failure",
+  "note": "Air handling unit down",
   "created_by": "abababab-abab-4bab-8bab-abababababab",
   "created_at": "2026-11-10T01:00:00+00:00"
 }
@@ -289,7 +304,8 @@ sending either, or any other unknown field, is `422`.
 `venue_id`, `from` and `to` are all required, with the same `422`s as the
 venue filter on `GET /bookings`. `200` with a list of blocks shaped as above,
 every block overlapping the range (one that only partly does included), by
-start date.
+start date. A period ending at `00:00` on `from` stopped the day before, so it
+is left out.
 
 ### `DELETE /blocks/{id}`
 
@@ -313,6 +329,27 @@ pending and confirmed rows, and creates `bookings.blocks` with its grant and
 RLS. If overlapping pending requests already exist it fails without changing
 anything; the block's comment has the query that finds them. No new schema,
 port or secret: `bookings` is already exposed.
+
+### S-77 database setup
+
+Copy the entire block between `BEGIN S-77 DATA-PRESERVING MIGRATION` and
+`END S-77 DATA-PRESERVING MIGRATION` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects, after the S-30 block. It adds `start_time` and `end_time`
+to `bookings.blocks`, and turns each existing whole-day block into the same
+span as a period (00:00 on its first day to 00:00 the day after its last). It
+also changes the reasons: `internal_activity` becomes `other`, keeping its
+note. Safe to run twice.
+
+### S-77 verification
+
+```bash
+pytest tests/unit/atomic/bookings
+
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/atomic/bookings
+```
 
 ### S-30 verification
 

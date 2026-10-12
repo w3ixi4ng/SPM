@@ -1,4 +1,5 @@
-"""S-30: the availability calendar and venue blocks, TC-VENUEBOOKINGS-035..044."""
+"""S-30: the availability calendar and venue blocks, TC-VENUEBOOKINGS-035..044.
+S-77 made blocks timed periods: they carry start and end times."""
 from unittest.mock import AsyncMock
 
 import httpx
@@ -22,11 +23,14 @@ BOOKINGS = [
      'coordinator_name': 'Alan Turing', 'coordinator_email': 'alan@example.com'},
 ]
 BLOCKS = [{'id': BLOCK_ID, 'venue_id': VENUE_ID, 'venue_name': 'Studio B', 'start_date': '2026-11-13',
-           'end_date': '2026-11-16', 'reason': 'maintenance', 'note': 'Ceiling repair',
+           'start_time': '09:00:00', 'end_date': '2026-11-16', 'end_time': '17:00:00',
+           'reason': 'maintenance', 'note': 'Ceiling repair',
            'created_by': 'abababab-abab-4bab-8bab-abababababab', 'created_at': '2026-11-10T01:00:00+00:00'}]
 
-BLOCK_REQUEST = {'venue_id': VENUE_ID, 'start_date': '2026-11-13', 'end_date': '2026-11-16',
+BLOCK_REQUEST = {'venue_id': VENUE_ID, 'start_date': '2026-11-13', 'start_time': '09:00:00',
+                 'end_date': '2026-11-16', 'end_time': '17:00:00',
                  'reason': 'maintenance', 'note': 'Ceiling repair'}
+UNAVAILABLE = 'Studio B is unavailable from 13 Nov 2026 09:00 to 16 Nov 2026 17:00.'
 
 
 def lists(services, bookings=None, blocks=None):
@@ -47,7 +51,7 @@ EXPECTED_ENTRIES = [
     {'state': 'held', 'start_date': '2026-11-12', 'end_date': '2026-11-12',
      'start_time': '14:00:00', 'end_time': '16:00:00'},
     {'state': 'blocked', 'start_date': '2026-11-13', 'end_date': '2026-11-16',
-     'start_time': None, 'end_time': None, 'reason': 'maintenance'},
+     'start_time': '09:00:00', 'end_time': '17:00:00', 'reason': 'maintenance'},
 ]
 
 
@@ -191,7 +195,7 @@ def test_a_venue_with_nothing_on_it_returns_no_entries(client, services):
 @pytest.mark.parametrize('detail', [
     'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.',
     'Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00.',
-    'Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.',
+    UNAVAILABLE,
 ])
 def test_a_conflicting_requests_409_reaches_the_coordinator_unchanged(client, services, detail):
     services.bookings.post = AsyncMock(return_value=fake_response(409, {'detail': detail}))
@@ -214,7 +218,7 @@ def test_an_unidentified_409_from_bookings_is_still_a_502(client, services):
 # --- TC-VENUEBOOKINGS-041 -------------------------------------------------
 def test_a_decision_refused_by_a_block_reaches_venue_staff_unchanged(client, services):
     services.user = me('venue_staff')
-    detail = 'Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.'
+    detail = UNAVAILABLE
     services.bookings.post = AsyncMock(return_value=fake_response(409, {'detail': detail}))
 
     response = client.post('/venue-bookings/44444444-4444-4444-8444-444444444444/decision',
@@ -233,7 +237,8 @@ def test_venue_staff_add_a_block(client, services):
     response = client.post('/venue-bookings/blocks', json=BLOCK_REQUEST, cookies=COOKIE)
 
     assert response.status_code == 201
-    assert response.json() == stored
+    # S-77: no booking under it, so none affected and nobody to tell.
+    assert response.json() == {**stored, 'affected_bookings': [], 'coordinators_notified': True}
     services.bookings.post.assert_awaited_once_with(
         '/blocks', json={**BLOCK_REQUEST, 'venue_name': 'Studio B'}, cookies=COOKIE,
     )

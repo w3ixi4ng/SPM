@@ -1810,3 +1810,124 @@ TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Both requested events were tagged "Cancellation requested"; every status without a request, and an event without the field, gave `null`; labels stayed "Planning" and "Confirmed".
 - **Status:** Pass
 - **Evidence:** `test_event_cancellation.mjs::the dashboard tags an event with a pending cancellation request`; `node --test tests/unit/frontend/test_*.mjs`: 131 passed, 2026-10-11.
+
+## S-77 — mark venue temporarily unavailable
+
+Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed.
+
+The cases cover pure functions in `frontend/src/lib/venueAvailability.js`
+and `venueBookings.js`, tested with no browser. Today is `2026-11-10`.
+Period P is Studio B from `2026-11-13` `09:00` to `2026-11-14` `17:00`,
+reason `equipment_failure`, note `"Air handling unit down"`. Studio B is open
+`mon`–`fri` `08:00`–`18:00`.
+
+**Changes to existing cases.** When S-77 lands:
+- TC-FRONTEND-068: "a block outranks everything" applies only to a day the
+  period covers completely, as TC-FRONTEND-110 sets out.
+- TC-FRONTEND-071: the add body includes the times (TC-FRONTEND-108).
+- TC-FRONTEND-072: the block detail is the TC-BOOKINGS-047 wording.
+
+Their tests were updated and re-run with S-77, and pass.
+
+## TC-FRONTEND-107 — the Mark unavailable form needs both dates, both times, an end after the start, and a reason
+
+- **Scenario:** Venue Staff can't send an incomplete period, and are told
+  exactly what to fix (AC1).
+- **Steps:** Call `validateBlockForm` with the base form
+  `{startDate:"2026-11-13", startTime:"09:00", endDate:"2026-11-14", endTime:"17:00", reason:"equipment_failure", note:""}`,
+  changing one thing per row. Then read `BLOCK_REASONS` and each reason's label.
+- **Test data / Expected:**
+  - base form → `[]`
+  - `startTime` `""` → `["Choose when the unavailable period starts."]`
+  - `endDate` `""` → `["Choose when the unavailable period ends."]`
+  - `endDate` `"2026-11-13"`, `endTime` `"09:00"` → `["The period must end after it starts."]`
+  - `endDate` `"2026-11-12"` → the same message
+  - `reason` `""` → `["Choose a reason."]`
+  - `reason` `"other"`, `note` `"  "` → `["Describe the operational reason."]`
+  - `reason` `"other"`, `note` `"Fire alarm testing"` → `[]`
+  - `BLOCK_REASONS` is exactly `maintenance`, `equipment_failure`,
+    `renovation`, `safety`, `other`, labelled "Maintenance", "Equipment
+    failure", "Renovation", "Safety concern", "Other operational reason"
+- **Actual:** Every row returned the listed messages; reasons and labels exactly as listed.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — the Mark unavailable form needs both dates, both times, an end after the start, and a reason`
+
+## TC-FRONTEND-108 — the period is sent with its times, and nothing the server owns
+
+- **Scenario:** The form becomes the S-77 request body.
+- **Steps:** With a fake `fetch`, call `addVenueBlock` with the base form
+  from TC-FRONTEND-107 and `venueId` Studio B. Call it again with `note`
+  `"  "`. Then call `retryBlockNotifications("cccccccc-…")`.
+- **Expected:**
+  - `POST /api/venue-bookings/blocks` with exactly
+    `{"venue_id":"bbbbbbbb-…","start_date":"2026-11-13","start_time":"09:00","end_date":"2026-11-14","end_time":"17:00","reason":"equipment_failure","note":null}`,
+    with credentials included. No `venue_name` or `created_by`.
+  - The blank note is sent as `null`.
+  - The retry is `POST /api/venue-bookings/blocks/cccccccc-…/notify`.
+- **Actual:** `POST /api/venue-bookings/blocks` with exactly the body, credentials included; blank note sent as null; retry `POST …/notify`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — the period is sent with its times, and nothing the server owns`
+
+## TC-FRONTEND-109 — after saving, Venue Staff are told which bookings are affected and whether Coordinators were told
+
+- **Scenario:** The bookings the period affects are identified to Venue
+  Staff in plain words, and a notification failure is not hidden (AC3, AC5).
+- **Steps:** Call `affectedBookingsSummary(response)` with three responses.
+- **Test data / Expected:**
+  1. `affected_bookings` `[]`, `coordinators_notified` `true` →
+     heading "Studio B marked unavailable", line "No bookings are affected."
+     No retry offered.
+  2. Two affected bookings, A (Alumni talk, confirmed, 13 Nov 2026 10:00–12:00,
+     Coordinator Ada Lim) and B (Board lunch, held, 14 Nov 2026 15:00–16:30,
+     Coordinator Ben Tan), with `coordinators_notified` `true`:
+     - line "2 bookings need alternative arrangements. Their Coordinators have been notified."
+     - rows "Alumni talk · 13 Nov 2026 · 10:00–12:00 · Booked · Ada Lim" and
+       "Board lunch · 14 Nov 2026 · 15:00–16:30 · Tentatively held · Ben Tan"
+     - no retry offered
+  3. As 2 with `coordinators_notified` `false`:
+     - the same rows
+     - line "The period is saved, but the Coordinators haven't been notified yet."
+     - `retry: true`, so the panel shows **Notify Coordinators**
+  One affected booking reads "1 booking needs alternative arrangements. …".
+- **Actual:** Empty, notified and not-notified summaries as specified; one booking reads "1 booking needs…".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — after saving, Venue Staff are told which bookings are affected and whether Coordinators were told`
+
+## TC-FRONTEND-110 — the calendar marks a fully covered day Unavailable and a partly covered day with the period's times
+
+- **Scenario:** A timed period no longer greys out whole days it only
+  partly covers (AC1).
+- **Steps:** Call `availabilityDays({from:"2026-11-12", to:"2026-11-16"}, entries, operating_hours)`.
+  `entries` holds P as a `blocked` entry with times, and a confirmed booking
+  on `2026-11-12` `10:00`–`12:00`. Then repeat with a period from
+  `2026-11-13` `00:00` to `2026-11-17` `00:00` (a migrated S-30 block).
+- **Expected:**
+  - First call:
+    - `12 Nov` → `confirmed`, "Booked 10:00–12:00".
+    - `13 Nov` → `partly_blocked`, "Partly unavailable". Detail "Unavailable from 09:00 · Equipment failure".
+    - `14 Nov` → `partly_blocked`. Detail "Unavailable until 17:00 · Equipment failure".
+    - `15`–`16 Nov` → `closed` and `available` as before.
+    - `partly_blocked` has its own label and a colour no other state uses.
+    - A partly covered day with a booking keeps the booking's state and also
+      lists the period in its detail.
+  - Second call: `13`–`16 Nov` are `blocked`, "Unavailable — Maintenance",
+    the weekend included, as in TC-FRONTEND-068.
+- **Actual:** 12 Nov booked; 13 and 14 Nov partly unavailable with "from 09:00" / "until 17:00"; a held day keeps its state and lists the period; colours distinct; the migrated block covers 13–16 Nov.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — the calendar marks a fully covered day Unavailable and a partly covered day with the times`
+
+## TC-FRONTEND-111 — a Coordinator's flagged booking says it needs alternative arrangements, and why
+
+- **Scenario:** The flag reaches the Coordinator on the event page, as text
+  and not colour alone (AC3).
+- **Steps:** Call `alternativeArrangementsNotice(booking)` for two bookings:
+  - A, with `requires_alternative_arrangements` `true` and P in
+    `unavailable_periods`;
+  - A4, with `false` and `[]`.
+- **Expected:**
+  - A → `{label: "Needs alternative arrangements", color: C.rose, detail: "Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure: Air handling unit down)."}`.
+    A booking with two periods lists both in date order.
+  - A4 → `null`, and nothing is shown.
+- **Actual:** A gave the exact label, rose colour and detail; two periods in date order; A4 null.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — a Coordinator's flagged booking says it needs alternative arrangements, and why`

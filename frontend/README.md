@@ -118,6 +118,26 @@ derives the Safety Officer id from the verified session. Approval advances to
 `safety_changes_requested`. Conflicts never display success, and S-86 sends no
 notification.
 
+## S-77 mark venue temporarily unavailable
+
+On a venue's availability calendar, Venue Staff choose **Mark unavailable**
+and enter a start date and time, an end date and time, and a reason
+(Maintenance, Equipment failure, Renovation, Safety concern, or Other
+operational reason, which needs a description). The slide-over panel stays
+open after saving and lists the held and confirmed bookings the period
+affects. If their Coordinators couldn't be notified, it offers **Notify
+Coordinators** to retry.
+
+The calendar marks a day the period covers completely as Unavailable. A day
+it covers only partly reads Partly unavailable (or keeps its booking state)
+and lists the period's times in the day's detail.
+
+On the Coordinator's event page, a booking a period affects shows "Needs
+alternative arrangements" with the period and its reason. The Coordinator
+also gets an in-app notification. Bookings and events are never changed by a
+period. Helpers are in `src/lib/venueAvailability.js` and
+`src/lib/venueBookings.js`.
+
 ## Development
 
 From this directory:

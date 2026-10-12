@@ -159,3 +159,41 @@ def test_notification_storage_failures_are_safe(client, db, auth):
     response = client.get("/notifications")
     assert response.status_code == 500
     assert response.json() == {"detail": "Notification storage unavailable"}
+
+
+# --- TC-NOTIFICATIONS-009 ---------------------------------------------------
+VENUE_UNAVAILABLE = {
+    "recipient_id": RECIPIENT,
+    "event_id": EVENT_ID,
+    "event_name": "Alumni talk",
+    "kind": "venue_unavailable",
+    "message": (
+        "Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). "
+        "Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements."
+    ),
+    "deduplication_key": (
+        "venue_unavailable:cccccccc-cccc-4ccc-8ccc-cccccccccccc:"
+        f"44444444-4444-4444-8444-444444444444:{RECIPIENT}"
+    ),
+}
+
+
+def test_a_venue_unavailable_notification_is_accepted(client, db):
+    db.schema.return_value.table.return_value.upsert.return_value.execute.return_value = (
+        SimpleNamespace(data=[{**VENUE_UNAVAILABLE, "id": 1, "created_at": "2026-11-10T01:00:00Z"}])
+    )
+
+    response = client.post("/internal/notifications", json={"notifications": [VENUE_UNAVAILABLE]})
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == "venue_unavailable"
+
+
+def test_an_unknown_kind_is_still_refused(client, db):
+    response = client.post(
+        "/internal/notifications",
+        json={"notifications": [{**VENUE_UNAVAILABLE, "kind": "venue_closed"}]},
+    )
+
+    assert response.status_code == 422
+    db.schema.assert_not_called()

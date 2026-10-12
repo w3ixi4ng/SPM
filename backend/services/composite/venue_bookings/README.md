@@ -12,6 +12,9 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `venues` — `GET /venues/{id}` | The venue, with the caller's own session |
 | `bookings` — `POST /bookings`, `GET /bookings?status=pending`, `GET /bookings?event_id={id}` | Store and list requests |
 | `bookings` — `GET /bookings?venue_id&from&to`, `GET /blocks?venue_id&from&to`, `POST /blocks`, `DELETE /blocks/{id}` | S-30: the availability calendar and venue blocks |
+| `bookings` — `GET /bookings?status=live&from&venue_id`, `GET /blocks/{id}` | S-77: the bookings an unavailable period affects |
+| `events` — `GET /internal/events/assigned-active` | S-77: each affected event's current Coordinator |
+| `notifications` — `POST /internal/notifications` | S-77: tell those Coordinators that alternative arrangements are required |
 
 Reached through Kong at `/api/venue-bookings`.
 
@@ -35,7 +38,8 @@ all read attempts fail, the existing safe `502` response is returned.
 | `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround. |
 | `GET` | `/venue-bookings/clashes` | `venue_staff` | S-76: the same pairs for every venue that has any — Venue Staff's standing clashes to review. |
 | `GET` | `/venue-bookings/{id}` | `venue_staff` | S-75: one request, with its clash warning, for its own page. Decided requests are returned too. |
-| `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30: mark whole days of a venue unavailable. |
+| `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30/S-77: mark a venue unavailable for a timed period; the response names the bookings it affects. See [S-77](#s-77-unavailable-periods). |
+| `POST` | `/venue-bookings/blocks/{id}/notify` | `venue_staff` | S-77: retry telling the Coordinators of the bookings a period affects. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
@@ -130,7 +134,7 @@ exactly as the bookings service returns them (see
 | `404` | `{"detail": "Event not found"}` | No such event, or it is not assigned to the caller. |
 | `404` | `{"detail": "Venue not found"}` | No such venue. |
 | `409` | `{"detail": "A venue can only be requested for an event in planning"}` | The event is `submitted`, `returned` or `rejected`. |
-| `409` | `{"detail": "Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00."}` | S-30: the slot is held. Also `… is already confirmed on …` and `Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.` Nothing was saved. |
+| `409` | `{"detail": "Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00."}` | S-30: the slot is held. Also `… is already confirmed on …` and (S-77) `Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00.` Nothing was saved. |
 | `422` | `{"detail": "Please check the details you entered", "errors": {...}}` | The body failed validation. |
 | `422` | `{"detail": "This venue can't take this booking", "errors": {...}}` | Refused by the checks above. |
 | `502` | `{"detail": "<Users\|Events\|Venues\|Bookings> service unavailable"}` | A downstream service could not be reached or failed. Nothing was saved. |
@@ -139,10 +143,12 @@ exactly as the bookings service returns them (see
 
 **First:** every schema it depends on applied and exposed in both the dev and
 the test project — `users`, `events` (including the S-36 `planning` change),
-`venues` and `bookings`. See [`backend/sql/`](../../../sql/README.md).
+`venues`, `bookings` and `notifications`, including the S-77 blocks in
+`bookings.sql` and `notifications.sql`. See
+[`backend/sql/`](../../../sql/README.md).
 
 **Development** — `.env` filled in from `.env.example`, including
-`VENUES_SERVICE_URL` and `BOOKINGS_SERVICE_URL`:
+`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL` and `NOTIFICATIONS_SERVICE_URL`:
 
 ```bash
 docker compose up --build
@@ -220,7 +226,7 @@ days before tomorrow in the browser, as every date picker in the app does.
   "entries": [
     {"state": "confirmed", "start_date": "2026-11-12", "end_date": "2026-11-12", "start_time": "09:00:00", "end_time": "12:00:00"},
     {"state": "held", "start_date": "2026-11-12", "end_date": "2026-11-12", "start_time": "14:00:00", "end_time": "16:00:00"},
-    {"state": "blocked", "start_date": "2026-11-13", "end_date": "2026-11-16", "start_time": null, "end_time": null, "reason": "maintenance"}
+    {"state": "blocked", "start_date": "2026-11-13", "end_date": "2026-11-14", "start_time": "09:00:00", "end_time": "17:00:00", "reason": "maintenance"}
   ]
 }
 ```
@@ -242,14 +248,15 @@ days.
 
 ### `POST /venue-bookings/blocks`
 
-Venue Staff only. Body: `venue_id`, `start_date`, `end_date`, `reason`,
-optional `note` — the rules in the
+*Superseded by [S-77](#s-77-unavailable-periods), which adds the times and
+the affected bookings.* Venue Staff only. Body: `venue_id`, `start_date`,
+`start_time`, `end_date`, `end_time`, `reason`, optional `note` — the rules in the
 [bookings contract](../../atomic/bookings/README.md#post-blocks). The venue's
 name is looked up here and the session is forwarded, so `venue_name` and
 `created_by` in the body are `422`.
 
 ```json
-{"venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd", "start_date": "2026-11-13", "end_date": "2026-11-16", "reason": "maintenance", "note": "Ceiling repair"}
+{"venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd", "start_date": "2026-11-13", "start_time": "09:00", "end_date": "2026-11-14", "end_time": "17:00", "reason": "maintenance", "note": "Ceiling repair"}
 ```
 
 `201` with the stored block. `404` `{"detail": "Venue not found"}`; a `422`
@@ -260,8 +267,8 @@ and `502` as above.
 
 Venue Staff only. `204` with no body; `404` `{"detail": "Block not found"}`.
 
-A decision refused because the request falls on a blocked day is passed
-through too: `409` `{"detail": "Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026."}`.
+A decision refused because the request overlaps an unavailable period is
+passed through too: `409` `{"detail": "Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00."}`.
 
 **Before running it:** the S-30 block in
 [`bookings.sql`](../../../sql/bookings.sql) applied in both projects — see
@@ -326,3 +333,100 @@ Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
 recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
 and `pytest tests/e2e/test_setup_turnaround.py`.
 
+
+## S-77 unavailable periods
+
+Venue Staff mark a venue unavailable for a period, with a reason, so it is not
+booked while it can't be used. The period is stored by the bookings service as
+a block (see [its contract](../../atomic/bookings/README.md#post-blocks)); this
+service adds what spans other services: which bookings it affects, and telling
+their Coordinators.
+
+### `POST /venue-bookings/blocks`
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `venue_id` | UUID | yes | `404` `{"detail": "Venue not found"}` if there is no such venue. |
+| `start_date`, `start_time` | date `YYYY-MM-DD`, time `HH:MM` | yes | |
+| `end_date`, `end_time` | date `YYYY-MM-DD`, time `HH:MM` | yes | Exclusive; after the start. |
+| `reason` | string | yes | `maintenance`, `equipment_failure`, `renovation`, `safety` or `other`. |
+| `note` | string or null | no | The description; required when `reason` is `other`. |
+
+`venue_name` and `created_by` in the body are `422`.
+
+```json
+{"venue_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "start_date": "2026-11-13", "start_time": "09:00", "end_date": "2026-11-14", "end_time": "17:00", "reason": "equipment_failure", "note": "Air handling unit down"}
+```
+
+`201` with the stored block plus:
+
+```json
+{
+  "...": "every field of the stored block",
+  "affected_bookings": [
+    {"id": "…", "event_id": "…", "event_name": "Alumni talk", "coordinator_name": "Ada Lim",
+     "status": "confirmed", "booking_date": "2026-11-13", "start_time": "10:00:00", "end_time": "12:00:00",
+     "occupied_start": "09:30", "occupied_end": "12:30"}
+  ],
+  "coordinators_notified": true
+}
+```
+
+- **Affected** means a **held or confirmed** booking at the venue whose occupied
+  window (start − setup to end + turnaround, the venue's current times)
+  overlaps the period. They are listed in date and start order. Pending
+  requests are never affected: the bookings service won't hold or confirm one
+  inside a period anyway.
+- **Nothing is changed.** No booking is released, rejected or edited, and no
+  event is cancelled or written to.
+- **Coordinators are told.** Each affected booking's event's **current**
+  Coordinator, from `GET /internal/events/assigned-active`, gets one
+  `venue_unavailable` notification:
+  `"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements."`
+  Its deduplication key is `venue_unavailable:<block id>:<booking id>:<recipient id>`,
+  sent in batches of at most 20. A booking whose event has no current
+  Coordinator is still listed, but nobody is notified about it.
+- **A failure doesn't undo the period.** If the events or notifications
+  service fails, the response is still `201`, with `"coordinators_notified": false`.
+  If the affected bookings can't be read, `affected_bookings` is `null` (unknown,
+  not "none"). Either way, retry with `/notify`.
+
+A `422` from the bookings service is passed through with its `errors`; `401`,
+`403` and `502` as elsewhere.
+
+### `POST /venue-bookings/blocks/{id}/notify`
+
+Venue Staff only, no body. Works out the affected bookings again from current
+data and sends the notifications with the same keys, so nobody is told twice.
+`200` with `{"affected_bookings": [...], "coordinators_notified": true|false}`.
+`404` `{"detail": "Block not found"}`.
+
+### The flag on every booking read
+
+`GET /venue-bookings?event_id=` (Coordinator), `GET /venue-bookings/pending`
+and `GET /venue-bookings/{id}` (Venue Staff) give each row:
+
+```json
+{
+  "requires_alternative_arrangements": true,
+  "unavailable_periods": [
+    {"start_date": "2026-11-13", "start_time": "09:00:00", "end_date": "2026-11-14",
+     "end_time": "17:00:00", "reason": "equipment_failure", "note": "Air handling unit down"}
+  ]
+}
+```
+
+`false` and `[]` for pending and rejected rows, and for bookings before today.
+The flag is worked out live, like S-75's clashes: remove the period and it is
+gone. If the periods can't be read, the read is `502`, never a missing flag.
+
+The calendar's `blocked` entries now carry the period's `start_time` and
+`end_time`.
+
+**Before running it:** the S-77 blocks in
+[`bookings.sql`](../../../sql/bookings.sql) and
+[`notifications.sql`](../../../sql/notifications.sql) run in both projects.
+
+Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
+recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
+and `pytest tests/e2e/test_mark_venue_unavailable.py`.

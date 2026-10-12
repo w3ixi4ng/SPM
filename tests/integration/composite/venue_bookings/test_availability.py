@@ -95,11 +95,12 @@ def test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_ko
 
         # 4. Staff block the following days.
         blocked = api.post('/venue-bookings/blocks', headers=staff, json={
-            'venue_id': venue_id, 'start_date': '2026-11-13', 'end_date': '2026-11-16', 'reason': 'safety',
+            'venue_id': venue_id, 'start_date': '2026-11-13', 'start_time': '00:00',
+            'end_date': '2026-11-17', 'end_time': '00:00', 'reason': 'safety',
         })
         assert blocked.status_code == 201, blocked.text
         assert calendar() == [
-            ('confirmed', '2026-11-12', '09:00'), ('held', '2026-11-12', '15:00'), ('blocked', '2026-11-13', ''),
+            ('confirmed', '2026-11-12', '09:00'), ('held', '2026-11-12', '15:00'), ('blocked', '2026-11-13', '00:00'),
         ]
         entry = api.get('/venue-bookings/availability', headers=coordinator,
                         params={'venue_id': venue_id, **RANGE}).json()['entries'][-1]

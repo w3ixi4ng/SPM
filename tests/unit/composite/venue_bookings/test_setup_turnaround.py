@@ -47,6 +47,8 @@ def studio_b(services):
 
     async def bookings_get(path, **kwargs):
         params = kwargs.get("params") or {}
+        if path == "/blocks":
+            return fake_response(200, [])
         if path.startswith("/bookings/"):
             booking_id = path.rsplit("/", 1)[-1]
             match = [r for r in SAME_DAY if r["id"] == booking_id]
@@ -162,6 +164,8 @@ def test_other_requests_carry_no_warning(client, studio_b, changes):
 
     async def bookings_get(path, **kwargs):
         params = kwargs.get("params") or {}
+        if path == "/blocks":
+            return fake_response(200, [])
         if "venue_id" in params:
             return fake_response(200, [A, other, C])
         return fake_response(200, [other])

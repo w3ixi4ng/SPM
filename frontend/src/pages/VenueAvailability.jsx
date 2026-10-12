@@ -6,6 +6,7 @@ import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   addVenueBlock,
+  affectedBookingsSummary,
   availabilityDays,
   availabilityErrorMessage,
   BLOCK_REASONS,
@@ -21,6 +22,7 @@ import {
   monthGrids,
   monthRange,
   removeVenueBlock,
+  retryBlockNotifications,
   setupTurnaroundLabel,
   shiftMonth,
   shortDayLabel,
@@ -30,12 +32,13 @@ import {
   WEEKDAY_HEADINGS,
   yearOptions,
 } from '../lib/venueAvailability.js'
-import { bookingDateLabel } from '../lib/venueBookings.js'
-import { optionLabel } from '../lib/venues.js'
+import { blockReasonLabel, periodMomentLabel } from '../lib/venueBookings.js'
 
 // S-30: a venue's availability calendar. Coordinators see when it is free,
-// held, booked or unavailable; Venue Staff also mark days unavailable and
-// clear them. Every open, month change and Refresh fetches what is saved now.
+// held, booked or unavailable; Venue Staff also mark it unavailable and clear
+// that. Every open, month change and Refresh fetches what is saved now.
+// S-77: unavailable periods are timed, and saving one tells Venue Staff which
+// bookings it affects and whether their Coordinators were notified.
 
 const C = {
   ink: '#10192B',
@@ -50,7 +53,7 @@ const C = {
 
 const INPUT_CLASS = 'csp-input w-full rounded-sm border px-3 py-2 font-ui text-sm'
 const INPUT_STYLE = { borderColor: C.line, color: C.ink, backgroundColor: C.paper }
-const LEGEND = ['available', 'held', 'confirmed', 'blocked', 'closed']
+const LEGEND = ['available', 'held', 'confirmed', 'blocked', 'partly_blocked', 'closed']
 
 // A day's colours: the state's colour as a light fill with a matching edge.
 // Closed is dashed, as closed status is elsewhere.
@@ -253,15 +256,38 @@ function DayDetail({ day, canManage, onRemove, removing }) {
         </p>
       )}
       {day.state === 'blocked' && (
-        <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>
-          From {bookingDateLabel(day.block.start_date)} to {bookingDateLabel(day.block.end_date)}
-          {day.block.note ? ` · ${day.block.note}` : ''}
-        </p>
+        <Period block={day.block} canManage={canManage} onRemove={onRemove} removing={removing} />
       )}
-      {day.state === 'blocked' && canManage && day.block.id && (
+      {day.periods.length > 0 && (
+        <ul className="grid gap-3 mt-3" aria-label={`Unavailable periods on ${heading}`}>
+          {day.periods.map((period) => (
+            <li key={`${period.block.start_date}${period.block.start_time}${period.block.end_date}${period.block.end_time}`}>
+              <p className="inline-flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
+                <Swatch state="partly_blocked" />
+                {period.label}
+              </p>
+              <Period block={period.block} canManage={canManage} onRemove={onRemove} removing={removing} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// One unavailable period's full span, and for Venue Staff its note and a
+// way to remove it.
+function Period({ block, canManage, onRemove, removing }) {
+  return (
+    <>
+      <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>
+        From {periodMomentLabel(block.start_date, block.start_time)} to {periodMomentLabel(block.end_date, block.end_time)}
+        {block.note ? ` · ${block.note}` : ''}
+      </p>
+      {canManage && block.id && (
         <button
           type="button"
-          onClick={() => onRemove(day.block)}
+          onClick={() => onRemove(block)}
           disabled={removing}
           className="csp-secondary-btn mt-3 px-4 py-2 rounded-sm font-ui font-medium text-sm border transition-colors duration-200 disabled:opacity-60"
           style={{ borderColor: C.rose, color: C.rose }}
@@ -269,18 +295,25 @@ function DayDetail({ day, canManage, onRemove, removing }) {
           {removing ? 'Removing…' : 'Remove'}
         </button>
       )}
-    </section>
+    </>
   )
 }
 
 function BlockPanel({ venueId, venueName, today, onClose, onSaved }) {
   const [form, setForm] = useState(() => emptyBlockForm(venueId, earliestFrom(today)))
   const [state, setState] = useState({ saving: false, errors: [] })
+  // S-77: the saved period, with the bookings it affects.
+  const [result, setResult] = useState(null)
+  const [retry, setRetry] = useState({ sending: false, error: '' })
   const panelRef = useRef(null)
 
   useEffect(() => {
     const panel = panelRef.current
     panel?.querySelector('input, select, textarea, button')?.focus()
+  }, [result])
+
+  useEffect(() => {
+    const panel = panelRef.current
 
     function handleKeyDown(e) {
       if (e.key === 'Escape') {
@@ -318,12 +351,27 @@ function BlockPanel({ venueId, venueName, today, onClose, onSaved }) {
     }
     setState({ saving: true, errors: [] })
     try {
-      await addVenueBlock(form)
-      onSaved(form)
+      const saved = await addVenueBlock(form)
+      setState({ saving: false, errors: [] })
+      setResult(saved)
+      onSaved(saved)
     } catch (error) {
       setState({ saving: false, errors: blockErrorMessages(error) })
     }
   }
+
+  async function handleRetry() {
+    setRetry({ sending: true, error: '' })
+    try {
+      const outcome = await retryBlockNotifications(result.id)
+      setResult((current) => ({ ...current, ...outcome }))
+      setRetry({ sending: false, error: '' })
+    } catch {
+      setRetry({ sending: false, error: "We couldn't reach the Coordinators. Try again in a moment." })
+    }
+  }
+
+  const summary = result && affectedBookingsSummary(result, venueName)
 
   return (
     <>
@@ -337,19 +385,25 @@ function BlockPanel({ venueId, venueName, today, onClose, onSaved }) {
         style={{ backgroundColor: C.paper, borderColor: C.line }}
       >
         <div className="flex items-start justify-between gap-4 mb-2">
-          <h2 id="block-panel-title" className="font-display text-2xl" style={{ color: C.ink }}>Mark unavailable</h2>
+          <h2 id="block-panel-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            {summary ? summary.heading : 'Mark unavailable'}
+          </h2>
           <button type="button" onClick={onClose} aria-label="Close" className="csp-icon-btn rounded-sm p-1" style={{ color: C.inkFaint }}>
             <X size={18} aria-hidden="true" />
           </button>
         </div>
+        {summary ? (
+          <AffectedBookings summary={summary} retry={retry} onRetry={handleRetry} onDone={onClose} />
+        ) : (
+        <>
         <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
-          {venueName} can&apos;t be requested on these days. Existing requests and bookings stay as they are —
-          contact their coordinators about moving them.
+          {venueName} can&apos;t be requested or held during this period. Existing bookings are kept, and
+          the Coordinators of any it overlaps are told to make alternative arrangements.
         </p>
         <form onSubmit={handleSubmit} noValidate className="grid gap-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="block-start">First day</Label>
+              <Label htmlFor="block-start">Start date</Label>
               <input
                 id="block-start"
                 type="date"
@@ -361,13 +415,35 @@ function BlockPanel({ venueId, venueName, today, onClose, onSaved }) {
               />
             </div>
             <div>
-              <Label htmlFor="block-end">Last day</Label>
+              <Label htmlFor="block-start-time">Start time</Label>
+              <input
+                id="block-start-time"
+                type="time"
+                value={form.startTime}
+                onChange={(e) => update('startTime', e.target.value)}
+                className={INPUT_CLASS}
+                style={INPUT_STYLE}
+              />
+            </div>
+            <div>
+              <Label htmlFor="block-end">End date</Label>
               <input
                 id="block-end"
                 type="date"
                 value={form.endDate}
                 min={earliestTo(form.startDate || earliestFrom(today))}
                 onChange={(e) => update('endDate', e.target.value)}
+                className={INPUT_CLASS}
+                style={INPUT_STYLE}
+              />
+            </div>
+            <div>
+              <Label htmlFor="block-end-time">End time</Label>
+              <input
+                id="block-end-time"
+                type="time"
+                value={form.endTime}
+                onChange={(e) => update('endTime', e.target.value)}
                 className={INPUT_CLASS}
                 style={INPUT_STYLE}
               />
@@ -383,11 +459,11 @@ function BlockPanel({ venueId, venueName, today, onClose, onSaved }) {
               style={INPUT_STYLE}
             >
               <option value="">Choose a reason</option>
-              {BLOCK_REASONS.map((reason) => <option key={reason} value={reason}>{optionLabel(reason)}</option>)}
+              {BLOCK_REASONS.map((reason) => <option key={reason} value={reason}>{blockReasonLabel(reason)}</option>)}
             </select>
           </div>
           <div>
-            <Label htmlFor="block-note">Note for Venue Staff {form.reason === 'other' ? '' : '(optional)'}</Label>
+            <Label htmlFor="block-note">Description {form.reason === 'other' ? '' : '(optional)'}</Label>
             <textarea
               id="block-note"
               rows={3}
@@ -415,8 +491,49 @@ function BlockPanel({ venueId, venueName, today, onClose, onSaved }) {
             {state.saving ? 'Saving…' : 'Mark unavailable'}
           </button>
         </form>
+        </>
+        )}
       </div>
     </>
+  )
+}
+
+// S-77: after saving, the bookings the period affects and whether their
+// Coordinators were told -- with a retry when they weren't.
+function AffectedBookings({ summary, retry, onRetry, onDone }) {
+  return (
+    <div className="grid gap-5">
+      <p role="status" className="font-ui text-sm leading-relaxed" style={{ color: C.ink }}>{summary.line}</p>
+      {summary.rows.length > 0 && (
+        <ul className="divide-y border-y font-ui text-sm" style={{ borderColor: C.line }} aria-label="Affected bookings">
+          {summary.rows.map((row) => (
+            <li key={row} className="py-2.5" style={{ color: C.ink, borderColor: C.line }}>{row}</li>
+          ))}
+        </ul>
+      )}
+      {retry.error && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{retry.error}</p>}
+      <div className="flex flex-wrap gap-3">
+        {summary.retry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retry.sending}
+            className="csp-primary-btn px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {retry.sending ? 'Notifying…' : 'Notify Coordinators'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDone}
+          className="csp-secondary-btn px-5 py-3 rounded-sm font-ui font-medium text-sm border transition-colors duration-200"
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -470,9 +587,12 @@ export default function VenueAvailability() {
     triggerRef.current?.focus()
   }, [])
 
-  function handleSaved(form) {
-    closePanel()
-    setNotice(`${load.data?.venue_name ?? 'The venue'} is marked unavailable from ${bookingDateLabel(form.startDate)} to ${bookingDateLabel(form.endDate)}.`)
+  // The panel stays open to show the bookings the period affects.
+  function handleSaved(block) {
+    setNotice(
+      `${block.venue_name} is marked unavailable from ${periodMomentLabel(block.start_date, block.start_time)} `
+      + `to ${periodMomentLabel(block.end_date, block.end_time)}.`,
+    )
     refresh()
   }
 
@@ -481,7 +601,10 @@ export default function VenueAvailability() {
     try {
       await removeVenueBlock(block.id)
       setRemoval({ removing: false, error: '' })
-      setNotice(`The block from ${bookingDateLabel(block.start_date)} to ${bookingDateLabel(block.end_date)} is removed.`)
+      setNotice(
+        `The unavailable period from ${periodMomentLabel(block.start_date, block.start_time)} `
+        + `to ${periodMomentLabel(block.end_date, block.end_time)} is removed.`,
+      )
       refresh()
     } catch (error) {
       setRemoval({ removing: false, error: blockErrorMessages(error)[0] })

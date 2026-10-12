@@ -38,8 +38,8 @@ def test_a_block_can_be_saved_read_back_and_removed(admin, block_ids, actors):
     venue_id = str(uuid.uuid4())
 
     created = httpx.post(f'{BASE_URL}/blocks', headers=staff, json={
-        'venue_id': venue_id, 'venue_name': 'Studio B', 'start_date': '2026-11-13',
-        'end_date': '2026-11-16', 'reason': 'renovation', 'note': 'spm-test block',
+        'venue_id': venue_id, 'venue_name': 'Studio B', 'start_date': '2026-11-13', 'start_time': '00:00',
+        'end_date': '2026-11-17', 'end_time': '00:00', 'reason': 'renovation', 'note': 'spm-test block',
     }, timeout=15)
     assert created.status_code == 201, created.text
     block = created.json()

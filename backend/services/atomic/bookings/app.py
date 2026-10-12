@@ -134,20 +134,54 @@ def _live_overlap(db: Client, booking: dict, gap: Gap = Gap()):
     return result.data[0] if result.data else None
 
 
-def _block_on(db: Client, venue_id: str, day: str):
-    """S-30: the block covering `day` at this venue, if any. Blocks are whole
-    days, inclusive at both ends."""
+def _block_start(block: dict) -> datetime:
+    return datetime.combine(
+        date.fromisoformat(str(block["start_date"])), time.fromisoformat(str(block["start_time"]))
+    )
+
+
+def _block_end(block: dict) -> datetime:
+    return datetime.combine(
+        date.fromisoformat(str(block["end_date"])), time.fromisoformat(str(block["end_time"]))
+    )
+
+
+def _occupied(booking: dict, gap: Gap) -> tuple[datetime, datetime]:
+    """S-75: the window a booking occupies its venue, as datetimes. "24:00"
+    from _shift is midnight at the end of the day."""
+    day = date.fromisoformat(str(booking["booking_date"]))
+
+    def at(value: str) -> datetime:
+        if value.startswith("24:"):
+            return datetime.combine(day + timedelta(days=1), time())
+        return datetime.combine(day, time.fromisoformat(value))
+
+    return (
+        at(_shift(booking["start_time"], -gap.setup)),
+        at(_shift(booking["end_time"], gap.turnaround)),
+    )
+
+
+def _block_over(db: Client, booking: dict, gap: Gap = Gap()):
+    """S-77: the unavailable period at this venue that the booking's occupied
+    window overlaps, if any. Periods are half-open, [start, end), so a
+    booking may end exactly when one starts or start exactly when it ends.
+    The query narrows to periods touching the booking's day; the exact
+    overlap is checked here, since it compares a date and a time together."""
+    day = str(booking["booking_date"])
     operation = (
         db.schema(SCHEMA).table(BLOCKS)
-        .select("id,venue_name,start_date,end_date")
-        .eq("venue_id", str(venue_id))
-        .lte("start_date", str(day))
-        .gte("end_date", str(day))
+        .select("id,venue_name,start_date,start_time,end_date,end_time")
+        .eq("venue_id", str(booking["venue_id"]))
+        .lte("start_date", day)
+        .gte("end_date", day)
         .order("start_date")
-        .limit(1)
     )
-    result = _execute(operation)
-    return result.data[0] if result.data else None
+    occupied_start, occupied_end = _occupied(booking, gap)
+    for block in _execute(operation).data or []:
+        if _block_start(block) < occupied_end and _block_end(block) > occupied_start:
+            return block
+    return None
 
 
 def _date_label(value) -> str:
@@ -199,11 +233,13 @@ def _raise_staff_overlap(action: str, conflict: dict, gap: Gap):
 
 
 def _raise_blocked(block: dict):
+    start = _block_start(block)
+    end = _block_end(block)
     raise HTTPException(
         status_code=409,
         detail=(
-            f'{block["venue_name"]} is unavailable from {_date_label(block["start_date"])} '
-            f'to {_date_label(block["end_date"])}.'
+            f'{block["venue_name"]} is unavailable from {start:%d %b %Y %H:%M} '
+            f'to {end:%d %b %Y %H:%M}.'
         ),
     )
 
@@ -233,7 +269,7 @@ def decide_booking(
             _raise_staff_overlap("confirm", conflict, gap)
         # S-30: a block added after the request was sent stops it being
         # confirmed. Rejecting it stays possible.
-        block = _block_on(db, booking["venue_id"], booking["booking_date"])
+        block = _block_over(db, booking, gap)
         if block:
             _raise_blocked(block)
 
@@ -281,7 +317,7 @@ def place_hold(
     conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
     if conflict:
         _raise_staff_overlap("hold", conflict, gap)
-    block = _block_on(db, booking["venue_id"], booking["booking_date"])
+    block = _block_over(db, booking, gap)
     if block:
         _raise_blocked(block)
 
@@ -362,7 +398,7 @@ def create_booking(
     conflict = _live_overlap(db, values, gap)
     if conflict:
         _raise_overlap(conflict, gap)
-    block = _block_on(db, values["venue_id"], values["booking_date"])
+    block = _block_over(db, values, gap)
     if block:
         _raise_blocked(block)
     try:
@@ -462,8 +498,8 @@ def create_block(
     db: Client = Depends(get_db),
 ):
     # S-30. A block may cover existing holds and bookings -- an emergency
-    # does not wait for them -- and none of them is changed here. Staff
-    # reassign affected events offline.
+    # does not wait for them -- and none of them is changed here. S-77: the
+    # venue_bookings composite identifies them and tells their Coordinators.
     values = payload.model_dump(mode="json")
     values["created_by"] = str(staff.id)
     values["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -484,6 +520,8 @@ def list_blocks(
     db: Client = Depends(get_db),
 ):
     # Every block touching the range, including one that only partly does.
+    # S-77: a period's end is exclusive, so one ending at 00:00 on `from`
+    # stopped the day before and is left out.
     _date_range(venue_id, from_date, to_date)
     operation = (
         db.schema(SCHEMA).table(BLOCKS).select("*")
@@ -491,7 +529,22 @@ def list_blocks(
         .lte("start_date", to_date.isoformat())
         .gte("end_date", from_date.isoformat())
     )
-    return _execute(operation.order("start_date")).data
+    range_start = datetime.combine(from_date, time())
+    return [
+        block for block in _execute(operation.order("start_date")).data
+        if _block_end(block) > range_start
+    ]
+
+
+@app.get("/blocks/{block_id}", response_model=BlockRead)
+def get_block(block_id: UUID, db: Client = Depends(get_db)):
+    """S-77: one period, for the composite to work out its affected bookings
+    again when Venue Staff retry the Coordinators' notifications. Internal,
+    like the other reads: the composite checks the caller's role."""
+    result = _execute(db.schema(SCHEMA).table(BLOCKS).select("*").eq("id", str(block_id)))
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Block not found")
+    return result.data[0]
 
 
 @app.delete("/blocks/{block_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)

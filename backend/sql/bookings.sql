@@ -380,3 +380,54 @@ alter table bookings.bookings
 notify pgrst, 'reload schema';
 commit;
 -- END S-33 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-77 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test. Fresh
+-- installations need it too. Safe to run twice.
+--
+-- S-77 turns S-30's whole-day blocks into timed unavailable periods: from
+-- start_date + start_time up to, but not including, end_date + end_time. A
+-- booking may end exactly when a period starts, or start exactly when it ends.
+--
+-- 1. Existing S-30 blocks were whole days, inclusive at both ends. The first
+--    time the time columns are added, each moves to the same span as a
+--    period: 00:00 on its first day to 00:00 the day after its last. This runs
+--    once only -- on a second run the columns already exist and nothing moves.
+-- 2. The reasons become the story's: equipment_failure is added, and
+--    internal_activity is dropped. A block with that reason becomes other,
+--    and keeps its note. A block with internal_activity and no note gets the
+--    note "Internal activity", because other needs a description.
+begin;
+
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'bookings' and table_name = 'blocks'
+      and column_name = 'start_time'
+  ) then
+    alter table bookings.blocks
+      add column start_time time without time zone not null default '00:00',
+      add column end_time   time without time zone not null default '00:00';
+    alter table bookings.blocks drop constraint if exists blocks_date_order;
+    update bookings.blocks set end_date = end_date + 1;
+  end if;
+end $$;
+
+alter table bookings.blocks drop constraint if exists blocks_date_order;
+alter table bookings.blocks drop constraint if exists blocks_period_order;
+alter table bookings.blocks add constraint blocks_period_order
+  check (end_date + end_time > start_date + start_time);
+
+alter table bookings.blocks drop constraint if exists blocks_reason_allowed;
+update bookings.blocks
+   set reason = 'other', note = coalesce(note, 'Internal activity')
+ where reason = 'internal_activity';
+-- Repeated in backend/services/atomic/bookings/schemas.py. Change both.
+alter table bookings.blocks add constraint blocks_reason_allowed check (reason in (
+  'maintenance', 'equipment_failure', 'renovation', 'safety', 'other'
+));
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-77 DATA-PRESERVING MIGRATION

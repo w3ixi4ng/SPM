@@ -30,16 +30,17 @@ import {
 const TODAY = '2026-11-10'
 const STUDIO_B_HOURS = ['mon', 'tue', 'wed', 'thu', 'fri'].map((day) => ({ day, open: '08:00:00', close: '18:00:00' }))
 
-// As TC-VENUEBOOKINGS-035 returns them.
+// As TC-VENUEBOOKINGS-035 returns them. S-77: the block is the migrated
+// whole-day S-30 block, 13 Nov 00:00 up to 17 Nov 00:00.
 const ENTRIES = [
   { state: 'confirmed', start_date: '2026-11-12', end_date: '2026-11-12', start_time: '09:00:00', end_time: '12:00:00' },
   { state: 'held', start_date: '2026-11-12', end_date: '2026-11-12', start_time: '14:00:00', end_time: '16:00:00' },
-  { state: 'blocked', start_date: '2026-11-13', end_date: '2026-11-16', start_time: null, end_time: null, reason: 'maintenance' },
+  { state: 'blocked', start_date: '2026-11-13', end_date: '2026-11-17', start_time: '00:00:00', end_time: '00:00:00', reason: 'maintenance' },
 ]
 
 const CONFIRMED = 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
 const HELD = 'Studio B is already tentatively held on 12 Nov 2026 from 10:00 to 12:00.'
-const BLOCKED = 'Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.'
+const BLOCKED = 'Studio B is unavailable from 13 Nov 2026 09:00 to 16 Nov 2026 17:00.'
 
 async function recordingFetch(answers, run) {
   const calls = []
@@ -174,7 +175,10 @@ test('the API helpers call the composite fresh each time', async () => {
   const calls = await recordingFetch(answers, async () => {
     await getVenueAvailability('v1', '2026-11-11', '2026-12-08')
     await getVenueAvailability('v1', '2026-11-11', '2026-12-08')
-    await addVenueBlock({ venueId: 'v1', startDate: '2026-11-13', endDate: '2026-11-16', reason: 'maintenance', note: '   ' })
+    await addVenueBlock({
+      venueId: 'v1', startDate: '2026-11-13', startTime: '09:00', endDate: '2026-11-16', endTime: '17:00',
+      reason: 'maintenance', note: '   ',
+    })
     removed = await removeVenueBlock('x1')
   })
 
@@ -186,7 +190,8 @@ test('the API helpers call the composite fresh each time', async () => {
   assert.equal(calls[2].url, '/api/venue-bookings/blocks')
   assert.equal(calls[2].options.method, 'POST')
   assert.deepEqual(JSON.parse(calls[2].options.body), {
-    venue_id: 'v1', start_date: '2026-11-13', end_date: '2026-11-16', reason: 'maintenance', note: null,
+    venue_id: 'v1', start_date: '2026-11-13', start_time: '09:00', end_date: '2026-11-16', end_time: '17:00',
+    reason: 'maintenance', note: null,
   })
   assert.equal(calls[3].url, '/api/venue-bookings/blocks/x1')
   assert.equal(calls[3].options.method, 'DELETE')

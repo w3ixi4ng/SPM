@@ -205,6 +205,49 @@ export function bookingDateLabel(value) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
+// --- S-77: unavailable periods ------------------------------------------------
+
+// Why Venue Staff marked a venue unavailable, as the bookings service stores
+// it. Keep in step with backend/services/atomic/bookings/schemas.py.
+export const BLOCK_REASON_LABELS = Object.freeze({
+  maintenance: 'Maintenance',
+  equipment_failure: 'Equipment failure',
+  renovation: 'Renovation',
+  safety: 'Safety concern',
+  other: 'Other operational reason',
+})
+
+export function blockReasonLabel(reason) {
+  return BLOCK_REASON_LABELS[reason] ?? reason
+}
+
+// "13 Nov 2026 09:00", a period's start or end at the venue.
+export function periodMomentLabel(day, time) {
+  return `${bookingDateLabel(day)} ${shortTime(time)}`
+}
+
+function periodPhrase(period) {
+  const why = period.note
+    ? `${blockReasonLabel(period.reason)}: ${period.note}`
+    : blockReasonLabel(period.reason)
+  return `from ${periodMomentLabel(period.start_date, period.start_time)} `
+    + `to ${periodMomentLabel(period.end_date, period.end_time)} (${why})`
+}
+
+// What a Coordinator sees on a booking an unavailable period affects: a
+// label, never colour alone, and when and why. null when nothing affects it.
+export function alternativeArrangementsNotice(booking) {
+  if (!booking?.requires_alternative_arrangements) return null
+  const periods = [...(booking.unavailable_periods ?? [])].sort((a, b) => (
+    `${a.start_date}T${a.start_time}`.localeCompare(`${b.start_date}T${b.start_time}`)
+  ))
+  return {
+    label: 'Needs alternative arrangements',
+    color: '#B25547',
+    detail: `${booking.venue_name} is unavailable ${periods.map(periodPhrase).join(' and ')}.`,
+  }
+}
+
 // --- S-75: setup/turnaround clashes, and one request per page ---------------
 
 const CLASH_STATES = { confirmed: 'confirmed', held: 'held' }

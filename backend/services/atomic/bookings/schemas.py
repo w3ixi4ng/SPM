@@ -137,16 +137,17 @@ class BookingRead(BaseModel):
     submitted_at: datetime
 
 
-# S-30: why Venue Staff marked a venue unavailable. Keep in step with
+# S-77: why Venue Staff marked a venue unavailable. Keep in step with
 # backend/sql/bookings.sql.
-BlockReason = Literal["maintenance", "renovation", "safety", "internal_activity", "other"]
+BlockReason = Literal["maintenance", "equipment_failure", "renovation", "safety", "other"]
 
 
 class BlockCreate(BaseModel):
-    """A whole-day period a venue cannot be used, inclusive at both ends.
-    venue_name is a snapshot the venue_bookings composite takes from the
-    venues service, for messages. created_by and created_at are forbidden:
-    this service sets both from the verified session and the clock.
+    """S-77: a period a venue cannot be used, from start_date + start_time up
+    to, but not including, end_date + end_time. venue_name is a snapshot the
+    venue_bookings composite takes from the venues service, for messages.
+    created_by and created_at are forbidden: this service sets both from the
+    verified session and the clock.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -154,7 +155,9 @@ class BlockCreate(BaseModel):
     venue_id: UUID
     venue_name: str = Field(min_length=1)
     start_date: date
+    start_time: time
     end_date: date
+    end_time: time
     reason: BlockReason
     note: str | None = None
 
@@ -172,10 +175,12 @@ class BlockCreate(BaseModel):
 
     @model_validator(mode="after")
     def valid_block(self):
-        if self.end_date < self.start_date:
-            raise ValueError("end_date must be on or after start_date")
+        start = datetime.combine(self.start_date, self.start_time)
+        end = datetime.combine(self.end_date, self.end_time)
+        if end <= start:
+            raise ValueError("The period must end after it starts")
         if self.reason == "other" and self.note is None:
-            raise ValueError("Add a note when the reason is other")
+            raise ValueError("Add a description when the reason is other")
         return self
 
 
@@ -184,7 +189,9 @@ class BlockRead(BaseModel):
     venue_id: UUID
     venue_name: str
     start_date: date
+    start_time: time
     end_date: date
+    end_time: time
     reason: BlockReason
     note: str | None
     created_by: UUID

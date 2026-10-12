@@ -84,4 +84,4 @@ def test_assigned_coordinator_sees_saved_decision(client, services):
     rows = [{'id': BOOKING_ID, 'status': 'rejected', 'decision_reason': 'Repairs', 'decision_alternative': 'Try Friday'}]
     services.pending = fake_response(200, rows)
     result = client.get('/venue-bookings', params={'event_id': EVENT_ID})
-    assert result.status_code == 200 and result.json() == [{**row, 'clashes': []} for row in rows]
+    assert result.status_code == 200 and result.json() == [{**row, 'clashes': [], 'requires_alternative_arrangements': False, 'unavailable_periods': []} for row in rows]
