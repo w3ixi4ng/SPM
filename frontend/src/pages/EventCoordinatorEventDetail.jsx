@@ -14,6 +14,7 @@ import {
   getAssignedEventRequest,
 } from '../lib/eventRequests.js'
 import {
+  alternativeArrangementsNotice,
   bookingClashMessage,
   bookingDateLabel,
   bookingStatusMeta,
@@ -259,6 +260,7 @@ function VenueRequests({ eventId, canRequest, notice }) {
         <ul className="divide-y" aria-label="Venue requests sent">
           {state.bookings.map((booking) => {
             const { label, color } = bookingStatusMeta(booking.status)
+            const unavailable = alternativeArrangementsNotice(booking)
             return (
               <li
                 key={booking.id}
@@ -287,6 +289,17 @@ function VenueRequests({ eventId, canRequest, notice }) {
                   <p role="alert" className="w-full font-ui text-sm" style={{ color: C.rose }}>
                     {bookingClashMessage(booking)}
                   </p>
+                )}
+                {unavailable && (
+                  // S-77: the venue is unavailable during this booking. The
+                  // booking and the event are unchanged until people act.
+                  <div role="alert" className="w-full font-ui text-sm">
+                    <p className="inline-flex items-center gap-1.5 font-medium" style={{ color: unavailable.color }}>
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: unavailable.color }} aria-hidden="true" />
+                      {unavailable.label}
+                    </p>
+                    <p className="mt-0.5" style={{ color: C.ink }}>{unavailable.detail}</p>
+                  </div>
                 )}
               </li>
             )

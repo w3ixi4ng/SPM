@@ -201,3 +201,57 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Actual:** 12:30–13:00 was 409 ending "…it is in use until 12:45."; 13:15–14:00 was 201.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_setup_turnaround.py::test_the_setup_turnaround_gap_is_enforced_against_real_rows`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
+
+## S-77 — mark venue temporarily unavailable
+
+**Story:** S-77 Mark Venue Temporarily Unavailable. Confirmed by the
+developer on 2026-10-12. Executed 2026-10-12 on branch
+`S-77/mark-venue-temporarily-unavailable`, after the S-77 block in
+`backend/sql/bookings.sql` was run in the test project.
+
+**Changes to existing cases.** TC-BOOKINGS-105's block gains times
+(`2026-11-13` `00:00` to `2026-11-17` `00:00`). Its Status resets to Not
+Executed until re-run.
+
+### TC-BOOKINGS-110 — a timed period saved through the service refuses an overlapping request and allows a back-to-back one
+
+- **Scenario:** Proves the new time columns exist, are granted, and are
+  used by the real overlap check (S-77 AC1, AC2).
+- **Pre-conditions:** `.env.test` stack recreated immediately before. The
+  S-77 SQL applied in the test project. One Venue Staff session. A random
+  venue id with no bookings.
+- **Steps:**
+  1. As staff, `POST /blocks` for the venue: `2026-11-13` `09:00` to
+     `2026-11-13` `12:00`, reason `equipment_failure`, note
+     `"spm-test projector fault"`.
+  2. `GET /blocks?venue_id=…&from=2026-11-13&to=2026-11-13`.
+  3. `POST /bookings` for the venue on `2026-11-13` `11:00`–`13:00`.
+  4. `POST /bookings` for the venue on `2026-11-13` `12:00`–`14:00`.
+  5. Read `bookings.blocks` by the new id with the admin client.
+- **Expected:**
+  1. `201`, `start_time` `"09:00:00"`, `end_time` `"12:00:00"`.
+  2. A list containing the period, with its times.
+  3. `409`, detail starting `"<venue name> is unavailable from 13 Nov 2026 09:00 to 13 Nov 2026 12:00."`; no row stored.
+  4. `201`.
+  5. One row, reason `equipment_failure`, `created_by` the staff id.
+  Cleanup removes the block and the booking.
+- **Actual:** Period saved `201` with `09:00:00`/`12:00:00` and listed with its times; `11:00`–`13:00` refused `409` with the exact detail and nothing stored; `12:00`–`14:00` `201`; one row with reason `equipment_failure` and the staff id.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_a_timed_period_refuses_an_overlapping_request_and_allows_a_back_to_back_one`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+
+### TC-BOOKINGS-111 — the database accepts only the story's reasons
+
+- **Scenario:** The check constraint, not only the API, holds the reason
+  list. An insert that bypasses the service can't store a dropped reason.
+- **Pre-conditions:** As TC-BOOKINGS-110.
+- **Steps:** With the admin client, insert into `bookings.blocks` a row for
+  a random venue, `2026-11-13` `09:00` to `2026-11-13` `12:00`:
+  1. with reason `equipment_failure`;
+  2. with reason `internal_activity`;
+  3. with reason `other` and no note;
+  4. with `end` before `start` (`2026-11-13` `12:00` to `2026-11-13` `09:00`).
+- **Expected:** 1 is stored. 2, 3 and 4 are each refused with Postgres error
+  `23514` (check violation). Cleanup removes row 1.
+- **Actual:** `equipment_failure` stored; `internal_activity`, `other` with no note, and end before start each refused with `23514`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_the_database_accepts_only_the_storys_periods`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed

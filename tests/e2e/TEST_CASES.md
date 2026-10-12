@@ -931,3 +931,59 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.
+
+## S-77 — mark venue temporarily unavailable
+
+Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
+
+Executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable`. Needs:
+- the S-77 SQL for `bookings` and `notifications` in the test project;
+- the whole `.env.test` stack, recreated immediately before.
+
+Validation, overlap rules and status codes are covered by the unit and
+integration cases. This journey proves only what a browser can: the panel,
+the affected-bookings summary, and the flag and notification reaching the
+Coordinator.
+
+## TC-E2E-234 — Venue Staff mark a period over a confirmed booking, and its Coordinator sees the notification and the flag
+
+- **Scenario:** In a real browser through Kong, a timed period is marked
+  with a reason. The confirmed booking under it is shown to Venue Staff as
+  affected, and its Coordinator is notified and sees the booking flagged. The
+  event and booking stay as they were (AC1, AC3, AC4, AC5).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before. The S-77 SQL applied. Chromium. Created with the admin client:
+  - a Venue Staff user and a Coordinator;
+  - a venue `"spm-e2e Venue <hex>"`, open every day `08:00`–`20:00`, setup
+    and turnaround 0;
+  - a `planning` event E `"spm-e2e Event <hex>"` assigned to the
+    Coordinator;
+  - a confirmed booking K for E at the venue, `2026-11-12` `10:00`–`12:00`.
+- **Steps:**
+  1. Sign in as Venue Staff. Open the venue's availability calendar and
+     click **Mark unavailable**.
+  2. Enter `2026-11-12` `09:00` to `2026-11-12` `13:00`. Choose "Other
+     operational reason", leave the description empty, and click **Mark
+     unavailable**.
+  3. Enter the description `"Water leak in ceiling"` and click **Mark
+     unavailable** again.
+  4. Sign out and sign in as the Coordinator.
+  5. Open E.
+- **Expected:**
+  - After step 2, the panel says "Describe the operational reason." and
+    nothing is stored in `bookings.blocks`.
+  - After step 3, the panel says "1 booking needs alternative arrangements.
+    Their Coordinators have been notified." and lists E's name with
+    "12 Nov 2026 · 10:00–12:00 · Booked".
+  - After step 4, the dashboard's notifications list a message naming the
+    venue and ending "needs alternative arrangements."
+  - After step 5, K's row shows "Needs alternative arrangements" with the
+    period and "Other operational reason: Water leak in ceiling". It still
+    reads "Confirmed" (the event page's word for it; the panel in step 3
+    uses the calendar's "Booked"), and E's status still reads "Planning".
+    Corrected 2026-10-12 while writing the test.
+  - With the admin client, K is still `confirmed` and E still `planning`.
+  Cleanup deletes the block, K, the notification, E, the venue and both users.
+- **Actual:** In Chromium through Kong: the empty description was refused with "Describe the operational reason." and nothing stored; the saved panel said "1 booking needs alternative arrangements. Their Coordinators have been notified." and listed E as Booked; the Coordinator's dashboard showed the notification; E's page flagged K with the period and "Other operational reason: Water leak in ceiling", still Confirmed and Planning; K `confirmed` and E `planning` in the database.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_mark_venue_unavailable.py::test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_told`; `.env.test` stack recreated immediately before, 2026-10-12; `pytest tests/e2e`: 35 passed

@@ -253,6 +253,7 @@ services:
       EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
       VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
+      NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
     depends_on:
       users:
         condition: service_healthy
@@ -261,6 +262,8 @@ services:
       venues:
         condition: service_healthy
       bookings:
+        condition: service_healthy
+      notifications:
         condition: service_healthy
     healthcheck:
       test:

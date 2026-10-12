@@ -7,7 +7,7 @@ There is no response schema here: the bookings service already shaped the
 booking it hands back, so this composite returns that JSON as-is.
 """
 
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
@@ -48,7 +48,7 @@ class VenueBookingRequest(BaseModel):
 # S-30: repeated from the bookings service's schemas.py (each Docker image
 # holds only its own service's code). Keep in step with it and with
 # backend/sql/bookings.sql.
-BlockReason = Literal["maintenance", "renovation", "safety", "internal_activity", "other"]
+BlockReason = Literal["maintenance", "equipment_failure", "renovation", "safety", "other"]
 
 
 class BlockRequest(BaseModel):
@@ -60,7 +60,9 @@ class BlockRequest(BaseModel):
 
     venue_id: UUID
     start_date: date
+    start_time: time
     end_date: date
+    end_time: time
     reason: BlockReason
     note: str | None = None
 
@@ -73,10 +75,14 @@ class BlockRequest(BaseModel):
 
     @model_validator(mode="after")
     def valid_block(self):
-        if self.end_date < self.start_date:
-            raise ValueError("end_date must be on or after start_date")
+        # S-77: a timed period, ending after it starts. The bookings service
+        # checks the same again.
+        start = datetime.combine(self.start_date, self.start_time)
+        end = datetime.combine(self.end_date, self.end_time)
+        if end <= start:
+            raise ValueError("The period must end after it starts")
         if self.reason == "other" and self.note is None:
-            raise ValueError("Add a note when the reason is other")
+            raise ValueError("Add a description when the reason is other")
         return self
 
 

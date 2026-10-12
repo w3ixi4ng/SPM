@@ -1249,3 +1249,264 @@ Existing booking A for E: H, `2026-11-12` `09:00`–`17:00`, status `held`.
 - **Actual:** `200` with A, B, C, D in order, statuses held/pending/rejected/confirmed, all event E; C kept "Too small"; no writes.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_the_coordinator_sees_every_booking_for_the_event_with_its_status`
+
+## S-77 — mark venue temporarily unavailable
+
+**Story:** S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed.
+
+**Acceptance criteria → cases**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Venue Staff mark a venue unavailable for a start and end date/time with a reason (description for "other") | 067, 074; TC-BOOKINGS-044–046 |
+| AC2: The period prevents new bookings and new tentative holds that overlap it | TC-BOOKINGS-047–049; 067 (409 passed through) |
+| AC3: Existing overlapping bookings are identified and flagged as requiring alternative arrangements | 067, 068, 075–078 |
+| AC4: Affected events are not cancelled; event information and booking records are preserved | 069 |
+| AC5: The affected events' Coordinators are informed that alternative arrangements are required | 070–073 |
+
+The conditions agreed with the developer behind the criteria (2026-10-12):
+
+- **Affected** means a **held or confirmed** booking at the same venue whose
+  occupied window (start − setup to end + turnaround, using the venue's
+  current times) overlaps the period. Pending requests are not flagged. They
+  can't be held or confirmed inside the period anyway.
+- The flag is **worked out live**, as S-75 clashes are. A booking carries it
+  while some period overlaps it. Remove the period and the flag is gone. No
+  booking row is ever written because of a period.
+- Reasons are `maintenance`, `equipment_failure`, `renovation`, `safety`,
+  and `other` with a description. S-30's `internal_activity` is migrated to
+  `other`, keeping its note.
+- The Coordinator informed is the event's **current** assigned Coordinator,
+  read from the events service, not the snapshot on the booking. That covers
+  an event reassigned since the booking was sent (S-84).
+
+**Shared test data.** Studio B `bbbbbbbb-…` has `setup_minutes` 30 and
+`turnaround_minutes` 30. Period P is from `2026-11-13` `09:00` to
+`2026-11-14` `17:00`, reason `equipment_failure`, note
+`"Air handling unit down"`, id `cccccccc-…`. The bookings fake's live list
+for Studio B from `2026-11-13` holds:
+
+| Booking | Event | Status | Date | Times | Booking's coordinator | Affected? |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | E1 "Alumni talk" | confirmed | 2026-11-13 | 10:00–12:00 | C1 | yes |
+| B | E2 "Board lunch" | held | 2026-11-14 | 15:00–16:30 | C3 | yes |
+| D | E4 "Evening recital" | confirmed | 2026-11-14 | 17:15–19:00 | C3 | yes, by setup (occupied from 16:45) |
+| F | E5 "Breakfast briefing" | confirmed | 2026-11-13 | 07:00–08:30 | C3 | no, occupied until exactly 09:00 |
+| G | E6 "Late workshop" | confirmed | 2026-11-15 | 10:00–12:00 | C3 | no |
+
+The events fake's `GET /internal/events/assigned-active` returns E1 assigned
+to **C2** (reassigned since A was sent), E2 and E4 assigned to C3, and E5 and
+E6 assigned to C3.
+
+**Changes to existing cases.** When S-77 lands:
+- TC-VENUEBOOKINGS-042's body gains `start_time` and `end_time`, and its
+  `201` gains `affected_bookings` and `coordinators_notified`.
+- TC-VENUEBOOKINGS-036's blocked entries carry the period's `start_time`
+  and `end_time`, never `null`.
+- TC-VENUEBOOKINGS-041's `409` uses the TC-BOOKINGS-047 wording.
+
+Their tests were updated and re-run with S-77, and pass.
+
+### TC-VENUEBOOKINGS-067 — marking a period identifies the bookings it affects
+
+- **Scenario:** Venue Staff mark a period. The response names every held or
+  confirmed booking it overlaps (AC1, AC3).
+- **Pre-conditions:** Venue Staff session. The venues fake returns Studio
+  B. The bookings fake stores the block and returns the live list above.
+- **Steps:** `POST /venue-bookings/blocks` with
+  `{"venue_id":"bbbbbbbb-…","start_date":"2026-11-13","start_time":"09:00","end_date":"2026-11-14","end_time":"17:00","reason":"equipment_failure","note":"Air handling unit down"}`.
+- **Expected:**
+  - `201` with the stored block's fields, plus `"coordinators_notified": true`.
+  - `affected_bookings` is A, B, D in date and start-time order. Each entry
+    has `id`, `event_id`, `event_name`, `coordinator_name`, `status`,
+    `booking_date`, `start_time`, `end_time`, `occupied_start`,
+    `occupied_end`. D reads `"occupied_start": "16:45"`.
+  - F and G are absent.
+  - The bookings fake got `POST /blocks` with `venue_name` `"Studio B"`
+    added, and `GET /bookings?status=live&from=2026-11-13&venue_id=bbbbbbbb-…`.
+  - A `409` or `422` from the bookings `POST /blocks` is passed through
+    unchanged, and nothing further is called.
+- **Actual:** `201` with the block, A, B, D in order with the staff fields, D occupied from `16:45`, `coordinators_notified` true; `POST /blocks` carried `venue_name`; the live read was `status=live&from=2026-11-13&venue_id`. A `422` passed through and an unidentified `409` became `502`, neither going further.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_identifies_the_bookings_it_affects`; `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_refused_period_goes_no_further`
+
+### TC-VENUEBOOKINGS-068 — a period over no bookings affects none and notifies nobody
+
+- **Scenario:** The empty case is stated, not left blank (AC3).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-067, but the live list has only F
+  and G.
+- **Steps:** The TC-VENUEBOOKINGS-067 request.
+- **Expected:** `201` with `"affected_bookings": []` and
+  `"coordinators_notified": true`. The notifications fake receives no call.
+- **Actual:** `201`, `affected_bookings` `[]`, notified true, no notifications call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_period_over_no_bookings_affects_none_and_notifies_nobody`
+
+### TC-VENUEBOOKINGS-069 — affected events are not cancelled and their records are untouched
+
+- **Scenario:** Marking a period changes no event and no booking (AC4).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-067.
+- **Steps:** The TC-VENUEBOOKINGS-067 request. Inspect every call the fakes
+  recorded.
+- **Expected:**
+  - The events fake got only `GET /internal/events/assigned-active`: no
+    write, no status change.
+  - The bookings fake got only `POST /blocks` and `GET`s: no decision, hold,
+    release, update or delete.
+  - The venues fake got only `GET`s.
+- **Actual:** Events got only the assigned-active read; bookings only `POST /blocks` and GETs; venues only GETs.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_affected_events_are_not_cancelled_and_their_records_are_untouched`
+
+### TC-VENUEBOOKINGS-070 — each affected event's current Coordinator is notified once
+
+- **Scenario:** The Coordinators of affected events are told that
+  alternative arrangements are required (AC5).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-067.
+- **Steps:** The TC-VENUEBOOKINGS-067 request. Inspect the notifications
+  fake.
+- **Expected:**
+  - One `POST /internal/notifications` with three rows, one per affected
+    booking, all `kind` `"venue_unavailable"`.
+  - A's row goes to **C2**, E1's current Coordinator, not C1. B's and D's
+    rows go to C3.
+  - Each row has its `event_id` and `event_name`.
+  - A's message is exactly `"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements."`
+  - Each `deduplication_key` is `venue_unavailable:<block id>:<booking id>:<recipient id>`.
+- **Actual:** One batch of three `venue_unavailable` rows to C2, C3, C3 with the exact message and keys.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_each_affected_events_current_coordinator_is_notified_once`
+
+### TC-VENUEBOOKINGS-071 — an affected booking whose event has no current Coordinator is still flagged
+
+- **Scenario:** A booking can be affected even when nobody can be notified
+  about it. It is still listed.
+- **Pre-conditions:** As TC-VENUEBOOKINGS-067, but `assigned-active` does
+  not include E2 (for example, it was cancelled).
+- **Steps:** The TC-VENUEBOOKINGS-067 request.
+- **Expected:** `201`. `affected_bookings` is still A, B, D. The batch has
+  two rows, A to C2 and D to C3. `coordinators_notified` is `true`.
+- **Actual:** A, B, D still listed; two rows sent (A→C2, D→C3); notified true.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_an_affected_booking_whose_event_has_no_current_coordinator_is_still_flagged`
+
+### TC-VENUEBOOKINGS-072 — more than twenty affected bookings are notified in batches
+
+- **Scenario:** The notifications service takes at most 20 rows a batch.
+- **Pre-conditions:** As TC-VENUEBOOKINGS-067, but the live list has 25
+  confirmed bookings inside P, each for a different event, all in
+  `assigned-active`.
+- **Steps:** The TC-VENUEBOOKINGS-067 request.
+- **Expected:** `201` with 25 `affected_bookings`. Two
+  `POST /internal/notifications` calls, of 20 and 5 rows, with no key
+  repeated.
+- **Actual:** 25 affected; batches of 20 and 5; 25 distinct keys.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_more_than_twenty_affected_bookings_are_notified_in_batches`
+
+### TC-VENUEBOOKINGS-073 — a notification failure keeps the period, and retrying notifies without duplicates
+
+- **Scenario:** The period is saved even when Coordinators can't be told
+  straight away. Venue Staff can retry, and a retry never notifies anyone
+  twice (AC5).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-067.
+- **Steps:**
+  1. The notifications fake returns `500`. Send the TC-VENUEBOOKINGS-067
+     request.
+  2. Instead, `assigned-active` returns `500`. Send it again.
+  3. The notifications fake now succeeds.
+     `POST /venue-bookings/blocks/cccccccc-…/notify`.
+  4. `POST /venue-bookings/blocks/eeeeeeee-…/notify` for a block that doesn't exist.
+- **Expected:**
+  1. `201` with the block and A, B, D in `affected_bookings`,
+     `"coordinators_notified": false`. No call deletes the block.
+  2. As step 1.
+  3. `200` with `{"affected_bookings": [A, B, D], "coordinators_notified": true}`,
+     worked out again from current data. The batch uses the same three
+     `deduplication_key`s as TC-VENUEBOOKINGS-070.
+  4. `404` `{"detail":"Block not found"}`, with no notification call.
+- **Actual:** Notifications `500` and events `500` each gave `201` with notified false and no delete; the retry `200` with A, B, D, notified true and the same keys; an unknown block `404` with no notification.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_notification_failure_keeps_the_period`; `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_an_events_failure_keeps_the_period_too`; `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_retrying_notifies_again_with_the_same_keys`; `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_retrying_an_unknown_period_is_a_404`
+
+### TC-VENUEBOOKINGS-074 — only Venue Staff mark periods or retry notifications; bad input is refused
+
+- **Scenario:** Role and input checks on the two write routes.
+- **Steps / Expected:** Neither write route reaches `POST /blocks` or the
+  notifications service in any row below.
+  - No session, on `POST /venue-bookings/blocks` and on `/notify` → `401` `{"detail":"Not authenticated"}`
+  - `event_coordinator` session, on both → `403` `{"detail":"Permission denied"}`
+  - Body without `end_time` → `422` with `errors.end_time`
+  - Body with `venue_name` or `created_by` → `422`
+  - An unknown `venue_id` (venues fake `404`) → `404` `{"detail":"Venue not found"}`
+- **Actual:** No session `401` and Coordinator `403` on both routes; missing `end_time`, `venue_name` and `created_by` `422`; unknown venue `404`; nothing reached bookings or notifications.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_only_venue_staff_mark_periods_or_retry`; `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_bad_period_input_is_refused`; `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_period_on_an_unknown_venue_is_a_404`
+
+### TC-VENUEBOOKINGS-075 — the Coordinator's booking list flags bookings needing alternative arrangements
+
+- **Scenario:** A Coordinator sees which of their event's bookings a period
+  affects, and why (AC3).
+- **Pre-conditions:** Coordinator C2's session for E1. For `event_id=E1`,
+  the bookings fake lists:
+  - A (Studio B, `confirmed`, 13 Nov `10:00`–`12:00`)
+  - A2 (Studio B, `pending`, 13 Nov `13:00`–`14:00`)
+  - A3 (Studio B, `rejected`, 13 Nov `15:00`–`16:00`)
+  - A4 (Hall C, `confirmed`, 13 Nov `10:00`–`12:00`)
+
+  The blocks fake returns P for Studio B and nothing for Hall C.
+- **Steps:** `GET /venue-bookings?event_id=E1`.
+- **Expected:** `200`.
+  - A has `"requires_alternative_arrangements": true` and
+    `"unavailable_periods": [{"start_date":"2026-11-13","start_time":"09:00:00","end_date":"2026-11-14","end_time":"17:00:00","reason":"equipment_failure","note":"Air handling unit down"}]`.
+  - A2 (pending), A3 (rejected) and A4 (no period) have `false` and `[]`.
+  - Existing fields, including `clashes`, are unchanged.
+  - Blocks were read once per venue on the list: `GET /blocks?venue_id=…&from=&to=`
+    spanning the list's dates.
+- **Actual:** A flagged with P; A2, A3, A4 false and `[]`; `clashes` unchanged; blocks read once each for Studio B and Hall C over the list's dates.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_the_coordinators_list_flags_bookings_needing_alternative_arrangements`
+
+### TC-VENUEBOOKINGS-076 — Venue Staff's pending list and request page carry the same flag
+
+- **Scenario:** Venue Staff see the flag wherever they open a held or
+  confirmed booking (AC3).
+- **Pre-conditions:** Venue Staff session. P stored. B is held and
+  affected.
+- **Steps:** `GET /venue-bookings/pending`, then `GET /venue-bookings/{B}`,
+  then `GET /venue-bookings/{A}` (confirmed).
+- **Expected:** B's row in the list, B's page and A's page each have
+  `"requires_alternative_arrangements": true` and P in
+  `unavailable_periods`. A pending request in the list has `false` and
+  `[]`.
+- **Actual:** B in the list, B's page and A's page flagged with P; the pending row false and `[]`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_venue_staffs_pending_list_and_request_page_carry_the_same_flag`
+
+### TC-VENUEBOOKINGS-077 — removing the period removes the flag
+
+- **Scenario:** The flag is live. Nothing was written to the booking, so
+  nothing needs clearing.
+- **Pre-conditions:** As TC-VENUEBOOKINGS-075.
+- **Steps:**
+  1. As Venue Staff, `DELETE /venue-bookings/blocks/cccccccc-…`.
+  2. The blocks fake now returns nothing. As C2,
+     `GET /venue-bookings?event_id=E1`.
+- **Expected:** `204`, then A has `false` and `[]`. No booking write in
+  either step.
+- **Actual:** `204`, then A false and `[]`; no booking write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_removing_the_period_removes_the_flag`
+
+### TC-VENUEBOOKINGS-078 — a failed period lookup is an error, never a missing flag
+
+- **Scenario:** A read that can't load periods must not report bookings as
+  unaffected.
+- **Pre-conditions:** As TC-VENUEBOOKINGS-075, but `GET /blocks` returns
+  `500`.
+- **Steps:** `GET /venue-bookings?event_id=E1`, `GET /venue-bookings/pending`,
+  and `GET /venue-bookings/{A}`.
+- **Expected:** Each returns `502` `{"detail":"Bookings service unavailable"}`.
+- **Actual:** All three reads `502` "Bookings service unavailable".
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_failed_period_lookup_is_an_error_never_a_missing_flag`

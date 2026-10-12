@@ -19,10 +19,12 @@ from fastapi.responses import JSONResponse
 import availability
 import occupancy
 import suitability
+import unavailability
 from clients import (
     INTERNAL_READ_TIMEOUT,
     get_bookings_client,
     get_events_client,
+    get_notifications_client,
     get_users_client,
     get_venues_client,
 )
@@ -199,7 +201,12 @@ async def _with_clashes(rows: list[dict], venues, bookings, cookies) -> list[dic
     there is none. Only held and confirmed bookings from today on are
     checked, against the other held/confirmed bookings at their venue that
     day, using the venue's current setup and turnaround. Read-only: nothing
-    is ever changed because of a clash."""
+    is ever changed because of a clash.
+
+    S-77: each row also says whether an unavailable period at its venue
+    affects it -- `requires_alternative_arrangements` and the
+    `unavailable_periods` that do. Worked out the same live way, for the same
+    rows; a period lookup that fails fails the read, never reads as "fine"."""
     today = _today()
     checked = [
         row for row in rows
@@ -225,17 +232,27 @@ async def _with_clashes(rows: list[dict], venues, bookings, cookies) -> list[dic
         if venues_by_id[venue_id] is not None and (venue_id, day) not in days:
             days[(venue_id, day)] = await _list(bookings, "/bookings", {"venue_id": venue_id, "from": day, "to": day})
 
+    blocks_by_venue: dict[str, list[dict]] = {}
+    for venue_id in {str(row["venue_id"]) for row in checked}:
+        if venues_by_id[venue_id] is None:
+            continue
+        dates = [str(row["booking_date"]) for row in checked if str(row["venue_id"]) == venue_id]
+        blocks_by_venue[venue_id] = await _list(
+            bookings, "/blocks", {"venue_id": venue_id, "from": min(dates), "to": max(dates)}
+        )
+
     result = []
     for row in rows:
         venue = venues_by_id.get(str(row.get("venue_id")))
         if row not in checked or venue is None:
-            result.append({**row, "clashes": []})
+            result.append({**row, "clashes": [], **unavailability.flag(row, [], None)})
             continue
         same_day = days[(str(row["venue_id"]), str(row["booking_date"]))]
         result.append({
             **row,
             **occupancy.gap_params(venue),
             "clashes": occupancy.clashes_for(row, same_day, venue, today),
+            **unavailability.flag(row, blocks_by_venue[str(row["venue_id"])], venue),
         })
     return result
 
@@ -536,24 +553,100 @@ def _block_failure(response):
     raise _unavailable("Bookings")
 
 
+async def _affected(block: dict, venue: dict, bookings) -> list[dict]:
+    """S-77: the held and confirmed bookings the period affects, read now."""
+    rows = await _list(bookings, "/bookings", {
+        "status": "live", "from": str(block["start_date"]), "venue_id": str(block["venue_id"]),
+    })
+    return unavailability.affected_bookings(rows, block, venue)
+
+
+async def _notify(block: dict, affected: list[dict], events, notifications) -> bool:
+    """S-77: tell each affected event's current Coordinator. The period is
+    already saved, so a failure here is reported as `False`, never undone:
+    Venue Staff retry, and the deduplication keys mean nobody is told twice."""
+    if not affected:
+        return True
+    try:
+        response = await _get("Events", events, "/internal/events/assigned-active")
+        if response.status_code != status.HTTP_200_OK:
+            return False
+        current = {str(event["id"]): event for event in response.json()}
+        rows = unavailability.notifications(block, affected, current)
+        for batch in unavailability.batches(rows):
+            sent = await _call("Notifications", notifications.post(
+                "/internal/notifications", json={"notifications": batch},
+            ))
+            if sent.status_code != status.HTTP_201_CREATED:
+                return False
+    except HTTPException:
+        return False
+    return True
+
+
+async def _identify_and_notify(block: dict, venue: dict, bookings, events, notifications) -> dict:
+    affected = await _affected(block, venue, bookings)
+    return {
+        "affected_bookings": affected,
+        "coordinators_notified": await _notify(block, affected, events, notifications),
+    }
+
+
 @app.post("/venue-bookings/blocks", status_code=status.HTTP_201_CREATED)
 async def add_venue_block(
     payload: BlockRequest,
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
     """S-30: Venue Staff mark a venue unavailable. The bookings service checks
-    the session again, so the cookies go with it."""
+    the session again, so the cookies go with it.
+
+    S-77: the response also names the bookings the period affects, and says
+    whether their Coordinators were told. Nothing about those bookings or
+    their events is changed."""
     await _authenticate(request, users, VENUE_STAFF_ROLE)
     venue = await _fetch("Venues", venues, f"/venues/{payload.venue_id}", request.cookies, "Venue not found")
 
     body = {**payload.model_dump(mode="json"), "venue_name": venue["name"]}
     response = await _call("Bookings", bookings.post("/blocks", json=body, cookies=request.cookies))
-    if response.status_code == status.HTTP_201_CREATED:
-        return response.json()
-    return _block_failure(response)
+    if response.status_code != status.HTTP_201_CREATED:
+        return _block_failure(response)
+    block = response.json()
+    try:
+        outcome = await _identify_and_notify(block, venue, bookings, events, notifications)
+    except HTTPException:
+        # The period is saved, so this is still a 201. Which bookings it
+        # affects is unknown rather than "none"; the retry works it out.
+        logger.warning("Could not identify the bookings block %s affects", block["id"])
+        outcome = {"affected_bookings": None, "coordinators_notified": False}
+    return {**block, **outcome}
+
+
+@app.post("/venue-bookings/blocks/{block_id}/notify")
+async def notify_venue_block(
+    block_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-77: Venue Staff retry telling the Coordinators of the bookings a
+    period affects, worked out again from current data."""
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    response = await _get("Bookings", bookings, f"/blocks/{block_id}")
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Block not found")
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    block = response.json()
+    venue = await _fetch("Venues", venues, f'/venues/{block["venue_id"]}', request.cookies, "Venue not found")
+    return await _identify_and_notify(block, venue, bookings, events, notifications)
 
 
 @app.delete(

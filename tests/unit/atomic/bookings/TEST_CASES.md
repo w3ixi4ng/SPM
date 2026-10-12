@@ -759,3 +759,158 @@ never names another event.
 - **Actual:** Live list filtered held/confirmed from the date with no venue filter, ordered venue, date, start; 422 without `from`; narrowed by `venue_id`. Existing list tests still pass.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_every_live_booking_from_a_date_is_listed_at_once`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_needs_a_start_date`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_can_be_narrowed_to_one_venue`
+
+## S-77 — mark venue temporarily unavailable
+
+**Story:** S-77 Mark Venue Temporarily Unavailable. Venue Staff mark a venue
+unavailable for a period, from a start date and time to an end date and time,
+with a reason. This turns S-30's whole-day blocks into timed periods. The
+period is half-open, `[start, end)`, so a booking may end exactly when it
+starts or begin exactly when it ends. Overlap uses the booking's occupied
+window from S-75: start − setup to end + turnaround, with the times the
+composite passes as `setup_minutes` and `turnaround_minutes`.
+
+Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed.
+
+**Shared test data.** Studio B is `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`.
+Period P is Studio B from `2026-11-13` `09:00` to `2026-11-14` `17:00`,
+reason `equipment_failure`, note `"Air handling unit down"`.
+
+**Changes to existing cases.** When S-77 lands, these S-30 cases change as
+follows. Their tests were updated and re-run with S-77, and pass:
+- TC-BOOKINGS-028, -029: the block becomes period P. The `409` detail
+  becomes the TC-BOOKINGS-047 wording.
+- TC-BOOKINGS-030: the body gains `start_time` and `end_time`, as in
+  TC-BOOKINGS-044.
+- TC-BOOKINGS-032: the reason list and the "other" message follow
+  TC-BOOKINGS-045. The date-order row moves to TC-BOOKINGS-046.
+- TC-BOOKINGS-034: listed blocks carry `start_time` and `end_time`.
+- TC-BOOKINGS-031 is unchanged. A period may still cover existing bookings,
+  and nothing about them is changed.
+
+### TC-BOOKINGS-044 — Venue Staff mark a venue unavailable for a timed period
+
+- **Scenario:** A period with a start and end date and time and a reason is
+  stored (S-77 AC1).
+- **Pre-conditions:** The session check returns Venue Staff `55555555-5555-4555-8555-555555555555`.
+  The fake insert echoes the row with an id.
+- **Steps:**
+  1. `POST /blocks` with the `sb_access_token` cookie and body 1.
+  2. `POST /blocks` with body 2.
+- **Test data:**
+  1. `{"venue_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","venue_name":"Studio B","start_date":"2026-11-13","start_time":"09:00","end_date":"2026-11-14","end_time":"17:00","reason":"equipment_failure","note":"  Air handling unit down  "}`
+  2. The same venue on one day: `"start_date":"2026-11-20","start_time":"13:00","end_date":"2026-11-20","end_time":"15:00","reason":"maintenance"`, no note.
+- **Expected:**
+  1. `201` with the body's fields, times as `"09:00:00"` and `"17:00:00"`,
+     note trimmed to `"Air handling unit down"`, plus `id`, `created_by`
+     `55555555-…` (from the session, never the body) and a server-set
+     `created_at`. One insert, into `blocks`.
+  2. `201`, `note` `null`.
+- **Actual:** `201` with the period, times `09:00:00`/`17:00:00`, trimmed note, verified `created_by`, server `created_at`, one insert into `blocks`; the one-day period `201` with `note` null.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_venue_staff_mark_a_venue_unavailable_for_a_timed_period`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_may_fall_within_one_day`
+
+### TC-BOOKINGS-045 — every story reason is accepted, and "other" needs a description
+
+- **Scenario:** The reason must be maintenance, equipment failure,
+  renovation, safety concern, or another operational reason with a
+  description (S-77 AC1).
+- **Pre-conditions:** As TC-BOOKINGS-044.
+- **Steps:** `POST /blocks` with TC-BOOKINGS-044 body 1, changing only
+  `reason` and `note` per row.
+- **Test data / Expected:**
+  - `maintenance`, `equipment_failure`, `renovation` and `safety`, each with no note → `201`
+  - `other` with note `"Fire alarm testing"` → `201`
+  - `other` with no note, and `other` with note `"   "` → `422`, `errors.body` `"Value error, Add a description when the reason is other"`, no insert
+  - `internal_activity` (an S-30 reason the story drops) → `422` on `errors.reason`, no insert
+  - `flood` → `422` on `errors.reason`, no insert
+- **Actual:** All five story reasons `201`; "other" with no or blank note `422` with the description message; `internal_activity` and `flood` `422` on `reason`; no insert for any refusal.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_every_story_reason_is_accepted`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_other_needs_a_description`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_reason_outside_the_story_is_refused`
+
+### TC-BOOKINGS-046 — an invalid or unauthorised period is refused
+
+- **Scenario:** A period needs both dates and both times, and it must end
+  after it starts. Only Venue Staff may add one.
+- **Pre-conditions:** As TC-BOOKINGS-044.
+- **Steps:** `POST /blocks` with TC-BOOKINGS-044 body 1, changing one thing
+  per row.
+- **Test data / Expected:** No row makes an insert.
+  - `start_time` missing → `422` on `errors.start_time`
+  - `end_time` missing → `422` on `errors.end_time`
+  - `end_date` `"2026-11-13"`, `end_time` `"08:00"` (before the start) → `422`, `errors.body` `"Value error, The period must end after it starts"`
+  - `end_date` `"2026-11-13"`, `end_time` `"09:00"` (equal to the start) → `422`, same message
+  - `end_date` `"2026-11-12"` → `422`, same message
+  - `created_by` in the body → `422` (forbidden field)
+  - no cookie → `401` `{"detail":"Not authenticated"}`
+  - an `event_coordinator` session → `403` `{"detail":"Permission denied"}`
+- **Actual:** Missing times `422` on their field; end before, equal to, or a day before the start `422` "The period must end after it starts"; `created_by` `422`; no cookie `401`; Coordinator `403`; no insert.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_needs_both_times`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_must_end_after_it_starts`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_cannot_carry_who_created_it`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_only_venue_staff_mark_periods`
+
+### TC-BOOKINGS-047 — a new request overlapping the period is refused
+
+- **Scenario:** A period prevents new bookings that overlap it, counting
+  the venue's setup and turnaround (S-77 AC2).
+- **Pre-conditions:** Period P stored. No bookings.
+- **Steps:** `POST /bookings?setup_minutes=30&turnaround_minutes=30`, once
+  per row, for Studio B.
+- **Test data / Expected:**
+  - `2026-11-13` `14:00`–`16:00` (inside) → `409` `{"detail":"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00."}`, no insert
+  - `2026-11-13` `07:00`–`08:45` (occupied until `09:15`) → `409`, same detail, no insert
+  - `2026-11-14` `17:15`–`19:00` (occupied from `16:45`) → `409`, same detail, no insert
+  - `2026-11-13` `07:00`–`08:30` (occupied until exactly `09:00`) → `201`
+  - `2026-11-14` `17:30`–`19:00` (occupied from exactly `17:00`) → `201`
+  - `2026-11-12` `10:00`–`12:00` (the day before) → `201`
+- **Actual:** The three overlapping rows `409` with the exact detail and no insert, looked up by start_date ≤ day ≤ end_date; the back-to-back rows and the day before `201`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_request_overlapping_the_period_is_refused`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_request_clear_of_the_period_is_accepted`
+
+### TC-BOOKINGS-048 — a tentative hold overlapping the period is refused
+
+- **Scenario:** A period prevents new tentative holds that overlap it
+  (S-77 AC2).
+- **Pre-conditions:** Authenticated Venue Staff. Period P stored. Pending
+  request R1 for Studio B on `2026-11-13` `14:00`–`16:00`. Pending request
+  R2 on `2026-11-13` `07:00`–`08:30`.
+- **Steps:** `POST /bookings/{R1}/hold?setup_minutes=30&turnaround_minutes=30`,
+  then the same for R2.
+- **Expected:** R1 → `409` with the TC-BOOKINGS-047 detail; R1 stays
+  `pending` with no hold fields and no update is attempted. R2 → `200`,
+  `status` `held` (its occupied window ends exactly at `09:00`).
+- **Actual:** R1 `409` with the detail and no update; R2 `200` held.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_hold_overlapping_the_period_is_refused`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_hold_that_ends_as_the_period_starts_is_placed`
+
+### TC-BOOKINGS-049 — confirmation overlapping the period is refused; rejection is not
+
+- **Scenario:** A request sent before the period was marked can't then be
+  confirmed into it, but can still be rejected.
+- **Pre-conditions:** Authenticated Venue Staff. Period P stored. Held
+  request H for Studio B on `2026-11-13` `14:00`–`16:00`.
+- **Steps:**
+  1. `POST /bookings/{H}/decision` with `{"decision":"approved"}`.
+  2. `POST /bookings/{H}/decision` with `{"decision":"rejected","reason":"Air handling unit down"}`.
+- **Expected:**
+  1. `409` with the TC-BOOKINGS-047 detail; H stays `held`, no update.
+  2. `200`, `status` `rejected`.
+- **Actual:** Approval `409` with the detail and no update; rejection `200` rejected.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_confirmation_overlapping_the_period_is_refused`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_held_request_in_the_period_can_still_be_rejected`
+
+### TC-BOOKINGS-050 — one period can be read by id, and listed with its times
+
+- **Scenario:** The composite reads a period again to retry notifications
+  and to work out affected bookings.
+- **Pre-conditions:** Period P stored with id `cccccccc-cccc-4ccc-8ccc-cccccccccccc`.
+- **Steps:**
+  1. `GET /blocks/cccccccc-cccc-4ccc-8ccc-cccccccccccc`.
+  2. `GET /blocks/dddddddd-dddd-4ddd-8ddd-000000000000`, which doesn't exist.
+  3. `GET /blocks?venue_id=bbbbbbbb-…&from=2026-11-14&to=2026-11-30`.
+- **Expected:**
+  1. `200` with P, including `start_time` `"09:00:00"` and `end_time` `"17:00:00"`.
+  2. `404` `{"detail":"Block not found"}`.
+  3. `200` with a list containing P: it touches the range on 14 Nov.
+- **Actual:** `GET /blocks/{id}` `200` with times; unknown id `404` "Block not found"; the range list returned P and left out a period ending at 00:00 on `from`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_one_period_is_read_by_id`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_an_unknown_period_is_a_404`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_is_listed_for_a_range_it_touches`
