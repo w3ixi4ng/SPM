@@ -1010,3 +1010,18 @@ Coordinator.
 - **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
+  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
+  S-86 plus S-84/S-85 regressions, 3 passed.
+
+## S-26 — Update Equipment Preparation Status
+
+### TC-E2E-232 — assigned Technical Support updates preparation and the Coordinator sees it
+
+- **Scenario:** A browser proves the protected S-26 write, persistence, and read-only Coordinator visibility.
+- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; planning event assigned to a Coordinator and Technical Support A.
+- **Steps:** Sign in as A; observe Not Started; change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open the event.
+- **Test data:** One event requiring equipment and assigned support.
+- **Expected:** Each save confirms the server response. Ready survives reload. The Coordinator sees Ready on the event readiness view and no preparation edit control. Direct storage inspection shows Ready, A's id, and a non-null server timestamp.
+- **Actual:** Not run.
+- **Status:** Approved
+- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`

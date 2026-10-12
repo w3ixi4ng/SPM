@@ -72,6 +72,12 @@ create table if not exists events.events (
   assigned_technical_support_id  uuid,
   technical_support_assigned_at  timestamptz,
 
+  -- S-26: one event-level record of equipment-side preparation. The
+  -- authenticated assigned Technical Support worker owns this transition.
+  equipment_preparation_status     text not null default 'not_started',
+  equipment_preparation_updated_by uuid,
+  equipment_preparation_updated_at timestamptz,
+
   -- The assigned coordinator's decision on a submitted request. Null until
   -- decided; then one of the three outcomes below. Holds only the *latest*
   -- decision -- a return-then-resubmit cycle overwrites it, on purpose (see
@@ -134,6 +140,15 @@ create table if not exists events.events (
 
   constraint events_attendance_positive
     check (expected_attendance is null or expected_attendance > 0),
+
+  constraint events_equipment_preparation_status_allowed
+    check (equipment_preparation_status in ('not_started', 'in_progress', 'ready')),
+
+  constraint events_equipment_preparation_audit_valid
+    check (
+      (equipment_preparation_updated_by is null and equipment_preparation_updated_at is null)
+      or (equipment_preparation_updated_by is not null and equipment_preparation_updated_at is not null)
+    ),
 
   -- The end date, if set, is never before the start date -- an event
   -- spanning midnight (end_date > start_date) is fine; end_date < start_date
@@ -742,5 +757,21 @@ alter table events.events enable row level security;
 --
 --   alter table events.events drop column if exists accessibility_requirements;
 -- ---------------------------------------------------------------------------
+
+-- S-26 migration for an existing Events table. Safe to run repeatedly.
+alter table events.events
+  add column if not exists equipment_preparation_status text not null default 'not_started',
+  add column if not exists equipment_preparation_updated_by uuid,
+  add column if not exists equipment_preparation_updated_at timestamptz;
+
+alter table events.events drop constraint if exists events_equipment_preparation_status_allowed;
+alter table events.events add constraint events_equipment_preparation_status_allowed
+  check (equipment_preparation_status in ('not_started', 'in_progress', 'ready'));
+alter table events.events drop constraint if exists events_equipment_preparation_audit_valid;
+alter table events.events add constraint events_equipment_preparation_audit_valid
+  check (
+    (equipment_preparation_updated_by is null and equipment_preparation_updated_at is null)
+    or (equipment_preparation_updated_by is not null and equipment_preparation_updated_at is not null)
+  );
 
 notify pgrst, 'reload schema';

@@ -34,7 +34,11 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     ),
     "venue_staff": frozenset({DASHBOARD_PERMISSION, "events:view_booking_status"}),
     "technical_support": frozenset(
-        {DASHBOARD_PERMISSION, "events:view_support_assigned"}
+        {
+            DASHBOARD_PERMISSION,
+            "events:view_support_assigned",
+            "events:update_equipment_preparation",
+        }
     ),
     "attendee": frozenset({DASHBOARD_PERMISSION}),
 }

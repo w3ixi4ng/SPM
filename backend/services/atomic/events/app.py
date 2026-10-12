@@ -24,6 +24,7 @@ from schemas import (
     EventDraftCreate,
     EventDraftUpdate,
     EventOptions,
+    EquipmentPreparationUpdate,
     EventRead,
     EventSubmittedCreate,
     InternalEventCreate,
@@ -57,6 +58,7 @@ OVERSIGHT_ACTIVE_STATUSES = [
     "planning",
     "confirmed",
 ]
+EQUIPMENT_PREPARATION_EVENT_STATUSES = ["planning", "confirmed", "preparation"]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -162,7 +164,7 @@ def _get_support_assigned_event(event_id: UUID, staff_id: str, db: Client):
         .select("*")
         .eq("id", str(event_id))
         .eq("assigned_technical_support_id", staff_id)
-        .in_("status", ["planning", "confirmed"])
+        .in_("status", EQUIPMENT_PREPARATION_EVENT_STATUSES)
     )
     result = _execute(operation)
     if not result.data:
@@ -277,7 +279,7 @@ def list_support_assigned_events(
         .table(TABLE)
         .select("*")
         .eq("assigned_technical_support_id", str(user.id))
-        .in_("status", ["planning", "confirmed"])
+        .in_("status", EQUIPMENT_PREPARATION_EVENT_STATUSES)
         .order("updated_at", desc=True)
     )
     return _execute(operation).data
@@ -290,6 +292,40 @@ def get_support_assigned_event(
     db: Client = Depends(get_db),
 ):
     return _get_support_assigned_event(event_id, str(user.id), db)
+
+
+@app.put(
+    "/events/support-assigned/{event_id}/equipment-preparation",
+    response_model=EventRead,
+)
+def update_equipment_preparation(
+    event_id: UUID,
+    payload: EquipmentPreparationUpdate,
+    user=Depends(require_permission("events:update_equipment_preparation")),
+    db: Client = Depends(get_db),
+):
+    staff_id = str(user.id)
+    _get_support_assigned_event(event_id, staff_id, db)
+    values = {
+        "equipment_preparation_status": payload.status.value,
+        "equipment_preparation_updated_by": staff_id,
+        "equipment_preparation_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(event_id))
+        .eq("assigned_technical_support_id", staff_id)
+        .in_("status", EQUIPMENT_PREPARATION_EVENT_STATUSES)
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The event assignment or status changed. Reload and try again.",
+        )
+    return result.data[0]
 
 
 @app.get("/events/booking-status/{event_id}")
