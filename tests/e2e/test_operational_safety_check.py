@@ -247,14 +247,23 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
     notes = page.get_by_label("Support details (optional)")
     expect(notes).to_be_visible(timeout=20000)
     notes.fill("Speakers moved to the west wall away from emergency exits")
-    page.get_by_role("button", name="Update support notes").click()
+    with page.expect_response(
+        lambda response: response.request.method == "POST"
+        and f"/event-requests/{event['id']}/technical-support-assignment"
+        in response.url,
+        timeout=20000,
+    ) as update_response:
+        page.get_by_role("button", name="Update support notes").click()
+    assert update_response.value.ok
     expect(notes).to_have_value(
         "Speakers moved to the west wall away from emergency exits", timeout=20000
     )
     page.get_by_role("button", name="Resubmit for Safety Review").click()
-    expect(page.get_by_role("status")).to_contain_text(
-        "Revised arrangements submitted for a fresh safety review", timeout=20000
-    )
+    expect(
+        page.get_by_role("status").filter(
+            has_text="Revised arrangements submitted for a fresh safety review"
+        )
+    ).to_be_visible(timeout=20000)
 
     page.get_by_role("link", name="Back to workspace").click()
     page.get_by_role("button", name="Sign out").click()

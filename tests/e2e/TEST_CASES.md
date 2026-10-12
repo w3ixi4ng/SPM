@@ -864,8 +864,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   id and a server timestamp.
 - **Status:** Pass
 - **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
-  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
-  S-86 plus S-84/S-85 regressions, 3 passed.
+  local run on 2026-10-12 against the freshly recreated `.env.test` stack:
+  S-86/S-87 plus S-84/S-85 regressions, 4 passed.
 
 ## S-79 — book multiple venues for one event
 
@@ -1001,6 +1001,12 @@ Coordinator.
 - **Expected:** The journey is `changes_requested → planning → revise/resubmit
   → confirmed → Safety Officer queue → fresh approval → preparation`.
   History contains both reviews, and the confirmed venue remains untouched.
-- **Actual:** Not executed.
-- **Status:** Not Executed
-- **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`
+- **Actual:** Chromium showed the returned marker, Safety Officer feedback and
+  `planning` state to the assigned Coordinator. The revised Technical Support
+  notes were saved before resubmission; the event reappeared in the Safety
+  Officer queue and fresh approval produced `preparation`. Storage retained
+  both reviews, the revised notes and the original confirmed booking.
+- **Status:** Pass
+- **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
+  local run on 2026-10-12 against the freshly recreated `.env.test` stack:
+  S-86/S-87 plus S-84/S-85 regressions, 4 passed.

@@ -1,9 +1,11 @@
-# S-86 Safety Checks — Integration Test Cases
+# S-86/S-87 Safety Checks — Integration Test Cases
 
-Story: S-86 Conduct Operational Safety Check. Specification confirmed by the
-developer on 2026-10-10. Latest execution: 2026-10-10, branch
-`S-86/conduct-operational-safety-check`, commit `49a0f8b`; freshly recreated
-`.env.test` stack verified against the test Supabase project: 1 passed.
+Stories: S-86 Conduct Operational Safety Check and S-87 Return Event to
+Planning After Safety Changes Requested. Specifications confirmed by the
+developer on 2026-10-10. Latest execution: 2026-10-12, branch
+`S-87/return-event-to-planning-after-safety-changes-requested`, working tree
+based on commit `9f636fe`; freshly recreated `.env.test` stack verified against
+the test Supabase project: 2 passed.
 
 ## TC-SAFETYCHECKS-101 — enriched review and atomic approval through Kong
 
@@ -42,6 +44,11 @@ developer on 2026-10-10. Latest execution: 2026-10-10, branch
   The first review remains in history, current feedback clears on resubmit,
   the event re-enters the queue, fresh approval appends review 2, and resource
   rows remain unchanged.
-- **Actual:** Not executed.
-- **Status:** Not Executed
+- **Actual:** The change request returned the event to `planning` with its
+  feedback and first review intact. Resubmission changed it to `confirmed`,
+  cleared the current blocking decision without deleting history, and put it
+  back in the S-86 queue. Fresh approval produced `preparation` and review 2;
+  the booking, equipment requirement and Technical Support assignment were
+  unchanged.
+- **Status:** Pass
 - **Evidence:** `test_app.py::test_changes_return_to_planning_and_complete_a_fresh_review_cycle`
