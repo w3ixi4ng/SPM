@@ -5,6 +5,7 @@ import { hasPermission, PERMISSIONS, ROLE_ACCESS } from '../../../frontend/src/l
 import { ApiError } from '../../../frontend/src/lib/api.js'
 import {
   cancellationApprovalSummary,
+  cancellationApprovedLabel,
   cancellationDecisionErrorMessage,
   cancellationDeclinedLabel,
   canDecideCancellation,
@@ -45,6 +46,11 @@ test('who sees what about a cancellation request', () => {
   )
   assert.equal(cancellationDeclinedLabel(DECLINED), 'Cancellation declined on 12 Oct 2026')
   assert.equal(cancellationDeclinedLabel(PENDING), null)
+  assert.equal(
+    cancellationApprovedLabel({ ...APPROVED, cancellation_decided_at: '2026-10-12T09:00:00Z' }),
+    'Cancelled on 12 Oct 2026',
+  )
+  assert.equal(cancellationApprovedLabel(DECLINED), null)
   assert.deepEqual(
     [PENDING, DECLINED, APPROVED, NONE].map(canRequestCancellation),
     [false, true, false, true],

@@ -16,6 +16,7 @@ import { optionLabel } from '../lib/venues.js'
 import useAuth from '../auth/useAuth.js'
 import {
   CANCELLATION_REASON_MAX,
+  cancellationApprovedLabel,
   cancellationDeclinedLabel,
   cancellationErrorMessage,
   cancellationRequestedLabel,
@@ -1252,9 +1253,24 @@ export default function EventRequestForm() {
                 </div>
               )}
               {cancellation.cancellation_decision === 'approved' && (
-                <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-                  Your cancellation request was approved. This event is cancelled.
-                </p>
+                // S-61: the same card as a pending request, so the outcome
+                // reads as the end of that story.
+                <div
+                  className="font-ui text-sm rounded-sm px-4 py-3"
+                  style={{ backgroundColor: withAlpha(C.inkFaint, 0.08), color: C.ink }}
+                >
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.inkFaint }} aria-hidden="true" />
+                    {cancellationApprovedLabel(cancellation)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">
+                    <span className="font-medium">Reason: </span>
+                    {cancellation.cancellation_reason}
+                  </p>
+                  <p className="mt-1" style={{ color: C.inkFaint }}>
+                    Your cancellation request was approved. This event is cancelled.
+                  </p>
+                </div>
               )}
               {canRequestCancellation(cancellationEvent) && (
                 <button

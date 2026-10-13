@@ -301,6 +301,11 @@ export function cancellationRequestedLabel(event) {
   return `Cancellation requested on ${dayLabel(event.cancellation_requested_at)}`
 }
 
+export function cancellationApprovedLabel(event) {
+  if (event?.cancellation_decision !== 'approved' || !event?.cancellation_decided_at) return null
+  return `Cancelled on ${dayLabel(event.cancellation_decided_at)}`
+}
+
 export function cancellationDeclinedLabel(event) {
   if (event?.cancellation_decision !== 'declined' || !event?.cancellation_decided_at) return null
   return `Cancellation declined on ${dayLabel(event.cancellation_decided_at)}`

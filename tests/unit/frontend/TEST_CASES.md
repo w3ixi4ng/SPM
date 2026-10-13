@@ -1831,6 +1831,9 @@ Confirmed by the developer on 2026-10-11.
   - The Coordinator may decide only the pending one.
   - The Coordinator list tag is "Cancellation requested" for pending only.
   - The status label for `cancelled` is "Cancelled".
+  - The approved card reads "Cancelled on 12 Oct 2026" for a decision on
+    `2026-10-12`, and nothing for a declined one (added 2026-10-13, when the
+    approved state got the same card as a pending request).
   - The Organiser's dashboard tag is "Cancellation requested" (pending),
     "Cancellation declined" (declined), or none.
   - The Organiser may request again for the declined one, but not the
