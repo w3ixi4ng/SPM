@@ -231,7 +231,12 @@ async def _forward_patch(
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)
         raise HTTPException(status_code=502, detail="Events service unavailable") from exc
-    if response.status_code in (status.HTTP_200_OK, status.HTTP_404_NOT_FOUND, 422):
+    # 409: the event is closed (rejected, or cancelled since S-61) -- the
+    # events service says which, and the Organiser should read that, not a
+    # claim that the service is down.
+    if response.status_code in (
+        status.HTTP_200_OK, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, 422,
+    ):
         return JSONResponse(status_code=response.status_code, content=response.json())
     raise HTTPException(status_code=502, detail="Events service unavailable")
 

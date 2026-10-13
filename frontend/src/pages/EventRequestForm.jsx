@@ -30,6 +30,7 @@ import {
   getEventOptions,
   eventStatusMeta,
   getEventRequest,
+  organiserDecisionBanner,
   requestEventCancellation,
   submitEventDraft,
   updateEventDraft,
@@ -1174,9 +1175,9 @@ export default function EventRequestForm() {
             </p>
           )}
 
-          {/* The request decision's banner. A cancelled event keeps its old
-              decision, but the cancellation section below explains it. */}
-          {decision && !isCancelled && (
+          {/* The request decision's banner, only when there is something to
+              say -- a cancelled event is explained by its own section. */}
+          {decision && organiserDecisionBanner(status) && (
             <div
               className="rounded-sm px-4 py-3 mb-6"
               style={{
@@ -1185,9 +1186,7 @@ export default function EventRequestForm() {
               }}
             >
               <p className="font-ui text-sm font-medium">
-                {isPlanning && 'This request has been approved and is in planning.'}
-                {isRejected && 'This request has been rejected and is closed.'}
-                {isReturned && 'This request was returned for amendment. Fix the issue below, then resubmit.'}
+                {organiserDecisionBanner(status)}
               </p>
               {decision.reason && (
                 <p className="font-ui text-sm mt-1">

@@ -111,3 +111,25 @@ test('the approval summary names what is released', () => {
   assert.equal(cancellationApprovalSummary(1), `1 venue booking will be removed and its time freed.${equipment}`)
   assert.equal(cancellationApprovalSummary(2), `2 venue bookings will be removed and their times freed.${equipment}`)
 })
+
+// --- TC-FRONTEND-109 -------------------------------------------------------
+test("the Organiser's decision banner always has words, or isn't shown", async () => {
+  const { organiserDecisionBanner } = await import('../../../frontend/src/lib/eventRequests.js')
+  assert.deepEqual(
+    Object.fromEntries([
+      'planning', 'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested', 'rejected', 'returned',
+    ].map((status) => [status, organiserDecisionBanner(status)])),
+    {
+      planning: 'This request has been approved and is in planning.',
+      confirmed: 'This request has been approved and the event is confirmed.',
+      preparation: 'This request has been approved and the event is in preparation.',
+      safety_rejected: 'This request was approved, but the event did not pass its safety check.',
+      safety_changes_requested: 'This request was approved, but its safety check asked for changes.',
+      rejected: 'This request has been rejected and is closed.',
+      returned: 'This request was returned for amendment. Fix the issue below, then resubmit.',
+    },
+  )
+  for (const status of ['cancelled', 'draft', 'submitted', 'under_review', 'unknown']) {
+    assert.equal(organiserDecisionBanner(status), null, status)
+  }
+})

@@ -405,3 +405,21 @@ export function cancellationDecisionErrorMessage(error) {
   if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${NOTHING_CHANGED}`
   return `The decision couldn't be saved. Try again in a moment. ${NOTHING_CHANGED}`
 }
+
+// The Organiser's banner about the decision on their request, by status.
+// Null means no banner: before a decision there is nothing to say, and a
+// cancelled event is explained by its cancellation section instead. Every
+// status that shows a banner has words, so it is never an empty box.
+const DECISION_BANNER = {
+  planning: 'This request has been approved and is in planning.',
+  confirmed: 'This request has been approved and the event is confirmed.',
+  preparation: 'This request has been approved and the event is in preparation.',
+  safety_rejected: 'This request was approved, but the event did not pass its safety check.',
+  safety_changes_requested: 'This request was approved, but its safety check asked for changes.',
+  rejected: 'This request has been rejected and is closed.',
+  returned: 'This request was returned for amendment. Fix the issue below, then resubmit.',
+}
+
+export function organiserDecisionBanner(status) {
+  return DECISION_BANNER[status] ?? null
+}

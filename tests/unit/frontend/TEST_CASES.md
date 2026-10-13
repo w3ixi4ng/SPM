@@ -1866,3 +1866,24 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** Both decisions posted to `/api/event-requests/e%201%2F2/cancellation-decision` with credentials and the expected bodies; reason messages, failure messages and the three summaries as specified.
 - **Status:** Pass
 - **Evidence:** `test_cancellation_decision.mjs::the decision posts through Kong`; `test_cancellation_decision.mjs::a decline needs a reason of at most 1000 characters`; `test_cancellation_decision.mjs::every failure says what changed`; `test_cancellation_decision.mjs::the approval summary names what is released`
+
+### TC-FRONTEND-109 — the Organiser's decision banner always has words, or isn't shown
+
+- **Scenario:** An empty grey banner showed on events whose status the
+  banner had no text for (found 2026-10-13 during S-61's manual check;
+  confirmed, preparation, both safety statuses and cancelled).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` imported directly.
+- **Steps:** Ask for the banner text for every status.
+- **Expected:**
+  - `planning` "This request has been approved and is in planning."
+  - `confirmed` "This request has been approved and the event is confirmed."
+  - `preparation` "This request has been approved and the event is in preparation."
+  - `safety_rejected` "This request was approved, but the event did not pass its safety check."
+  - `safety_changes_requested` "This request was approved, but its safety check asked for changes."
+  - `rejected` "This request has been rejected and is closed."
+  - `returned` "This request was returned for amendment. Fix the issue below, then resubmit."
+  - `null` (no banner) for `cancelled`, `draft`, `submitted`, `under_review`
+    and an unknown status.
+- **Actual:** All seven statuses gave their sentence; cancelled, draft, submitted, under_review and an unknown status gave `null`.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::the Organiser's decision banner always has words, or isn't shown`; `node --test tests/unit/frontend/test_*.mjs`: 139 passed, 2026-10-13.

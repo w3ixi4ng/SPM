@@ -1047,3 +1047,20 @@ decisions are in the S-61 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Actual:** Bookings `500` and timeout gave `502` with the not-released message; approving again gave `200` with 2 released; events unreachable or `500` gave `502` "The events service is unavailable. Nothing was changed." with no bookings call.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_failed_release_says_so`; `tests/unit/composite/event_requests/test_s61.py::test_approving_again_finishes_the_release`; `tests/unit/composite/event_requests/test_s61.py::test_events_down_changes_nothing`
+
+### TC-EVENTREQUESTS-068 — a refused edit keeps the events service's reason
+
+- **Scenario:** Saving changes to a closed event says why, instead of
+  claiming the service is down (added 2026-10-13 at the developer's request;
+  affected rejected events before S-61 and cancelled ones since).
+- **Pre-conditions:** Organiser session; the events fake answers the
+  forwarded `PATCH` with `409` and each detail.
+- **Steps:** `PATCH /event-requests/E` `{"venue": "Room 9"}`.
+- **Test data:** "This event has been cancelled and is closed."; "This
+  request has been rejected and is closed".
+- **Expected:** `409` with the same detail (before: `502` "Events service
+  unavailable"). `200`, `404` and `422` still pass through as before, and any
+  other answer is still `502`.
+- **Actual:** Both details came back as `409` unchanged; a `500` from the events service is still `502` "Events service unavailable".
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_refused_edit_keeps_the_events_services_reason`; `tests/unit/composite/event_requests/test_s61.py::test_an_unexpected_answer_on_edit_is_still_a_502`; `pytest tests/unit`: 967 passed, 17 skipped, 2026-10-13.

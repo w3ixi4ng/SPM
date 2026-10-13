@@ -7,7 +7,7 @@ approval the bookings service then removes the event's venue bookings.
 import httpx
 import pytest
 
-from .conftest import COORDINATOR_A, EVENT_ID, event_response, fake_response
+from .conftest import COORDINATOR_A, EVENT_ID, event_response, fake_response, organiser_me_response
 
 URL = f"/event-requests/{EVENT_ID}/cancellation-decision"
 COOKIE = {"sb_access_token": "coordinator-token"}
@@ -135,3 +135,28 @@ def test_events_down_changes_nothing(client, events, bookings, failure):
     assert response.status_code == 502
     assert response.json()["detail"] == "The events service is unavailable. Nothing was changed."
     bookings.delete.assert_not_called()
+
+
+# --- TC-EVENTREQUESTS-068 ----------------------------------------------------
+@pytest.mark.parametrize(
+    "detail",
+    ["This event has been cancelled and is closed.", "This request has been rejected and is closed"],
+)
+def test_a_refused_edit_keeps_the_events_services_reason(client, users, events, detail):
+    users.get.return_value = organiser_me_response()
+    events.patch.return_value = fake_response(409, {"detail": detail})
+
+    response = client.patch(f"/event-requests/{EVENT_ID}", json={"venue": "Room 9"})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": detail}
+
+
+def test_an_unexpected_answer_on_edit_is_still_a_502(client, users, events):
+    users.get.return_value = organiser_me_response()
+    events.patch.return_value = fake_response(500, {"detail": "Event storage unavailable"})
+
+    response = client.patch(f"/event-requests/{EVENT_ID}", json={"venue": "Room 9"})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Events service unavailable"
