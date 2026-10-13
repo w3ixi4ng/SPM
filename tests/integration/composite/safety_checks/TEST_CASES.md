@@ -2,10 +2,11 @@
 
 Stories: S-86 Conduct Operational Safety Check and S-87 Return Event to
 Planning After Safety Changes Requested. Specifications confirmed by the
-developer on 2026-10-10. Latest execution: 2026-10-12, branch
+developer on 2026-10-10. Latest execution: 2026-10-13, branch
 `S-87/return-event-to-planning-after-safety-changes-requested`, working tree
-based on commit `b17b254`; freshly recreated `.env.test` stack verified against
-the test Supabase project: 2 passed.
+based on commit `72886bb`; freshly recreated `.env.test` stack verified against
+the test Supabase project. Both S-86/S-87 cases passed, and the combined
+S-77/S-87 targeted integration regression run passed all 8 cases.
 
 ## TC-SAFETYCHECKS-101 — enriched review and atomic approval through Kong
 

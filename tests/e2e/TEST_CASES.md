@@ -17,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-10, branch `S-86/conduct-operational-safety-check`, commit `49a0f8b` |
+| Last run | 2026-10-13, branch `S-87/return-event-to-planning-after-safety-changes-requested`, commit `72886bb` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-86 journey plus S-84/S-85 regressions: 3 passed |
+| Result | Combined S-77/S-87 browser regression: 5 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -864,8 +864,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   id and a server timestamp.
 - **Status:** Pass
 - **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
-  local run at commit `b17b254` on 2026-10-12 against the freshly recreated
-  `.env.test` stack: S-86/S-87 plus S-84/S-85 regressions, 4 passed.
+  local run at commit `72886bb` on 2026-10-13 against the freshly recreated
+  `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
 
 ## S-79 — book multiple venues for one event
 
@@ -1008,5 +1008,5 @@ Coordinator.
   both reviews, the revised notes and the original confirmed booking.
 - **Status:** Pass
 - **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
-  local run at commit `b17b254` on 2026-10-12 against the freshly recreated
-  `.env.test` stack: S-86/S-87 plus S-84/S-85 regressions, 4 passed.
+  local run at commit `72886bb` on 2026-10-13 against the freshly recreated
+  `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.

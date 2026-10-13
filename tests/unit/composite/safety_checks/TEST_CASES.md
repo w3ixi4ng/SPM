@@ -72,7 +72,7 @@ confirmed by the developer on 2026-10-10. Executed locally on 2026-10-10.
 
 Story: S-87 Return Event to Planning After Safety Changes Requested.
 Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
-2026-10-12 at commit `b17b254` in the full Python unit run: 926 passed,
+2026-10-13 at commit `72886bb` in the full Python unit run: 981 passed,
 17 skipped.
 
 ## TC-SAFETYCHECKS-007 — Coordinator-only returned-safety access
