@@ -1998,3 +1998,43 @@ Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test ca
 - **Actual:** The shared status mapping preserved the server value for the editable support view and read-only Coordinator display; failure messages did not fabricate success.
 - **Status:** Pass
 - **Evidence:** `test_equipment_preparation.mjs::dashboard contracts expose editable support and read-only coordinator states`
+
+## S-24 — Track Event Readiness
+
+Story: S-24 Track Event Readiness. Acceptance criteria and test cases confirmed
+by the developer on 2026-10-13. Programme and registration are shown as
+"Not available yet" until their owning stories provide data; they are excluded
+from the implemented-area total rather than presented as complete.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The event view shows venue, equipment, technical support, programme and registration indicators | TC-FRONTEND-105 |
+| Each implemented indicator reflects its owning data | TC-FRONTEND-105–106 |
+| The view is rebuilt from current underlying status | TC-FRONTEND-107 |
+
+### TC-FRONTEND-105 — readiness presents all five areas without inventing unfinished data
+
+- **Pre-conditions:** The readiness helper is loaded.
+- **Steps:** Build readiness for an event with a confirmed venue, an equipment requirement, and preparation Ready.
+- **Expected:** Venue, Equipment, and Technical support are Complete. Programme and Registration are Not available yet. Overall reads 3 of 3 implemented areas complete.
+- **Actual:** The helper returned three complete implemented areas and two explicitly unavailable future areas.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`
+
+### TC-FRONTEND-106 — incomplete source data remains outstanding
+
+- **Pre-conditions:** A held venue, no equipment requirements, and preparation In Progress.
+- **Steps:** Build readiness.
+- **Expected:** All three implemented areas are Outstanding; unfinished Programme and Registration remain unavailable.
+- **Actual:** All three implemented areas remained outstanding and the two future areas remained unavailable.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`
+
+### TC-FRONTEND-107 — readiness reloads its owning services instead of storing a duplicate answer
+
+- **Pre-conditions:** Fetch records authenticated Kong requests.
+- **Steps:** Load readiness for id `event 1/2`.
+- **Expected:** Current venue bookings and equipment requirements are fetched with credentials and an encoded event id; readiness is derived from those responses and the current event.
+- **Actual:** Both encoded, credentialled Kong reads were made and the result was derived from their current responses.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness loads fresh venue and equipment data through Kong`

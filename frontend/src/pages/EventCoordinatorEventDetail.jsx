@@ -3,6 +3,7 @@ import { ArrowLeft, Building2, Check, Headphones, RotateCcw, X } from 'lucide-re
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
+import EventReadinessPanel from '../components/EventReadinessPanel.jsx'
 import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
@@ -624,6 +625,7 @@ export default function EventCoordinatorEventDetail() {
                 {safetyNotice}
               </p>
             )}
+            <EventReadinessPanel event={state.event} />
 
             <div
               role="group"

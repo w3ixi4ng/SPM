@@ -1025,3 +1025,15 @@ Coordinator.
 - **Actual:** Not run.
 - **Status:** Approved
 - **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`
+
+## S-24 — Track Event Readiness
+
+### TC-E2E-233 — Coordinator readiness follows current venue, equipment, and preparation data
+
+- **Scenario:** The assigned Coordinator sees all five readiness areas on the event view.
+- **Pre-conditions:** Fresh `.env.test` stack; an assigned planning event with a confirmed venue, recorded equipment requirement, and preparation Ready.
+- **Steps:** Sign in as the Coordinator; open the event; inspect readiness; change the server-owned preparation status to In Progress; reload.
+- **Expected:** Initially Venue, Equipment, and Technical support are Complete and the total is 3 of 3. Programme and Registration are visible as Not available yet. After the underlying change and reload, Technical support becomes Outstanding and the total becomes 2 of 3 without a duplicate readiness record being edited.
+- **Actual:** The Coordinator saw all five indicators, three implemented areas complete, and two future areas unavailable. After preparation changed to In Progress and the page reloaded, the total changed to 2 of 3 and Technical support became Outstanding.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
