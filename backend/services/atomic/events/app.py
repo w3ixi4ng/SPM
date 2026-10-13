@@ -35,6 +35,7 @@ from schemas import (
     InternalCoordinatorReassignment,
     InternalCoordinatorReassignmentResult,
     InternalSafetyDecision,
+    InternalSafetyResubmit,
     OverlappingEvent,
     OverlappingEventsRequest,
     TechnicalSupportLoad,
@@ -394,7 +395,10 @@ def get_safety_review_event(event_id: UUID, db: Client = Depends(get_db)):
 _STATUS_AFTER_SAFETY_DECISION = {
     SafetyDecisionValue.APPROVED: "preparation",
     SafetyDecisionValue.REJECTED: "safety_rejected",
-    SafetyDecisionValue.CHANGES_REQUESTED: "safety_changes_requested",
+    # S-87: the decision remains current feedback and is also appended to the
+    # immutable history, while the event itself immediately returns to the
+    # existing planning workflows.
+    SafetyDecisionValue.CHANGES_REQUESTED: "planning",
 }
 
 
@@ -413,13 +417,25 @@ def record_safety_decision(
     update is still authoritative: if another officer decides after the read,
     only one update can match and the loser receives 409 without overwrite.
     """
-    _safety_review_event(event_id, db)
+    current = _safety_review_event(event_id, db)
+    decided_at = datetime.now(timezone.utc).isoformat()
+    history = list(current.get("safety_review_history") or [])
+    history.append(
+        {
+            "review_number": len(history) + 1,
+            "decision": payload.decision.value,
+            "reason": payload.reason,
+            "safety_officer_id": str(payload.safety_officer_id),
+            "decided_at": decided_at,
+        }
+    )
     values = {
         "status": _STATUS_AFTER_SAFETY_DECISION[payload.decision],
         "safety_decision": payload.decision.value,
         "safety_decision_reason": payload.reason,
         "safety_officer_id": str(payload.safety_officer_id),
-        "safety_decided_at": datetime.now(timezone.utc).isoformat(),
+        "safety_decided_at": decided_at,
+        "safety_review_history": history,
     }
     operation = (
         db.schema(SCHEMA)
@@ -434,6 +450,66 @@ def record_safety_decision(
         raise HTTPException(
             status_code=409,
             detail="This Operational Safety Check has already been decided",
+        )
+    return result.data[0]
+
+
+def _safety_returned_event(event_id: UUID, coordinator_id: UUID, db: Client) -> dict:
+    event = _get_assigned_event(event_id, str(coordinator_id), db)
+    if event.get("status") != "planning" or event.get("safety_decision") != "changes_requested":
+        raise HTTPException(
+            status_code=409,
+            detail="This event is not awaiting revision after a safety change request",
+        )
+    return event
+
+
+@app.get("/internal/events/{event_id}/safety-return", response_model=EventRead)
+def get_safety_returned_event(
+    event_id: UUID,
+    coordinator_id: UUID,
+    db: Client = Depends(get_db),
+):
+    """Return S-87 feedback only to the event's current Coordinator."""
+
+    return _safety_returned_event(event_id, coordinator_id, db)
+
+
+@app.post("/internal/events/{event_id}/safety-resubmit", response_model=EventRead)
+def resubmit_safety_returned_event(
+    event_id: UUID,
+    payload: InternalSafetyResubmit,
+    db: Client = Depends(get_db),
+):
+    """Narrow S-87 planning -> confirmed transition, never general S-17.
+
+    The history is deliberately absent from `values`: clearing the current
+    blocking decision cannot overwrite or lose any previous review record.
+    The conditional predicates make retries and ownership changes safe.
+    """
+
+    _safety_returned_event(event_id, payload.coordinator_id, db)
+    values = {
+        "status": "confirmed",
+        "safety_decision": None,
+        "safety_decision_reason": None,
+        "safety_officer_id": None,
+        "safety_decided_at": None,
+    }
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(event_id))
+        .eq("status", "planning")
+        .eq("safety_decision", "changes_requested")
+        .eq("assigned_coordinator_id", str(payload.coordinator_id))
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(
+            status_code=409,
+            detail="The event changed before it could be resubmitted for safety review",
         )
     return result.data[0]
 

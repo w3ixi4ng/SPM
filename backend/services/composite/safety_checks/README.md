@@ -1,9 +1,9 @@
 # Safety Checks service
 
-Composite FastAPI service for S-86. It owns no database. It authenticates a
-Safety Officer through Users, reads the current event from Events, enriches it
-with Users, Bookings, Venues and Equipment, and sends the decision back to the
-Events atomic owner.
+Composite FastAPI service for S-86 and S-87. It owns no database. It
+authenticates Safety Officers and Event Coordinators through Users, reads the
+current event from Events, enriches safety evidence and feedback, and sends
+lifecycle actions back to the Events atomic owner.
 
 `confirmed` is this project's documented lifecycle interpretation that the
 required venue and technical arrangements are confirmed. It is not a status
@@ -16,6 +16,8 @@ name prescribed by the customer document.
 | `GET` | `/safety-checks` | List confirmed events with no safety decision, enriched with organiser. |
 | `GET` | `/safety-checks/{event_id}` | Return all operational-safety evidence for one eligible event. |
 | `POST` | `/safety-checks/{event_id}/decision` | Record the first safety decision as the authenticated Safety Officer. |
+| `GET` | `/safety-checks/coordinator/events/{event_id}` | Return preserved safety feedback and history to the currently assigned Event Coordinator. |
+| `POST` | `/safety-checks/coordinator/events/{event_id}/resubmit` | Resubmit revised arrangements for a completely fresh safety review. |
 | `GET` | `/health` | Liveness check. |
 
 Only trusted `app_metadata.role=safety_officer` is accepted. No Safety Officer
@@ -66,12 +68,22 @@ A successful decision returns the updated Event object. Transitions are:
 | --- | --- |
 | `approved` | `preparation` |
 | `rejected` | `safety_rejected` |
-| `changes_requested` | `safety_changes_requested` |
+| `changes_requested` | `planning` with preserved current feedback and immutable history |
 
 The Events service conditionally writes only a `confirmed` row with a null
 current safety decision. A stale, repeated, or concurrent attempt returns
 `409` and cannot overwrite the first stored result. S-86 creates no
-notifications; S-87 owns routing requested changes back into planning.
+notifications.
+
+For S-87, only `event_coordinator` passes the composite role check and Events
+also requires the authenticated id to be the event's current assignee. The
+returned detail resolves the recorded Safety Officer identity and exposes the
+reason, decision time and complete `safety_review_history`. Resubmission is
+permitted only for `planning` plus current `changes_requested`; ordinary
+planning events receive `409`, so this is not the general S-17 workflow.
+Success changes the event to `confirmed`, clears the current blocker, retains
+history, and returns it to the S-86 queue. Events performs that transition in
+one conditional write; this composite performs no resource writes or retries.
 
 ## Errors
 

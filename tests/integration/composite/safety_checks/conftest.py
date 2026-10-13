@@ -165,6 +165,7 @@ def safety_world(admin):
             "event_id": event_id,
             "officer": officer,
             "organiser": organiser,
+            "coordinator": coordinator,
             "support": support,
         }
     finally:
@@ -178,4 +179,3 @@ def safety_world(admin):
             admin.schema("venues").table("venues").delete().eq("id", venue_id).execute()
         for user in users:
             admin.auth.admin.delete_user(user["id"])
-

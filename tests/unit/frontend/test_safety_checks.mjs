@@ -4,9 +4,12 @@ import test from 'node:test'
 
 import {
   decideSafetyCheck,
+  getReturnedSafetyReview,
   getSafetyCheck,
   listSafetyChecks,
+  resubmitSafetyReview,
   safetyCheckErrorMessage,
+  safetyReturnErrorMessage,
 } from '../../../frontend/src/lib/safetyChecks.js'
 
 
@@ -24,6 +27,8 @@ test('safety-check helpers use credentialled composite routes', async () => {
     await listSafetyChecks()
     await getSafetyCheck('event-1')
     await decideSafetyCheck('event-1', { decision: 'approved', reason: null })
+    await getReturnedSafetyReview('event-1')
+    await resubmitSafetyReview('event-1')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -34,6 +39,30 @@ test('safety-check helpers use credentialled composite routes', async () => {
   assert.equal(calls[2].options.method, 'POST')
   assert.equal(calls[2].options.credentials, 'include')
   assert.deepEqual(JSON.parse(calls[2].options.body), { decision: 'approved', reason: null })
+  assert.equal(calls[3].url, '/api/safety-checks/coordinator/events/event-1')
+  assert.equal(calls[4].url, '/api/safety-checks/coordinator/events/event-1/resubmit')
+  assert.equal(calls[4].options.method, 'POST')
+})
+
+
+test('Coordinator detail presents returned feedback and resubmission states', () => {
+  const detail = readFileSync(
+    new URL('../../../frontend/src/pages/EventCoordinatorEventDetail.jsx', import.meta.url), 'utf8',
+  )
+  const dashboard = readFileSync(
+    new URL('../../../frontend/src/pages/EventCoordinatorDashboard.jsx', import.meta.url), 'utf8',
+  )
+
+  for (const copy of [
+    'Returned after safety review', 'Safety Officer feedback', 'Resubmit for Safety Review',
+    'Loading safety feedback', 'Revised arrangements submitted for a fresh safety review',
+  ]) {
+    assert.match(detail, new RegExp(copy))
+  }
+  assert.match(detail, /safety_officer/)
+  assert.match(detail, /decided_at/)
+  assert.match(detail, /safety_review_history/)
+  assert.match(dashboard, /Returned after safety review/)
 })
 
 
@@ -77,5 +106,8 @@ test('error copy covers authorization, stale decisions and upstream failures', (
   assert.match(safetyCheckErrorMessage({ status: 404 }), /not found/i)
   assert.match(safetyCheckErrorMessage({ status: 409 }), /already/i)
   assert.match(safetyCheckErrorMessage({ status: 502 }), /temporarily unavailable/i)
+  assert.match(safetyReturnErrorMessage({ status: 401 }), /sign in again/i)
+  assert.match(safetyReturnErrorMessage({ status: 403 }), /assigned Event Coordinator/i)
+  assert.match(safetyReturnErrorMessage({ status: 409 }), /no longer awaiting/i)
+  assert.match(safetyReturnErrorMessage({ status: 502 }), /temporarily unavailable/i)
 })
-
