@@ -2038,3 +2038,22 @@ from the implemented-area total rather than presented as complete.
 - **Actual:** Both encoded, credentialled Kong reads were made and the result was derived from their current responses.
 - **Status:** Pass
 - **Evidence:** `test_event_readiness.mjs::readiness loads fresh venue and equipment data through Kong`
+
+## S-81 — tentative hold expiry
+
+### TC-FRONTEND-112 — the hold form requires a future Singapore expiry
+
+- **Expected:** Blank, invalid, and non-future values are refused locally.
+  A valid `datetime-local` value is converted to a timezone-aware ISO instant.
+
+### TC-FRONTEND-113 — the authenticated hold call carries only the expiry
+
+- **Expected:** `POST /api/venue-bookings/{id}/hold`, credentials included,
+  JSON body exactly `{"expires_at":"..."}`; safe messages cover `401`, `403`,
+  `404`, `409`, `422`, and an unavailable service.
+
+### TC-FRONTEND-114 — active holds show their expiry distinctly
+
+- **Expected:** Venue Staff see an expiry control before placing a hold and an
+  active hold says when it expires; after refresh an expired hold is no longer
+  shown as tentatively held.

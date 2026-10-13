@@ -1510,3 +1510,22 @@ Their tests were updated and re-run with S-77, and pass.
 - **Actual:** All three reads `502` "Bookings service unavailable".
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_failed_period_lookup_is_an_error_never_a_missing_flag`
+
+## S-81 — tentative hold expiry orchestration
+
+### TC-VENUEBOOKINGS-089 — Venue Staff must send an expiry with a hold
+
+- **Expected:** A timezone-aware future `expires_at` is forwarded unchanged to
+  bookings. Missing, naive, or expired values return `422`; non-staff remain
+  `401`/`403` and no downstream write occurs.
+
+### TC-VENUEBOOKINGS-090 — the assigned Coordinator is warned of expiry once
+
+- **Expected:** Placing the hold sends one `venue_hold_expiry` notification to
+  the booking's Coordinator, naming when it will expire, with a stable
+  deduplication key. Retrying produces no duplicate notification.
+
+### TC-VENUEBOOKINGS-091 — availability distinguishes and then removes a hold
+
+- **Expected:** Before expiry the calendar entry is `held` and includes the
+  expiry. Immediately afterwards it is absent and the slot can be requested.

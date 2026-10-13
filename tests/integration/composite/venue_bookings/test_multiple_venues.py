@@ -54,7 +54,8 @@ def test_one_event_holds_bookings_at_several_venues(admin, auth_client, world, m
         # 1. Main Hall for the main programme, which Venue Staff hold.
         first = request(hall, "09:00", "17:00")
         assert first.status_code == 201, first.text
-        held = api.post(f"/venue-bookings/{first.json()['id']}/hold", headers=staff)
+        held = api.post(f"/venue-bookings/{first.json()['id']}/hold", headers=staff,
+                        json={"expires_at": "2099-01-01T12:00:00+08:00"})
         assert held.status_code == 200, held.text
 
         # 2. A breakout in another venue at the same time keeps the first.

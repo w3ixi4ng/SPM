@@ -105,3 +105,18 @@ class BookingDecision(BaseModel):
         if self.decision == "rejected" and not (self.reason or self.alternative):
             raise ValueError("Provide a reason or alternative to reject this request")
         return self
+
+
+class HoldRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expires_at: datetime
+
+    @field_validator("expires_at")
+    @classmethod
+    def future_timezone_aware_expiry(cls, value: datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expires_at must include a timezone")
+        if value <= datetime.now(value.tzinfo):
+            raise ValueError("The hold expiry must be in the future")
+        return value

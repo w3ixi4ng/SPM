@@ -105,7 +105,8 @@ B = booking_row(booking_date='2026-11-12', start_time='12:30:00', end_time='14:0
 def test_holds_and_confirmations_use_the_same_gap(client, db, auth, action, body):
     query = lookups(db, [B], [A], [])
 
-    response = client.post(f'/bookings/{BOOKING_ID}/{action}', params=GAP, json=body, cookies=COOKIE)
+    request_body = {'expires_at': '2099-11-12T10:00:00+08:00'} if action == 'hold' else body
+    response = client.post(f'/bookings/{BOOKING_ID}/{action}', params=GAP, json=request_body, cookies=COOKIE)
 
     # S-76 (TC-BOOKINGS-042): Venue Staff get the booking in the way and its
     # whole occupied period instead of IN_USE.
@@ -132,7 +133,8 @@ def test_without_the_venue_times_holds_and_confirmations_succeed(client, db, aut
     update.in_.return_value = update
     update.execute.return_value = SimpleNamespace(data=[{**B, 'status': status}])
 
-    response = client.post(f'/bookings/{BOOKING_ID}/{action}', json=body, cookies=COOKIE)
+    request_body = {'expires_at': '2099-11-12T10:00:00+08:00'} if action == 'hold' else body
+    response = client.post(f'/bookings/{BOOKING_ID}/{action}', json=request_body, cookies=COOKIE)
 
     assert response.status_code == 200, response.text
     query.lt.assert_called_once_with('start_time', '14:00:00')

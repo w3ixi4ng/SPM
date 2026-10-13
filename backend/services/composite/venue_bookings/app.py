@@ -28,7 +28,7 @@ from clients import (
     get_users_client,
     get_venues_client,
 )
-from schemas import BlockRequest, VenueBookingRequest, BookingDecision
+from schemas import BlockRequest, VenueBookingRequest, BookingDecision, HoldRequest
 
 app = FastAPI(title="Venue Bookings Service")
 logger = logging.getLogger(__name__)
@@ -373,17 +373,48 @@ async def list_pending_venue_bookings(
 async def hold_venue_booking(
     booking_id: UUID,
     request: Request,
+    payload: HoldRequest | None = None,
     users: httpx.AsyncClient = Depends(get_users_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
     await _authenticate(request, users, VENUE_STAFF_ROLE)
     gap = await _venue_gap(booking_id, venues, bookings, request.cookies)
+    if payload is None:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Please check the details you entered", "errors": {"expires_at": "Field required"}},
+        )
     response = await _call(
-        "Bookings", bookings.post(f"/bookings/{booking_id}/hold", params=gap, cookies=request.cookies)
+        "Bookings", bookings.post(
+            f"/bookings/{booking_id}/hold", params=gap,
+            json=payload.model_dump(mode="json"), cookies=request.cookies,
+        )
     )
     if response.status_code == 200:
-        return response.json()
+        held = response.json()
+        notice = {
+            "recipient_id": held["coordinator_id"],
+            "event_id": held["event_id"],
+            "event_name": held["event_name"],
+            "kind": "venue_hold_expiry",
+            "message": (
+                f'The tentative hold for {held["venue_name"]} on '
+                f'{held["booking_date"]} from {str(held["start_time"])[:5]} '
+                f'to {str(held["end_time"])[:5]} will expire at '
+                f'{held["hold_expires_at"]} if it is not confirmed.'
+            ),
+            "deduplication_key": (
+                f'venue_hold_expiry:{held["id"]}:{held["hold_expires_at"]}'
+            ),
+        }
+        notified = await _call("Notifications", notifications.post(
+            "/internal/notifications", json={"notifications": [notice]},
+        ))
+        if notified.status_code != status.HTTP_201_CREATED:
+            logger.warning("Hold %s saved but its expiry notice could not be sent", held["id"])
+        return held
     conflict = _identified_conflict(response)
     if conflict:
         raise HTTPException(status_code=409, detail=conflict)

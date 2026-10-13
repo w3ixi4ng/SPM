@@ -107,7 +107,10 @@ def test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart(admin, p
         if status == "confirmed":
             row.update(decided_by=staff["id"], decided_at="2026-10-01T00:00:00+00:00")
         if status == "held":
-            row.update(held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00")
+            row.update(
+                held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00",
+                hold_expires_at="2099-01-01T04:00:00+00:00",
+            )
         admin.schema("bookings").table("bookings").insert(row).execute()
 
     booking(event_a, "09:00", "12:00", "confirmed")
@@ -202,6 +205,7 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     staff_page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     # S-75: the hold is placed on the request's own page.
     open_request(staff_page, first["name"])
+    staff_page.get_by_label("Hold expiry").fill("2099-01-01T12:00")
     staff_page.get_by_role("button", name="Place hold").click()
     expect(staff_page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
 

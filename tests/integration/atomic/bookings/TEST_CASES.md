@@ -169,6 +169,18 @@ its grants.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
 
+### TC-BOOKINGS-112 — an expired hold releases its slot before another hold
+
+- **Scenario:** S-81 expiry is enforced by the real bookings database and service.
+- **Pre-conditions:** `.env.test` stack; S-81 bookings migration applied, exposed and granted.
+- **Steps:** Create and hold request A; move its expiry into the past; list venue availability; create and hold overlapping request B.
+- **Test data:** Same venue and 12 Nov 2026, 09:00–12:00; A expiry one second in the past; B expiry 1 Jan 2099 12:00 Singapore time.
+- **Expected:** Listing invokes expiry and returns A as a retained pending audit row; live availability omits it, storage records `expired` and a release timestamp, and B can hold the same slot.
+- **Actual:** The expired row became a retained pending audit row with
+  `expired`; an overlapping request then acquired a new hold.
+- **Status:** Pass
+- **Evidence:** `test_availability.py::test_an_expired_hold_is_released_before_the_slot_is_claimed_again`; `.env.test` stack recreated immediately before, 2026-10-13; full `pytest tests/integration`: 56 passed, 5 skipped.
+
 ## S-33 — place tentative venue hold
 
 Story: S-33 Place Tentative Venue Hold.

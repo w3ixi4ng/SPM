@@ -914,3 +914,35 @@ follows. Their tests were updated and re-run with S-77, and pass:
 - **Actual:** `GET /blocks/{id}` `200` with times; unknown id `404` "Block not found"; the range list returned P and left out a period ending at 00:00 on `from`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_one_period_is_read_by_id`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_an_unknown_period_is_a_404`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_is_listed_for_a_range_it_touches`
+
+## S-81 — tentative venue holds expire
+
+**Story:** S-81 Place Tentative Venue Hold with Expiry. These cases extend
+S-33; all earlier release rules remain in force. The browser presents expiry
+times in Singapore time and the service stores a timezone-aware instant.
+
+### TC-BOOKINGS-051 — every hold needs a future expiry
+
+- **Scenario:** Venue Staff cannot create an indefinite or expired hold.
+- **Steps:** Place a hold with no expiry, a timezone-free expiry, a past expiry,
+  and `2026-11-12T10:00:00+08:00` while the server time is earlier.
+- **Expected:** The first three requests return `422` and do not update the
+  booking. The last stores `status=held`, server-owned audit fields, and the
+  same expiry instant.
+
+### TC-BOOKINGS-052 — expiry releases the slot before it is used
+
+- **Scenario:** An expired hold cannot block or become a confirmed booking.
+- **Steps:** Read availability and claim the same slot after the hold expires.
+- **Expected:** The old row becomes `pending`, with `hold_released_at` and
+  reason `expired`; it is absent from live availability and the claim succeeds.
+
+### TC-BOOKINGS-053 — released holds remain auditable
+
+- **Expected:** Manual, event-terminal, replacement and expiry releases retain
+  the hold timestamps and expiry; only an active `held` row is live.
+
+### TC-BOOKINGS-054 — concurrent expiry processing is idempotent
+
+- **Expected:** At most one conditional update wins; all callers see the slot
+  available and the first `expired` release audit is preserved.

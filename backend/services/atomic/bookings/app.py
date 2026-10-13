@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from supabase import Client
 
 from database import get_db
-from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision, HoldRelease
+from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision, HoldCreate, HoldRelease
 from security import require_user, require_venue_staff
 
 app = FastAPI(title="Bookings Service")
@@ -71,6 +71,17 @@ def _booking(db: Client, booking_id: UUID):
         db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(booking_id))
     )
     return result.data[0] if result.data else None
+
+
+def _expire_holds(db: Client) -> list[dict]:
+    """Release every due hold with a conditional update.
+
+    Calling this before every slot-sensitive operation makes expiry effective
+    even when nobody has the calendar open. The status predicate makes two
+    simultaneous callers idempotent.
+    """
+    result = _execute(db.schema(SCHEMA).rpc("expire_holds", {}))
+    return result.data or []
 
 
 class Gap(NamedTuple):
@@ -257,6 +268,7 @@ def decide_booking(
     gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
+    _expire_holds(db)
     booking = _booking(db, booking_id)
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
@@ -302,15 +314,24 @@ def decide_booking(
 @app.post("/bookings/{booking_id}/hold", response_model=BookingRead)
 def place_hold(
     booking_id: UUID,
+    payload: HoldCreate,
     staff=Depends(require_venue_staff),
     gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
+    _expire_holds(db)
+    now = datetime.now(timezone.utc)
+    if payload.expires_at.astimezone(timezone.utc) <= now:
+        raise HTTPException(status_code=422, detail="The hold expiry must be in the future")
     booking = _booking(db, booking_id)
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking["status"] == "held":
-        return booking
+        stored_expiry = datetime.fromisoformat(
+            str(booking.get("hold_expires_at", "")).replace("Z", "+00:00")
+        ) if booking.get("hold_expires_at") else None
+        if stored_expiry == payload.expires_at:
+            return booking
     if booking["status"] != "pending":
         raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
 
@@ -324,7 +345,8 @@ def place_hold(
     values = {
         "status": "held",
         "held_by": str(staff.id),
-        "held_at": datetime.now(timezone.utc).isoformat(),
+        "held_at": now.isoformat(),
+        "hold_expires_at": payload.expires_at.isoformat(),
         "hold_released_at": None,
         "hold_release_reason": None,
     }
@@ -387,6 +409,7 @@ def create_booking(
     gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
+    _expire_holds(db)
     values = payload.model_dump(mode="json")
     values["status"] = "pending"
     # Set here, never taken from the payload, so a request cannot be
@@ -444,6 +467,7 @@ def list_bookings(
         # Staff's clashes to review. Always bounded by a start date.
         if from_date is None:
             raise HTTPException(status_code=422, detail="Filter live bookings by from")
+        _expire_holds(db)
         operation = (
             db.schema(SCHEMA).table(TABLE).select("*")
             .in_("status", LIVE_STATUSES)
@@ -457,6 +481,7 @@ def list_bookings(
 
     if venue_id is not None or from_date is not None or to_date is not None:
         _date_range(venue_id, from_date, to_date)
+        _expire_holds(db)
         operation = (
             db.schema(SCHEMA).table(TABLE).select("*")
             .eq("venue_id", str(venue_id))
@@ -467,6 +492,8 @@ def list_bookings(
 
     if booking_status is None and event_id is None:
         raise HTTPException(status_code=422, detail="Filter by status or event_id")
+
+    _expire_holds(db)
 
     operation = db.schema(SCHEMA).table(TABLE).select("*")
     if booking_status == "actionable":
@@ -485,6 +512,7 @@ def get_booking(booking_id: UUID, db: Client = Depends(get_db)):
     booking's venue to pass that venue's setup and turnaround times to a
     hold or decision, and Venue Staff open each request on its own page.
     Internal, like the other reads: the composite checks the caller's role."""
+    _expire_holds(db)
     booking = _booking(db, booking_id)
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")

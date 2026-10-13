@@ -1037,3 +1037,18 @@ Coordinator.
 - **Actual:** The Coordinator saw all five indicators, three implemented areas complete, and two future areas unavailable. After preparation changed to In Progress and the page reloaded, the total changed to 2 of 3 and Technical support became Outstanding.
 - **Status:** Pass
 - **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
+
+## TC-E2E-235 — a tentative hold expires and releases its slot
+
+- **Scenario:** Venue Staff place a visibly tentative hold with a required
+  expiry; its Coordinator is informed before it expires and the same
+  venue/time becomes available again.
+- **Expected:** Blank expiry is refused; the request and calendar show the
+  hold and expiry distinctly; the Coordinator receives an expiry notice; the
+  calendar removes the hold after expiry without manual release and storage
+  records `expired`.
+- **Actual:** Chromium refused a blank expiry, displayed the active hold and
+  expiry, showed the Coordinator notice, and showed the slot as available
+  after automatic expiry; storage recorded `pending/expired`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_tentative_hold_expiry.py::test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot`; `.env.test` stack recreated immediately before, 2026-10-13; full suite reached 35 passed with only this new assertion pending, then the corrected S-81 journey passed on its complete focused rerun (all 36 journeys passed).

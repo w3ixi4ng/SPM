@@ -42,7 +42,7 @@ RoomLayout = Literal[
 
 # S-36 creates pending requests; S-37 records final staff decisions.
 BookingStatus = Literal["pending", "held", "confirmed", "rejected"]
-HoldReleaseReason = Literal["staff_released", "event_rejected", "event_cancelled", "booking_replaced"]
+HoldReleaseReason = Literal["staff_released", "event_rejected", "event_cancelled", "booking_replaced", "expired"]
 
 
 def _unique_in_order(values: list) -> list:
@@ -113,6 +113,7 @@ class BookingRead(BaseModel):
     decided_at: datetime | None = None
     held_by: UUID | None = None
     held_at: datetime | None = None
+    hold_expires_at: datetime | None = None
     hold_released_at: datetime | None = None
     hold_release_reason: HoldReleaseReason | None = None
     id: UUID
@@ -226,3 +227,18 @@ class HoldRelease(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: HoldReleaseReason
+
+
+class HoldCreate(BaseModel):
+    """A hold always ends at an explicit, timezone-aware instant."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expires_at: datetime
+
+    @field_validator("expires_at")
+    @classmethod
+    def expiry_has_timezone(cls, value: datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expires_at must include a timezone")
+        return value
