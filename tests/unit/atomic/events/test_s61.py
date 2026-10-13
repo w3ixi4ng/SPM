@@ -320,3 +320,43 @@ def test_a_pending_or_approved_request_still_blocks_another(client, db, auth, ev
     assert response.status_code == 409
     assert response.json()["detail"] == detail
     _update(db).assert_not_called()
+
+
+# --- TC-EVENTS-139 ---------------------------------------------------------
+FULL_SUBMISSION = {
+    "name": "Alumni networking evening",
+    "purpose": "Reconnect graduates with faculty",
+    "start_date": "2026-11-12",
+    "start_time": "09:00",
+    "end_date": "2026-11-12",
+    "end_time": "18:00",
+    "expected_attendance": 120,
+}
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "detail"),
+    [
+        ("patch", f"/events/{EVENT_ID}", {"name": "New name"},
+         "This event has been cancelled and is closed."),
+        ("patch", f"/events/{EVENT_ID}/internal", {"name": "New name", "organiser_id": ORGANISER_ID},
+         "This event has been cancelled and is closed."),
+        ("post", f"/events/{EVENT_ID}/submit", FULL_SUBMISSION,
+         "Event has already been submitted"),
+    ],
+    ids=["edit", "edit-internal", "resubmit"],
+)
+def test_a_cancelled_event_cant_be_edited_or_resubmitted(client, db, auth, method, path, body, detail):
+    authenticate(client, auth)
+    on_owned_select(db, [_event(
+        "cancelled",
+        cancellation_decision="approved",
+        cancellation_decided_by=COORDINATOR_A,
+        cancellation_decided_at="2026-10-11T10:00:00+00:00",
+    )])
+
+    response = getattr(client, method)(path, json=body)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == detail
+    _update(db).assert_not_called()

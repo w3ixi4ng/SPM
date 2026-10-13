@@ -448,6 +448,10 @@ def get_event(
     return _get_owned_event(event_id, str(user.id), db)
 
 
+# S-61: shared by both edit routes below.
+_CANCELLED_CLOSED = "This event has been cancelled and is closed."
+
+
 @app.patch("/events/{event_id}", response_model=EventRead)
 def update_event(
     event_id: UUID,
@@ -463,6 +467,9 @@ def update_event(
     # with it no longer being editable.
     if existing["status"] == "rejected":
         raise HTTPException(status_code=409, detail="This request has been rejected and is closed")
+    # S-61: a cancelled event is over too.
+    if existing["status"] == "cancelled":
+        raise HTTPException(status_code=409, detail=_CANCELLED_CLOSED)
 
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
@@ -1145,6 +1152,9 @@ def update_event_internal(
 
     if existing["status"] == "rejected":
         raise HTTPException(status_code=409, detail="This request has been rejected and is closed")
+    # S-61: a cancelled event is over too.
+    if existing["status"] == "cancelled":
+        raise HTTPException(status_code=409, detail=_CANCELLED_CLOSED)
 
     changes = payload.model_dump(exclude_unset=True, mode="json", exclude={"organiser_id"})
     if not changes:

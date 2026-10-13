@@ -525,7 +525,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

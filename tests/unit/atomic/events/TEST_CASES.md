@@ -2076,3 +2076,21 @@ decision.
 - **Actual:** After a decline the new request returned `200`, cleared all four decision fields, and was guarded by an absent-or-declined request; pending and approved still returned their `409`s.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_after_a_decline_the_organiser_can_request_again`; `tests/unit/atomic/events/test_s61.py::test_a_pending_or_approved_request_still_blocks_another`
+
+## TC-EVENTS-139 — a cancelled event can't be edited or resubmitted
+
+- **Scenario:** A cancelled event is closed, at the service as well as in
+  the page (S-61; added 2026-10-13 at the developer's request, after the
+  page was locked for cancelled events).
+- **Pre-conditions:** Organiser O signed in; the owned-event lookup returns E
+  `cancelled`.
+- **Steps:**
+  1. `PATCH /events/E` `{"name": "New name"}`.
+  2. The same through `PATCH /events/E/internal` with `organiser_id` O.
+  3. `POST /events/E/submit` with a full valid body.
+- **Expected:** 1 and 2 → `409` "This event has been cancelled and is
+  closed."; 3 → `409` "Event has already been submitted.". No update in any
+  case.
+- **Actual:** Editing through both routes returned `409` "This event has been cancelled and is closed."; resubmitting returned `409` "Event has already been submitted"; no update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_cancelled_event_cant_be_edited_or_resubmitted`; `pytest tests/unit`: 964 passed, 17 skipped, 2026-10-13.
