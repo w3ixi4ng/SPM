@@ -1,23 +1,20 @@
-import { ListChecks, LogOut, Plus } from 'lucide-react'
+import { AlertTriangle, ChevronRight, ListChecks, LogOut, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
-import BookingDecisionForm from '../components/BookingDecisionForm.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
-  bookingDateLabel,
-  bookingStatusMeta,
-  holdActionErrorMessage,
+  clashPairLabel,
+  clashReviewHeading,
+  getClashesToReview,
   listPendingVenueBookings,
-  placeVenueHold,
   pendingListErrorMessage,
-  releaseVenueHold,
-  shortTime,
+  pendingRequestPath,
+  pendingRequestSummary,
 } from '../lib/venueBookings.js'
-import { optionLabel } from '../lib/venues.js'
 
 const C = {
   ink: '#10192B',
@@ -63,84 +60,40 @@ function usePendingBookings(enabled) {
   return { ...state, reload }
 }
 
-function Detail({ label, value }) {
-  if (!value) return null
+// S-75: one row per request. The details, hold and decision are on the
+// request's own page, so the list stays short.
+function PendingBooking({ booking }) {
+  const summary = pendingRequestSummary(booking)
   return (
-    <p className="font-ui text-sm" style={{ color: C.ink }}>
-      <span style={{ color: C.inkFaint }}>{label}: </span>
-      {value}
-    </p>
-  )
-}
-
-function listLabel(codes) {
-  return codes.length > 0 ? codes.map(optionLabel).join(', ') : null
-}
-
-function PendingBooking({ booking, canDecide, canManageHolds, onDecided }) {
-  const [holdSaving, setHoldSaving] = useState(false)
-  const [holdError, setHoldError] = useState(null)
-  const status = bookingStatusMeta(booking.status)
-
-  async function changeHold() {
-    setHoldSaving(true)
-    setHoldError(null)
-    try {
-      const updated = booking.status === 'held'
-        ? await releaseVenueHold(booking.id)
-        : await placeVenueHold(booking.id)
-      onDecided(updated)
-    } catch (failure) {
-      setHoldError(holdActionErrorMessage(failure))
-      setHoldSaving(false)
-    }
-  }
-
-  return (
-    <li className="py-5 first:pt-0 last:pb-0" style={{ borderColor: C.line }}>
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
-        <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>
-          {booking.event_name}
-          <span style={{ color: C.inkFaint }}> at </span>
-          {booking.venue_name}
-        </h3>
-        <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0 mt-1" style={{ color: status.color }}>
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} aria-hidden="true" />
-          {status.label}
+    <li style={{ borderColor: C.line }}>
+      <Link
+        to={pendingRequestPath(booking)}
+        className="csp-request-row flex flex-wrap items-center justify-between gap-x-6 gap-y-1 py-4 px-3 -mx-3 rounded-sm"
+        aria-label={`Review ${summary.title}, ${summary.line}, ${summary.status.label}${summary.clash ? ', clashes with another booking' : ''}`}
+      >
+        <span className="min-w-0">
+          <span className="block font-ui text-base font-medium" style={{ color: C.ink }}>{summary.title}</span>
+          <span className="block font-ui text-sm" style={{ color: C.inkFaint }}>{summary.line}</span>
         </span>
-      </div>
-      <p className="font-ui text-sm mb-2" style={{ color: C.ink }}>
-        {bookingDateLabel(booking.booking_date)} · {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
-        {' · '}
-        {booking.expected_attendance} expected
-        {booking.room_layout && ` · ${optionLabel(booking.room_layout)}`}
-      </p>
-      <div className="space-y-0.5">
-        <Detail label="Purpose" value={booking.event_purpose} />
-        <Detail label="Facilities" value={listLabel(booking.required_facilities)} />
-        <Detail label="Accessibility" value={listLabel(booking.required_accessibility)} />
-        <Detail label="Other requirements" value={booking.special_requirements} />
-        <Detail label="Notes" value={booking.notes} />
-      </div>
-      <p className="font-ui text-xs mt-2" style={{ color: C.inkFaint }}>
-        Requested by {booking.coordinator_name} ({booking.coordinator_email})
-      </p>
-      {canManageHolds && (
-        <div className="mt-4">
-          <button type="button" disabled={holdSaving} onClick={changeHold}
-            className="px-4 py-2 rounded-sm border font-ui text-sm disabled:opacity-60"
-            style={{ borderColor: C.amber, color: C.amber }}>
-            {holdSaving ? 'Saving…' : booking.status === 'held' ? 'Release hold' : 'Place hold'}
-          </button>
-          {holdError && <p role="alert" className="font-ui text-sm mt-2" style={{ color: C.rose }}>{holdError}</p>}
-        </div>
-      )}
-      {canDecide && <BookingDecisionForm booking={booking} onDecided={onDecided} />}
+        <span className="flex items-center gap-4 font-ui text-xs shrink-0">
+          {summary.clash && (
+            <span className="inline-flex items-center gap-1" style={{ color: C.rose }}>
+              <AlertTriangle size={13} aria-hidden="true" />
+              {summary.clash}
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5" style={{ color: summary.status.color }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: summary.status.color }} aria-hidden="true" />
+            {summary.status.label}
+          </span>
+          <ChevronRight size={16} aria-hidden="true" style={{ color: C.inkFaint }} />
+        </span>
+      </Link>
     </li>
   )
 }
 
-function PendingBookings({ bookings, loading, error, onRetry, canDecide, canManageHolds, onDecided }) {
+function PendingBookings({ bookings, loading, error, onRetry }) {
   if (loading) {
     return <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading booking requests…</p>
   }
@@ -163,8 +116,101 @@ function PendingBookings({ bookings, loading, error, onRetry, canDecide, canMana
   }
   return (
     <ul className="divide-y" aria-label="Pending booking requests">
-      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} canDecide={canDecide} canManageHolds={canManageHolds} onDecided={onDecided} />)}
+      {bookings.map((booking) => <PendingBooking key={booking.id} booking={booking} />)}
     </ul>
+  )
+}
+
+// S-76: every venue's clashing bookings, worked out on each load, so a clash
+// stays here until Staff resolve it. Read-only: nothing is changed.
+function useClashesToReview(enabled) {
+  const [state, setState] = useState({ venues: [], loading: enabled, error: null })
+
+  const load = useCallback(() => getClashesToReview().then(
+    ({ venues }) => ({ venues, loading: false, error: null }),
+    (error) => ({ venues: [], loading: false, error: pendingListErrorMessage(error) }),
+  ), [])
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    let active = true
+    load().then((next) => { if (active) setState(next) })
+    return () => { active = false }
+  }, [enabled, load])
+
+  const reload = useCallback(() => {
+    setState((current) => ({ ...current, loading: true, error: null }))
+    load().then(setState)
+  }, [load])
+  return { ...state, reload }
+}
+
+function ClashesToReview({ venues, error, onRetry }) {
+  return (
+    <section className="max-w-3xl mb-12" aria-labelledby="clashes-heading">
+      <h2 id="clashes-heading" className="font-display text-3xl mb-2" style={{ color: C.ink }}>
+        Clashes to review
+      </h2>
+      {error ? (
+        <div className="font-ui text-sm" style={{ color: C.rose }}>
+          <p role="alert">{error}</p>
+          <button type="button" onClick={onRetry} className="underline mt-1" style={{ color: C.teal }}>
+            Try again
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="font-ui text-sm leading-relaxed max-w-md mb-6" style={{ color: C.inkFaint }}>
+            These bookings overlap once each venue&apos;s setup and turnaround times are counted.
+            Nothing has been changed or cancelled. Rearrange them with their Coordinators.
+          </p>
+          <ul className="divide-y" aria-label="Clashes to review">
+            {venues.map((venue) => (
+              <li key={venue.venue_id} className="py-4 first:pt-0" style={{ borderColor: C.line }}>
+                <h3 className="flex items-center gap-2 font-ui text-base font-medium" style={{ color: C.ink }}>
+                  <AlertTriangle size={16} aria-hidden="true" style={{ color: C.rose }} />
+                  {clashReviewHeading(venue)}
+                </h3>
+                <ul className="list-disc pl-6 mt-1 space-y-0.5 font-ui text-sm" style={{ color: C.inkFaint }}>
+                  {venue.pairs.map((pair) => (
+                    <li key={`${pair.first.id}-${pair.second.id}`}>{clashPairLabel(pair)}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  )
+}
+
+// S-75: right after Staff change a venue's setup/turnaround, the bookings
+// those times now make clash. Nothing has been changed or removed.
+function ClashList({ clashes, onDismiss }) {
+  const { venue, pairs } = clashes
+  return (
+    <div className="rounded-sm px-4 py-3 mb-6 font-ui text-sm" style={{ backgroundColor: C.paperDim, color: C.ink }}>
+      {pairs.length === 0 ? (
+        <p>No bookings at {venue || 'this venue'} clash under the new setup and turnaround times.</p>
+      ) : (
+        <>
+          <p className="flex items-center gap-2 font-medium mb-1" style={{ color: C.rose }}>
+            <AlertTriangle size={16} aria-hidden="true" />
+            {pairs.length === 1 ? '1 pair of bookings' : `${pairs.length} pairs of bookings`} at {venue || 'this venue'} now clash
+          </p>
+          <ul className="list-disc pl-5 space-y-0.5" aria-label="Clashing bookings">
+            {pairs.map((pair) => <li key={`${pair.first.id}-${pair.second.id}`}>{clashPairLabel(pair)}</li>)}
+          </ul>
+          <p className="mt-1" style={{ color: C.inkFaint }}>
+            Nothing has been changed or cancelled. Their Coordinators see a warning on their events.
+          </p>
+        </>
+      )}
+      <button type="button" onClick={onDismiss} className="underline mt-2 font-ui text-xs" style={{ color: C.teal }}>
+        Dismiss
+      </button>
+    </div>
   )
 }
 
@@ -175,11 +221,17 @@ export default function VenueStaffDashboard({ role }) {
   const canAdd = hasPermission(role, PERMISSIONS.CREATE_VENUE)
   const canSeePending = hasPermission(role, PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS)
   const pending = usePendingBookings(canSeePending)
+  const review = useClashesToReview(canSeePending)
   const { venues, loading, error, reload } = useVenueList()
   const location = useLocation()
   // Set by the venue form after a save. Read once, then cleared from history
   // so a reload or Back does not announce the same save again.
   const [notice, setNotice] = useState(location.state?.notice ?? null)
+  // S-75: bookings the venue form's new setup/turnaround times make clash.
+  // Kept until dismissed: Staff need them to rearrange the bookings.
+  const [clashes, setClashes] = useState(
+    location.state?.clashes ? { venue: location.state.clashVenue, pairs: location.state.clashes } : null,
+  )
 
   useEffect(() => {
     if (location.state?.notice) {
@@ -214,6 +266,9 @@ export default function VenueStaffDashboard({ role }) {
           transition: background-color 0.2s, color 0.2s;
         }
         .csp-signout-btn:hover { background-color: ${C.ink}; color: ${C.paper}; }
+        .csp-request-row { transition: background-color 0.2s; }
+        .csp-request-row:hover { background-color: ${C.paperDim}; }
+        .csp-request-row:focus-visible,
         .csp-signout-btn:focus-visible,
         .csp-primary-btn:focus-visible {
           outline: 2px solid ${C.teal};
@@ -262,11 +317,12 @@ export default function VenueStaffDashboard({ role }) {
               loading={pending.loading}
               error={pending.error}
               onRetry={pending.reload}
-              canDecide={hasPermission(role, PERMISSIONS.DECIDE_VENUE_BOOKING)}
-              canManageHolds={hasPermission(role, PERMISSIONS.MANAGE_VENUE_HOLDS)}
-              onDecided={() => { setNotice('Booking decision saved.'); pending.reload() }}
             />
           </section>
+        )}
+
+        {canSeePending && !review.loading && (review.error || review.venues.length > 0) && (
+          <ClashesToReview venues={review.venues} error={review.error} onRetry={review.reload} />
         )}
 
         <section className="max-w-3xl mb-12" aria-labelledby="venues-heading">
@@ -288,6 +344,7 @@ export default function VenueStaffDashboard({ role }) {
           <div role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>
             {notice}
           </div>
+          {clashes && <ClashList clashes={clashes} onDismiss={() => setClashes(null)} />}
           <VenueList
             canEdit={hasPermission(role, PERMISSIONS.UPDATE_VENUE)}
             canViewAvailability={hasPermission(role, PERMISSIONS.VIEW_VENUE_AVAILABILITY)}

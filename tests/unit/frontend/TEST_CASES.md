@@ -4,6 +4,9 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_equipment_requirements.mjs`, `test_venues.mjs`,
 `test_venue_bookings.mjs`, `test_booking_decision.mjs`, `test_venue_update.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
+S-83 adds `test_event_assignments.mjs` and `test_notifications.mjs`; S-84
+adds `test_event_reassignments.mjs`; S-85 adds
+`test_coordinator_overview.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -11,18 +14,18 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
-| Environment | Node.js v22.16.0; no network or Supabase |
-| Result | 64 passed |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Environment | Node.js; no network or Supabase |
+| Result | 119 passed |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
 - **Scenario:** Every trusted project role resolves to its own dashboard path.
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Read each role's configured dashboard path.
-- **Test data:** All five supported role names.
-- **Expected:** Five distinct, role-appropriate `/dashboard/...` paths.
-- **Actual:** All five roles resolved to distinct expected dashboard paths.
+- **Test data:** All six supported role names.
+- **Expected:** Six distinct, role-appropriate `/dashboard/...` paths.
+- **Actual:** All six roles resolved to distinct expected dashboard paths.
 - **Status:** Pass
 - **Evidence:** `test_access.mjs` — `every supported role has its own dashboard`
 
@@ -133,7 +136,7 @@ RBAC, and validation remain authoritative.
   venues service allows (S-27).
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Check `venues:create` and `venues:view` for every supported role.
-- **Test data:** All five supported role names.
+- **Test data:** All six supported role names.
 - **Expected:** `venue_staff` has both; `event_coordinator` has
   `venues:view` only; `event_organiser`, `technical_support` and `attendee`
   have neither.
@@ -200,7 +203,7 @@ RBAC, and validation remain authoritative.
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Check every `events:*` permission the coordinator role holds,
   against every supported role.
-- **Test data:** Five roles and `event_coordinator`'s `events:*` permissions.
+- **Test data:** Six roles and `event_coordinator`'s `events:*` permissions.
 - **Expected:** True for `event_coordinator`, false for every other role.
 - **Actual:** As expected.
 - **Status:** Pass
@@ -464,7 +467,7 @@ says.
 - **Pre-conditions:** The frontend access mapping is loaded.
 - **Steps:** Check `venue_bookings:create` and
   `venue_bookings:view_pending` for every supported role.
-- **Test data:** All five supported role names.
+- **Test data:** All six supported role names.
 - **Expected:** `event_coordinator` has `venue_bookings:create` only.
   `venue_staff` has `venue_bookings:view_pending` only. `event_organiser`,
   `technical_support` and `attendee` have neither.
@@ -852,7 +855,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Scenario:** Decision form validation and permissions match backend policy (AC1, AC2).
 - **Pre-conditions:** Pure frontend helpers loaded; no network.
 - **Steps:** 1. Validate approval and rejection variants.
-  2. Check all five role permissions.
+  2. Check all six role permissions.
 - **Test data:** approved with no reason; rejected with reason='Repairs', alternative='Try Studio C', both, or whitespace only.
 - **Expected:** Only Venue Staff receive decision permission. Approval needs no text; rejection requires one trimmed nonblank field. Unknown decisions invalid.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
@@ -911,6 +914,15 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 
 Story: S-38 Prevent Overlapping Booking Confirmation.
 Confirmed by the developer on 2026-09-29. Back-to-back bookings are allowed.
+
+> **Superseded in part by S-76 (2026-10-09).** Where S-38 and S-76 differ,
+> S-76 applies: two bookings overlap when their *occupied periods* (start −
+> setup to end + turnaround) overlap, so back-to-back is allowed only when
+> the venue's setup and turnaround are 0 or the occupied periods just touch;
+> and Venue Staff's refusal now reads "Can't confirm this booking: it
+> overlaps <event> (<status>), which occupies <venue> on <date> from … to …"
+> (TC-BOOKINGS-042). These cases still pass as written: they use no setup or
+> turnaround, and the new message still identifies the venue, date and time.
 
 ### TC-FRONTEND-056 — An overlapping confirmation displays the identified conflict
 
@@ -1233,6 +1245,10 @@ is open `mon`–`fri` `08:00`–`18:00`.
   does this for every `409`. The decision helper, which today recognises only
   "already confirmed", now also recognises "is unavailable from". Other `409`s
   still say "This request has already been decided…".
+  *S-76 (2026-10-09), which supersedes S-38 where they differ:* the decision
+  helper passes S-76's "Can't confirm this booking: it overlaps …" detail
+  instead of S-38's "… is already confirmed on …"; a Coordinator's request
+  keeps the S-38/S-30 wording.
 - **Actual:** All three details returned exactly; the decision helper returned the block and S-38 details, and the generic message otherwise.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_venue_availability.mjs — hold and block conflicts are shown in the server's words`
@@ -1408,3 +1424,469 @@ Specification updated by the developer on 2026-10-05.
   unit tests passed.
 - **Status:** Pass
 - **Evidence:** `test_technical_support_assignment.mjs` — `assigned event failures stay distinct from an empty workload`; `node --test tests/unit/frontend/test_*.mjs`: 97 passed.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** TC-FRONTEND-081–084 and TC-E2E-226 were
+> already in use (S-43 on `main`, S-83 on `sprint3`). S-75's cases with
+> those numbers are now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep
+> theirs.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+Studio B: open `thu` 08:00–20:00, setup 30, turnaround 45.
+
+## TC-FRONTEND-088 — the venue form records both times as hours and minutes, digits only
+
+> **Changed by the developer on 2026-10-08:** each time is entered as two
+> boxes, hours and minutes, that accept digits only. They are still stored
+> and sent as total minutes.
+
+- **Steps:** Build an empty venue form and an edit form from a venue with
+  30/45. Check what `digitsOnly` keeps from `"1a-2.5 e"`. Validate with a
+  blank box, minutes `60` and `59`. Build a payload with 0 h 30 min and
+  1 h 15 min.
+- **Expected:**
+  - An empty form starts at 0 h 0 min for both; the edit form loads 0 h 30
+    min and 0 h 45 min (135 minutes would be 2 h 15 min).
+  - Only digits get into a box: `"125"`.
+  - A blank box → "Enter whole hours and minutes, 0 or more." on that time;
+    minutes `60` → "Minutes must be between 0 and 59."; `59` is fine.
+  - Payloads send total minutes: 30 and 75.
+- **Actual:** As expected on both forms.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the venue form records both times as hours and minutes, digits only`
+
+## TC-FRONTEND-089 — the request screen applies setup and turnaround to opening hours
+
+- **Steps:** `venueFit` and the "open then" filter for Studio B on a Thursday
+  at 08:00–10:00, 08:30–10:00 and 18:00–19:30.
+- **Expected:** 08:30–10:00 fits. The others give "Open 08:00–20:00 on
+  Thursdays, with 30 min setup and 45 min turnaround" and are filtered out
+  when "open then" is on. A venue with 0/0 behaves as before.
+- **Actual:** 08:30–10:00 fits; 08:00 and 19:30 gave the specified problem and were filtered out; 0/0 behaves as before.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the request screen applies setup and turnaround to opening hours`
+
+## TC-FRONTEND-090 — the calendar shows the event's time and the venue's time in use
+
+- **Steps:** Build the 2026-11-12 day for Studio B with A confirmed and B held.
+- **Expected:** "Booked 10:00–12:00 · venue in use 09:30–12:45" and
+  "Tentatively held 12:30–14:00 · venue in use 12:00–14:45". With 0/0 there
+  is no "venue in use" part. `setupTurnaroundLabel` reads "Setup 30 min ·
+  Turnaround 45 min".
+- **Actual:** Both labels as specified; no "venue in use" with 0/0; "Setup 30 min · Turnaround 45 min".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the calendar shows the event time and the time the venue is in use`
+
+## TC-FRONTEND-091 — a clashing booking shows a warning to its Coordinator
+
+- **Steps:** `bookingClashMessage(booking)` for B with the clash from
+  TC-VENUEBOOKINGS-053, and for a booking with `clashes: []`.
+- **Expected:** "Clashes with another confirmed booking on 12 Nov 2026,
+  10:00–12:00 (venue in use 09:30–12:45) under Studio B's setup and
+  turnaround times. Contact Venue Staff to rearrange." — and `null` with no
+  clashes.
+- **Actual:** The specified warning; null with no clashes.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — a clashing booking shows a warning to its Coordinator`
+
+## TC-FRONTEND-085 — Venue Staff see the clashes after saving
+
+- **Steps:** `getVenueClashes(venueId)` with a fake `fetch`; then
+  `clashPairLabel(pair)` for the A–B pair.
+- **Expected:** `GET /api/venue-bookings/clashes?venue_id=…` with credentials.
+  The label reads "Alumni talk (Confirmed, 10:00–12:00) and Board lunch
+  (Tentatively held, 12:30–14:00) on 12 Nov 2026". ("Tentatively held" is the
+  app's existing label for a held request since S-33; the confirmed draft
+  said "Held".)
+- **Actual:** The specified request with credentials; the pair label as specified, with "Tentatively held".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — Venue Staff see the clashes after saving`
+
+## TC-FRONTEND-086 — each pending request is one compact row that opens its page
+
+- **Steps:** `pendingRequestSummary(booking)` for pending D and held B (with
+  its clash), and `pendingRequestPath(booking)`.
+- **Expected:** D → title "Alumni talk", line "Studio B · 12 Nov 2026,
+  12:15–12:45", status "Pending". B → status "Tentatively held" (the app's
+  label for held since S-33; the confirmed draft said "Held") and the flag
+  "Clash".
+  The path is `/venue-bookings/{id}`. No decision or hold controls are part of
+  the row.
+- **Actual:** D and B summaries as specified (B "Tentatively held" with "Clash"); path `/venue-bookings/b1`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — each pending request is one compact row that opens its page`
+
+## TC-FRONTEND-087 — the request page is Venue Staff only, and a decision returns to the list once
+
+- **Steps:** Check `PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS` for each role;
+  call `decisionNotice("approved", booking)` and `decisionNotice("rejected",
+  booking)`.
+- **Expected:** Only `venue_staff` can open `/venue-bookings/:id`. The notices
+  read "Booking for Alumni talk at Studio B confirmed." and "… rejected." —
+  shown once on the dashboard after returning, then cleared, so a reload does
+  not repeat it.
+- **Actual:** Only venue_staff can open the page; both notices read as specified.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_setup_turnaround.mjs — the request page is Venue Staff only, and a decision notice reads once`
+
+## S-83 — Assign Event Requests from Unassigned Queue
+
+Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
+and both in-app notification recipients confirmed by the developer on
+2026-10-08. Executed in the full Node unit run on 2026-10-08.
+
+> **Renumbered 2026-10-08 from TC-FRONTEND-081–084:** S-43 had already used
+> TC-FRONTEND-081–083 on `main`. Cases are now TC-FRONTEND-092–095, in the
+> same order.
+
+### TC-FRONTEND-092 — Lead access and routes fail closed for every other role
+
+- **Scenario:** Only the Event Coordinator Lead receives queue and assignment
+  controls.
+- **Pre-conditions:** Frontend role/access helpers loaded.
+- **Steps:** Inspect dashboard path and permissions for every recognized role.
+- **Test data:** `event_coordinator_lead`, `event_coordinator`,
+  `event_organiser`, `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** The Lead resolves to `/dashboard/event-coordinator-lead` and
+  has view-unassigned and assign-event permissions. No other role has either
+  permission; unknown roles resolve to no access.
+- **Actual:** Only the Lead received both permissions and its dedicated dashboard; all other roles failed closed.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs` — “only coordinator leads can view and assign the unassigned queue”
+
+### TC-FRONTEND-093 — queue and assignment helpers preserve the API contract
+
+- **Scenario:** Browser helpers use credentialled S-83 endpoints without
+  adding protected assignment or organiser data.
+- **Pre-conditions:** Mocked `requestJSON`/fetch.
+- **Steps:** List the queue, list coordinator choices, and assign one event.
+- **Test data:** Event and coordinator ids from the S-83 unit specification.
+- **Expected:** GETs target `/event-requests/unassigned` and
+  `/event-requests/coordinators`; assignment posts only
+  `{"coordinator_id":"<id>"}` to
+  `/event-requests/{event_id}/assignment`. `401`, `403`, `404`, `409`, `422`,
+  `5xx`, and network failures produce explicit messages and never update the
+  local queue as if assignment succeeded.
+- **Actual:** Both list calls and the assignment POST used credentialled Kong paths and only the Coordinator id body; error mappings were actionable.
+- **Status:** Pass
+- **Evidence:** `test_event_assignments.mjs` — “lead assignment helpers use the composite routes through Kong”
+
+### TC-FRONTEND-094 — the Lead can review basic information and assign from the queue
+
+- **Scenario:** The Lead dashboard exposes the confirmed decision workflow.
+- **Pre-conditions:** Queue has `Autumn Forum`; coordinator choices A and B;
+  assignment to B succeeds.
+- **Steps:** Render the dashboard, inspect the request, select B, assign, and
+  inspect the resulting list.
+- **Test data:** Event `2026-10-20 18:00`–`21:00`, attendance `120`, organiser
+  `Ada Organiser`; coordinators A and B.
+- **Expected:** The card displays event name, complete start/end, attendance,
+  and organiser. The select contains A and B. Successful assignment announces
+  B accessibly and removes the event from the queue without a page reload. An
+  empty queue has a clear empty state; loading and retryable errors are shown.
+- **Actual:** The dashboard contract includes every required field, Coordinator choices, accessible feedback, empty/error states, and removal after confirmed success.
+- **Status:** Pass
+- **Evidence:** `test_event_assignments.mjs` — “lead queue presents the required details and removes an assigned card”
+
+### TC-FRONTEND-095 — organiser and coordinator dashboards display persistent notifications
+
+- **Scenario:** Both confirmed recipients can see assignment notifications
+  after navigation or reload.
+- **Pre-conditions:** The notifications helper returns the recipient's saved
+  assignment notification.
+- **Steps:** Render organiser and coordinator dashboards, then rerender after
+  a simulated reload; separately render an empty inbox and a failed request.
+- **Test data:** `Autumn Forum has been assigned to Alex Coordinator`, event id,
+  and created timestamp.
+- **Expected:** Each recipient dashboard shows a labelled notification region
+  containing the saved message and timestamp on both renders. Empty state is
+  unobtrusive; a failed request shows an error rather than pretending the
+  inbox is empty. No email/external delivery helper exists.
+- **Actual:** Both recipient dashboards render the shared server-backed inbox with message/time, loading, empty, and error states; no external delivery helper exists.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs` — “organiser and coordinator dashboards render the persistent inbox states”
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0: `node --test tests/unit/frontend/test_*.mjs` 113 passed.
+
+### TC-FRONTEND-096 — a refused approval or hold shows which booking is in the way
+
+- **Expected:** Each active card in the coordinator oversight section shows
+  event, organiser, current Coordinator, and a choice containing every other
+  Coordinator. Successful reassignment updates the displayed owner/version
+  without reload; the same owner cannot be selected and stale conflicts ask
+  the Lead to reload.
+- **Actual:** The assigned-event cards show both people, exclude the current
+  owner from choices, update locally after success, and expose empty/loading
+  states.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_booking_conflicts.mjs — a refused approval or hold shows which booking is in the way`
+
+### TC-FRONTEND-097 — Venue Staff's clashes to review are fetched and labelled
+
+- **Scenario:** The dashboard's standing review list (S-76 AC5).
+- **Steps:** `getClashesToReview()` with a fake `fetch`; then
+  `clashReviewHeading(venue)` for Studio B with one pair and for Hall C with
+  two.
+- **Expected:** `GET /api/venue-bookings/clashes` with credentials and no
+  `venue_id`. Headings: "Studio B · 1 pair · setup 30 min, turnaround 45 min"
+  and "Hall C · 2 pairs · setup 15 min, turnaround 15 min". Each pair still
+  reads as `clashPairLabel` (TC-FRONTEND-085).
+- **Actual:** `GET /api/venue-bookings/clashes` with credentials and no `venue_id`; both headings and the pair label as specified.
+- **Status:** Pass
+- **Evidence:** `test_event_reassignments.mjs::reassignment uses the persistent in-app inbox`
+
+## S-85 — coordinator oversight
+
+Story: S-85 View Coordinator Assignments and Active Events. Acceptance
+criteria and test cases confirmed by the developer on 2026-10-09. Executed
+in the full Node unit run on 2026-10-09.
+
+### TC-FRONTEND-096 — overview helper preserves the read-only API contract
+
+- **Expected:** The browser performs one credentialled `GET` to
+  `/event-requests/coordinator-overview`. It sends no body and exposes no S-85
+  write helper. `401`, `403`, and service failures map to actionable Lead
+  messages.
+- **Actual:** One credentialled bodyless GET used the overview route; explicit
+  session, role, and service errors were mapped without adding a write helper.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::overview helper uses the credentialled read-only route`
+
+### TC-FRONTEND-097 — populated overview groups events and shows counts
+
+- **Expected:** The Lead dashboard renders every Coordinator group, including
+  count zero, and shows each event's name, status, organiser, complete
+  date/time window, and current Coordinator. The five active statuses are
+  presentable. Existing S-83 queue and S-84 reassignment controls remain.
+- **Actual:** The dashboard contract includes grouped Coordinator identity and
+  counts plus every confirmed event field, while retaining queue and
+  reassignment controls.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::lead dashboard renders grouped assignments and required summaries`
+
+### TC-FRONTEND-098 — reassignment moves an event and updates both counts
+
+- **Expected:** After the existing versioned S-84 reassignment succeeds, the
+  event is removed from its former group, inserted under the new Coordinator,
+  and both `active_assignment_count` values update without reload.
+- **Actual:** The pure state transition removed the event from A, inserted the
+  merged version under B, and changed counts from 1/0 to 0/1.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::successful reassignment updates oversight groups and counts`
+
+### TC-FRONTEND-099 — loading, empty, and controlled failure states are distinct
+
+- **Expected:** Initial loading is announced; an empty Coordinator pool and a
+  Coordinator with no assignments have clear non-error messages; an upstream
+  failure presents a retry control and never masquerades as empty data.
+- **Actual:** The dashboard exposes distinct loading, no-Coordinator,
+  zero-assignment, and retryable failure copy.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.mjs::overview exposes loading empty and retryable error states`
+
+## S-86 — Operational Safety Check
+
+Story: S-86 Conduct Operational Safety Check. Acceptance criteria and test
+cases confirmed by the developer on 2026-10-10. Executed in the full Node unit
+run on 2026-10-10.
+
+### TC-FRONTEND-100 — Safety Officer routes use the composite contract
+
+- **Expected:** `safety_officer` has queue/decision permissions and its own
+  protected dashboard/detail routes. List, detail and decision helpers use
+  credentialled `/api/safety-checks` calls.
+- **Actual:** The role, protected routes and three credentialled composite
+  helpers matched the confirmed contract.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::safety-check helpers use credentialled composite routes`; `test_safety_checks.mjs::safety officer access and routes are registered`
+
+### TC-FRONTEND-101 — queue and detail expose all required states and evidence
+
+- **Expected:** Queue has loading, empty, failure/retry and populated states.
+  Detail shows event/organiser/schedule/attendance, venue capacity/layout/
+  accessibility/restrictions, technical assignment/notes, equipment and
+  special requirements, plus a success state after deciding.
+- **Actual:** Source contracts include every queue/detail/success state and
+  required evidence field.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::dashboard and detail expose all confirmed UI states and safety evidence`
+
+### TC-FRONTEND-102 — controlled errors remain actionable
+
+- **Expected:** Session, role, missing event, stale decision and dependency
+  failures have distinct actionable messages; a conflict never looks saved.
+- **Actual:** All five failure classes mapped to distinct actionable copy.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
+
+## S-79 — book multiple venues for one event
+
+Story: S-79 Book Multiple Venues for One Event.
+Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
+
+### TC-FRONTEND-103 — the event page offers "Add another venue" once a venue is requested
+
+- **Scenario:** After the first request, an "Add another venue" link leads
+  back to the same request screen (S-79 AC1).
+- **Pre-conditions:** `frontend/src/lib/venueBookings.js` imported directly.
+- **Steps:** Call the helper that labels the event page's request link with
+  each list of the event's bookings.
+- **Test data:** `[]`; `[{status: "held"}]`;
+  `[{status: "rejected"}]`; `[{status: "pending"}, {status: "confirmed"}]`.
+- **Expected:** `"Request venue"` for `[]`, and `"Add another venue"` for each
+  of the others (a rejected request still counts as one that was asked for).
+  Both labels link to `/coordinator/events/:id/request-venue`, and neither is
+  shown when `canRequestVenue(status)` is false (unchanged).
+- **Actual:** "Request venue" for `[]`; "Add another venue" for the held, rejected and pending+confirmed lists. Link target and planning-only display unchanged (TC-FRONTEND-029).
+- **Status:** Pass
+- **Evidence:** `test_venue_bookings.mjs::the event page offers Add another venue once a venue is requested`; `node --test tests/unit/frontend/test_*.mjs`: 126 passed, 2026-10-11.
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
+
+### TC-FRONTEND-104 — the request is offered only for an eligible event without one
+
+- **Scenario:** The page offers the action only where the service accepts it,
+  and never shows a requested event as cancelled (S-62 AC1, AC5).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` and `access.js`
+  imported directly.
+- **Steps:** Call the eligibility helper with each event, and read the
+  Organiser's permissions.
+- **Test data:** `{status}` for every status, with
+  `cancellation_requested_at` null; `{status: "planning", cancellation_requested_at: "2026-10-11T09:00:00Z"}`.
+- **Expected:** `true` for `submitted`, `under_review`, `planning`,
+  `confirmed`, `preparation` and `safety_changes_requested`; `false` for the
+  rest and for the requested event. The requested event's status label is
+  still "Planning", and its marker reads "Cancellation requested on 11 Oct
+  2026". The `event_organiser` role has `events:request_cancellation`, and no
+  other role does.
+- **Actual:** Six eligible statuses offered, five refused, and the requested event refused; label still "Planning"; marker "Cancellation requested on 11 Oct 2026"; only `event_organiser` has `events:request_cancellation`.
+- **Status:** Pass
+- **Evidence:** `test_event_cancellation.mjs::cancellation is offered only for an eligible event without a request`; `test_event_cancellation.mjs::only event organisers may request cancellation, as in authorization.py`
+
+### TC-FRONTEND-105 — the request call and every failure message
+
+- **Scenario:** The browser posts the reason through Kong, and a failure says
+  the event was not changed (S-62 AC6).
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:**
+  1. Request cancellation of `e 1/2` with a reason.
+  2. Validate reasons `""`, `"   "`, 1001 characters, and `"ok"`.
+  3. Map errors `409` (with the service's message), `422`, `404`, `500`, and
+     a network failure (`0`).
+- **Expected:**
+  1. `POST /api/events/e%201%2F2/cancellation-request`, credentials included,
+     body `{"reason": "…"}`.
+  2. "Enter a reason for cancelling." for the first two; "Keep the reason to
+     1000 characters." for the long one; none for `"ok"`.
+  3. Every message ends with "Your event has not changed." The `409` message
+     starts with the service's message, and the `500` and network messages
+     say to try again.
+- **Actual:** One `POST /api/events/e%201%2F2/cancellation-request` with credentials and the trimmed reason; reason messages as specified; all five failures end "Your event has not changed.", 409 leading with the service message.
+- **Status:** Pass
+- **Evidence:** `test_event_cancellation.mjs::the request posts the trimmed reason through Kong`; `test_event_cancellation.mjs::the reason is required and at most 1000 characters`; `test_event_cancellation.mjs::every failure says the event has not changed`
+
+### TC-FRONTEND-106 — the dashboard tags an event with a pending cancellation request
+
+- **Scenario:** The Organiser can see from the dashboard list which events are
+  waiting on a cancellation request, and the status is never replaced (S-62
+  AC5; added 2026-10-11 at the developer's request).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` imported directly.
+- **Steps:** Call the tag helper with each event.
+- **Test data:** `{status: "planning", cancellation_requested_at: "2026-10-11T09:00:00Z"}`;
+  `{status: "confirmed", cancellation_requested_at: "2026-10-11T09:00:00Z"}`; every
+  status with `cancellation_requested_at` null; `{status: "planning"}` with no such field.
+- **Expected:** "Cancellation requested" for the two requested events, and
+  `null` for the rest. `organiserStatusMeta` still gives "Planning" and
+  "Confirmed" for the first two.
+- **Actual:** Both requested events were tagged "Cancellation requested"; every status without a request, and an event without the field, gave `null`; labels stayed "Planning" and "Confirmed".
+- **Status:** Pass
+- **Evidence:** `test_event_cancellation.mjs::the dashboard tags an event with a pending cancellation request`; `node --test tests/unit/frontend/test_*.mjs`: 131 passed, 2026-10-11.
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+
+### TC-FRONTEND-107 — who sees what about a cancellation request
+
+- **Scenario:** The Coordinator is offered the decision only for a pending
+  request; the Organiser sees the outcome (S-61 AC1).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` and `access.js`
+  imported directly.
+- **Steps:** Call the helpers with each event.
+- **Test data:** pending request `{status: "planning", cancellation_requested_at: T, cancellation_decision: null}`;
+  declined `{…, cancellation_decision: "declined", cancellation_decision_reason: "Move the date instead"}`;
+  approved `{status: "cancelled", cancellation_requested_at: T, cancellation_decision: "approved"}`;
+  no request `{status: "planning", cancellation_requested_at: null}`.
+- **Expected:**
+  - The Coordinator may decide only the pending one.
+  - The Coordinator list tag is "Cancellation requested" for pending only.
+  - The status label for `cancelled` is "Cancelled".
+  - The approved card reads "Cancelled on 12 Oct 2026" for a decision on
+    `2026-10-12`, and nothing for a declined one (added 2026-10-13, when the
+    approved state got the same card as a pending request).
+  - The Organiser's dashboard tag is "Cancellation requested" (pending),
+    "Cancellation declined" (declined), or none.
+  - The Organiser may request again for the declined one, but not the
+    pending or approved one.
+  - Only `event_coordinator` has `events:decide_cancellation`.
+- **Actual:** Only the pending request is decidable and tagged for the Coordinator; `cancelled` reads "Cancelled"; Organiser tags requested/declined/none; re-request allowed only after a decline; only `event_coordinator` has `events:decide_cancellation`.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::who sees what about a cancellation request`; `test_cancellation_decision.mjs::only event coordinators may decide cancellation requests, as in authorization.py`
+
+### TC-FRONTEND-108 — the decision call, its validation and every failure message
+
+- **Scenario:** The browser sends the decision through Kong, and a failure
+  says exactly what changed.
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:**
+  1. Approve `e 1/2`; decline `e 1/2` with `"  Move the date  "`.
+  2. Validate decline reasons `""`, `"   "`, 1001 characters, and `"ok"`.
+  3. Map errors `409` (service message), `502` (service message), `404`,
+     `500`, and a network failure (`0`).
+  4. Build the approval summary for 0, 1 and 2 bookings.
+- **Expected:**
+  1. `POST /api/event-requests/e%201%2F2/cancellation-decision` with
+     credentials and bodies `{"decision":"approved"}` and
+     `{"decision":"declined","reason":"Move the date"}`.
+  2. "Enter a reason for declining." for the first two; "Keep the reason
+     to 1000 characters." for the long one; none for `"ok"`.
+  3. `409` and `502` show the service's message. `404`, `500` and `0` end
+     with "Nothing was changed."
+  4. "No venue bookings to release." / "1 venue booking will be removed and
+     its time freed." / "2 venue bookings will be removed and their times
+     freed." Each is followed by "Equipment reserved for this event is
+     freed."
+- **Actual:** Both decisions posted to `/api/event-requests/e%201%2F2/cancellation-decision` with credentials and the expected bodies; reason messages, failure messages and the three summaries as specified.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::the decision posts through Kong`; `test_cancellation_decision.mjs::a decline needs a reason of at most 1000 characters`; `test_cancellation_decision.mjs::every failure says what changed`; `test_cancellation_decision.mjs::the approval summary names what is released`
+
+### TC-FRONTEND-109 — the Organiser's decision banner always has words, or isn't shown
+
+- **Scenario:** An empty grey banner showed on events whose status the
+  banner had no text for (found 2026-10-13 during S-61's manual check;
+  confirmed, preparation, both safety statuses and cancelled).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` imported directly.
+- **Steps:** Ask for the banner text for every status.
+- **Expected:**
+  - `planning` "This request has been approved and is in planning."
+  - `confirmed` "This request has been approved and the event is confirmed."
+  - `preparation` "This request has been approved and the event is in preparation."
+  - `safety_rejected` "This request was approved, but the event did not pass its safety check."
+  - `safety_changes_requested` "This request was approved, but its safety check asked for changes."
+  - `rejected` "This request has been rejected and is closed."
+  - `returned` "This request was returned for amendment. Fix the issue below, then resubmit."
+  - `null` (no banner) for `cancelled`, `draft`, `submitted`, `under_review`
+    and an unknown status.
+- **Actual:** All seven statuses gave their sentence; cancelled, draft, submitted, under_review and an unknown status gave `null`.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::the Organiser's decision banner always has words, or isn't shown`; `node --test tests/unit/frontend/test_*.mjs`: 139 passed, 2026-10-13.

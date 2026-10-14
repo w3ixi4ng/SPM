@@ -8,8 +8,8 @@ credentials independently, including calls to the published service port.
 """
 
 import logging
-from datetime import date, datetime, timezone
-from typing import Literal
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -19,7 +19,7 @@ from supabase import Client
 
 from database import get_db
 from schemas import BlockCreate, BlockRead, BookingCreate, BookingRead, BookingDecision, HoldRelease
-from security import require_user, require_venue_staff
+from security import require_event_coordinator, require_user, require_venue_staff
 
 app = FastAPI(title="Bookings Service")
 logger = logging.getLogger(__name__)
@@ -73,34 +73,60 @@ def _booking(db: Client, booking_id: UUID):
     return result.data[0] if result.data else None
 
 
-def _overlap(db: Client, booking: dict):
-    operation = (
-        db.schema(SCHEMA).table(TABLE)
-        .select("id,status,venue_name,booking_date,start_time,end_time")
-        .eq("venue_id", booking["venue_id"])
-        .eq("booking_date", booking["booking_date"])
-        .eq("status", "confirmed")
-        .neq("id", booking["id"])
-        .lt("start_time", booking["end_time"])
-        .gt("end_time", booking["start_time"])
-        .order("start_time")
-        .limit(1)
-    )
-    result = _execute(operation)
-    return result.data[0] if result.data else None
+class Gap(NamedTuple):
+    """S-75: the venue's current setup and turnaround minutes. A booking
+    occupies its venue from start - setup to end + turnaround, so two
+    bookings at one venue need setup + turnaround minutes between them."""
+
+    setup: int = 0
+    turnaround: int = 0
+
+    @property
+    def minutes(self) -> int:
+        return self.setup + self.turnaround
 
 
-def _live_overlap(db: Client, booking: dict):
-    """S-30: a new request against every hold (pending) and confirmed
-    booking -- holds are exclusive. Half-open, so back-to-back is allowed."""
+def venue_gap(
+    setup_minutes: int = Query(default=0, ge=0),
+    turnaround_minutes: int = Query(default=0, ge=0),
+) -> Gap:
+    """The venue_bookings composite passes the venue's times as it reads them
+    now. A caller passing none gets the pre-S-75 rule: no gap."""
+    return Gap(setup_minutes, turnaround_minutes)
+
+
+def _shift(value, minutes: int) -> str:
+    """A booking time moved by `minutes`, kept within its day: bookings never
+    cross midnight, and neither does their occupied window (S-75 keeps it
+    inside opening hours), so the day's edges are bounds enough."""
+    day = date(2000, 1, 2)
+    moved = datetime.combine(day, time.fromisoformat(str(value))) + timedelta(minutes=minutes)
+    if moved.date() < day:
+        return "00:00:00"
+    if moved.date() > day:
+        return "24:00:00"
+    return moved.time().isoformat()
+
+
+def _live_overlap(db: Client, booking: dict, gap: Gap = Gap()):
+    """S-30: a new request against every hold and confirmed booking -- holds
+    are exclusive. Half-open, so back-to-back is allowed. S-75: widened by the
+    venue's setup + turnaround, so a booking is checked by the time its venue
+    is occupied, not just its own start and end."""
     operation = (
         db.schema(SCHEMA).table(TABLE)
-        .select("id,status,venue_name,booking_date,start_time,end_time")
+        .select("id,status,event_name,venue_name,booking_date,start_time,end_time")
         .eq("venue_id", booking["venue_id"])
         .eq("booking_date", booking["booking_date"])
         .in_("status", LIVE_STATUSES)
-        .lt("start_time", booking["end_time"])
-        .gt("end_time", booking["start_time"])
+    )
+    # A held booking being confirmed is itself live; it never clashes with itself.
+    if booking.get("id"):
+        operation = operation.neq("id", str(booking["id"]))
+    operation = (
+        operation
+        .lt("start_time", _shift(booking["end_time"], gap.minutes))
+        .gt("end_time", _shift(booking["start_time"], -gap.minutes))
         .order("start_time")
         .limit(1)
     )
@@ -128,19 +154,48 @@ def _date_label(value) -> str:
     return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
 
 
-def _conflict_detail(conflict: dict) -> str:
+def _conflict_detail(conflict: dict, gap: Gap = Gap()) -> str:
     booking_date = _date_label(conflict["booking_date"])
     start = str(conflict["start_time"])[:5]
     end = str(conflict["end_time"])[:5]
     taken = "tentatively held" if conflict.get("status") == "held" else "confirmed"
-    return (
+    detail = (
         f'{conflict["venue_name"]} is already {taken} on {booking_date} '
         f"from {start} to {end}."
     )
+    if gap.minutes:
+        # S-75: say why a time that looks free is not.
+        in_use_until = _shift(conflict["end_time"], gap.turnaround)[:5]
+        detail += (
+            f" With {gap.setup} min setup and {gap.turnaround} min turnaround "
+            f"it is in use until {in_use_until}."
+        )
+    return detail
 
 
-def _raise_overlap(conflict: dict):
-    raise HTTPException(status_code=409, detail=_conflict_detail(conflict))
+def _raise_overlap(conflict: dict, gap: Gap = Gap()):
+    raise HTTPException(status_code=409, detail=_conflict_detail(conflict, gap))
+
+
+def _staff_conflict_detail(action: str, conflict: dict, gap: Gap) -> str:
+    """S-76: for Venue Staff only, who may see whose booking it is -- the
+    booking in the way and the whole window it occupies the venue."""
+    taken = "tentatively held" if conflict.get("status") == "held" else "confirmed"
+    start = str(conflict["start_time"])[:5]
+    end = str(conflict["end_time"])[:5]
+    detail = (
+        f"Can't {action} this booking: it overlaps {conflict['event_name']} ({taken}), "
+        f"which occupies {conflict['venue_name']} on {_date_label(conflict['booking_date'])} "
+        f"from {_shift(conflict['start_time'], -gap.setup)[:5]} "
+        f"to {_shift(conflict['end_time'], gap.turnaround)[:5]}"
+    )
+    if gap.minutes:
+        detail += f" (event {start}–{end}, {gap.setup} min setup, {gap.turnaround} min turnaround)"
+    return detail + "."
+
+
+def _raise_staff_overlap(action: str, conflict: dict, gap: Gap):
+    raise HTTPException(status_code=409, detail=_staff_conflict_detail(action, conflict, gap))
 
 
 def _raise_blocked(block: dict):
@@ -163,6 +218,7 @@ def decide_booking(
     booking_id: UUID,
     payload: BookingDecision,
     staff=Depends(require_venue_staff),
+    gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
     booking = _booking(db, booking_id)
@@ -172,9 +228,9 @@ def decide_booking(
         raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
     if payload.decision == "approved":
-        conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+        conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
         if conflict:
-            _raise_overlap(conflict)
+            _raise_staff_overlap("confirm", conflict, gap)
         # S-30: a block added after the request was sent stops it being
         # confirmed. Rejecting it stays possible.
         block = _block_on(db, booking["venue_id"], booking["booking_date"])
@@ -197,9 +253,9 @@ def decide_booking(
     ).in_("status", ["pending", "held"]).execute()
     except Exception as exc:
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
-            conflict = _overlap(db, booking)
+            conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
-                _raise_overlap(conflict)
+                _raise_staff_overlap("confirm", conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
@@ -211,6 +267,7 @@ def decide_booking(
 def place_hold(
     booking_id: UUID,
     staff=Depends(require_venue_staff),
+    gap: Gap = Depends(venue_gap),
     db: Client = Depends(get_db),
 ):
     booking = _booking(db, booking_id)
@@ -221,9 +278,9 @@ def place_hold(
     if booking["status"] != "pending":
         raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
 
-    conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+    conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
     if conflict:
-        _raise_overlap(conflict)
+        _raise_staff_overlap("hold", conflict, gap)
     block = _block_on(db, booking["venue_id"], booking["booking_date"])
     if block:
         _raise_blocked(block)
@@ -241,9 +298,9 @@ def place_hold(
         ).eq("status", "pending").execute()
     except Exception as exc:
         if getattr(exc, "code", None) == "23P01":
-            conflict = _live_overlap(db, {**booking, "id": str(booking_id)})
+            conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
-                _raise_overlap(conflict)
+                _raise_staff_overlap("hold", conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if result.data:
@@ -288,8 +345,28 @@ def release_hold(
     raise HTTPException(status_code=409, detail="Only a tentative hold can be released")
 
 
+@app.delete("/internal/events/{event_id}/bookings")
+def delete_event_bookings(
+    event_id: UUID,
+    _coordinator=Depends(require_event_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-61: a cancelled event holds no venue time. Every booking for it is
+    removed, whatever its status, so its slots show as available. Called by
+    the event_requests composite after it has checked the Coordinator is
+    assigned to the event and the event is cancelled. Safe to repeat."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).delete().eq("event_id", str(event_id))
+    )
+    return {"deleted": len(result.data or [])}
+
+
 @app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)
-def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
+def create_booking(
+    payload: BookingCreate,
+    gap: Gap = Depends(venue_gap),
+    db: Client = Depends(get_db),
+):
     values = payload.model_dump(mode="json")
     values["status"] = "pending"
     # Set here, never taken from the payload, so a request cannot be
@@ -298,9 +375,9 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
 
     # A new request is pending and does not itself reserve the slot, but it
     # may not be submitted into a slot already held, confirmed or blocked.
-    conflict = _live_overlap(db, values)
+    conflict = _live_overlap(db, values, gap)
     if conflict:
-        _raise_overlap(conflict)
+        _raise_overlap(conflict, gap)
     block = _block_on(db, values["venue_id"], values["booking_date"])
     if block:
         _raise_blocked(block)
@@ -308,9 +385,9 @@ def create_booking(payload: BookingCreate, db: Client = Depends(get_db)):
         result = db.schema(SCHEMA).table(TABLE).insert(values).execute()
     except Exception as exc:
         if getattr(exc, "code", None) == "23P01":
-            conflict = _live_overlap(db, values)
+            conflict = _live_overlap(db, values, gap)
             if conflict:
-                _raise_overlap(conflict)
+                _raise_overlap(conflict, gap)
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
     if not result.data:
@@ -332,7 +409,7 @@ def _date_range(venue_id, from_date, to_date):
 
 @app.get("/bookings", response_model=list[BookingRead])
 def list_bookings(
-    booking_status: Literal["pending", "held", "actionable"] | None = Query(default=None, alias="status"),
+    booking_status: Literal["pending", "held", "actionable", "live"] | None = Query(default=None, alias="status"),
     event_id: UUID | None = None,
     venue_id: UUID | None = None,
     from_date: date | None = Query(default=None, alias="from"),
@@ -342,6 +419,22 @@ def list_bookings(
     # Always filtered: Venue Staff ask by status, a Coordinator by event, and
     # S-30's calendar by venue and date range. Nothing hands out every
     # booking at once.
+    if booking_status == "live":
+        # S-76: every held and confirmed booking from a date on, for Venue
+        # Staff's clashes to review. Always bounded by a start date.
+        if from_date is None:
+            raise HTTPException(status_code=422, detail="Filter live bookings by from")
+        operation = (
+            db.schema(SCHEMA).table(TABLE).select("*")
+            .in_("status", LIVE_STATUSES)
+            .gte("booking_date", from_date.isoformat())
+        )
+        if venue_id is not None:
+            operation = operation.eq("venue_id", str(venue_id))
+        return _execute(
+            operation.order("venue_id").order("booking_date").order("start_time")
+        ).data
+
     if venue_id is not None or from_date is not None or to_date is not None:
         _date_range(venue_id, from_date, to_date)
         operation = (
@@ -364,6 +457,18 @@ def list_bookings(
         operation = operation.eq("event_id", str(event_id))
     # Oldest first: the order requests came in.
     return _execute(operation.order("submitted_at")).data
+
+
+@app.get("/bookings/{booking_id}", response_model=BookingRead)
+def get_booking(booking_id: UUID, db: Client = Depends(get_db)):
+    """S-75: one request, for the venue_bookings composite -- it needs the
+    booking's venue to pass that venue's setup and turnaround times to a
+    hold or decision, and Venue Staff open each request on its own page.
+    Internal, like the other reads: the composite checks the caller's role."""
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return booking
 
 
 @app.post("/blocks", response_model=BlockRead, status_code=status.HTTP_201_CREATED)

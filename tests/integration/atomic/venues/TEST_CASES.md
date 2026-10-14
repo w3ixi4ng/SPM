@@ -82,3 +82,22 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Actual: All three venue integration tests passed against .env.test through Kong and Supabase.
 - Status: Pass
 - Evidence: `tests/integration/atomic/venues/test_app.py::test_staff_partial_update_persists_and_preserves_other_fields`; local execution, no CI run.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+**Blocked** until the S-75 section of `backend/sql/venues.sql` has been run in
+the test project.
+
+### TC-VENUES-104 — times are stored, default to 0, and can be updated
+
+- **Steps:** Insert a venue directly without the new columns; read it through
+  the service. `PATCH` it to 30/45 as Venue Staff; read `venues.venues` with
+  the admin client. `PATCH` `setup_minutes: -5`.
+- **Expected:** The first read shows 0/0 (column default). The update is
+  stored as 30/45. `-5` is `422` from the service and the database check
+  would refuse it too. Cleanup deletes the venue.
+- **Actual:** A venue inserted without the columns read as 0/0; PATCH stored 30/45; -5 was 422.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/venues/test_setup_turnaround.py::test_times_are_stored_default_to_zero_and_can_be_updated`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed across venues, bookings and venue_bookings integration.

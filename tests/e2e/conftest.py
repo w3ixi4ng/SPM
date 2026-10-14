@@ -9,12 +9,13 @@ Nothing here talks to a service port directly. If a test needs to reach past
 the browser it uses the admin client, the same way the integration suite does.
 """
 
+import re
 import os
 import uuid
 from pathlib import Path
 
 import pytest
-from supabase import create_client
+from tests.supabase_client import create_client
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_TEST = REPO_ROOT / ".env.test"
@@ -128,6 +129,9 @@ def make_user(admin):
         admin.schema("equipment").table("equipment").delete().eq(
             "created_by", user_id
         ).execute()
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user_id
+        ).execute()
         # users.users cascades from auth.users, so the profile goes with this.
         admin.auth.admin.delete_user(user_id)
 
@@ -144,3 +148,14 @@ def sign_in(page):
         return page
 
     return _sign_in
+
+
+def open_request(page, text: str):
+    """S-75: Venue Staff's dashboard lists one compact row per request; the
+    details, hold and decision are on the request's own page. Open the row
+    containing `text` from the dashboard and wait for that page."""
+    pending = page.get_by_role("list", name="Pending booking requests")
+    pending.get_by_role("link").filter(has_text=text).first.click()
+    page.wait_for_url(re.compile(r"/venue-bookings/[^/]+$"), timeout=20000)
+    page.get_by_role("link", name="Back to dashboard").wait_for(timeout=20000)
+    return page

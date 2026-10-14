@@ -7,14 +7,16 @@ service.
 ## Role-aware access
 
 On startup, `AuthProvider` calls `GET /users/me`. The response's trusted `role`
-selects one of five dashboards:
+selects a role dashboard:
 
 | Role | Dashboard |
 | --- | --- |
 | `event_organiser` | `/dashboard/event-organiser` |
 | `event_coordinator` | `/dashboard/event-coordinator` |
+| `event_coordinator_lead` | `/dashboard/event-coordinator-lead` |
 | `venue_staff` | `/dashboard/venue-staff` |
 | `technical_support` | `/dashboard/technical-support` |
+| `safety_officer` | `/dashboard/safety-officer` |
 | `attendee` | `/dashboard/attendee` |
 
 The shared presentation policy lives in `src/lib/access.js`. Route guards hide
@@ -22,8 +24,8 @@ and redirect obvious unauthorized navigation, but this is not a security
 boundary: services must enforce the same permissions against the verified
 Supabase session.
 
-Each dashboard exposes only the workflows already defined for its trusted
-role. Route guards are a presentation convenience; the services independently
+Each dashboard exposes only the controls permitted for that trusted role.
+Route guards are a presentation convenience; the services independently
 enforce every read and write against the verified session.
 
 ## Technical Support assignments (S-43)
@@ -58,6 +60,63 @@ Each entry links back to `/events/{id}` for editing or read-only viewing.
 mapping. It never sends server-managed identity, ownership, status, or timestamp
 fields. Event requests are not persisted in browser storage and API failures do
 not silently report a save or submission.
+
+## S-83 assignment and notifications
+
+The Event Coordinator Lead dashboard loads the unassigned request queue and
+trusted Event Coordinator list through the `event_requests` composite. The
+Lead explicitly chooses a Coordinator for each request. The UI does not check
+or reject scheduling conflicts because that is not an S-83 business rule.
+
+Event Organiser and Event Coordinator dashboards load persistent in-app
+notifications from `GET /api/notifications`. Assignment creates one
+notification for each party. Retrying an assignment after a notification
+service failure is safe and does not duplicate either message. The product
+does not send assignment email or any external notification.
+
+## S-84 coordinator reassignment
+
+The Lead dashboard also lists assigned active events with their organiser and
+current Coordinator. The Lead chooses any different trusted Coordinator; the
+UI does not filter scheduling conflicts. A successful action updates the card
+without a reload and transfers the event between Coordinator workspaces.
+
+The browser submits the displayed current owner and assignment version with
+the new Coordinator id. A stale `409` asks the Lead to reload rather than
+silently overwriting a newer transfer. The former Coordinator, new
+Coordinator, and Organiser receive persistent in-app notifications. Retrying
+after notification failure is idempotent, and no email/external delivery is
+used.
+
+## S-85 coordinator oversight
+
+The Event Coordinator Lead dashboard groups active work under every trusted
+Event Coordinator and keeps Coordinators with zero assignments visible. Each
+group shows its active-assignment count; each event shows its name, lifecycle
+status, organiser, complete date/time window, and current Coordinator.
+
+The overview is loaded from
+`GET /api/event-requests/coordinator-overview`. Its active set is
+`submitted`, `under_review`, `returned`, `planning`, and `confirmed` with a
+non-null assignment. Loading, empty-pool, zero-assignment, and service-failure
+states are distinct. The S-83 unassigned queue and S-84 reassignment controls
+remain on the same dashboard. A successful reassignment moves the event
+between the displayed groups and updates both counts without a reload.
+
+## S-86 operational safety checks
+
+Safety Officers load `GET /api/safety-checks` and open an eligible confirmed
+event at `/safety-checks/{id}`. The detail combines organiser and schedule,
+confirmed venue capacity/layout/accessibility/restrictions, Technical Support
+assignment/notes, equipment requirements, and the event's special
+requirements. Loading, empty, controlled failure, detail and success states
+are distinct.
+
+The browser posts only `decision` and the applicable reason. The composite
+derives the Safety Officer id from the verified session. Approval advances to
+`preparation`; rejection uses `safety_rejected`; requested changes use
+`safety_changes_requested`. Conflicts never display success, and S-86 sends no
+notification.
 
 ## Development
 

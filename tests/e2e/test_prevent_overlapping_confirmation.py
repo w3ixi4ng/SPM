@@ -4,7 +4,7 @@ import uuid
 
 from playwright.sync_api import expect
 
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 
 pytestmark = requires_env
 
@@ -15,7 +15,15 @@ def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, 
     organiser = make_user("event_organiser")
     suffix = uuid.uuid4().hex[:6]
     venue_name = f"spm-e2e S38 Venue {suffix}"
-    venue_id = str(uuid.uuid4())
+    # A real venue: since S-75 a confirmation reads the venue's setup and
+    # turnaround. Attributed to the staff member, so make_user's teardown
+    # deletes it.
+    venue_id = admin.schema("venues").table("venues").insert({
+        "name": venue_name, "location": "10 Anson Road", "capacity": 150,
+        "room_layouts": ["theatre"], "facilities": [], "accessibility": [],
+        "operating_hours": [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
+        "created_by": staff["id"],
+    }).execute().data[0]["id"]
 
     events = []
     bookings = []
@@ -55,20 +63,27 @@ def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, 
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     pending = page.get_by_role("list", name="Pending booking requests")
 
-    first = pending.get_by_role("listitem").filter(has_text=events[0]["name"])
-    first.get_by_role("radio", name="Approve", exact=True).check()
-    first.get_by_role("button", name="Save decision").click()
-    expect(first).to_have_count(0, timeout=20000)
+    # S-75: each request is decided on its own page, opened from its row.
+    open_request(page, events[0]["name"])
+    page.get_by_role("radio", name="Approve", exact=True).check()
+    page.get_by_role("button", name="Save decision").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    expect(pending.get_by_role("link").filter(has_text=events[0]["name"])).to_have_count(0, timeout=20000)
 
-    second = pending.get_by_role("listitem").filter(has_text=events[1]["name"])
-    second.get_by_role("radio", name="Approve", exact=True).check()
-    second.get_by_role("button", name="Save decision").click()
-    expect(second.get_by_role("alert")).to_contain_text(
-        f"{venue_name} is already confirmed on 12 Nov 2026 from 09:00 to 12:00",
+    open_request(page, events[1]["name"])
+    page.get_by_role("radio", name="Approve", exact=True).check()
+    page.get_by_role("button", name="Save decision").click()
+    # S-76's wording, which replaced S-38's: the booking in the way and when
+    # it occupies the venue (setup and turnaround are 0 here).
+    expect(page.get_by_role("alert").filter(has_text="Can't confirm this booking")).to_contain_text(
+        f"it overlaps {events[0]['name']} (confirmed), which occupies {venue_name} "
+        "on 12 Nov 2026 from 09:00 to 12:00",
         timeout=20000,
     )
     page.reload()
-    expect(pending.get_by_role("listitem").filter(has_text=events[1]["name"])).to_be_visible(timeout=20000)
+    page.get_by_role("link", name="Back to dashboard").click()
+    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
+    expect(pending.get_by_role("link").filter(has_text=events[1]["name"])).to_be_visible(timeout=20000)
 
     page.get_by_role("button", name="Sign out").click()
     sign_in(coordinator)

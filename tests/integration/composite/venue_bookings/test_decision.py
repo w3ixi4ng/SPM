@@ -6,6 +6,15 @@ from .conftest import GATEWAY_BASE_URL, cookie_for, requires_env, _make_user
 pytestmark = requires_env
 
 
+# S-75 adds a live clash warning to listed rows (and, on held/confirmed rows,
+# the venue's setup and turnaround). These compare the booking itself.
+S75_FIELDS = {"clashes", "setup_minutes", "turnaround_minutes"}
+
+
+def booking_only(row):
+    return {key: value for key, value in row.items() if key not in S75_FIELDS}
+
+
 @pytest.fixture
 def other_coordinators(admin):
     created = []
@@ -16,6 +25,13 @@ def other_coordinators(admin):
     finally:
         for user in created:
             admin.auth.admin.delete_user(user['id'])
+
+
+def unchanged(after: dict, before: dict) -> bool:
+    """Every field the row had before still holds the same value. Columns
+    added to the shared test project while the suite runs are not a rewrite
+    by the decision, so they are ignored."""
+    return {key: after.get(key) for key in before} == before
 
 
 def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_client, world, other_coordinators):
@@ -40,15 +56,15 @@ def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_cl
         assert result.status_code == 200, result.text
         saved.append(result.json())
     listed = httpx.get(f'{GATEWAY_BASE_URL}/venue-bookings', headers=coordinator, params={'event_id': event_id}, timeout=20)
-    assert listed.status_code == 200 and listed.json() == saved
+    assert listed.status_code == 200 and [booking_only(row) for row in listed.json()] == saved
     assert [r['status'] for r in saved] == ['confirmed', 'rejected']
     assert saved[1]['decision_reason'] == 'Room needs repairs'
     assert saved[1]['decision_alternative'] == 'Try Studio C on Friday'
     pending = httpx.get(f'{GATEWAY_BASE_URL}/venue-bookings/pending', headers=staff, timeout=20)
     assert pending.status_code == 200
     assert not {r['id'] for r in saved} & {r['id'] for r in pending.json()}
-    assert admin.schema('events').table('events').select('*').eq('id', event_id).execute().data[0] == before_event
-    assert admin.schema('venues').table('venues').select('*').eq('id', world['venue_id']).execute().data[0] == before_venue
+    assert unchanged(admin.schema('events').table('events').select('*').eq('id', event_id).execute().data[0], before_event)
+    assert unchanged(admin.schema('venues').table('venues').select('*').eq('id', world['venue_id']).execute().data[0], before_venue)
     # Existing access rule remains: even the requester loses access after reassignment.
     new_assigned, unrelated = other_coordinators
     admin.schema('events').table('events').update({'assigned_coordinator_id': new_assigned['id']}).eq('id', event_id).execute()
@@ -59,4 +75,4 @@ def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_cl
                              params={'event_id': event_id}, timeout=20)
         assert response.status_code == code
         if code == 200:
-            assert response.json() == saved
+            assert [booking_only(row) for row in response.json()] == saved

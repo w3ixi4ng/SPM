@@ -77,7 +77,9 @@ def test_overlapping_hold_is_identified_and_nothing_changes(client, db, auth):
     response = client.post(f"/bookings/{BOOKING_ID}/hold", cookies=COOKIE)
 
     assert response.status_code == 409
-    assert "already tentatively held" in response.json()["detail"]
+    assert response.json()["detail"].startswith(
+        "Can't hold this booking: it overlaps Alumni networking evening (tentatively held)"
+    )
     table(db).update.assert_not_called()
 
 

@@ -13,6 +13,7 @@ shaped the event it hands back, so this composite returns that JSON as-is.
 
 from datetime import date, time
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
@@ -142,3 +143,28 @@ class TechnicalSupportRequest(BaseModel):
             stripped = value.strip()
             return stripped or None
         return value
+
+
+class CoordinatorAssignmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+
+
+class CoordinatorReassignmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+    expected_coordinator_id: UUID
+    expected_assignment_version: int = Field(ge=0)
+
+
+class CancellationDecision(BaseModel):
+    """S-61: the Coordinator's decision on a cancellation request. Only the
+    shape is checked here; the events service enforces the rules (a reason
+    when declining, none when approving) and answers with its own 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]
+    reason: str | None = None

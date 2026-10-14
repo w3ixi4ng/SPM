@@ -5,8 +5,10 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_request_venue.py`, `test_capacity_warning.py`, `test_update_venue.py`,
 `test_record_equipment.py`, `test_update_equipment.py`,
 `test_retire_equipment.py`, `test_assign_technical_support.py`,
-`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py` and
-`test_venue_availability.py`.
+`test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
+`test_venue_availability.py`, `test_assign_event_request.py`, and
+`test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
+`test_operational_safety_check.py`, and `test_book_multiple_venues.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -15,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-09-29, branch `S-38/prevent-overlapping-booking-confirmation`, pre-commit working tree |
+| Last run | 2026-10-10, branch `S-86/conduct-operational-safety-check`, commit `49a0f8b` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | 17 passed |
+| Result | Targeted S-86 journey plus S-84/S-85 regressions: 3 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -460,6 +462,10 @@ active again and proves S-38 at the confirmation boundary.
   Event B is not confirmed; the page identifies Studio B, `12 Nov 2026`, and
   `09:00`–`12:00` as the conflict. Event B remains Pending after reload, and
   its Coordinator never sees a confirmed booking for that unavailable slot.
+  *S-76 (2026-10-09), which supersedes S-38 where they differ:* the alert
+  now reads "Can't confirm this booking: it overlaps <Event A> (confirmed),
+  which occupies <venue> on 12 Nov 2026 from 09:00 to 12:00." Re-run 2026-10-09
+  on the S-76 branch: pass (full e2e suite 29 passed).
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
 - **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; restored after S-33 and rerun locally on 2026-10-01: 1 passed.
@@ -601,6 +607,12 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 
 ## TC-E2E-223 — Tentative hold appears distinctly and releases for a replacement request
 
+> **S-79 (2026-10-11):** a second request no longer replaces the first. The
+> test (`test_tentative_hold_is_distinct_and_a_second_request_keeps_it`) now
+> expects the original to stay `held` with no release reason. Run 2026-10-11:
+> failed once in a three-file run and did not reproduce; passed alone and in
+> a rerun of `test_tentative_hold.py` with `test_book_multiple_venues.py`.
+
 - **Scenario:** Venue Staff place and observe a hold, then the Coordinator's changed request frees the old slot immediately (AC1–AC4).
 - **Pre-conditions:** Fresh `.env.test` stack with S-33 SQL applied, granted and exposed; Chromium; one Venue Staff member; assigned Coordinator; planning event with a Pending Studio B request.
 - **Steps:** Sign in as Venue Staff; place the hold; inspect availability; verify an overlapping request is blocked; sign in as the Coordinator and submit a replacement at a different time; return as Venue Staff and inspect availability without a full page reload; place a hold in the freed old slot.
@@ -686,3 +698,276 @@ Confirmed by the developer on 2026-10-05.
   details after reload.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_record_equipment.py::test_coordinator_records_required_equipment_visible_to_technical_support[chromium]`; `tests/e2e/test_assign_technical_support.py::test_coordinator_requests_support_and_sees_the_assignment[chromium]`; local run on 2026-10-05, branch `S-40/record-required-equipment`, freshly rebuilt `.env.test` stack: 2 passed.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** TC-FRONTEND-081–084 and TC-E2E-226 were
+> already in use (S-43 on `main`, S-83 on `sprint3`). S-75's cases with
+> those numbers are now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep
+> theirs.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+**Blocked** until the S-75 SQL has been run in the test project.
+
+## TC-E2E-228 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
+
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
+  Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
+  `D+3`: A confirmed 10:00–12:00 and B held 12:30–14:00 (B's event assigned
+  to the Coordinator).
+- **Steps:**
+  1. Staff edit the venue: setup 0 h 30 min, turnaround 0 h 45 min; save.
+     (Hours and minutes boxes since the developer's change of 2026-10-08.)
+  2. The Coordinator opens B's event, then the venue's calendar on `D+3`.
+- **Expected:**
+  - Step 1: the times are saved, and the page lists A and B as clashing.
+  - Neither booking is removed.
+  - Step 2: B shows the clash warning.
+  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Booked
+    10:00–12:00 · venue in use 09:30–12:45".
+- **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept; the Coordinator saw the warning with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Booked 10:00–12:00 · venue in use 09:30–12:45".
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; rerun 2026-10-08 with the hours/minutes boxes on a stack rebuilt from `.env.test`; full e2e suite: 26 passed.
+
+## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
+
+- **Scenario:** The list stays short; the work happens on the request's page.
+- **Pre-conditions:** As TC-E2E-228, plus a pending request P.
+- **Steps:**
+  1. Staff open their dashboard.
+  2. Click P's row; reload the page.
+  3. Place a hold, then approve P.
+- **Expected:**
+  - Step 1: each request is one row (event, venue, date and time, status);
+    the list has no hold button or decision form.
+  - Step 2: `/venue-bookings/{P}` shows P's details, a "Back to dashboard"
+    link, Place hold and the decision form, and survives the reload.
+  - Step 3: P shows "Held"; after approving, Staff return to the dashboard,
+    see "Booking for … confirmed." once, and P is no longer listed.
+
+  Existing journeys updated for this change: TC-E2E-209, 217, 218, 221, 223
+  and 224 decided or held requests from the inline forms. Their steps now
+  open the request's page from the dashboard row first; what each proves is
+  unchanged.
+- **Actual:** The list showed one compact row with no hold or decision controls; the request page loaded and survived a reload; hold then approval returned to the dashboard with "Booking for … confirmed." once, and the request left the list. TC-E2E-209, 217, 218, 221, 223 and 224, updated to open the request page, all passed in the same run.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 10 passed.
+
+## TC-E2E-229 — Lead assigns an unassigned request and both recipients are notified
+
+> **Renumbered 2026-10-08 from TC-E2E-226, which S-43 had already used on `main`.**
+
+- **Scenario:** A real browser proves the S-83 role routing, Kong routes,
+  queue UI, assignment controls, coordinator visibility, and persistent
+  notifications that lower-level suites cannot prove together.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; the new
+  `notifications` schema applied, granted, and exposed; temporary
+  organiser, Event Coordinator Lead, coordinator, and unrelated accounts.
+- **Steps:**
+  1. Sign in as the organiser and submit `Autumn Forum`.
+  2. Reload the organiser dashboard and confirm the request is under review
+     but unassigned.
+  3. Sign out, sign in as the Lead, and open the unassigned queue.
+  4. Inspect the event information, choose the coordinator, and assign.
+  5. Confirm the card leaves the queue.
+  6. Sign in as the coordinator, confirm the event is in their assigned list
+     and the assignment notification is visible, then reload and check again.
+  7. Sign in as the organiser, confirm their assignment notification is
+     visible, then reload and check again.
+  8. Sign in as the unrelated user and confirm neither notification appears.
+- **Test data:** `Autumn Forum`, `2026-11-18 09:00`–`12:00`, attendance `120`;
+  generated test-user addresses.
+- **Expected:** The Lead alone can complete assignment; the selected
+  coordinator receives the event; the queue no longer contains it; organiser
+  and coordinator each see their persistent in-app notification before and
+  after reload; the unrelated user sees neither. No email/external action is
+  performed.
+- **Actual:** The organiser submitted the request, the Lead assigned it from
+  the queue, and the card disappeared. The coordinator saw the assigned event
+  and both recipients saw their own in-app notification before and after
+  reload; the unrelated user saw neither.
+- **Status:** Pass
+- **Evidence:** `test_assign_event_request.py::test_lead_assigns_request_and_both_recipients_are_notified[chromium]`;
+  local Chromium run against the freshly rebuilt `.env.test` stack: 1 passed.
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
+
+## TC-E2E-230 — Venue Staff are told which booking blocks an approval, and a confirmed clash stays on the dashboard
+
+- **Scenario:** The refusal and the standing review list as Venue Staff see
+  them, across a reload (S-76 AC3, AC5).
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
+  test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
+  `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00, both confirmed when
+  the venue was 0/0.
+- **Steps:**
+  1. Staff open B from the request list and approve it.
+  2. Staff open the dashboard, then reload it.
+- **Expected:**
+  - Step 1: an alert reads "Can't confirm this booking: it overlaps Alumni
+    talk (confirmed), which occupies <venue> on <D+3> from 09:30 to 12:45
+    (event 10:00–12:00, 30 min setup, 45 min turnaround)." B stays pending.
+  - Step 2: "Clashes to review" lists the venue with the C–E pair, before
+    and after the reload, with no Dismiss button. Nothing is removed.
+- **Actual:** Approving B showed the specified alert naming Event A with 09:30–12:45; B stayed pending; "Clashes to review" listed the venue with C and E before and after reload, with no Dismiss; no booking removed.
+- **Status:** Pass
+- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
+  local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
+  1 passed.
+
+## TC-E2E-230 — Lead oversees every Coordinator and sees reassignment move work
+
+- **Scenario:** A real browser proves the S-85 grouped oversight view, idle
+  Coordinator visibility, event summary, and S-84 refresh/update behaviour.
+- **Pre-conditions:** Fresh `.env.test` stack; organiser, Lead, coordinators A
+  and B; one submitted event assigned to A while B has no active assignment.
+- **Steps:** Sign in as Lead; inspect both Coordinator groups, counts, and the
+  event summary; reassign A→B with the existing control; inspect both groups
+  and counts without reloading, then reload and inspect again.
+- **Test data:** `Autumn Forum`, submitted, organiser Ada,
+  `2026-11-18 09:00`–`12:00`.
+- **Expected:** A initially contains the event with count 1 and B is visible
+  with count 0. The summary shows name, status, organiser, date/time, and
+  current Coordinator. After reassignment the event appears only under B,
+  counts are A=0/B=1 immediately and after reload, and the S-83 queue remains
+  present. Non-Lead access remains denied by the existing role journey.
+- **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
+  event summary. Reassignment moved the card to Blair and changed the counts
+  to 0/1 immediately; the same grouping survived reload and the queue remained
+  visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+
+## TC-E2E-231 — Safety Officer completes an Operational Safety Check
+
+- **Scenario:** A Safety Officer reviews the cross-service safety evidence and
+  approves a confirmed event through the browser.
+- **Pre-conditions:** Fresh `.env.test` stack with S-86 Events SQL; confirmed
+  undecided event; organiser, Coordinator, Technical Support, venue staff and
+  Safety Officer accounts; confirmed venue and equipment requirement.
+- **Steps:** Sign in as Safety Officer; open the queue event; inspect attendance,
+  venue restriction/capacity, technical notes and equipment; approve; inspect
+  the stored Events row.
+- **Test data:** 120 attendees, capacity 200 theatre, wheelchair access, north
+  exit restriction, speaker placement note and four wireless microphones.
+- **Expected:** All evidence is visible; approval shows a success state and
+  stores `preparation`, `approved`, and the authenticated Safety Officer id.
+- **Actual:** Chromium showed the organiser, attendance, schedule, venue
+  capacity/layout/accessibility/restriction, Technical Support assignment and
+  notes, equipment, and special requirements. Approval showed the success
+  state and stored `preparation`, `approved`, the authenticated Safety Officer
+  id and a server timestamp.
+- **Status:** Pass
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
+  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
+  S-86 plus S-84/S-85 regressions, 3 passed.
+
+## S-79 — book multiple venues for one event
+
+Story: S-79 Book Multiple Venues for One Event.
+Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
+
+## TC-E2E-232 — Coordinator adds a second venue to an event and sees both with their status
+
+- **Scenario:** The "Add another venue" journey works through Kong, and both
+  bookings are still on the event page after a reload (S-79 AC1, AC3).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; Chromium. A Coordinator assigned to a planning event E
+  (`2026-11-12` 08:00–18:00, attendance 120). Two test venues, both open
+  `thu` 08:00–20:00, with capacity 300 and 150.
+- **Steps:**
+  1. Sign in and open E. The link reads "Request venue".
+  2. Request the 300-seat venue for `2026-11-12` 09:00–17:00, then land back on E.
+  3. The link now reads "Add another venue". Follow it, request the 150-seat
+     venue for `2026-11-12` 13:00–15:00, then land back on E.
+  4. Reload the page.
+- **Test data:** As above.
+- **Expected:** After step 4, the "Venue requests" list for E shows both
+  venues, each with its date, times and the status label "Pending". Cleanup
+  deletes every row created.
+- **Actual:** Chromium through Kong: "Request venue" sent the Hall request; "Add another venue" reached the request screen and sent the Studio request; after a reload both rows showed 12 Nov 2026, their times and "Pending".
+- **Status:** Pass
+- **Evidence:** `test_book_multiple_venues.py::test_a_coordinator_adds_a_second_venue_and_sees_both_with_their_status[chromium]`; `.env.test` stack recreated immediately before, 2026-10-11. With `test_tentative_hold.py` and `test_request_venue.py`: 4 passed, 1 failed (TC-E2E-223, did not reproduce); rerun of the S-79 and S-33 files: 4 passed.
+
+## S-62 — request event cancellation
+
+Story: S-62 Request Event Cancellation.
+Confirmed by the developer on 2026-10-11.
+TC-E2E-232 is skipped because S-79's unmerged branch uses it.
+
+## TC-E2E-233 — Organiser confirms a cancellation request and the event is not shown as cancelled
+
+- **Scenario:** The confirm step, the success message and the unchanged
+  status all work in a real browser through Kong (S-62 AC1, AC2, AC4, AC5).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; the S-62 SQL applied; Chromium. An Organiser who owns a `planning`
+  event E.
+- **Steps:**
+  1. Sign in and open E. Click **Request cancellation**; a panel opens.
+  2. Enter the reason and click **Review request**. The panel asks "Cancel
+     this event?" and quotes the reason. Click **Keep event**.
+  3. Open the panel again, enter the reason, click **Review request**, then
+     **Send cancellation request**.
+  4. Reload the page.
+  5. Go back to the dashboard (added 2026-10-11).
+- **Test data:** Reason `"Keynote speaker withdrew"`.
+- **Expected:**
+  - After step 2, the panel is closed and `events.events` has no
+    cancellation request for E.
+  - After step 3, the page says "Cancellation request sent. Your event stays
+    in planning until it has been reviewed."
+  - After step 4, the status badge still reads "Planning", the page shows
+    "Cancellation requested on <today>" with the reason, and **Request
+    cancellation** is gone. `events.events` has E still `planning`, with the
+    reason stored.
+  - After step 5, E's row on the dashboard shows "Planning" and, beside
+    it, "Cancellation requested".
+  Cleanup deletes every row created.
+- **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+
+## TC-E2E-234 — Coordinator approves a cancellation and the event shows as Cancelled for both sides
+
+- **Scenario:** The Coordinator's review journey works through Kong, the
+  venue booking disappears, and the Organiser sees the result (S-61 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; the S-61 SQL applied; Chromium. Coordinator K assigned to
+  `planning` event E, owned by Organiser O. E has a pending cancellation
+  request ("Keynote speaker withdrew") and one `confirmed` booking of a test
+  venue.
+- **Steps:**
+  1. K signs in. E's row on the dashboard shows "Cancellation requested".
+     K opens E.
+  2. The page shows the Organiser's reason. K clicks **Approve
+     cancellation**. The panel says "1 venue booking will be removed and its
+     time freed." K clicks **Keep event**.
+  3. K clicks **Approve cancellation** again, then **Cancel event**.
+  4. K reloads the page.
+  5. O signs in and opens the dashboard.
+- **Expected:**
+  - After step 2, nothing has changed in `events.events` or
+    `bookings.bookings`.
+  - After step 3, the page says "Event cancelled. 1 venue booking was
+    released."
+  - After step 4, the badge reads "Cancelled", the venue requests list is
+    empty, and no decision buttons remain. `bookings.bookings` has no rows
+    for E.
+  - After step 5, E's row reads "Cancelled" with no tag beside it.
+  - Opening E then shows "Your cancellation request was approved. This event
+    is cancelled.", with no empty decision banner, and the form is read-only
+    (added 2026-10-11 after a manual check found both).
+  Cleanup deletes every row created.
+- **Actual:** Chromium: the Events tab showed "Cancellation requested" on E; the reason was shown; the panel said "1 venue booking will be removed and its time freed."; Keep event changed nothing; Cancel event showed "Event cancelled. 1 venue booking was released."; after a reload the badge read "Cancelled", the venue requests list was empty and no decision buttons remained, with E `cancelled` and no bookings stored; the Organiser's row read "Cancelled" with no tag.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_approve_cancellation.py::test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled[chromium]`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. The first run failed in the test, not the feature: the Coordinator dashboard opens on its Venues tab, so the test now selects Events first. Rerun with `test_request_event_cancellation.py` and `test_coordinator_overview.py`: 3 passed. Rerun 2026-10-11 after fixing the empty banner and the editable form on a cancelled event: one run failed waiting 5 s for the venue list to load (now 20 s, as every other wait in the test); then, with `test_request_event_cancellation.py` and `test_respond_to_return.py`, 3 passed.

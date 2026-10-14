@@ -33,3 +33,9 @@ def require_venue_staff(user=Depends(require_user)):
     if (getattr(user, "app_metadata", None) or {}).get("role") != "venue_staff":
         raise HTTPException(status_code=403, detail="Permission denied")
     return user
+
+
+def require_event_coordinator(user=Depends(require_user)):
+    if (getattr(user, "app_metadata", None) or {}).get("role") != "event_coordinator":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return user

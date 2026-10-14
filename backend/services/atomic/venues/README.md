@@ -15,6 +15,11 @@ another service's tables.
 | `GET` | `/venues/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
 
+`GET /internal/venues/{venue_id}` returns the same venue shape without
+session authorization for the `safety_checks` composite. Kong does not expose
+`/internal/venues`, and the composite authenticates the Safety Officer before
+calling it.
+
 Every endpoint except health authenticates the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorizes the
 trusted `app_metadata.role`:
@@ -42,6 +47,8 @@ A `created_by` in the request body is ignored.
 | `facilities` | array of string | no | From the facility set below. Defaults to `[]`. |
 | `accessibility` | array of string | no | From the accessibility set below. Defaults to `[]`. |
 | `description` | string or null | no | Blank becomes null. |
+| `setup_minutes` | integer | no | S-75: minutes needed before an event to prepare the venue. Whole number, 0 or more, no maximum; strings, fractions and null are `422`. Defaults to `0`. |
+| `turnaround_minutes` | integer | no | S-75: minutes needed after an event to reset it. Same rules. Defaults to `0`. |
 
 Repeated entries in `facilities`, `accessibility` or `room_layouts` are dropped,
 keeping the first. `operating_hours` is stored in week order.
@@ -216,6 +223,8 @@ At least one of these fields must be supplied:
 | `capacity` | JSON integer | 1 through 2147483647; booleans, strings and fractions rejected |
 | `facilities` | array of facility codes | Existing fixed set; duplicates removed; `[]` allowed |
 | `accessibility` | array of accessibility codes | Existing fixed set; duplicates removed; `[]` allowed |
+| `setup_minutes` | JSON integer | S-75: 0 or more; strings, fractions and null rejected |
+| `turnaround_minutes` | JSON integer | S-75: 0 or more; strings, fractions and null rejected |
 
 Omitted fields retain their saved values. Explicit nulls, empty bodies and all
 other fields (including name, hours, layouts, description and metadata) are 422.
@@ -245,3 +254,21 @@ Run the update unit and integration cases with the commands in Running above.
 The history/latest-values regression is in
 `pytest tests/integration/composite/venue_bookings` against the same freshly
 started `.env.test` stack.
+
+## Setup and turnaround (S-75)
+
+Every venue has `setup_minutes` and `turnaround_minutes`, returned on every
+read and editable by Venue Staff (see the tables above). A booking occupies
+its venue from *start − setup* to *end + turnaround*, using the venue's
+**current** values: the `venue_bookings` composite reads them whenever it
+checks a request, a hold or a confirmation, and whenever it works out
+clashes. Changing them never changes or removes a booking — see the
+[composite](../../composite/venue_bookings/README.md#setup-and-turnaround-s-75).
+
+**Database setup.** Run the `BEGIN S-75 DATA-PRESERVING MIGRATION` block in
+[`venues.sql`](../../../sql/venues.sql) in **both** the dev and the test
+project. It adds the two columns (default 0, so every existing venue starts
+at 0) and a check that neither is negative. `venues` is already exposed.
+
+Tests: `pytest tests/unit/atomic/venues`, then on a freshly recreated
+`.env.test` stack `pytest tests/integration/atomic/venues`.

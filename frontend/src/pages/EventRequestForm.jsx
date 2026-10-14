@@ -15,6 +15,13 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { optionLabel } from '../lib/venues.js'
 import useAuth from '../auth/useAuth.js'
 import {
+  CANCELLATION_REASON_MAX,
+  cancellationApprovedLabel,
+  cancellationDeclinedLabel,
+  cancellationErrorMessage,
+  cancellationRequestedLabel,
+  cancellationSentMessage,
+  canRequestCancellation,
   createEventDraft,
   createSubmittedEvent,
   eventErrorMessage,
@@ -24,8 +31,11 @@ import {
   getEventOptions,
   eventStatusMeta,
   getEventRequest,
+  organiserDecisionBanner,
+  requestEventCancellation,
   submitEventDraft,
   updateEventDraft,
+  validateCancellationReason,
 } from '../lib/eventRequests.js'
 
 const C = {
@@ -574,6 +584,167 @@ function UnsavedChangesDialog({ onCancel, onDiscard, onSave }) {
   )
 }
 
+// S-62: the Organiser's cancellation request, as the house slide-over. The
+// request is only sent from the confirm step, so nothing leaves the browser
+// until the Organiser has seen what they are asking for.
+function CancellationPanel({ eventId, status, onClose, onSent }) {
+  const [step, setStep] = useState('edit')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState(null)
+  const [sending, setSending] = useState(false)
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    panelRef.current?.querySelector('textarea, button:not([aria-label="Close"])')?.focus()
+  }, [step])
+
+  useEffect(() => {
+    const panel = panelRef.current
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button, textarea')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  function review(e) {
+    e.preventDefault()
+    const problem = validateCancellationReason(reason)
+    setError(problem)
+    if (!problem) setStep('confirm')
+  }
+
+  async function send() {
+    setSending(true)
+    setError(null)
+    try {
+      const event = await requestEventCancellation(eventId, reason)
+      onSent(event)
+    } catch (failure) {
+      setError(cancellationErrorMessage(failure))
+      setSending(false)
+    }
+  }
+
+  const statusLabel = eventStatusMeta(status).label.toLowerCase()
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancellation-panel-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7 font-ui"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="cancellation-panel-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            {step === 'edit' ? 'Request cancellation' : 'Cancel this event?'}
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="csp-icon-btn rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        {step === 'edit' ? (
+          <form onSubmit={review} noValidate className="grid gap-4">
+            <p className="text-sm leading-relaxed" style={{ color: C.inkFaint }}>
+              Your request is reviewed before anything changes. The event stays in {statusLabel} until then.
+            </p>
+            <div>
+              <label htmlFor="cancellation-reason" className="block text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+                Why does this event need to be cancelled?
+              </label>
+              <textarea
+                id="cancellation-reason"
+                rows={5}
+                maxLength={CANCELLATION_REASON_MAX}
+                value={reason}
+                onChange={(e) => { setReason(e.target.value); setError(null) }}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'cancellation-reason-error' : undefined}
+                className="csp-input w-full rounded-sm px-4 py-3 text-sm"
+              />
+              {error && (
+                <p id="cancellation-reason-error" role="alert" className="text-sm mt-1.5" style={{ color: C.rose }}>{error}</p>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="px-5 py-3 rounded-sm font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
+              style={{ backgroundColor: C.teal, color: C.paper }}
+            >
+              Review request
+            </button>
+          </form>
+        ) : (
+          <div className="grid gap-4">
+            <p className="text-sm leading-relaxed" style={{ color: C.inkFaint }}>
+              This sends a cancellation request with your reason. The event is not cancelled until the request
+              has been reviewed, and stays in {statusLabel} until then.
+            </p>
+            <blockquote className="text-sm whitespace-pre-wrap border-l-2 pl-4 py-1" style={{ borderColor: C.line, color: C.ink }}>
+              {reason.trim()}
+            </blockquote>
+            {error && (
+              <p role="alert" className="text-sm" style={{ color: C.rose }}>{error}</p>
+            )}
+            <button
+              type="button"
+              onClick={send}
+              disabled={sending}
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-sm font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+              style={{ backgroundColor: C.teal, color: C.paper }}
+            >
+              {sending && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+              {sending ? 'Sending…' : 'Send cancellation request'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={sending}
+              className="px-5 py-3 rounded-sm font-medium text-sm border transition-colors duration-200"
+              style={{ borderColor: C.ink, color: C.ink }}
+            >
+              Keep event
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+const NO_CANCELLATION = Object.freeze({
+  cancellation_reason: null,
+  cancellation_requested_at: null,
+  cancellation_decision: null,
+  cancellation_decision_reason: null,
+  cancellation_decided_at: null,
+})
+
+function cancellationFields(event) {
+  return Object.fromEntries(Object.keys(NO_CANCELLATION).map((field) => [field, event[field] ?? null]))
+}
+
 export default function EventRequestForm() {
   const { id: routeId } = useParams()
   const navigate = useNavigate()
@@ -589,6 +760,14 @@ export default function EventRequestForm() {
   const [saveState, setSaveState] = useState('idle')
   const [submitState, setSubmitState] = useState('idle')
   const [toast, setToast] = useState(null)
+  // S-62: the stored cancellation request, if any, and the panel that sends
+  // one. S-61: with the Coordinator's decision on it. Kept in the API's own
+  // field names so the shared helpers read it directly.
+  const [cancellation, setCancellation] = useState(NO_CANCELLATION)
+  const [cancelPanelOpen, setCancelPanelOpen] = useState(false)
+  const [cancelNotice, setCancelNotice] = useState(null)
+  const cancelTriggerRef = useRef(null)
+  const cancellationEvent = { status, ...cancellation }
 
   function showToast(tone, message) {
     setToast({ tone, message })
@@ -635,6 +814,7 @@ export default function EventRequestForm() {
     setForm(merged)
     setSavedForm(merged)
     setStatus(event.status)
+    setCancellation(cancellationFields(event))
     setDecision(
       event.decision
         ? {
@@ -694,11 +874,14 @@ export default function EventRequestForm() {
   const isPlanning = status === 'planning'
   const isRejected = status === 'rejected'
   const isReturned = status === 'returned'
+  // S-61: cancelled by the Coordinator on the Organiser's request.
+  const isCancelled = status === 'cancelled'
   // Planning and rejected are both decided -- neither is meant to be edited
   // further from here (rejected is enforced server-side too; planning is a
   // product choice, since re-editing an approved event without a fresh
-  // review would undercut the point of deciding on it at all).
-  const isLocked = isPlanning || isRejected
+  // review would undercut the point of deciding on it at all). A cancelled
+  // event is over, so there is nothing left to edit.
+  const isLocked = isPlanning || isRejected || isCancelled
   // A returned request still has to satisfy every submitted-required field
   // once resubmitted -- the same stricter check as an already-submitted or
   // planning one, not the permissive draft rules.
@@ -856,6 +1039,12 @@ export default function EventRequestForm() {
         }
         .csp-modal-in { animation: modalIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+        @keyframes panelIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .csp-panel-in { animation: panelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
         @keyframes toastIn {
           from { opacity: 0; transform: translate(16px, -8px); }
           to { opacity: 1; transform: none; }
@@ -920,7 +1109,7 @@ export default function EventRequestForm() {
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .rise-in, .csp-modal-in, .csp-toast-in { animation: none !important; }
+          .rise-in, .csp-modal-in, .csp-toast-in, .csp-panel-in { animation: none !important; }
         }
       `}</style>
 
@@ -987,7 +1176,9 @@ export default function EventRequestForm() {
             </p>
           )}
 
-          {decision && (
+          {/* The request decision's banner, only when there is something to
+              say -- a cancelled event is explained by its own section. */}
+          {decision && organiserDecisionBanner(status) && (
             <div
               className="rounded-sm px-4 py-3 mb-6"
               style={{
@@ -996,9 +1187,7 @@ export default function EventRequestForm() {
               }}
             >
               <p className="font-ui text-sm font-medium">
-                {isPlanning && 'This request has been approved and is in planning.'}
-                {isRejected && 'This request has been rejected and is closed.'}
-                {isReturned && 'This request was returned for amendment. Fix the issue below, then resubmit.'}
+                {organiserDecisionBanner(status)}
               </p>
               {decision.reason && (
                 <p className="font-ui text-sm mt-1">
@@ -1013,6 +1202,88 @@ export default function EventRequestForm() {
                 </p>
               )}
             </div>
+          )}
+
+          {routeId && loadState === 'ready' && (cancellation.cancellation_requested_at || canRequestCancellation(cancellationEvent)) && (
+            <section aria-label="Cancellation" className="mb-6">
+              {cancelNotice && (
+                <p
+                  role="status"
+                  className="font-ui text-sm rounded-sm px-4 py-3 mb-3"
+                  style={{ backgroundColor: withAlpha(C.green, 0.1), color: C.green }}
+                >
+                  {cancelNotice}
+                </p>
+              )}
+              {cancellation.cancellation_requested_at && !cancellation.cancellation_decision && (
+                <div
+                  className="font-ui text-sm rounded-sm px-4 py-3"
+                  style={{ backgroundColor: withAlpha(C.amber, 0.1), color: C.ink }}
+                >
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+                    {cancellationRequestedLabel(cancellation)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">
+                    <span className="font-medium">Reason: </span>
+                    {cancellation.cancellation_reason}
+                  </p>
+                  <p className="mt-1" style={{ color: C.inkFaint }}>
+                    The event is not cancelled until the request has been reviewed.
+                  </p>
+                </div>
+              )}
+              {cancellation.cancellation_decision === 'declined' && (
+                // S-61: declined, so the event goes on; the Organiser may ask again.
+                <div
+                  className="font-ui text-sm rounded-sm px-4 py-3 mb-3"
+                  style={{ backgroundColor: withAlpha(C.inkFaint, 0.08), color: C.ink }}
+                >
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.inkFaint }} aria-hidden="true" />
+                    {cancellationDeclinedLabel(cancellation)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">
+                    <span className="font-medium">Coordinator&apos;s reason: </span>
+                    {cancellation.cancellation_decision_reason}
+                  </p>
+                  <p className="mt-1" style={{ color: C.inkFaint }}>
+                    Your event goes ahead. You can send a new request if it still can&apos;t proceed.
+                  </p>
+                </div>
+              )}
+              {cancellation.cancellation_decision === 'approved' && (
+                // S-61: the same card as a pending request, so the outcome
+                // reads as the end of that story.
+                <div
+                  className="font-ui text-sm rounded-sm px-4 py-3"
+                  style={{ backgroundColor: withAlpha(C.inkFaint, 0.08), color: C.ink }}
+                >
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.inkFaint }} aria-hidden="true" />
+                    {cancellationApprovedLabel(cancellation)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">
+                    <span className="font-medium">Reason: </span>
+                    {cancellation.cancellation_reason}
+                  </p>
+                  <p className="mt-1" style={{ color: C.inkFaint }}>
+                    Your cancellation request was approved. This event is cancelled.
+                  </p>
+                </div>
+              )}
+              {canRequestCancellation(cancellationEvent) && (
+                <button
+                  ref={cancelTriggerRef}
+                  type="button"
+                  onClick={() => setCancelPanelOpen(true)}
+                  className="px-5 py-3 rounded-sm font-ui font-medium text-sm border transition-colors duration-200"
+                  style={{ borderColor: C.ink, color: C.ink }}
+                >
+                  Request cancellation
+                </button>
+              )}
+            </section>
           )}
 
           {canShowForm && (
@@ -1291,6 +1562,24 @@ export default function EventRequestForm() {
           onCancel={cancelLeave}
           onDiscard={discardAndLeave}
           onSave={saveAndLeave}
+        />
+      )}
+
+      {cancelPanelOpen && (
+        <CancellationPanel
+          eventId={routeId}
+          status={status}
+          onClose={() => {
+            setCancelPanelOpen(false)
+            cancelTriggerRef.current?.focus()
+          }}
+          onSent={(event) => {
+            // Only the request changed; the form keeps any unsaved edits.
+            setCancelPanelOpen(false)
+            setStatus(event.status)
+            setCancellation(cancellationFields(event))
+            setCancelNotice(cancellationSentMessage(event.status))
+          }}
         />
       )}
 

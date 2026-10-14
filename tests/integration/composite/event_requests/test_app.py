@@ -10,6 +10,7 @@ non-deterministic. See conftest.py's `block_other_coordinators`.
 from datetime import datetime
 
 import httpx
+import pytest
 
 from .conftest import (
     BASE_URL,
@@ -37,6 +38,7 @@ SUBMITTED = {
 
 
 # --- TC-EVENTREQUESTS-101 ---------------------------------------------------
+@pytest.mark.skip(reason="Superseded by S-83 manual Lead assignment")
 def test_free_coordinator_is_assigned_and_visible_on_the_event(organiser_session, coordinator, admin):
     headers = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
     organiser_session["event_ids"].extend(
@@ -57,6 +59,7 @@ def test_free_coordinator_is_assigned_and_visible_on_the_event(organiser_session
 
 
 # --- TC-EVENTREQUESTS-102 ---------------------------------------------------
+@pytest.mark.skip(reason="S-83 does not reject submissions because Coordinators are busy")
 def test_fully_booked_coordinator_pool_rejects_the_submission(organiser_session, coordinator, admin):
     headers = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
     assert coordinator in all_coordinator_ids(admin)  # sanity: the fixture registered
@@ -82,6 +85,7 @@ def test_fully_booked_coordinator_pool_rejects_the_submission(organiser_session,
 
 
 # --- TC-EVENTREQUESTS-103 ---------------------------------------------------
+@pytest.mark.skip(reason="Superseded by TC-EVENTREQUESTS-108 through Kong")
 def test_every_event_requests_operation_routes_through_kong(organiser_session, coordinator, admin):
     headers = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
     organiser_session["event_ids"].extend(
@@ -97,6 +101,7 @@ def test_every_event_requests_operation_routes_through_kong(organiser_session, c
 
 
 # --- TC-EVENTREQUESTS-104 ---------------------------------------------------
+@pytest.mark.skip(reason="S-83 removes conflict-driven automatic reassignment")
 def test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflicts(
     organiser_session, coordinator, second_coordinator, admin
 ):
@@ -181,19 +186,17 @@ RETURN_DECISION = {
 
 
 def _submit_and_return(api, admin, organiser_session, coordinator_id):
-    """Submits RETURN_WINDOW so it lands on `coordinator_id`, then has the
-    admin client record a return on it -- the coordinator's decision is
-    S-14's to prove; S-13 starts from a request that has already come back.
+    """Submits an unassigned request, then seeds the prior assignment and
+    return decision that S-13 starts from.
     """
-    organiser_session["event_ids"].extend(
-        block_other_coordinators(admin, organiser_session["user_id"], {coordinator_id}, RETURN_WINDOW)
-    )
     response = request_with_retry(api, "POST", "/event-requests", json=RETURN_WINDOW)
     assert response.status_code == 201, response.text
     event = response.json()
     organiser_session["event_ids"].append(event["id"])
-    assert event["assigned_coordinator_id"] == coordinator_id
-    admin.schema("events").table("events").update(RETURN_DECISION).eq("id", event["id"]).execute()
+    assert event["assigned_coordinator_id"] is None
+    admin.schema("events").table("events").update(
+        {**RETURN_DECISION, "assigned_coordinator_id": coordinator_id}
+    ).eq("id", event["id"]).execute()
     return event["id"]
 
 
@@ -240,6 +243,7 @@ def test_a_returned_request_is_amended_resubmitted_and_back_with_its_coordinator
 
 
 # --- TC-EVENTREQUESTS-106 ---------------------------------------------------
+@pytest.mark.skip(reason="S-83 preserves the Coordinator and does not reject schedule conflicts")
 def test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was(
     organiser_session, coordinator_session, admin
 ):
@@ -378,3 +382,459 @@ def test_support_assignment_is_persisted_visible_and_idempotent(
     finally:
         for event_id in created_event_ids:
             admin.schema("events").table("events").delete().eq("id", event_id).execute()
+
+
+# --- TC-EVENTREQUESTS-108 ---------------------------------------------------
+def test_lead_assignment_persists_notifications_and_repairs_missing_rows(
+    organiser_session, coordinator, second_coordinator, lead_session, admin
+):
+    organiser_headers = {
+        "Cookie": f"sb_access_token={organiser_session['access_token']}"
+    }
+    lead_headers = {"Cookie": f"sb_access_token={lead_session['access_token']}"}
+
+    def rows_for(event_id):
+        return (
+            admin.schema("notifications")
+            .table("notifications")
+            .select("*")
+            .eq("event_id", event_id)
+            .execute()
+            .data
+        )
+
+    overlap = (
+        admin.schema("events")
+        .table("events")
+        .insert(
+            {
+                "organiser_id": organiser_session["user_id"],
+                "status": "submitted",
+                "assigned_coordinator_id": coordinator,
+                "name": "Existing overlapping assignment",
+                "purpose": "Proves S-83 does not block schedule conflicts",
+                "start_date": SUBMITTED["start_date"],
+                "start_time": "10:00",
+                "end_date": SUBMITTED["end_date"],
+                "end_time": "11:00",
+                "expected_attendance": 5,
+                "submitted_at": "2026-10-08T00:00:00Z",
+            }
+        )
+        .execute()
+        .data[0]
+    )
+    organiser_session["event_ids"].append(overlap["id"])
+
+    with (
+        httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0) as gateway,
+        httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0) as events_api,
+    ):
+        created = request_with_retry(
+            gateway,
+            "POST",
+            "/event-requests",
+            headers=organiser_headers,
+            json=SUBMITTED,
+        )
+        assert created.status_code == 201, created.text
+        event = created.json()
+        organiser_session["event_ids"].append(event["id"])
+        assert event["assigned_coordinator_id"] is None
+
+        queue = request_with_retry(
+            gateway, "GET", "/event-requests/unassigned", headers=lead_headers
+        )
+        assert queue.status_code == 200, queue.text
+        assert event["id"] in {row["id"] for row in queue.json()}
+
+        assigned = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": coordinator},
+        )
+        assert assigned.status_code == 200, assigned.text
+        assert assigned.json()["assigned_coordinator_id"] == coordinator
+        first_rows = rows_for(event["id"])
+        assert len(first_rows) == 2
+        assert {row["recipient_id"] for row in first_rows} == {
+            coordinator, organiser_session["user_id"]
+        }
+        after_assignment = request_with_retry(
+            gateway, "GET", "/event-requests/unassigned", headers=lead_headers
+        )
+        assert event["id"] not in {row["id"] for row in after_assignment.json()}
+
+        repeated = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": coordinator},
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert len(rows_for(event["id"])) == 2
+
+        # Reproduce the durable state left by a notification-service failure:
+        # the atomic event write committed, but neither notification exists.
+        partial = request_with_retry(
+            gateway,
+            "POST",
+            "/event-requests",
+            headers=organiser_headers,
+            json={**SUBMITTED, "name": "Assignment retry check"},
+        )
+        assert partial.status_code == 201, partial.text
+        partial_event = partial.json()
+        organiser_session["event_ids"].append(partial_event["id"])
+        event_only = request_with_retry(
+            events_api,
+            "POST",
+            f"/internal/events/{partial_event['id']}/assignment",
+            json={"coordinator_id": coordinator},
+        )
+        assert event_only.status_code == 200, event_only.text
+        assert rows_for(partial_event["id"]) == []
+
+        repaired = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{partial_event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": coordinator},
+        )
+        assert repaired.status_code == 200, repaired.text
+        assert repaired.json()["assigned_coordinator_id"] == coordinator
+        assert len(rows_for(partial_event["id"])) == 2
+
+        admin.schema("notifications").table("notifications").delete().eq(
+            "event_id", partial_event["id"]
+        ).eq("recipient_id", organiser_session["user_id"]).execute()
+        assert len(rows_for(partial_event["id"])) == 1
+        repaired_one = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{partial_event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": coordinator},
+        )
+        assert repaired_one.status_code == 200, repaired_one.text
+        assert len(rows_for(partial_event["id"])) == 2
+
+        changed_target = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{partial_event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": second_coordinator},
+        )
+        assert changed_target.status_code == 409, changed_target.text
+
+
+# --- TC-EVENTREQUESTS-109 ---------------------------------------------------
+def test_reassignment_transfers_access_and_repairs_notifications(
+    organiser_session,
+    coordinator_session,
+    second_coordinator_session,
+    lead_session,
+    admin,
+):
+    organiser_headers = {
+        "Cookie": f"sb_access_token={organiser_session['access_token']}"
+    }
+    lead_headers = {"Cookie": f"sb_access_token={lead_session['access_token']}"}
+    first_headers = {
+        "Cookie": f"sb_access_token={coordinator_session['access_token']}"
+    }
+    second_headers = {
+        "Cookie": f"sb_access_token={second_coordinator_session['access_token']}"
+    }
+
+    def reassignment_rows(event_id, version=1):
+        prefix = f"event_reassignment:{event_id}:{version}:"
+        return [
+            row
+            for row in (
+                admin.schema("notifications")
+                .table("notifications")
+                .select("*")
+                .eq("event_id", event_id)
+                .eq("kind", "event_reassignment")
+                .execute()
+                .data
+            )
+            if row["deduplication_key"].startswith(prefix)
+        ]
+
+    # B is deliberately busy at the target window; S-84 still permits the
+    # Lead to select B.
+    overlap = (
+        admin.schema("events")
+        .table("events")
+        .insert(
+            {
+                "organiser_id": organiser_session["user_id"],
+                "status": "submitted",
+                "assigned_coordinator_id": second_coordinator_session["user_id"],
+                "name": "Overlapping S-84 assignment",
+                "purpose": "Proves conflicts do not block Lead reassignment",
+                "start_date": SUBMITTED["start_date"],
+                "start_time": SUBMITTED["start_time"],
+                "end_date": SUBMITTED["end_date"],
+                "end_time": SUBMITTED["end_time"],
+                "expected_attendance": 5,
+                "submitted_at": "2026-10-08T00:00:00Z",
+            }
+        )
+        .execute()
+        .data[0]
+    )
+    organiser_session["event_ids"].append(overlap["id"])
+
+    with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0) as gateway:
+        created = request_with_retry(
+            gateway,
+            "POST",
+            "/event-requests",
+            headers=organiser_headers,
+            json={**SUBMITTED, "name": "S-84 access transfer"},
+        )
+        assert created.status_code == 201, created.text
+        event = created.json()
+        organiser_session["event_ids"].append(event["id"])
+
+        assigned = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": coordinator_session["user_id"]},
+        )
+        assert assigned.status_code == 200, assigned.text
+
+        active = request_with_retry(
+            gateway, "GET", "/event-requests/assigned-active", headers=lead_headers
+        )
+        assert active.status_code == 200, active.text
+        listed = next(row for row in active.json() if row["id"] == event["id"])
+        assert listed["assigned_coordinator_id"] == coordinator_session["user_id"]
+        assert listed["coordinator_assignment_version"] == 0
+
+        request_body = {
+            "coordinator_id": second_coordinator_session["user_id"],
+            "expected_coordinator_id": coordinator_session["user_id"],
+            "expected_assignment_version": 0,
+        }
+        moved = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json=request_body,
+        )
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["assigned_coordinator_id"] == second_coordinator_session["user_id"]
+        assert moved.json()["coordinator_assignment_version"] == 1
+
+        first_queue = request_with_retry(
+            gateway, "GET", "/events/assigned", headers=first_headers
+        )
+        second_queue = request_with_retry(
+            gateway, "GET", "/events/assigned", headers=second_headers
+        )
+        assert event["id"] not in {row["id"] for row in first_queue.json()}
+        assert event["id"] in {row["id"] for row in second_queue.json()}
+
+        rows = reassignment_rows(event["id"])
+        assert len(rows) == 3
+        assert {row["recipient_id"] for row in rows} == {
+            coordinator_session["user_id"],
+            second_coordinator_session["user_id"],
+            organiser_session["user_id"],
+        }
+
+        repeated = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json=request_body,
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert len(reassignment_rows(event["id"])) == 3
+
+        admin.schema("notifications").table("notifications").delete().eq(
+            "deduplication_key",
+            f"event_reassignment:{event['id']}:1:{organiser_session['user_id']}",
+        ).execute()
+        assert len(reassignment_rows(event["id"])) == 2
+        repaired = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json=request_body,
+        )
+        assert repaired.status_code == 200, repaired.text
+        assert len(reassignment_rows(event["id"])) == 3
+
+        newer = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json={
+                "coordinator_id": coordinator_session["user_id"],
+                "expected_coordinator_id": second_coordinator_session["user_id"],
+                "expected_assignment_version": 1,
+            },
+        )
+        assert newer.status_code == 200, newer.text
+        assert newer.json()["coordinator_assignment_version"] == 2
+
+        stale = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json=request_body,
+        )
+        assert stale.status_code == 409, stale.text
+        stored = (
+            admin.schema("events")
+            .table("events")
+            .select("assigned_coordinator_id,coordinator_assignment_version")
+            .eq("id", event["id"])
+            .execute()
+            .data[0]
+        )
+        assert stored == {
+            "assigned_coordinator_id": coordinator_session["user_id"],
+            "coordinator_assignment_version": 2,
+        }
+
+
+# --- TC-EVENTREQUESTS-110 ---------------------------------------------------
+def test_coordinator_overview_groups_and_tracks_reassignment(
+    organiser_session,
+    coordinator_session,
+    second_coordinator_session,
+    lead_session,
+    admin,
+):
+    organiser_headers = {
+        "Cookie": f"sb_access_token={organiser_session['access_token']}"
+    }
+    lead_headers = {"Cookie": f"sb_access_token={lead_session['access_token']}"}
+    first_id = coordinator_session["user_id"]
+    second_id = second_coordinator_session["user_id"]
+
+    admin.schema("users").table("users").update({"name": "Alex Coordinator"}).eq(
+        "id", first_id
+    ).execute()
+    admin.schema("users").table("users").update({"name": "Blair Coordinator"}).eq(
+        "id", second_id
+    ).execute()
+
+    def notification_count(event_id):
+        return len(
+            admin.schema("notifications")
+            .table("notifications")
+            .select("id")
+            .eq("event_id", event_id)
+            .execute()
+            .data
+        )
+
+    def group(response, coordinator_id):
+        return next(
+            item
+            for item in response.json()["coordinators"]
+            if item["coordinator"]["id"] == coordinator_id
+        )
+
+    with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0) as gateway:
+        created = request_with_retry(
+            gateway,
+            "POST",
+            "/event-requests",
+            headers=organiser_headers,
+            json={**SUBMITTED, "name": "S-85 oversight forum"},
+        )
+        assert created.status_code == 201, created.text
+        event = created.json()
+        organiser_session["event_ids"].append(event["id"])
+
+        assigned = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/assignment",
+            headers=lead_headers,
+            json={"coordinator_id": first_id},
+        )
+        assert assigned.status_code == 200, assigned.text
+        after_assignment_notifications = notification_count(event["id"])
+
+        initial = request_with_retry(
+            gateway,
+            "GET",
+            "/event-requests/coordinator-overview",
+            headers=lead_headers,
+        )
+        assert initial.status_code == 200, initial.text
+        first = group(initial, first_id)
+        second = group(initial, second_id)
+        assert first["active_assignment_count"] == 1
+        assert second["active_assignment_count"] == 0
+        assert second["events"] == []
+        summary = next(row for row in first["events"] if row["id"] == event["id"])
+        assert summary["name"] == "S-85 oversight forum"
+        assert summary["status"] == "submitted"
+        assert summary["organiser"]["id"] == organiser_session["user_id"]
+        assert summary["coordinator"]["name"] == "Alex Coordinator"
+        assert summary["start_date"] == SUBMITTED["start_date"]
+        assert summary["start_time"].startswith(SUBMITTED["start_time"])
+        assert notification_count(event["id"]) == after_assignment_notifications
+
+        moved = request_with_retry(
+            gateway,
+            "POST",
+            f"/event-requests/{event['id']}/reassignment",
+            headers=lead_headers,
+            json={
+                "coordinator_id": second_id,
+                "expected_coordinator_id": first_id,
+                "expected_assignment_version": 0,
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        after_reassignment_notifications = notification_count(event["id"])
+
+        refreshed = request_with_retry(
+            gateway,
+            "GET",
+            "/event-requests/coordinator-overview",
+            headers=lead_headers,
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        first = group(refreshed, first_id)
+        second = group(refreshed, second_id)
+        assert first["active_assignment_count"] == 0
+        assert first["events"] == []
+        assert second["active_assignment_count"] == 1
+        moved_summary = next(
+            row for row in second["events"] if row["id"] == event["id"]
+        )
+        assert moved_summary["coordinator"]["name"] == "Blair Coordinator"
+        assert moved_summary["coordinator_assignment_version"] == 1
+        assert notification_count(event["id"]) == after_reassignment_notifications
+
+        denied = request_with_retry(
+            gateway,
+            "GET",
+            "/event-requests/coordinator-overview",
+            headers=organiser_headers,
+        )
+        assert denied.status_code == 403, denied.text

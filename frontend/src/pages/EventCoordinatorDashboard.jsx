@@ -3,11 +3,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import NotificationPanel from '../components/NotificationPanel.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueFilters from '../components/VenueFilters.jsx'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
-import { eventErrorMessage, eventStatusMeta, listAssignedEventRequests } from '../lib/eventRequests.js'
+import {
+  coordinatorCancellationTag,
+  eventErrorMessage,
+  eventStatusMeta,
+  listAssignedEventRequests,
+} from '../lib/eventRequests.js'
 import { emptyVenueFilters, filterVenues, getVenueOptions } from '../lib/venues.js'
 
 const C = {
@@ -18,6 +24,7 @@ const C = {
   line: '#E3DFD3',
   teal: '#0E7C74',
   sky: '#3C6E96',
+  amber: '#B5842B',
   green: '#3F8F5F',
 }
 
@@ -195,6 +202,8 @@ export default function EventCoordinatorDashboard({ role }) {
           </p>
         </div>
 
+        <NotificationPanel />
+
         <div className="max-w-3xl">
           <Tabs active={activeTab} onSelect={selectTab} />
 
@@ -257,6 +266,7 @@ export default function EventCoordinatorDashboard({ role }) {
                 <ul className="divide-y" style={{ borderColor: C.line }}>
                   {assigned.events.map((event) => {
                     const { label: statusLabel, color: statusColor } = eventStatusMeta(event.status)
+                    const cancellationTag = coordinatorCancellationTag(event)
                     return (
                       <li key={event.id} className="py-4 first:pt-0 last:pb-0">
                         <Link
@@ -279,6 +289,13 @@ export default function EventCoordinatorDashboard({ role }) {
                             <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
                               {event.start_date} at {event.start_time?.slice(0, 5)}{event.venue && ` · ${event.venue}`}
                             </p>
+                            {cancellationTag && (
+                              // S-61: waiting on this Coordinator's decision.
+                              <p className="inline-flex items-center gap-1.5 font-ui text-xs mt-1.5" style={{ color: C.ink }}>
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+                                {cancellationTag}
+                              </p>
+                            )}
                           </div>
                           <span
                             className="font-ui text-xs font-medium px-2.5 py-1 rounded-sm shrink-0"

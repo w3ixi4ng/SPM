@@ -3,10 +3,12 @@ import { ArrowRight, Check, Loader2, LogOut } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import NotificationPanel from '../components/NotificationPanel.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   eventErrorMessage,
   listEventRequests,
+  organiserCancellationTag,
   organiserStatusMeta,
   organiserTabs,
 } from '../lib/eventRequests.js'
@@ -28,6 +30,7 @@ const ORGANISER_CAPABILITIES = [
   [PERMISSIONS.VIEW_OWN_EVENTS, 'View your own requests'],
   [PERMISSIONS.UPDATE_OWN_EVENT_DRAFT, 'Update your own drafts'],
   [PERMISSIONS.SUBMIT_OWN_EVENT, 'Submit your own requests'],
+  [PERMISSIONS.REQUEST_EVENT_CANCELLATION, 'Request cancellation of your events'],
 ]
 
 function EventRequestList({ refreshAuth }) {
@@ -162,6 +165,7 @@ function EventRequestList({ refreshAuth }) {
         <ul className="divide-y" style={{ borderColor: C.line }}>
           {currentTab.events.map((event) => {
             const { label: statusLabel, color: statusColor } = organiserStatusMeta(event.status)
+            const cancellationTag = organiserCancellationTag(event)
             return (
               <li key={event.id} className="py-4 first:pt-0 last:pb-0">
                 <Link
@@ -186,6 +190,13 @@ function EventRequestList({ refreshAuth }) {
                     >
                       {statusLabel}
                     </span>
+                    {cancellationTag && (
+                      // S-62: beside the status, never instead of it.
+                      <span className="inline-flex items-center gap-1.5 font-ui text-xs" style={{ color: C.ink }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+                        {cancellationTag}
+                      </span>
+                    )}
                     <ArrowRight
                       size={16}
                       aria-hidden="true"
@@ -283,6 +294,8 @@ export default function Dashboard({ role }) {
             {user.name} · {user.email}
           </p>
         </div>
+
+        {role === 'event_organiser' && <NotificationPanel />}
 
         {hasPermission(role, PERMISSIONS.CREATE_EVENT) ? (
           <div className="space-y-6">

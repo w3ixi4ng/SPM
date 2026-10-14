@@ -5,13 +5,17 @@ export const PERMISSIONS = Object.freeze({
   VIEW_OWN_EVENTS: 'events:view_own',
   UPDATE_OWN_EVENT_DRAFT: 'events:update_own_draft',
   SUBMIT_OWN_EVENT: 'events:submit_own',
+  REQUEST_EVENT_CANCELLATION: 'events:request_cancellation',
   CREATE_VENUE: 'venues:create',
   UPDATE_VENUE: 'venues:update',
   VIEW_VENUES: 'venues:view',
   VIEW_ASSIGNED_EVENTS: 'events:view_assigned',
   VIEW_SUPPORT_ASSIGNED_EVENTS: 'events:view_support_assigned',
   DECIDE_EVENT: 'events:decide',
+  DECIDE_EVENT_CANCELLATION: 'events:decide_cancellation',
   ASSIGN_TECHNICAL_SUPPORT: 'events:assign_technical_support',
+  VIEW_UNASSIGNED_EVENTS: 'events:view_unassigned',
+  ASSIGN_EVENT_COORDINATOR: 'events:assign_coordinator',
   REQUEST_VENUE_BOOKING: 'venue_bookings:create',
   VIEW_PENDING_VENUE_BOOKINGS: 'venue_bookings:view_pending',
   DECIDE_VENUE_BOOKING: 'venue_bookings:decide',
@@ -25,6 +29,8 @@ export const PERMISSIONS = Object.freeze({
   EDIT_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:edit',
   VIEW_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:view',
   CHECK_EQUIPMENT_AVAILABILITY: 'equipment:check_availability',
+  VIEW_SAFETY_CHECKS: 'safety_checks:view',
+  DECIDE_SAFETY_CHECK: 'safety_checks:decide',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -48,6 +54,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.VIEW_OWN_EVENTS,
       PERMISSIONS.UPDATE_OWN_EVENT_DRAFT,
       PERMISSIONS.SUBMIT_OWN_EVENT,
+      PERMISSIONS.REQUEST_EVENT_CANCELLATION,
     ]),
   }),
   event_coordinator: Object.freeze({
@@ -58,12 +65,23 @@ export const ROLE_ACCESS = Object.freeze({
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.VIEW_ASSIGNED_EVENTS,
       PERMISSIONS.DECIDE_EVENT,
+      PERMISSIONS.DECIDE_EVENT_CANCELLATION,
       PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT,
       PERMISSIONS.VIEW_VENUES,
       PERMISSIONS.VIEW_VENUE_AVAILABILITY,
       PERMISSIONS.REQUEST_VENUE_BOOKING,
       PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
+    ]),
+  }),
+  event_coordinator_lead: Object.freeze({
+    label: 'Event Coordinator Lead',
+    dashboardPath: '/dashboard/event-coordinator-lead',
+    description: 'Review unassigned event requests and assign an Event Coordinator.',
+    permissions: Object.freeze([
+      ...DASHBOARD_PERMISSION,
+      PERMISSIONS.VIEW_UNASSIGNED_EVENTS,
+      PERMISSIONS.ASSIGN_EVENT_COORDINATOR,
     ]),
   }),
   venue_staff: Object.freeze({
@@ -95,6 +113,16 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.VIEW_SUPPORT_ASSIGNED_EVENTS,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
       PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY,
+    ]),
+  }),
+  safety_officer: Object.freeze({
+    label: 'Safety Officer',
+    dashboardPath: '/dashboard/safety-officer',
+    description: 'Review confirmed event arrangements for operational safety.',
+    permissions: Object.freeze([
+      ...DASHBOARD_PERMISSION,
+      PERMISSIONS.VIEW_SAFETY_CHECKS,
+      PERMISSIONS.DECIDE_SAFETY_CHECK,
     ]),
   }),
   attendee: Object.freeze({

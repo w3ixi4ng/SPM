@@ -39,6 +39,19 @@ The pull request is where the work gets described.
 Infrastructure and tooling work that belongs to no story — CI, docs, repo
 setup — goes on `update/<area>` instead, e.g. `update/ci`.
 
+### Sprint branches
+
+Each sprint has a release branch, `sprint<N>` (e.g. `sprint3`), cut from
+`main` at the start of the sprint. During the sprint, story and `update/`
+branches are created **from the current sprint branch** and their pull
+requests target it, not `main`. At the end of the sprint the sprint branch
+merges into `main` in one pull request.
+
+```bash
+git fetch origin
+git switch -c S-76/some-story origin/sprint3
+```
+
 Create the branch before writing any files, so the first commit is already in
 the right place. **That means the story id and name are needed before the work
 starts, not at the end.** If you were not given them, ask — do not invent them
@@ -760,7 +773,16 @@ Non-negotiable on every page:
 ## CI
 
 Three workflows in `.github/workflows/`. All run on pushes and pull requests to
-`main`, and can be started by hand.
+`main` and to any sprint branch (`sprint*`), and can be started by hand. A
+story's pull request into the sprint branch is checked by every suite, and so
+is the sprint branch itself after each merge.
+
+Integration and e2e both write to the one test Supabase project, so those two
+jobs share a concurrency group (`supabase-test-project`) across every run: only
+one uses the project at a time and the rest wait. GitHub keeps a single job
+waiting per group — if a third arrives, the older waiting one is cancelled and
+shows **Cancelled**; re-run it once the queue clears. Cancelled there is not a
+test failure.
 
 | Workflow | What it does | When it runs |
 | --- | --- | --- |

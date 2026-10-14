@@ -57,7 +57,12 @@ create table if not exists events.events (
   -- schema per service rule (see AGENTS.md) does not allow. Like
   -- organiser_id, it is an opaque id the users service is the source of
   -- truth for.
-  assigned_coordinator_id    uuid,
+  assigned_coordinator_id         uuid,
+  -- S-84: the previous owner and monotonic version make a reassignment
+  -- retryable across the events/notifications service boundary. The version
+  -- also prevents a delayed old retry from reverting a newer transfer.
+  previous_coordinator_id         uuid,
+  coordinator_assignment_version integer not null default 0,
 
   -- S-43: requested by the assigned Coordinator during planning. The staff
   -- id is opaque: users remains the source of truth and no cross-schema
@@ -86,6 +91,14 @@ create table if not exists events.events (
   -- submitted_at is cleared-then-reset across a draft/submit cycle.
   decided_at                 timestamptz,
 
+  -- S-86: the current Operational Safety Check is independent of the Event
+  -- Coordinator's original request decision above. A safety rejection is a
+  -- rejection of the arrangements, not a rejection of the event request.
+  safety_decision            text,
+  safety_decision_reason     text,
+  safety_officer_id          uuid,
+  safety_decided_at          timestamptz,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -100,7 +113,11 @@ create table if not exists events.events (
   -- underway. There is no 'approved' status; approved is only ever the
   -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned')),
+    check (status in (
+      'draft', 'submitted', 'under_review', 'planning', 'confirmed',
+      'preparation', 'safety_rejected', 'safety_changes_requested',
+      'cancelled', 'rejected', 'returned'
+    )),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -179,10 +196,15 @@ create table if not exists events.events (
   -- decision is set exactly when a decision has been made -- draft and
   -- submitted (awaiting one) never carry one; planning/rejected/returned
   -- always do.
+  -- S-61: 'cancelled' may come before or after the request decision.
   constraint events_decision_matches_status
     check (
-      (status in ('draft', 'submitted') and decision is null)
-      or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
+      (status in ('draft', 'submitted', 'under_review') and decision is null)
+      or (status in (
+        'planning', 'confirmed', 'preparation', 'safety_rejected',
+        'safety_changes_requested', 'rejected', 'returned'
+      ) and decision is not null)
+      or status = 'cancelled'
     ),
 
   constraint events_decision_allowed
@@ -215,6 +237,46 @@ create table if not exists events.events (
       or (decision is not null and decided_at is not null)
     ),
 
+  constraint events_safety_decision_allowed
+    check (
+      safety_decision is null
+      or safety_decision in ('approved', 'rejected', 'changes_requested')
+    ),
+
+  constraint events_safety_state_consistent
+    check (
+      (
+        safety_decision is null
+        and safety_decision_reason is null
+        and safety_officer_id is null
+        and safety_decided_at is null
+        and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+      )
+      or (
+        safety_decision = 'approved'
+        and safety_decision_reason is null
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'preparation'
+      )
+      or (
+        safety_decision = 'rejected'
+        and safety_decision_reason is not null
+        and btrim(safety_decision_reason) <> ''
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'safety_rejected'
+      )
+      or (
+        safety_decision = 'changes_requested'
+        and safety_decision_reason is not null
+        and btrim(safety_decision_reason) <> ''
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'safety_changes_requested'
+      )
+    ),
+
   constraint events_technical_support_details_not_blank
     check (
       technical_support_details is null
@@ -236,8 +298,42 @@ create table if not exists events.events (
           or (assigned_technical_support_id is not null and technical_support_assigned_at is not null)
         )
       )
+    ),
+
+  constraint events_coordinator_assignment_version_nonnegative
+    check (coordinator_assignment_version >= 0),
+
+  constraint events_previous_coordinator_distinct
+    check (
+      previous_coordinator_id is null
+      or (
+        assigned_coordinator_id is not null
+        and previous_coordinator_id <> assigned_coordinator_id
+      )
     )
 );
+
+-- S-84 upgrade path for existing projects. Already-assigned events start at
+-- version 0; their first real reassignment moves to version 1.
+alter table events.events
+  add column if not exists previous_coordinator_id uuid,
+  add column if not exists coordinator_assignment_version integer not null default 0;
+
+alter table events.events
+  drop constraint if exists events_coordinator_assignment_version_nonnegative;
+alter table events.events add constraint events_coordinator_assignment_version_nonnegative
+  check (coordinator_assignment_version >= 0);
+
+alter table events.events
+  drop constraint if exists events_previous_coordinator_distinct;
+alter table events.events add constraint events_previous_coordinator_distinct
+  check (
+    previous_coordinator_id is null
+    or (
+      assigned_coordinator_id is not null
+      and previous_coordinator_id <> assigned_coordinator_id
+    )
+  );
 
 -- S-43 upgrade path for an existing events table. These statements are
 -- intentionally idempotent so this canonical file can be applied to both an
@@ -248,15 +344,62 @@ alter table events.events
   add column if not exists assigned_technical_support_id uuid,
   add column if not exists technical_support_assigned_at timestamptz;
 
+-- S-86 upgrade path. Safe to run repeatedly. The four fields form one
+-- current decision record and remain null on every pre-S-86 row.
+alter table events.events
+  add column if not exists safety_decision text,
+  add column if not exists safety_decision_reason text,
+  add column if not exists safety_officer_id uuid,
+  add column if not exists safety_decided_at timestamptz;
+
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
-  check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned'));
+  check (status in (
+    'draft', 'submitted', 'under_review', 'planning', 'confirmed',
+    'preparation', 'safety_rejected', 'safety_changes_requested',
+    'cancelled', 'rejected', 'returned'
+  ));
 
-alter table events.events drop constraint if exists events_decision_matches_status;
-alter table events.events add constraint events_decision_matches_status
+alter table events.events drop constraint if exists events_safety_decision_allowed;
+alter table events.events add constraint events_safety_decision_allowed
   check (
-    (status in ('draft', 'submitted') and decision is null)
-    or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
+    safety_decision is null
+    or safety_decision in ('approved', 'rejected', 'changes_requested')
+  );
+
+alter table events.events drop constraint if exists events_safety_state_consistent;
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'preparation'
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_changes_requested'
+    )
   );
 
 alter table events.events
@@ -286,6 +429,82 @@ alter table events.events add constraint events_technical_support_state_consiste
     )
   );
 
+-- S-62 upgrade path. Safe to run repeatedly. An Organiser's cancellation
+-- request is stored on the event: one per event, all three fields set
+-- together or none. Requesting never changes status -- the event is only
+-- cancelled once a later review completes it.
+alter table events.events
+  add column if not exists cancellation_reason text,
+  add column if not exists cancellation_requested_at timestamptz,
+  add column if not exists cancellation_requested_by uuid;
+
+alter table events.events
+  drop constraint if exists events_cancellation_request_consistent;
+alter table events.events add constraint events_cancellation_request_consistent
+  check (
+    (
+      cancellation_reason is null
+      and cancellation_requested_at is null
+      and cancellation_requested_by is null
+    )
+    or (
+      cancellation_reason is not null
+      and btrim(cancellation_reason) <> ''
+      and char_length(cancellation_reason) <= 1000
+      and cancellation_requested_at is not null
+      and cancellation_requested_by is not null
+    )
+  );
+
+-- S-61 upgrade path. Safe to run repeatedly. The assigned Coordinator's
+-- decision on the cancellation request -- the latest one only; a new request
+-- after a decline clears it. Approving sets status 'cancelled'; declining
+-- leaves status alone and needs a reason.
+alter table events.events
+  add column if not exists cancellation_decision text,
+  add column if not exists cancellation_decision_reason text,
+  add column if not exists cancellation_decided_by uuid,
+  add column if not exists cancellation_decided_at timestamptz;
+
+alter table events.events
+  drop constraint if exists events_cancellation_decision_consistent;
+alter table events.events add constraint events_cancellation_decision_consistent
+  check (
+    (
+      cancellation_decision is null
+      and cancellation_decision_reason is null
+      and cancellation_decided_by is null
+      and cancellation_decided_at is null
+    )
+    or (
+      cancellation_requested_at is not null
+      and cancellation_decided_by is not null
+      and cancellation_decided_at is not null
+      and (
+        (cancellation_decision = 'approved' and cancellation_decision_reason is null
+          and status = 'cancelled')
+        or (cancellation_decision = 'declined'
+          and cancellation_decision_reason is not null
+          and btrim(cancellation_decision_reason) <> ''
+          and char_length(cancellation_decision_reason) <= 1000)
+      )
+    )
+  );
+
+-- S-61: an event can be cancelled before the Coordinator has decided on the
+-- request itself (submitted, under_review), so 'cancelled' no longer
+-- requires a request decision.
+alter table events.events drop constraint if exists events_decision_matches_status;
+alter table events.events add constraint events_decision_matches_status
+  check (
+    (status in ('draft', 'submitted', 'under_review') and decision is null)
+    or (status in (
+      'planning', 'confirmed', 'preparation', 'safety_rejected',
+      'safety_changes_requested', 'rejected', 'returned'
+    ) and decision is not null)
+    or status = 'cancelled'
+  );
+
 -- Event access is scoped by the authenticated organiser, so this supports
 -- owner-filtered reads and updates without scanning the full table.
 create index if not exists events_events_organiser_id_idx
@@ -304,6 +523,10 @@ create index if not exists events_events_assigned_technical_support_id_idx
   on events.events (assigned_technical_support_id)
   where status in ('planning', 'confirmed')
     and assigned_technical_support_id is not null;
+
+create index if not exists events_events_pending_safety_review_idx
+  on events.events (updated_at)
+  where status = 'confirmed' and safety_decision is null;
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.

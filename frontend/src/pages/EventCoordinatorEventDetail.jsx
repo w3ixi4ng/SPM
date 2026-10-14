@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Building2, Check, Headphones, RotateCcw, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
@@ -7,18 +7,27 @@ import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
 import {
+  canDecideCancellation,
+  cancellationApprovalSummary,
+  cancellationApprovedNotice,
+  cancellationDecisionErrorMessage,
+  cancellationRequestedLabel,
+  decideCancellation,
   decideEventRequest,
   eventErrorMessage,
   eventResponseToForm,
   eventStatusMeta,
   getAssignedEventRequest,
+  validateDeclineReason,
 } from '../lib/eventRequests.js'
 import {
+  bookingClashMessage,
   bookingDateLabel,
   bookingStatusMeta,
   canRequestVenue,
   listVenueBookingsForEvent,
   shortTime,
+  venueRequestLinkLabel,
 } from '../lib/venueBookings.js'
 import {
   canRequestTechnicalSupport,
@@ -214,7 +223,7 @@ function DecisionForm({ eventId, onDecided }) {
 
 // What this Coordinator has already asked for, so a reload never leaves them
 // guessing whether a request went out.
-function VenueRequests({ eventId }) {
+function VenueRequests({ eventId, canRequest, notice }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
 
   useEffect(() => {
@@ -232,10 +241,16 @@ function VenueRequests({ eventId }) {
   }, [eventId])
 
   return (
-    <section className="mb-8" aria-labelledby="venue-requests-heading">
-      <h2 id="venue-requests-heading" className="font-display text-xl mb-4" style={{ color: C.ink }}>
-        Venue requests
-      </h2>
+    <section aria-labelledby="venue-requests-heading">
+      <div className="flex items-center gap-2 mb-2">
+        <Building2 size={18} aria-hidden="true" style={{ color: C.teal }} />
+        <h2 id="venue-requests-heading" className="font-display text-2xl" style={{ color: C.ink }}>
+          Venue requests
+        </h2>
+      </div>
+      <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>
+        Ask Venue Staff to book each venue this event needs, and follow each request&apos;s decision here.
+      </p>
       {state.status === 'loading' && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venue requests…</p>
       )}
@@ -274,12 +289,226 @@ function VenueRequests({ eventId }) {
                     {booking.decided_at && <p>Decided {new Date(booking.decided_at).toLocaleString()}</p>}
                   </div>
                 )}
+                {bookingClashMessage(booking) && (
+                  // S-75: flagged for the assigned Coordinator; the booking itself is unchanged.
+                  <p role="alert" className="w-full font-ui text-sm" style={{ color: C.rose }}>
+                    {bookingClashMessage(booking)}
+                  </p>
+                )}
               </li>
             )
           })}
         </ul>
       )}
+      {canRequest && (
+        <div className="flex flex-wrap items-center gap-4 mt-6">
+          <Link
+            to={`/coordinator/events/${eventId}/request-venue`}
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            <Building2 size={16} aria-hidden="true" />
+            {venueRequestLinkLabel(state.bookings)}
+          </Link>
+          <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
+            {notice}
+          </p>
+        </div>
+      )}
     </section>
+  )
+}
+
+// S-61: the Organiser's cancellation request and the assigned Coordinator's
+// decision. Approving or declining happens in the house slide-over, and
+// nothing is sent until its confirm step.
+function CancellationReview({ event, notice, onDecide }) {
+  if (!event.cancellation_requested_at) return null
+  const pending = canDecideCancellation(event)
+
+  return (
+    <section aria-labelledby="cancellation-heading" className="border rounded-sm p-7 sm:p-8 mb-8" style={{ borderColor: C.line }}>
+      <h2 id="cancellation-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
+        Cancellation request
+      </h2>
+      {notice && (
+        <p role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</p>
+      )}
+      <p className="font-ui text-sm flex items-center gap-2" style={{ color: C.ink }}>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: pending ? C.amber : C.inkFaint }} aria-hidden="true" />
+        {cancellationRequestedLabel(event)}
+      </p>
+      <p className="font-ui text-sm mt-2 whitespace-pre-wrap max-w-md" style={{ color: C.ink }}>
+        <span style={{ color: C.inkFaint }}>Organiser&apos;s reason: </span>
+        {event.cancellation_reason}
+      </p>
+      {event.cancellation_decision === 'approved' && (
+        <p className="font-ui text-sm mt-3" style={{ color: C.inkFaint }}>
+          You approved this request on {new Date(event.cancellation_decided_at).toLocaleString()}. The event is cancelled.
+        </p>
+      )}
+      {event.cancellation_decision === 'declined' && (
+        <p className="font-ui text-sm mt-3 whitespace-pre-wrap" style={{ color: C.inkFaint }}>
+          You declined this request on {new Date(event.cancellation_decided_at).toLocaleString()}: {event.cancellation_decision_reason}
+        </p>
+      )}
+      {pending && (
+        <div className="flex flex-wrap gap-3 mt-6">
+          <button
+            type="button"
+            onClick={(e) => onDecide('approved', e.currentTarget)}
+            className="px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            Approve cancellation
+          </button>
+          <button
+            type="button"
+            onClick={(e) => onDecide('declined', e.currentTarget)}
+            className="px-5 py-3 rounded-sm font-ui font-medium text-sm border transition-colors duration-200"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Decline
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CancellationDecisionPanel({ eventId, decision, onClose, onDecided }) {
+  const [bookingCount, setBookingCount] = useState(null)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState(null)
+  const [sending, setSending] = useState(false)
+  const panelRef = useRef(null)
+  const approving = decision === 'approved'
+
+  useEffect(() => {
+    if (!approving) return undefined
+    let active = true
+    // What approving will release, so the Coordinator confirms knowingly.
+    listVenueBookingsForEvent(eventId)
+      .then((bookings) => { if (active) setBookingCount(bookings.length) })
+      .catch(() => { if (active) setBookingCount(-1) })
+    return () => { active = false }
+  }, [approving, eventId])
+
+  useEffect(() => {
+    const panel = panelRef.current
+    panel?.querySelector('textarea, button:not([aria-label="Close"])')?.focus()
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button, textarea')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function send(e) {
+    e.preventDefault()
+    if (!approving) {
+      const problem = validateDeclineReason(reason)
+      if (problem) {
+        setError(problem)
+        return
+      }
+    }
+    setSending(true)
+    setError(null)
+    try {
+      onDecided(await decideCancellation(eventId, { decision, reason }))
+    } catch (failure) {
+      setError(cancellationDecisionErrorMessage(failure))
+      setSending(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancellation-decision-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7 font-ui"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="cancellation-decision-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            {approving ? 'Cancel this event?' : 'Decline cancellation'}
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <form onSubmit={send} noValidate className="grid gap-4">
+          {approving ? (
+            <p className="text-sm leading-relaxed" style={{ color: C.inkFaint }}>
+              {bookingCount === null && 'Checking the venue bookings…'}
+              {bookingCount === -1 && "We couldn't check the venue bookings. Every booking for this event will be removed. Equipment reserved for this event is freed."}
+              {bookingCount !== null && bookingCount >= 0 && cancellationApprovalSummary(bookingCount)}
+              {' '}This can&apos;t be undone.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm leading-relaxed" style={{ color: C.inkFaint }}>
+                The event stays as it is, and the Organiser sees your reason.
+              </p>
+              <div>
+                <label htmlFor="decline-reason" className="block text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+                  Why can&apos;t this event be cancelled?
+                </label>
+                <textarea
+                  id="decline-reason"
+                  rows={5}
+                  maxLength={1000}
+                  value={reason}
+                  onChange={(e) => { setReason(e.target.value); setError(null) }}
+                  aria-invalid={Boolean(error)}
+                  className="w-full rounded-sm border px-4 py-3 text-sm"
+                  style={{ borderColor: C.line, color: C.ink, backgroundColor: C.paper }}
+                />
+              </div>
+            </>
+          )}
+          {error && <p role="alert" className="text-sm" style={{ color: C.rose }}>{error}</p>}
+          <button
+            type="submit"
+            disabled={sending || (approving && bookingCount === null)}
+            className="px-5 py-3 rounded-sm font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {sending ? 'Saving…' : approving ? 'Cancel event' : 'Decline request'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm border transition-colors duration-200"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            {approving ? 'Keep event' : 'Back'}
+          </button>
+        </form>
+      </div>
+    </>
   )
 }
 
@@ -393,6 +622,11 @@ export default function EventCoordinatorEventDetail() {
   // Set by the venue request screen after a send. Read once, then cleared
   // from history so a reload or Back does not announce the same send again.
   const [notice] = useState(location.state?.notice ?? null)
+  // S-61: the cancellation decision panel, and what the last decision did.
+  const [decisionPanel, setDecisionPanel] = useState(null)
+  const [cancellationNotice, setCancellationNotice] = useState(null)
+  const [bookingsVersion, setBookingsVersion] = useState(0)
+  const decisionTriggerRef = useRef(null)
 
   useEffect(() => {
     if (location.state?.notice) {
@@ -420,7 +654,7 @@ export default function EventCoordinatorEventDetail() {
   const form = state.event ? eventResponseToForm(state.event) : null
   const isCoordinator = hasPermission(user?.role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS)
   const canAssignTechnicalSupport = hasPermission(user?.role, PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT)
-  const showVenueRequest = state.event && isCoordinator && canRequestVenue(state.event.status)
+  const showVenueRequest = Boolean(state.event) && canRequestVenue(state.event.status)
 
   return (
     <div className="min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
@@ -451,6 +685,15 @@ export default function EventCoordinatorEventDetail() {
 
         {state.status === 'ready' && (
           <>
+            <CancellationReview
+              event={state.event}
+              notice={cancellationNotice}
+              onDecide={(decision, trigger) => {
+                decisionTriggerRef.current = trigger
+                setDecisionPanel(decision)
+              }}
+            />
+
             {state.event.status === 'submitted' ? (
               <DecisionForm
                 eventId={state.event.id}
@@ -459,24 +702,6 @@ export default function EventCoordinatorEventDetail() {
             ) : (
               <DecisionRecord event={state.event} />
             )}
-
-            {showVenueRequest && (
-              <div className="flex flex-wrap items-center gap-4 mb-8">
-                <Link
-                  to={`/coordinator/events/${state.event.id}/request-venue`}
-                  className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
-                  style={{ backgroundColor: C.teal, color: C.paper }}
-                >
-                  <Building2 size={16} aria-hidden="true" />
-                  Request venue
-                </Link>
-                <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-                  {notice}
-                </p>
-              </div>
-            )}
-
-            {isCoordinator && <VenueRequests eventId={state.event.id} />}
 
             <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
               <h1 className="font-display text-3xl mb-8" style={{ color: C.ink }}>
@@ -508,7 +733,20 @@ export default function EventCoordinatorEventDetail() {
               className="border rounded-sm p-7 sm:p-8 mt-8"
               style={{ borderColor: C.line }}
             >
-              <section aria-labelledby="equipment-requirements-heading">
+              {isCoordinator && (
+                <VenueRequests
+                  key={bookingsVersion}
+                  eventId={state.event.id}
+                  canRequest={showVenueRequest}
+                  notice={notice}
+                />
+              )}
+
+              <section
+                aria-labelledby="equipment-requirements-heading"
+                className={isCoordinator ? 'border-t pt-8 mt-8' : undefined}
+                style={{ borderColor: C.line }}
+              >
                 <h2 id="equipment-requirements-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
                   Required equipment
                 </h2>
@@ -532,6 +770,39 @@ export default function EventCoordinatorEventDetail() {
           </>
         )}
       </div>
+
+      {decisionPanel && state.event && (
+        <CancellationDecisionPanel
+          eventId={state.event.id}
+          decision={decisionPanel}
+          onClose={() => {
+            setDecisionPanel(null)
+            decisionTriggerRef.current?.focus()
+          }}
+          onDecided={({ released_bookings: released, ...event }) => {
+            setDecisionPanel(null)
+            setState({ status: 'ready', event, error: null })
+            setCancellationNotice(
+              event.cancellation_decision === 'approved'
+                ? cancellationApprovedNotice(released)
+                : 'Request declined. The Organiser can see your reason.',
+            )
+            // The bookings list re-reads, so released bookings disappear.
+            setBookingsVersion((version) => version + 1)
+          }}
+        />
+      )}
+
+      <style>{`
+        @keyframes panelIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .csp-panel-in { animation: panelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        @media (prefers-reduced-motion: reduce) {
+          .csp-panel-in { animation: none; }
+        }
+      `}</style>
     </div>
   )
 }

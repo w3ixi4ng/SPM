@@ -19,6 +19,8 @@ queries another service's tables.
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning` and `confirmed` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
+| `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
+| `POST` | `/events/{event_id}/cancellation-decision` | `events:decide_cancellation` | S-61: the assigned coordinator approves (status becomes `cancelled`) or declines a pending cancellation request. See [Cancellation requests](#cancellation-requests-s-62). |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -33,8 +35,16 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/events/technical-support-load` | Conflict and current live workload for candidate Technical Support Staff against a requested window. |
 | `POST` | `/events/overlapping` | S-44: the `planning` and `confirmed` events overlapping a window, for the `equipment_requirements` composite's availability check. |
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
-| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
-| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and `assigned_coordinator_id`. |
+| `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
+| `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
+| `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `confirmed`, and `returned` events, newest update first. |
+| `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, and `confirmed` events, newest update first. |
+| `GET` | `/internal/events/safety-review` | S-86 queue source: list `confirmed` events with no current safety decision, oldest update first. |
+| `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
+| `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
+| `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
+| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
+| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
 
 All event endpoints except health authenticate the `sb_access_token` and
@@ -47,8 +57,8 @@ Technical Support workflows have the following event permissions:
 
 | Role | Permissions |
 | --- | --- |
-| `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own` |
-| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
+| `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
+| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide`, `events:decide_cancellation` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned` |
 | `attendee` | `dashboard:view` |
@@ -181,6 +191,7 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "required_facilities": ["projector"],
   "required_accessibility": ["wheelchair_access"],
   "assigned_coordinator_id": null,
+  "coordinator_assignment_version": 0,
   "technical_support_required": false,
   "technical_support_details": null,
   "assigned_technical_support_id": null,
@@ -189,14 +200,49 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "decision_reason": null,
   "decision_comment": null,
   "decided_at": null,
+  "cancellation_reason": null,
+  "cancellation_requested_at": null,
+  "cancellation_requested_by": null,
+  "cancellation_decision": null,
+  "cancellation_decision_reason": null,
+  "cancellation_decided_by": null,
+  "cancellation_decided_at": null,
+  "safety_decision": null,
+  "safety_decision_reason": null,
+  "safety_officer_id": null,
+  "safety_decided_at": null,
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
 ```
 
-`assigned_coordinator_id` is null until the `event_requests` composite
-assigns a coordinator on submission; an organiser's own request can never set
-it. See [Internal routes](#internal-routes-composite-only).
+`assigned_coordinator_id` is null until the `event_requests` composite records
+the Lead's assignment; an organiser's own request can never set it.
+`coordinator_assignment_version` starts at `0` and increments for each real
+S-84 owner-to-owner transfer. The composite supplies the current owner and
+version when reassigning, so a stale request cannot overwrite newer work.
+See [Internal routes](#internal-routes-composite-only).
+
+S-85's internal coordinator-overview route is read-only and recognizes
+`submitted`, `under_review`, `returned`, `planning`, and `confirmed` as active.
+It excludes null assignments and every other lifecycle state. S-85 does not
+create or transition event statuses and makes no schema change; it only
+defines how an assigned `under_review` row is treated when that workflow state
+is supplied by its owning lifecycle feature.
+
+S-86 interprets `confirmed` as meaning the event's required venue and
+technical arrangements have been confirmed and are ready for Operational
+Safety Check. The safety result is deliberately separate from the original
+Coordinator decision:
+
+- `approved` moves the event to `preparation`;
+- `rejected` moves it to `safety_rejected`, not generic `rejected`;
+- `changes_requested` moves it to `safety_changes_requested` for S-87.
+
+Rejection and changes require a nonblank reason; approval forbids one. The
+service stores the verified Safety Officer id and server time. A conditional
+update matching `confirmed` plus null `safety_decision` makes repeated, stale,
+and concurrent decisions return `409` without overwrite.
 
 The four `technical_support_*` fields are controlled by the S-43 assignment
 flow. They record whether support was explicitly requested, the optional
@@ -221,18 +267,22 @@ user, most recently updated first. No assigned active events returns `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14, S-36, S-43)
+## Status model (S-14, S-36, S-43, S-86)
 
 ```
 draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
                     ▲   │ ────reject───> rejected   (terminal)
                     │   └─────return───> returned
                     └──edit + resubmit──────┘
+
+planning ──arrangements confirmed──> confirmed ──safety approve──> preparation
+                                          │────safety reject────> safety_rejected
+                                          └──request changes───> safety_changes_requested
 ```
 
-`confirmed` is now a valid stored state because S-43 must include confirmed
-events when checking Technical Support commitments. S-43 does not introduce a
-transition into it. `completed` and `cancelled` remain later workflow states.
+For S-86, `confirmed` is the documented interpretation that required venue and
+technical arrangements are confirmed. The earlier story that performs the
+planning-to-confirmed transition is outside S-86.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
@@ -242,9 +292,13 @@ transition into it. `completed` and `cancelled` remain later workflow states.
   `decision=approved`). Venue booking requests are made against events in
   this status. No further submit action; edits still go through the same
   `PATCH`.
-- **confirmed** — a live commitment for Technical Support workload and
-  overlap checks. This story defines how it is counted, not how an event
-  moves from planning to confirmed.
+- **confirmed** — venue and technical arrangements are ready for safety review;
+  also a live commitment for Technical Support workload and overlap checks.
+- **preparation** — the Safety Officer approved the arrangements.
+- **safety_rejected** — the safety arrangement was rejected; this is distinct
+  from the original request's generic `rejected` state.
+- **safety_changes_requested** — the Safety Officer requested changes; S-87
+  owns routing this back to the relevant planning stage.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.
@@ -282,13 +336,68 @@ Returns `200` with the updated event, `decided_at` set. `status` becomes
 including a decision already made, since a decision cannot be changed once
 recorded. `404` if the caller is not the assigned coordinator.
 
+## Cancellation requests (S-62)
+
+**`POST /events/{event_id}/cancellation-request`** is for the organiser who
+owns the event only. It is reached through Kong at
+`/api/events/{event_id}/cancellation-request`.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Trimmed; 1–1000 characters. Any other field is a `422`. |
+
+```json
+{"reason": "Keynote speaker withdrew and no replacement is available"}
+```
+
+Returns `200` with the event. `cancellation_reason`,
+`cancellation_requested_at` (server time) and `cancellation_requested_by`
+(the caller) are set. **`status` is unchanged**: the event is not cancelled
+until a later review completes it. There is one request per event, and it
+comes back on `GET /events` and `GET /events/{event_id}`.
+
+| Status | When |
+| --- | --- |
+| `401` | No valid session. |
+| `403` | Not an `event_organiser`. |
+| `404` | `Event not found`: missing, or not the caller's. |
+| `409` | `This event can't be cancelled from its current status.`: only `submitted`, `under_review`, `planning`, `confirmed`, `preparation` and `safety_changes_requested` qualify. |
+| `409` | `A cancellation request has already been sent for this event.`: also returned when another request lands between the read and the write. |
+| `422` | Missing, blank or over-long `reason`, or an extra field. |
+| `500` | `Event storage unavailable`: nothing was recorded. |
+
+### Deciding a request (S-61)
+
+**`POST /events/{event_id}/cancellation-decision`** is for the coordinator the
+event is assigned to only. The browser reaches it through the
+`event_requests` composite, which also releases the event's venue bookings.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `decision` | `"approved"` \| `"declined"` | yes | |
+| `reason` | string | when declining | Trimmed, 1–1000 characters. Not accepted when approving. |
+
+**Approving** sets `status` to `cancelled`. **Declining** leaves `status`
+alone. Both set `cancellation_decision`, `cancellation_decided_by` and
+`cancellation_decided_at`; a decline also sets
+`cancellation_decision_reason`. The record keeps the latest decision only.
+After a decline the organiser may request again, which clears the decision.
+
+| Status | When |
+| --- | --- |
+| `200` | Decided. Approving a request that is already approved returns the event unchanged, which is how the composite retries a failed booking release. |
+| `401` / `403` | No session / not an `event_coordinator`. |
+| `404` | `Event not found`: missing, or not assigned to the caller. |
+| `409` | `There is no cancellation request to decide for this event.` |
+| `409` | `This cancellation request has already been decided.`: also returned when another decision lands between the read and the write. |
+| `422` | Unknown `decision`, a decline without a reason, an approval with one, or an extra field. |
+
 ## Internal routes (composite-only)
 
-These six exist for the `event_requests` composite service
-([`backend/services/composite/event_requests`](../../composite/event_requests/README.md)),
-which is the only caller — there is no Kong route for any of them, and they
-carry no session-derived authorization of their own. A browser cannot reach
-them from outside the Docker network.
+These routes support the repository's composite services. There is no Kong
+route for any of them, and they carry no session-derived authorization of
+their own. A browser cannot reach them from outside the Docker network; each
+calling composite authenticates and authorizes its workflow first.
 
 ### `POST /events/coordinator-load`
 
@@ -376,11 +485,30 @@ must never set them:
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `organiser_id` | uuid | The organiser the composite already authenticated — not derived from a session here. |
-| `assigned_coordinator_id` | uuid | The coordinator the composite already chose. |
+| `assigned_coordinator_id` | uuid or null | Existing assignment to preserve; S-83 submissions use null until a Lead assigns the request. |
 
 Same responses and status codes as the public routes they mirror
 (`201`/`200`, `404` for another organiser's draft, `409` for an event that is
 not currently `draft` or `returned`).
+
+### `GET /internal/events/unassigned` and assignment
+
+The internal queue returns only `submitted` events with a null
+`assigned_coordinator_id`, oldest `submitted_at` first. The S-83 composite
+adds organiser profiles; this atomic service does not read user storage.
+
+`POST /internal/events/{event_id}/assignment` accepts:
+
+```json
+{"coordinator_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+```
+
+It conditionally updates a submitted, unassigned event and returns the event
+plus `assignment_created: true`. Repeating the same Coordinator assignment
+returns `200` with `assignment_created: false`; this lets the composite repair
+a failed notification write. A different existing assignment or changed
+status returns `409`, and a missing event returns `404`. This atomic route does
+not evaluate schedule conflicts.
 
 ### `PATCH /events/{event_id}/internal`
 
@@ -397,7 +525,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

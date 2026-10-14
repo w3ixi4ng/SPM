@@ -810,6 +810,10 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 
 ### TC-VENUEBOOKINGS-046 — Event state and replacement requests release holds through orchestration
 
+> **S-79 (2026-10-11):** the replacement half is superseded — a new request
+> no longer releases the event's other holds (TC-VENUEBOOKINGS-061, 062). The
+> event-state release and identical-retry halves still apply.
+
 - **Scenario:** Holds are released when their event closes or their requested slot is replaced (AC3, AC4).
 - **Pre-conditions:** Event E has one active hold; events and bookings clients are mocked.
 - **Steps:** Synchronise E when its authoritative status is `rejected`, `cancelled`, and each nonterminal status; submit a replacement venue request with a changed venue, date or time; repeat the same request unchanged.
@@ -872,3 +876,376 @@ Confirmed by the developer on 2026-10-05 after CI returned a transient
   `502`, and the downstream `POST /bookings` was attempted exactly once.
 - **Status:** Pass
 - **Evidence:** `test_resilience.py::test_booking_write_timeout_is_not_retried`
+
+---
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+
+> **Renumbered 2026-10-08:** TC-FRONTEND-081–084 and TC-E2E-226 were
+> already in use (S-43 on `main`, S-83 on `sprint3`). S-75's cases with
+> those numbers are now TC-FRONTEND-088–091 and TC-E2E-228; the rest keep
+> theirs.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+
+**Acceptance criteria → cases (all layers)**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Venue Staff record a setup time and a turnaround time per venue, in minutes | VENUES-033, 035, 036, 104, FRONTEND-088, E2E-228 |
+| AC2: Neither can be negative; 0 is accepted | VENUES-034, FRONTEND-088 |
+| AC3: The times can be updated at any time and the saved values are used whenever availability is checked or conflicts are detected | VENUES-035, BOOKINGS-039–041, 109, VENUEBOOKINGS-050–052, 056, 107, FRONTEND-089, 090, E2E-228 |
+| AC4: Bookings that clash under new times are identified and flagged for the assigned Coordinator, never removed or cancelled | VENUEBOOKINGS-053–055, 057, 058, 107, FRONTEND-085, 091, E2E-228 |
+| Developer request: compact pending list, each request on its own page | VENUEBOOKINGS-058, FRONTEND-086, 087, E2E-227 |
+
+The conditions agreed with the developer on 2026-10-07 (with the Week 7
+customer change #1):
+
+- A booking **occupies** its venue from *start − setup* to *end +
+  turnaround*, using the venue's **current** times. Two bookings at the same
+  venue clash when their occupied windows overlap, so consecutive bookings
+  need at least *turnaround + setup* between them. Touching windows (one
+  ends exactly as the other starts) do not clash, as before.
+- The **whole occupied window** must fit inside the venue's opening hours.
+- Only **held** and **confirmed** bookings reserve time. Clashes are detected
+  between held and confirmed bookings dated **today or later** (the
+  composite's server date).
+- A clash is a **live warning**: worked out from current data whenever it is
+  viewed, nothing stored, gone once the clash is resolved. No booking is ever
+  changed, released, rejected or removed because of it.
+- The Coordinator sees it on the affected booking in their event's venue
+  requests; Venue Staff see the clashing pairs right after saving and on
+  held requests in their request list.
+- The S-30 calendar shows "Booked 10:00–12:00 · venue in use 09:30–12:45",
+  with the venue's setup and turnaround at the top.
+- Both times start at **0** for every venue (existing ones included): any
+  whole number of minutes ≥ 0, no maximum. Times are **saved first**, then
+  the clashes are listed.
+- **Also in S-75, at the developer's request:** Venue Staff's "Pending booking
+  requests" list shows one compact row per request instead of every form.
+  Each row opens the request's own page, where the details, the clash
+  warning, Place/Release hold and the approve/reject form now live.
+
+**Shared test data.** Studio B, open `thu` 08:00–20:00, setup 30, turnaround
+45 (so 75 minutes between bookings). On Thu 2026-11-12: A **confirmed**
+10:00–12:00 (event "Alumni talk"); B **held** 12:30–14:00 ("Board lunch");
+C **confirmed** 16:00–17:00; D **pending** 12:15–12:45. "Today" is 2026-11-10.
+
+## TC-VENUEBOOKINGS-050 — the opening-hours check covers setup and turnaround
+
+- **Scenario:** A request must leave room to prepare and reset within hours (AC3).
+- **Pre-conditions:** The S-36 submit checks otherwise pass; Studio B as above.
+- **Steps:** `POST /venue-bookings` for 08:00–10:00, 08:30–10:00,
+  18:00–19:15 and 18:00–19:30.
+- **Expected:** 08:00 start and 19:30 end → `422` with
+  `errors.operating_hours` "Studio B is open 08:00–20:00 on Thursdays; with 30
+  min setup and 45 min turnaround a booking must run within 08:30–19:15". The
+  other two pass this check. With setup and turnaround 0, 08:00–20:00 passes,
+  as today.
+- **Actual:** 08:00 start and 19:30 end refused with the specified message and nothing sent; 08:30–10:00 and 18:00–19:15 accepted; with 0/0, 08:00–20:00 accepted.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_opening_hours_check_covers_setup_and_turnaround`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_without_setup_and_turnaround_the_whole_day_is_bookable`
+
+## TC-VENUEBOOKINGS-051 — requests, holds and confirmations pass the venue's current times
+
+- **Scenario:** The saved values are used whenever conflicts are detected (AC3).
+- **Steps:** Submit a request; place a hold; approve a request.
+- **Expected:** `POST /bookings` is sent `setup_minutes=30` and
+  `turnaround_minutes=45`, read from the venues service at that moment. For
+  hold and decision, the composite reads the booking (`GET /bookings/{id}`),
+  then its venue, and passes the same two values. A venue changed to 0/0 in
+  between is passed as 0/0 on the next call. Unknown booking → `404`
+  `{"detail":"Booking not found"}`; venues or bookings failing → `502`.
+- **Actual:** The request, hold and decision each passed 30/45 read at that moment, and 0/0 once the venue changed; an unknown booking was 404 with no write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_request_passes_the_venues_current_times`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_holds_and_decisions_pass_the_bookings_venues_current_times`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_an_unknown_booking_is_a_404_before_any_write`
+
+## TC-VENUEBOOKINGS-052 — a refusal explains the setup and turnaround
+
+- **Scenario:** The Coordinator sees why a slot that looks free is refused (AC3).
+- **Pre-conditions:** Bookings returns `409` with the TC-BOOKINGS-039 detail.
+- **Expected:** `409` with that detail unchanged:
+  `"Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00. With 30 min setup and 45 min turnaround it is in use until 12:45."`
+- **Actual:** The bookings 409 detail reached the Coordinator unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_refusal_explains_the_setup_and_turnaround`
+
+## TC-VENUEBOOKINGS-053 — a Coordinator's clashing booking carries a warning
+
+- **Scenario:** Flagged for the assigned Coordinator (AC4).
+- **Pre-conditions:** The Coordinator is assigned B's event; bookings for the
+  date and Studio B are A, B, C, D.
+- **Steps:** `GET /venue-bookings?event_id=<B's event>`.
+- **Expected:** B carries
+  `clashes: [{"booking_date":"2026-11-12","start_time":"10:00:00","end_time":"12:00:00","occupied_start":"09:30","occupied_end":"12:45","status":"confirmed"}]`
+  — another booking's time and state only, no event name, coordinator or id —
+  plus `setup_minutes: 30`, `turnaround_minutes: 45`. A request that is
+  pending, rejected, dated before today, or clashes with nothing has
+  `clashes: []`. No booking is updated.
+- **Actual:** B carried exactly the specified clash and 30/45, with no other event's name or id; pending, rejected, past and non-clashing rows had `clashes: []`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_coordinators_clashing_booking_carries_a_warning`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_other_requests_carry_no_warning`
+
+## TC-VENUEBOOKINGS-054 — Venue Staff list a venue's clashing bookings
+
+- **Scenario:** Identified right after saving (AC4).
+- **Steps:** `GET /venue-bookings/clashes?venue_id=<Studio B>` as Venue Staff.
+- **Expected:** `200` with `setup_minutes`, `turnaround_minutes` and one pair:
+  A and B, each with event name, coordinator name, date, times, occupied
+  window and status. C (75 min after B ends) and D (pending) are not listed.
+  Pairs are listed once, in date then start order. Bookings before today are
+  ignored. Non-staff → `403`; unknown venue → `404`.
+- **Actual:** One A–B pair with names and occupied windows, read from today; non-staff 403; unknown venue 404.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_venue_staff_list_a_venues_clashing_bookings`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_only_venue_staff_list_clashes`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_clashes_for_an_unknown_venue_is_a_404`
+
+## TC-VENUEBOOKINGS-055 — held requests in the Staff request list show their clashes
+
+- **Scenario:** Staff see the warning where they act (AC4).
+- **Steps:** `GET /venue-bookings/pending` with B among the held requests.
+- **Expected:** B carries the same `clashes` as TC-VENUEBOOKINGS-053; pending
+  requests carry `clashes: []`. A held request whose venue no longer exists
+  (`404` from venues) is still listed with `clashes: []`, so one bad row never
+  hides the others; a venues failure (`500`/unreachable) is still `502`.
+  (Added 2026-10-08 after leftover test rows with made-up venues emptied the
+  list on dev.)
+- **Actual:** Held B carried its clash; pending D had none.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_held_requests_in_the_staff_list_show_their_clashes`; `…::test_a_request_whose_venue_is_missing_is_still_listed`; `…::test_a_failing_venues_service_still_fails_the_list`
+
+## TC-VENUEBOOKINGS-056 — the calendar reports the venue's times
+
+- **Scenario:** Availability uses the saved values (AC3).
+- **Steps:** `GET /venue-bookings/availability` for Studio B.
+- **Expected:** The response adds `setup_minutes: 30` and
+  `turnaround_minutes: 45`; entries are unchanged (event times), so the page
+  can show both.
+- **Actual:** The calendar response carried 30/45.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_calendar_reports_the_venues_times`
+
+## TC-VENUEBOOKINGS-057 — clashes never change or remove a booking
+
+- **Scenario:** Flagged rather than silently removed or cancelled (AC4).
+- **Steps:** Run TC-VENUEBOOKINGS-053, 054 and 055.
+- **Expected:** No call to the bookings service other than reads; nothing is
+  released, rejected, updated or deleted.
+- **Actual:** The three reads made no write to the bookings service.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_clashes_never_change_or_remove_a_booking`
+
+## TC-VENUEBOOKINGS-058 — Venue Staff read one request by id
+
+- **Scenario:** The request's own page loads by itself, including on reload.
+- **Steps:** `GET /venue-bookings/{id}` as Venue Staff for held B, then for an
+  unknown id; then as a Coordinator.
+- **Expected:** `200` with B exactly as the pending list returns it, including
+  `clashes` (TC-VENUEBOOKINGS-055). A decided request is returned too, with its
+  status, so the page can say it was already decided. Unknown → `404`
+  `{"detail":"Booking not found"}`; Coordinator → `403`; bookings failing →
+  `502`.
+- **Actual:** B returned with its clash; a decided request returned with its status; unknown 404; Coordinator 403; /pending and /clashes still resolve.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_venue_staff_read_one_request_by_id`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_a_decided_request_is_returned_with_its_status`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_only_venue_staff_read_a_request`; `tests/unit/composite/venue_bookings/test_setup_turnaround.py::test_the_fixed_paths_are_not_read_as_ids`
+
+## S-76 — detect booking conflicts incl. setup and turnaround
+
+Story: S-76 Detect Booking Conflicts incl. Setup and Turnaround.
+Confirmed by the developer on 2026-10-09. Unit cases last run 2026-10-09, branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` on top of `ee7dc4f`; Python 3.14.4, pytest 9.1.1, FastAPI 0.141.1; Node 24.21.0.
+
+**Acceptance criteria → cases (all layers)**
+
+S-75 already delivered most of the rule; its passing cases are listed
+against the S-76 criteria they cover, and new cases fill the gaps.
+
+| Acceptance criterion | Existing (S-75 / S-38) | New (S-76) |
+| --- | --- | --- |
+| AC1: Occupied period = start − setup to end + turnaround (10:00–12:00, 30/45 → 09:30–12:45) | VENUEBOOKINGS-053, BOOKINGS-039, FRONTEND-090, 091 | BOOKINGS-042 |
+| AC2: No two confirmed bookings at one venue with overlapping occupied periods | BOOKINGS-040, 109 | BOOKINGS-042 |
+| AC3: A blocked approval names the conflicting booking and its occupied period | — (message names the venue and time only, and gives "in use until" without a start) | BOOKINGS-042, VENUEBOOKINGS-059, 108, FRONTEND-096, E2E-230 |
+| AC4: Availability checks use the occupied period | BOOKINGS-039, VENUEBOOKINGS-050, 051, 056, FRONTEND-089, 090 | — |
+| AC5: Bookings that become conflicting are flagged for review, never removed | VENUEBOOKINGS-053–055, 057 (but confirmed–confirmed clashes are shown to Staff only once, right after saving, in router state) | BOOKINGS-043, VENUEBOOKINGS-060, 108, FRONTEND-097, E2E-230 |
+
+The conditions agreed with the developer on 2026-10-09:
+
+- The refusal names the other booking by **event name** and status, with its
+  **whole occupied period** and how it is made up. Only Venue Staff see it
+  (approve and hold). A Coordinator's refused request keeps S-75's wording
+  and never names another event.
+- "Flagged for review" means a standing **"Clashes to review"** section on the
+  Venue Staff dashboard, across every venue, worked out live on each load
+  (the S-75 rule: nothing stored, nothing changed). It stays until the clash
+  is resolved — it cannot be dismissed and survives a reload. The one-off list
+  after saving a venue stays as it is.
+
+**Shared test data.** As TC-BOOKINGS-042.
+
+### TC-VENUEBOOKINGS-059 — a refused approval reaches Venue Staff unchanged
+
+- **Scenario:** The composite passes the conflict through instead of
+  replacing it with "already decided" (S-76 AC3).
+- **Pre-conditions:** Venue Staff session; the bookings fake answers the
+  decision and the hold with `409` and the TC-BOOKINGS-042 details.
+- **Steps:** `POST /venue-bookings/{B}/decision` `{"decision":"approved"}`;
+  `POST /venue-bookings/{B}/hold`.
+- **Expected:** `409` with each detail unchanged. A `409` "This booking
+  request has already been decided" still maps as before.
+- **Actual:** Both 409 details reached Venue Staff unchanged; "already decided" still mapped as before.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_a_refused_approval_reaches_venue_staff_unchanged`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_an_already_decided_request_still_says_so`
+
+### TC-VENUEBOOKINGS-060 — Venue Staff list every clash to review, across venues
+
+- **Scenario:** Clashes stay flagged for Staff until resolved, including
+  confirmed–confirmed ones (S-76 AC5).
+- **Pre-conditions:** "Today" is 2026-11-10. Venues fake lists Studio B
+  (30/45), Hall C (15/15) and Studio D (0/0, no bookings). Bookings fake
+  returns A, held B′ (B held), F, G and a confirmed booking at a venue that
+  is no longer in the venues list.
+- **Steps:**
+  1. `GET /venue-bookings/clashes` as Venue Staff, no `venue_id`.
+  2. The same as a Coordinator.
+  3. Step 1 with venues, then bookings, failing.
+- **Expected:**
+  1. `200` `{"venues":[…]}`: Hall C with pair F–G, then Studio B with pair
+     A–B′, each pair as TC-VENUEBOOKINGS-054 (event name, coordinator, times,
+     occupied window, status), each venue with its `setup_minutes` and
+     `turnaround_minutes`. Ordered by venue name; Studio D and the missing
+     venue are not listed. Bookings is read once with
+     `status=live&from=2026-11-10`. No write to any service.
+  2. `403`.
+  3. `502` both times — never an empty list.
+  `GET /venue-bookings/clashes?venue_id=…` is unchanged (TC-VENUEBOOKINGS-054).
+- **Actual:** Hall C (F–G) then Studio B (A–B′) with their times; Studio D and the missing venue left out; one `status=live&from=2026-11-10` read; no writes; other roles 403; venues or bookings failing 502; the `venue_id` form unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_venue_staff_list_every_clash_to_review`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_reviewing_clashes_changes_nothing`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_only_venue_staff_review_clashes`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_a_failing_service_is_a_502_never_an_empty_list`; `tests/unit/composite/venue_bookings/test_booking_conflicts.py::test_one_venue_is_still_listed_as_before`
+
+## S-79 — book multiple venues for one event
+
+Story: S-79 Book Multiple Venues for One Event.
+Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
+
+**Acceptance criteria → cases (all layers)**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: A Coordinator can add more than one venue booking to one event, each with its own venue, date and time | VENUEBOOKINGS-061, 062, 109, FRONTEND-103, E2E-232 |
+| AC2: Each booking is checked independently for suitability, availability and conflicts | VENUEBOOKINGS-063, 064, 109 |
+| AC3: All bookings stay with the same event, and the Coordinator sees each one with its status | VENUEBOOKINGS-061, 066, 109, E2E-232 |
+
+Decisions agreed with the developer on 2026-10-11:
+
+- **No per-booking purpose.** The "and purpose" part of AC1 is dropped. A
+  booking has its own venue, date and time only, and keeps the event's
+  purpose as it does today. No schema change.
+- **A new request never replaces another.** The S-33 rule that a changed
+  request releases the event's other holds (`booking_replaced`) is removed.
+  The replacement half of TC-VENUEBOOKINGS-046 ("each changed replacement
+  releases the old hold") is superseded by TC-VENUEBOOKINGS-061 and 062. Its
+  event-state release (rejected/cancelled) and identical-retry halves still
+  apply. Withdrawing a single booking is out of scope.
+- **Capacity is checked against the event's total expected attendance**, for
+  every booking, as today.
+- **One event's bookings may run at the same time in different venues.**
+  Overlapping at the *same* venue is still refused (S-30/S-75 rule).
+
+**Shared test data.** Planning event E assigned to the Coordinator:
+`2026-11-12` `08:00`–`18:00`, expected attendance `120`. Venues, all open
+`thu` 08:00–20:00, setup and turnaround 0:
+
+| Venue | Capacity |
+| --- | --- |
+| Main Hall (H) | 300 |
+| Studio B (S) | 150 |
+| Seminar Room (R) | 40 |
+
+Existing booking A for E: H, `2026-11-12` `09:00`–`17:00`, status `held`.
+
+### TC-VENUEBOOKINGS-061 — a second venue for the same event is added alongside the first
+
+- **Scenario:** A Coordinator adds a booking at a different venue, at the
+  same time as one the event already has, and the first is untouched (AC1,
+  AC3).
+- **Pre-conditions:** Coordinator session for E. The bookings fake lists A
+  for `event_id=E` and answers the new `POST /bookings` with `201` and row B.
+- **Steps:** `POST /venue-bookings` with the test data.
+- **Test data:** `{"event_id": E, "venue_id": S, "booking_date": "2026-11-12", "start_time": "13:00", "end_time": "15:00"}`
+- **Expected:** `201` with B (`event_id` E, venue S, 13:00–15:00). Exactly
+  one `POST /bookings` is made, carrying `event_id` E. **No** call to
+  `/bookings/{A}/release` and no other write touching A.
+- **Actual:** `201` with B at Studio B 13:00–15:00 for E; the only bookings write was `POST /bookings`; A was never released.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_a_second_venue_at_the_same_time_is_added_alongside_the_first`
+
+### TC-VENUEBOOKINGS-062 — a second slot at the same venue on another day is added alongside the first
+
+- **Scenario:** The second booking differs from the first by date and time
+  only, not venue (AC1).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-061, but E runs `2026-11-12` 08:00
+  to `2026-11-13` 18:00, and H is also open `fri` 08:00–20:00.
+- **Steps:** `POST /venue-bookings`.
+- **Test data:** `{"event_id": E, "venue_id": H, "booking_date": "2026-11-13", "start_time": "09:00", "end_time": "12:00"}`
+- **Expected:** `201` with the new row. No release of A and no write touching A.
+- **Actual:** `201`; the only bookings write was `POST /bookings`; A untouched.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_a_second_slot_at_the_same_venue_on_another_day_is_added`
+
+### TC-VENUEBOOKINGS-063 — each booking is checked for suitability on its own
+
+- **Scenario:** An event that already has a suitable venue gets no allowance
+  for an unsuitable one, and a failed request leaves the first alone (AC2).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-061.
+- **Steps:**
+  1. `POST /venue-bookings` for R (capacity 40), `2026-11-12` 13:00–15:00.
+  2. `POST /venue-bookings` for S, `2026-11-12` 17:00–19:00 (outside the event's window).
+- **Expected:**
+  1. `422` with `errors` naming capacity (40 < 120, the event's total).
+  2. `422` with the window error "The booking must fall within the event's
+     date and time".
+  In both cases, no `POST /bookings` and no write touching A.
+- **Actual:** Seminar Room refused `422` "Seminar Room holds 40 people; this event expects 120"; 17:00–19:00 refused `422` with the window error; no bookings write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_each_booking_is_checked_for_suitability_on_its_own`
+
+### TC-VENUEBOOKINGS-064 — each booking is checked for availability and conflicts on its own
+
+- **Scenario:** The event's own existing booking does not exempt a new
+  request from the venue's availability check (AC2).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-061, but the bookings fake answers
+  `POST /bookings` with `409` and the S-30 detail "Main Hall is already
+  tentatively held on 12 Nov 2026 …".
+- **Steps:** `POST /venue-bookings` for H, `2026-11-12` 16:00–18:00 (overlaps A).
+- **Expected:** `409` with the detail unchanged. No release of A and no other
+  write. A request at a different venue at the same time is
+  TC-VENUEBOOKINGS-061, which succeeds.
+- **Actual:** `409` with the S-30 detail unchanged; the only write was the refused `POST /bookings`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_each_booking_is_checked_for_availability_on_its_own`
+
+### TC-VENUEBOOKINGS-065 — an identical retry still returns the existing booking
+
+- **Scenario:** When an event has several bookings, resending one of them
+  does not duplicate it (regression from TC-VENUEBOOKINGS-046).
+- **Pre-conditions:** The bookings fake lists A and B (S, 13:00–15:00,
+  `pending`) for E.
+- **Steps:** `POST /venue-bookings` with the venue, date and times of B.
+- **Expected:** `201` with B as it was. No `POST /bookings` and no release.
+- **Actual:** `201` with B as stored; no bookings write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_an_identical_retry_returns_the_existing_booking`
+
+### TC-VENUEBOOKINGS-066 — the Coordinator sees every booking for the event with its status
+
+- **Scenario:** All of an event's bookings are listed together, each with
+  its own status (AC3).
+- **Pre-conditions:** Coordinator session for E. For `event_id=E`, the
+  bookings fake lists A (H, `held`), B (S, `pending`), C (R, `rejected`,
+  reason "Too small") and D (H on `2026-11-13`, `confirmed`), oldest first.
+- **Steps:** `GET /venue-bookings?event_id=E`.
+- **Expected:** `200` with all four, in that order, each with its own
+  `venue_name`, `booking_date`, times and `status`. C keeps its
+  `decision_reason`. No write to any service.
+- **Actual:** `200` with A, B, C, D in order, statuses held/pending/rejected/confirmed, all event E; C kept "Too small"; no writes.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_multiple_venues.py::test_the_coordinator_sees_every_booking_for_the_event_with_its_status`

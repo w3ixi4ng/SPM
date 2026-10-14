@@ -289,6 +289,8 @@ def test_event_organiser_has_the_sprint_one_permissions():
         "events:view_own",
         "events:update_own_draft",
         "events:submit_own",
+        # S-62
+        "events:request_cancellation",
     }
     assert ROLE_PERMISSIONS["event_organiser"] == EVENT_ORGANISER_PERMISSIONS
 
@@ -324,6 +326,8 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
         "dashboard:view",
         "events:view_assigned",
         "events:decide",
+        # S-61
+        "events:decide_cancellation",
     }
 
 
@@ -1364,7 +1368,7 @@ def test_internal_support_action_preserves_unassigned_requirement(client, db):
     assert values["technical_support_assigned_at"] is None
 
 
-# --- TC-EVENTS-101 --------------------------------------------------------
+# --- TC-EVENTS-113 (was TC-EVENTS-101) -----------------------------------
 def test_internal_support_action_requires_current_planning_assignment(client, db):
     _support_target_select(db).execute.return_value = SimpleNamespace(data=[])
 

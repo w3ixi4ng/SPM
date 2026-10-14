@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 import availability
+import occupancy
 import suitability
 from clients import (
     INTERNAL_READ_TIMEOUT,
@@ -37,9 +38,13 @@ UNSUITABLE = "This venue can't take this booking"
 
 # The bookings service's identified 409s: a slot taken by a confirmed booking
 # (S-38) or a hold, or a day blocked by Venue Staff (S-30). These name only the
-# venue, date and times, so they are safe to pass to the caller. Any other 409
-# detail is not.
-CONFLICT_PHRASES = (" is already confirmed on ", " is already tentatively held on ", " is unavailable from ")
+# venue, date and times, so they are safe to pass to the caller. S-76's refused
+# approvals and holds also name the event in the way; only Venue Staff reach
+# those routes. Any other 409 detail is not passed on.
+CONFLICT_PHRASES = (
+    " is already confirmed on ", " is already tentatively held on ", " is unavailable from ",
+    "Can't confirm this booking: it overlaps ", "Can't hold this booking: it overlaps ",
+)
 INTERNAL_GET_ATTEMPTS = 3
 INTERNAL_GET_BACKOFF = (0.5, 1.0)
 
@@ -175,6 +180,66 @@ def _booking_body(payload: VenueBookingRequest, user: dict, event: dict, venue: 
     }
 
 
+def _today() -> date:
+    """The composite's server date: S-75 clashes are checked from today on."""
+    return date.today()
+
+
+async def _booking_by_id(bookings: httpx.AsyncClient, booking_id) -> dict:
+    response = await _get("Bookings", bookings, f"/bookings/{booking_id}")
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    return response.json()
+
+
+async def _with_clashes(rows: list[dict], venues, bookings, cookies) -> list[dict]:
+    """S-75: each row with the live clash warning for it -- `clashes: []` when
+    there is none. Only held and confirmed bookings from today on are
+    checked, against the other held/confirmed bookings at their venue that
+    day, using the venue's current setup and turnaround. Read-only: nothing
+    is ever changed because of a clash."""
+    today = _today()
+    checked = [
+        row for row in rows
+        if row.get("status") in occupancy.LIVE and date.fromisoformat(str(row["booking_date"])) >= today
+    ]
+    venues_by_id: dict[str, dict] = {}
+    days: dict[tuple[str, str], list[dict]] = {}
+    for row in checked:
+        venue_id, day = str(row["venue_id"]), str(row["booking_date"])
+        if venue_id not in venues_by_id:
+            try:
+                venues_by_id[venue_id] = await _fetch(
+                    "Venues", venues, f"/venues/{venue_id}", cookies, "Venue not found"
+                )
+            except HTTPException as exc:
+                # A request whose venue no longer exists is still listed, just
+                # without a warning -- one bad row must not hide the others.
+                # Any other failure still fails the list rather than hide a clash.
+                if exc.status_code != status.HTTP_404_NOT_FOUND:
+                    raise
+                logger.warning("Booking %s refers to missing venue %s", row["id"], venue_id)
+                venues_by_id[venue_id] = None
+        if venues_by_id[venue_id] is not None and (venue_id, day) not in days:
+            days[(venue_id, day)] = await _list(bookings, "/bookings", {"venue_id": venue_id, "from": day, "to": day})
+
+    result = []
+    for row in rows:
+        venue = venues_by_id.get(str(row.get("venue_id")))
+        if row not in checked or venue is None:
+            result.append({**row, "clashes": []})
+            continue
+        same_day = days[(str(row["venue_id"]), str(row["booking_date"]))]
+        result.append({
+            **row,
+            **occupancy.gap_params(venue),
+            "clashes": occupancy.clashes_for(row, same_day, venue, today),
+        })
+    return result
+
+
 @app.post("/venue-bookings", status_code=status.HTTP_201_CREATED)
 async def submit_venue_booking(
     payload: VenueBookingRequest,
@@ -201,13 +266,13 @@ async def submit_venue_booking(
         return JSONResponse(status_code=422, content={"detail": UNSUITABLE, "errors": problems})
 
     # Read existing requests before writing so an identical retry is
-    # idempotent and a successful replacement can release the old hold.
+    # idempotent. S-79: an event may book several venues, so a new request
+    # never replaces or releases the event's other bookings.
     previous_response = await _get(
         "Bookings", bookings, "/bookings", params={"event_id": str(payload.event_id)}
     )
     if previous_response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    previous_holds = [row for row in previous_response.json() if row.get("status") == "held"]
 
     def slot(row):
         return (
@@ -217,11 +282,11 @@ async def submit_venue_booking(
             str(row["end_time"])[:5],
         )
 
-    replacement_slot = slot(payload.model_dump(mode="json"))
+    requested_slot = slot(payload.model_dump(mode="json"))
     existing = next(
         (
             row for row in previous_response.json()
-            if row.get("status") in ("pending", "held") and slot(row) == replacement_slot
+            if row.get("status") in ("pending", "held") and slot(row) == requested_slot
         ),
         None,
     )
@@ -229,7 +294,10 @@ async def submit_venue_booking(
         return JSONResponse(status_code=status.HTTP_201_CREATED, content=existing)
 
     body = _booking_body(payload, user, event, venue)
-    response = await _call("Bookings", bookings.post("/bookings", json=body))
+    # S-75: checked by the venue's current setup and turnaround.
+    response = await _call("Bookings", bookings.post(
+        "/bookings", json=body, params=occupancy.gap_params(venue),
+    ))
     # S-30: the slot is held, booked or blocked -- say which, as the bookings
     # service worded it.
     conflict = _identified_conflict(response)
@@ -237,17 +305,7 @@ async def submit_venue_booking(
         raise HTTPException(status_code=409, detail=conflict)
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
-    created = response.json()
-    for old in previous_holds:
-        if slot(old) == replacement_slot:
-            continue
-        released = await _call("Bookings", bookings.post(
-            f'/bookings/{old["id"]}/release',
-            json={"reason": "booking_replaced"}, cookies=request.cookies,
-        ))
-        if released.status_code != status.HTTP_200_OK:
-            raise _unavailable("Bookings")
-    return created
+    return response.json()
 
 
 @app.get("/venue-bookings")
@@ -256,6 +314,7 @@ async def list_venue_bookings_for_event(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     """The requests sent for one event, every status, oldest first. The
@@ -269,7 +328,8 @@ async def list_venue_bookings_for_event(
     )
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    return response.json()
+    # S-75: flagged for the assigned Coordinator.
+    return await _with_clashes(response.json(), venues, bookings, request.cookies)
 
 
 @app.get("/venue-bookings/pending")
@@ -277,6 +337,7 @@ async def list_pending_venue_bookings(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     # Every Venue Staff member sees every pending request -- no filter by
@@ -287,7 +348,8 @@ async def list_pending_venue_bookings(
     )
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    return await _release_terminal_holds(response.json(), events, bookings, request.cookies)
+    current = await _release_terminal_holds(response.json(), events, bookings, request.cookies)
+    return await _with_clashes(current, venues, bookings, request.cookies)
 
 
 @app.post("/venue-bookings/{booking_id}/hold")
@@ -295,11 +357,13 @@ async def hold_venue_booking(
     booking_id: UUID,
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     await _authenticate(request, users, VENUE_STAFF_ROLE)
+    gap = await _venue_gap(booking_id, venues, bookings, request.cookies)
     response = await _call(
-        "Bookings", bookings.post(f"/bookings/{booking_id}/hold", cookies=request.cookies)
+        "Bookings", bookings.post(f"/bookings/{booking_id}/hold", params=gap, cookies=request.cookies)
     )
     if response.status_code == 200:
         return response.json()
@@ -336,12 +400,19 @@ async def decide_venue_booking(
     payload: BookingDecision,
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
     await _authenticate(request, users, VENUE_STAFF_ROLE)
+    # Only a confirmation reserves time, so only it needs the venue's setup
+    # and turnaround; a rejection never depends on reading the venue.
+    gap = (
+        await _venue_gap(booking_id, venues, bookings, request.cookies)
+        if payload.decision == "approved" else {"setup_minutes": 0, "turnaround_minutes": 0}
+    )
     response = await _call("Bookings", bookings.post(
         f"/bookings/{booking_id}/decision",
-        json=payload.model_dump(mode="json"), cookies=request.cookies,
+        json=payload.model_dump(mode="json"), params=gap, cookies=request.cookies,
     ))
     if response.status_code == 200:
         return response.json()
@@ -357,6 +428,14 @@ async def decide_venue_booking(
     if response.status_code in messages:
         raise HTTPException(status_code=response.status_code, detail=messages[response.status_code])
     raise _unavailable("Bookings")
+
+
+async def _venue_gap(booking_id, venues, bookings, cookies) -> dict:
+    """S-75: the setup and turnaround of the booking's venue, read now, so a
+    hold or confirmation is checked by the saved values."""
+    booking = await _booking_by_id(bookings, booking_id)
+    venue = await _fetch("Venues", venues, f'/venues/{booking["venue_id"]}', cookies, "Venue not found")
+    return occupancy.gap_params(venue)
 
 
 async def _list(bookings: httpx.AsyncClient, path: str, params: dict) -> list[dict]:
@@ -438,6 +517,8 @@ async def venue_availability(
         "from": from_date.isoformat(),
         "to": to_date.isoformat(),
         "operating_hours": venue["operating_hours"],
+        # S-75: so the calendar can show when the venue is in use.
+        **occupancy.gap_params(venue),
         "entries": availability.entries(booked, blocked, staff=user["role"] == VENUE_STAFF_ROLE),
     }
 
@@ -491,3 +572,86 @@ async def remove_venue_block(
     if response.status_code == status.HTTP_204_NO_CONTENT:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return _block_failure(response)
+
+
+# --- S-75: clashes, and one request by id ------------------------------------
+# Registered last: /venue-bookings/{booking_id} would otherwise read
+# "pending", "availability" or "clashes" as an id.
+
+# A booking date no request reaches: "from today on" with no end.
+_FAR_FUTURE = "9999-12-31"
+
+
+@app.get("/venue-bookings/clashes")
+async def list_venue_clashes(
+    request: Request,
+    venue_id: UUID | None = None,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-75: every pair of held/confirmed bookings at a venue, today on, that
+    clash under its current setup and turnaround. Venue Staff see this right
+    after changing the times. Read-only.
+
+    S-76: with no venue, every venue's clashes -- the standing list Venue
+    Staff review on their dashboard."""
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    if venue_id is None:
+        return await _clashes_to_review(venues, bookings, request.cookies)
+    venue = await _fetch("Venues", venues, f"/venues/{venue_id}", request.cookies, "Venue not found")
+    rows = await _list(bookings, "/bookings", {
+        "venue_id": str(venue_id), "from": _today().isoformat(), "to": _FAR_FUTURE,
+    })
+    return {
+        "venue_id": venue["id"],
+        "venue_name": venue["name"],
+        **occupancy.gap_params(venue),
+        "pairs": occupancy.clash_pairs(rows, venue, _today()),
+    }
+
+
+async def _clashes_to_review(venues, bookings, cookies) -> dict:
+    """S-76: the venues with at least one clashing pair, by venue name, each
+    with its current setup and turnaround. Worked out live like S-75's
+    warnings: nothing is stored or changed. A booking whose venue no longer
+    exists is skipped; a failing service fails the list rather than read as
+    "no clashes"."""
+    today = _today()
+    listed = await _get("Venues", venues, "/venues", cookies=cookies)
+    if listed.status_code != status.HTTP_200_OK:
+        raise _unavailable("Venues")
+    rows = await _list(bookings, "/bookings", {"status": "live", "from": today.isoformat()})
+
+    by_venue: dict[str, list[dict]] = {}
+    for row in rows:
+        by_venue.setdefault(str(row["venue_id"]), []).append(row)
+    flagged = []
+    for venue in sorted(listed.json(), key=lambda venue: venue["name"]):
+        pairs = occupancy.clash_pairs(by_venue.get(str(venue["id"]), []), venue, today)
+        if pairs:
+            flagged.append({
+                "venue_id": venue["id"],
+                "venue_name": venue["name"],
+                **occupancy.gap_params(venue),
+                "pairs": pairs,
+            })
+    return {"venues": flagged}
+
+
+@app.get("/venue-bookings/{booking_id}")
+async def get_venue_booking(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-75: one request for its own page in the Venue Staff workspace, with
+    its clash warning. Decided requests are returned too, so the page can say
+    so."""
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    booking = await _booking_by_id(bookings, booking_id)
+    [row] = await _with_clashes([booking], venues, bookings, request.cookies)
+    return row
+

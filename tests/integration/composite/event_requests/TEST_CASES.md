@@ -1,16 +1,17 @@
 # Test cases — event_requests service (integration)
 
 Covers `tests/integration/composite/event_requests/test_app.py`: the real
-composite service in Docker, calling the real `events` and `users` services,
+composite service in Docker, calling the real `events`, `users`, and
+`notifications` services,
 against the test Supabase project. Proves the three services agree on shapes
 the unit tests cannot check, because their fakes agree with everything.
 
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-10-05, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | 7 passed in this suite |
+| Result | Targeted S-85 case and S-84 regression: 2 passed |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -192,3 +193,131 @@ Verified runnable twice in a row.
   the staff id and parsed assignment instant unchanged.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_support_assignment_is_persisted_visible_and_idempotent`
+
+---
+
+## S-83 — Lead assignment journey
+
+Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
+and notification recipients confirmed by the developer on 2026-10-08.
+
+TC-EVENTREQUESTS-101 through TC-EVENTREQUESTS-104 specify the superseded
+automatic-assignment rule from S-12. They are retained as historical IDs but
+must no longer execute after S-83 replaces that workflow.
+
+## TC-EVENTREQUESTS-108 — submission, Lead assignment, and both notifications cross real boundaries
+
+- **Scenario:** Prove the complete S-83 workflow across Kong, trusted Auth
+  roles, users, events, notifications, the composite, and real Supabase rows.
+- **Pre-conditions:** Fresh `.env.test` stack; `users`, `events`, and
+  `notifications` schemas applied, granted, and exposed; temporary organiser,
+  Lead, coordinator A, and coordinator B exist. Coordinator A has an
+  overlapping event to prove conflicts do not block manual choice.
+- **Steps:** 1. Sign in as organiser and submit `Autumn Forum` through Kong.
+  2. Verify it has no coordinator. 3. Sign in as Lead and read the queue and
+  coordinator choices. 4. Assign conflicting coordinator A. 5. Read the queue
+  again. 6. Inspect the two persisted recipient rows. 7. Repeat the same
+  assignment with both rows present. 8. Reproduce the split-service failure
+  state on another event by committing only the atomic assignment, then retry
+  through the composite. 9. Delete one recipient row and retry again.
+  10. Attempt assignment to B. 11. Inspect and clean up real rows/users.
+- **Test data:** `Autumn Forum`, `2026-11-18 09:00`–`12:00`, attendance `120`;
+  A's overlapping event `10:00`–`11:00`.
+- **Expected:** Submission returns `201`, `submitted`, coordinator null and
+  appears in the Lead queue with basic event and organiser information. A is
+  offered and can be assigned despite overlap. The event leaves the queue and
+  the queue no longer contains it. A and the organiser each retain one
+  in-app assignment notification. Every
+  retry preserves A, creates any missing notification, and ends with exactly
+  one coordinator row and one organiser row; no duplicate is created when
+  both already exist. Changing the target to B returns `409`. Cleanup succeeds
+  and the case can run twice.
+- **Actual:** The Lead assigned coordinator A despite the overlapping event;
+  the event left the queue and both notifications persisted. Same-target
+  retries kept the assignment and exactly two notification rows, recreated
+  either missing row, and a different-target retry returned `409`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_lead_assignment_persists_notifications_and_repairs_missing_rows`;
+  targeted local run against the freshly rebuilt `.env.test` stack: 1 passed.
+
+## TC-EVENTREQUESTS-109 — versioned reassignment transfers access and repairs three notifications
+
+- **Scenario:** Prove S-84 across Kong, Auth, users, events, notifications,
+  and real Supabase rows.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-84 events and
+  notifications SQL applied; organiser, Lead, coordinator A, and coordinator
+  B. A owns an active event and B has an overlapping event.
+- **Steps:** List active assignments; reassign A/v0 to B; verify both
+  Coordinator queues and three notification rows; repeat; delete each row and
+  retry; make a newer transition and retry the stale original request.
+- **Expected:** Conflict does not block B. Access moves A→B. Exact retries
+  preserve B and repair only missing notifications, always ending at exactly
+  three. The stale request returns `409` and cannot revert the newer owner.
+- **Actual:** The Lead reassigned the event to the overlapping Coordinator;
+  access moved A→B and exactly three version-1 notifications persisted.
+  Repeating created no duplicates, deleting the organiser row followed by a
+  retry repaired it, and the stale A/v0→B request returned `409` after the
+  newer B/v1→A transition without reverting version 2.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_reassignment_transfers_access_and_repairs_notifications`;
+  local run against a freshly rebuilt `.env.test` stack on 2026-10-09: 1 passed.
+
+## TC-EVENTREQUESTS-110 — oversight groups real assignments and follows reassignment
+
+- **Scenario:** Prove the S-85 overview contract across Kong, Auth, Users,
+  Events, and the real test database while preserving S-84 reassignment.
+- **Pre-conditions:** Fresh `.env.test` stack; organiser, Lead, coordinators A
+  and B; one submitted event assigned to A. B has no active assignment.
+- **Steps:** Read overview as Lead; verify both Coordinator groups and counts;
+  reassign A→B through S-84; read overview again; try the overview as an
+  organiser.
+- **Test data:** `Autumn Forum`, submitted, `2026-11-18 09:00`–`12:00`.
+- **Expected:** The first overview places the enriched event under A with
+  counts A=1/B=0. The second places it under B with A=0/B=1 and unchanged
+  event summary fields. The organiser receives `403`; no S-85 notification or
+  persistence state is created.
+- **Actual:** The first real overview returned A=1/B=0 with the enriched
+  submitted event. After S-84 moved it, the next returned A=0/B=1 with version
+  1; both overview reads left notification counts unchanged, and the Organiser
+  received `403`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_overview_groups_and_tracks_reassignment`
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+The S-61 SQL was applied to dev and test on 2026-10-11. The criteria mapping and agreed decisions are in the S-61
+section of `tests/unit/atomic/events/TEST_CASES.md`.
+
+### TC-EVENTREQUESTS-111 — approving through Kong cancels the event and frees its venue and equipment
+
+- **Scenario:** Real services agree that a cancelled event holds nothing, and
+  a decline keeps everything (S-61 AC1–AC3).
+- **Pre-conditions:** A fresh `.env.test` stack; the S-61 SQL applied.
+  - Coordinator K, Organiser O, Venue Staff S, and a venue V open `thu`
+    08:00–20:00.
+  - An equipment item Q with quantity 1.
+  - Event E1: `planning`, assigned to K, owned by O, `2026-11-12`
+    09:00–18:00. It has a pending cancellation request, a `confirmed` booking
+    of V 09:00–12:00, a `held` booking of V 13:00–15:00, and a requirement
+    for 1 × Q.
+  - Event E2: `planning`, assigned to K, with a pending request.
+- **Steps:**
+  1. K `POST /api/event-requests/E1/cancellation-decision` `{"decision": "approved"}`.
+  2. S `GET /api/venue-bookings/availability?venue_id=V&from=2026-11-12&to=2026-11-12`.
+  3. K checks equipment availability for Q on `2026-11-12` 09:00–18:00.
+  4. K declines E2 with reason "Move the date instead".
+  5. O `POST /api/events/E2/cancellation-request` `{"reason": "Still need to cancel"}`.
+- **Expected:**
+  1. `200`, `status` `cancelled`, `released_bookings` 2. In
+     `events.events`, E1 is `cancelled` with decision `approved` by K and a
+     decision time. `bookings.bookings` has no rows for E1.
+  2. 12 Nov shows nothing booked or held at V.
+  3. Q shows 1 available.
+  4. `200`. E2 is still `planning`, with decision `declined` and the reason.
+  5. `200`. E2's decision fields are cleared and the new reason is stored.
+  Cleanup deletes every row created.
+- **Actual:** Through Kong: approving E1 returned `200` `cancelled` with `released_bookings` 2; E1 stored `cancelled`, approved by K with a time; no booking rows left for E1; the calendar for 12 Nov had no entries; the projector showed 0 reserved, 1 available. Declining E2 kept it `planning` with the reason; the Organiser's new request returned `200` and cleared all four decision fields.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 21 passed, 5 skipped (pre-existing S-83 supersessions).

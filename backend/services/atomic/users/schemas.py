@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -35,3 +37,14 @@ class CurrentUserRead(UserRead):
     # This comes from verified Supabase Auth app_metadata, never users.users or
     # user_metadata. None lets clients fail closed for older unassigned users.
     role: str | None
+
+
+class ProfileLookupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[UUID] = Field(max_length=100)
+
+    @field_validator("ids")
+    @classmethod
+    def unique_ids(cls, values: list[UUID]) -> list[UUID]:
+        return list(dict.fromkeys(values))

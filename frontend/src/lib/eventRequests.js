@@ -103,8 +103,13 @@ const STATUS_META = {
   submitted: { label: 'Under Review', color: '#B5842B' },
   planning: { label: 'Planning', color: '#3F8F5F' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
+  preparation: { label: 'Preparation', color: '#3F8F5F' },
+  safety_rejected: { label: 'Safety Rejected', color: '#B25547' },
+  safety_changes_requested: { label: 'Safety Changes Requested', color: '#B5842B' },
   returned: { label: 'Action Required', color: '#B5842B' },
   rejected: { label: 'Rejected', color: '#B25547' },
+  // S-61: approved by the assigned Coordinator. Neutral, not an error.
+  cancelled: { label: 'Cancelled', color: '#4C5A70' },
 }
 
 export function eventStatusMeta(status) {
@@ -265,4 +270,161 @@ export function decideEventRequest(id, { decision, reason, comment }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+// S-62: an Organiser asks for a live event to be cancelled. The request is
+// stored on the event and its status does not change -- the event is only
+// cancelled once a later review completes it. Mirrors the events service's
+// _CANCELLABLE_STATUSES, which stays authoritative.
+const CANCELLABLE_STATUSES = new Set([
+  'submitted', 'under_review', 'planning', 'confirmed', 'preparation', 'safety_changes_requested',
+])
+export const CANCELLATION_REASON_MAX = 1000
+
+// S-61: a request is pending until the assigned Coordinator decides it.
+function cancellationPending(event) {
+  return Boolean(event?.cancellation_requested_at) && !event?.cancellation_decision
+}
+
+// S-61: after a decline the Organiser may ask again.
+export function canRequestCancellation(event) {
+  if (!CANCELLABLE_STATUSES.has(event?.status)) return false
+  return !event?.cancellation_requested_at || event?.cancellation_decision === 'declined'
+}
+
+function dayLabel(value) {
+  return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+export function cancellationRequestedLabel(event) {
+  if (!event?.cancellation_requested_at) return null
+  return `Cancellation requested on ${dayLabel(event.cancellation_requested_at)}`
+}
+
+export function cancellationApprovedLabel(event) {
+  if (event?.cancellation_decision !== 'approved' || !event?.cancellation_decided_at) return null
+  return `Cancelled on ${dayLabel(event.cancellation_decided_at)}`
+}
+
+export function cancellationDeclinedLabel(event) {
+  if (event?.cancellation_decision !== 'declined' || !event?.cancellation_decided_at) return null
+  return `Cancellation declined on ${dayLabel(event.cancellation_decided_at)}`
+}
+
+// The dashboard's tag beside the status badge. A separate tag, never a
+// status: the event keeps its own status until the request is reviewed. An
+// approved request needs no tag -- the status already reads Cancelled.
+export function organiserCancellationTag(event) {
+  if (cancellationPending(event)) return 'Cancellation requested'
+  if (event?.cancellation_decision === 'declined') return 'Cancellation declined'
+  return null
+}
+
+// S-61: the Coordinator's side.
+export function canDecideCancellation(event) {
+  return cancellationPending(event)
+}
+
+export function coordinatorCancellationTag(event) {
+  return cancellationPending(event) ? 'Cancellation requested' : null
+}
+
+export function validateCancellationReason(reason) {
+  const trimmed = (reason ?? '').trim()
+  if (!trimmed) return 'Enter a reason for cancelling.'
+  if (trimmed.length > CANCELLATION_REASON_MAX) return 'Keep the reason to 1000 characters.'
+  return null
+}
+
+export function cancellationSentMessage(status) {
+  const label = organiserStatusMeta(status).label.toLowerCase()
+  return `Cancellation request sent. Your event stays in ${label} until it has been reviewed.`
+}
+
+const UNCHANGED = 'Your event has not changed.'
+
+export function cancellationErrorMessage(error) {
+  if (error.status === 409 && error.message) return `${error.message} ${UNCHANGED}`
+  if (error.status === 422) return `Enter a reason of up to 1000 characters. ${UNCHANGED}`
+  if (error.status === 404) return `This event was not found or does not belong to you. ${UNCHANGED}`
+  if (error.status === 401) return `Your session has expired. Sign in again and retry. ${UNCHANGED}`
+  if (error.status === 403) return `Your role can't request cancellations. ${UNCHANGED}`
+  if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${UNCHANGED}`
+  return `The cancellation request couldn't be sent. Try again in a moment. ${UNCHANGED}`
+}
+
+export function requestEventCancellation(id, reason) {
+  return requestJSON(`/events/${encodeURIComponent(id)}/cancellation-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason.trim() }),
+  })
+}
+
+// S-61: the assigned Coordinator's decision. Through the event_requests
+// composite, which also releases the event's venue bookings on approval.
+export function decideCancellation(id, { decision, reason = '' }) {
+  const body = { decision }
+  if (decision === 'declined') body.reason = reason.trim()
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/cancellation-decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function validateDeclineReason(reason) {
+  const trimmed = (reason ?? '').trim()
+  if (!trimmed) return 'Enter a reason for declining.'
+  if (trimmed.length > CANCELLATION_REASON_MAX) return 'Keep the reason to 1000 characters.'
+  return null
+}
+
+export function cancellationApprovalSummary(bookingCount) {
+  const venue = bookingCount === 0
+    ? 'No venue bookings to release.'
+    : bookingCount === 1
+      ? '1 venue booking will be removed and its time freed.'
+      : `${bookingCount} venue bookings will be removed and their times freed.`
+  return `${venue} Equipment reserved for this event is freed.`
+}
+
+export function cancellationApprovedNotice(released) {
+  if (!released) return 'Event cancelled. It had no venue bookings to release.'
+  return released === 1
+    ? 'Event cancelled. 1 venue booking was released.'
+    : `Event cancelled. ${released} venue bookings were released.`
+}
+
+const NOTHING_CHANGED = 'Nothing was changed.'
+
+// 409 and 502 carry the service's own explanation -- a 502 after approval
+// says the event is cancelled but its bookings weren't released, which is
+// exactly what the Coordinator needs to read.
+export function cancellationDecisionErrorMessage(error) {
+  if ((error.status === 409 || error.status === 502) && error.message) return error.message
+  if (error.status === 422) return `Enter a reason of up to 1000 characters. ${NOTHING_CHANGED}`
+  if (error.status === 404) return `This event was not found or is not assigned to you. ${NOTHING_CHANGED}`
+  if (error.status === 401) return `Your session has expired. Sign in again and retry. ${NOTHING_CHANGED}`
+  if (error.status === 403) return `Your role can't decide cancellation requests. ${NOTHING_CHANGED}`
+  if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${NOTHING_CHANGED}`
+  return `The decision couldn't be saved. Try again in a moment. ${NOTHING_CHANGED}`
+}
+
+// The Organiser's banner about the decision on their request, by status.
+// Null means no banner: before a decision there is nothing to say, and a
+// cancelled event is explained by its cancellation section instead. Every
+// status that shows a banner has words, so it is never an empty box.
+const DECISION_BANNER = {
+  planning: 'This request has been approved and is in planning.',
+  confirmed: 'This request has been approved and the event is confirmed.',
+  preparation: 'This request has been approved and the event is in preparation.',
+  safety_rejected: 'This request was approved, but the event did not pass its safety check.',
+  safety_changes_requested: 'This request was approved, but its safety check asked for changes.',
+  rejected: 'This request has been rejected and is closed.',
+  returned: 'This request was returned for amendment. Fix the issue below, then resubmit.',
+}
+
+export function organiserDecisionBanner(status) {
+  return DECISION_BANNER[status] ?? null
 }

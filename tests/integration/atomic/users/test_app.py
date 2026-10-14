@@ -168,7 +168,7 @@ def test_coordinator_listing_against_real_supabase(api, cleanup, admin):
     coordinator_id = seed("event_coordinator")
     organiser_id = seed("event_organiser")
 
-    response = api.get("/users/coordinators")
+    response = api.get("/internal/users/coordinators")
 
     assert response.status_code == 200, response.text
     ids = [row["id"] for row in response.json()]

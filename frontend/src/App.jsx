@@ -4,6 +4,7 @@ import ProtectedRoute, { DashboardRedirect } from './components/ProtectedRoute.j
 import { PERMISSIONS, ROLE_ACCESS } from './lib/access.js'
 import Dashboard from './pages/Dashboard.jsx'
 import EventCoordinatorDashboard from './pages/EventCoordinatorDashboard.jsx'
+import EventCoordinatorLeadDashboard from './pages/EventCoordinatorLeadDashboard.jsx'
 import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
 import EquipmentAvailability from './pages/EquipmentAvailability.jsx'
@@ -13,9 +14,12 @@ import Login from './pages/Login.jsx'
 import SignUp from './pages/SignUp.jsx'
 import TechnicalSupportDashboard from './pages/TechnicalSupportDashboard.jsx'
 import VenueAvailability from './pages/VenueAvailability.jsx'
+import VenueBookingRequest from './pages/VenueBookingRequest.jsx'
 import VenueForm from './pages/VenueForm.jsx'
 import VenueRequestForm from './pages/VenueRequestForm.jsx'
 import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
+import SafetyOfficerDashboard from './pages/SafetyOfficerDashboard.jsx'
+import SafetyCheckDetail from './pages/SafetyCheckDetail.jsx'
 
 // Each role's landing page. event_organiser and attendee still share the
 // generic Dashboard component (no distinct page has been asked for yet);
@@ -24,8 +28,10 @@ import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
 const ROLE_DASHBOARDS = {
   event_organiser: Dashboard,
   event_coordinator: EventCoordinatorDashboard,
+  event_coordinator_lead: EventCoordinatorLeadDashboard,
   venue_staff: VenueStaffDashboard,
   technical_support: TechnicalSupportDashboard,
+  safety_officer: SafetyOfficerDashboard,
   attendee: Dashboard,
 }
 
@@ -85,6 +91,14 @@ function App() {
           )}
         />
         <Route
+          path="/venue-bookings/:id"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS}>
+              <VenueBookingRequest />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/venues/:id/availability"
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_VENUE_AVAILABILITY}>
@@ -113,6 +127,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.UPDATE_EQUIPMENT}>
               <EquipmentForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/safety-checks/:id"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_SAFETY_CHECKS}>
+              <SafetyCheckDetail />
             </ProtectedRoute>
           )}
         />

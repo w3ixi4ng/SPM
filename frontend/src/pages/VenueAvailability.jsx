@@ -21,6 +21,7 @@ import {
   monthGrids,
   monthRange,
   removeVenueBlock,
+  setupTurnaroundLabel,
   shiftMonth,
   shortDayLabel,
   STATE_META,
@@ -488,7 +489,9 @@ export default function VenueAvailability() {
   }
 
   const { data } = load
-  const days = data ? availabilityDays(range, data.entries, data.operating_hours) : []
+  // S-75: the venue's setup and turnaround, so each booking shows when the venue is in use.
+  const gap = data ? { setup: data.setup_minutes ?? 0, turnaround: data.turnaround_minutes ?? 0 } : undefined
+  const days = data ? availabilityDays(range, data.entries, data.operating_hours, gap) : []
   const daysByDate = Object.fromEntries(days.map((day) => [day.date, day]))
   const grids = monthGrids(range, today)
 
@@ -560,6 +563,7 @@ export default function VenueAvailability() {
 
           {data && (
             <>
+              <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>{setupTurnaroundLabel(gap)}</p>
               <Legend />
               <Calendar grids={grids} daysByDate={daysByDate} selectedDate={selectedDate} onSelect={setSelectedDate} />
               {removal.error && (

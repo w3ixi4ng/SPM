@@ -17,6 +17,7 @@ case.
 | [`event_requests/`](event_requests/README.md) | `events`, `users` | Route a submitted event request to a free event coordinator. |
 | [`venue_bookings/`](venue_bookings/README.md) | `users`, `events`, `venues`, `bookings` | Check and submit a Coordinator's venue booking request; list pending ones for Venue Staff. |
 | [`equipment_requirements/`](equipment_requirements/README.md) | `users`, `events`, `equipment` | Let the currently assigned Coordinator record equipment during planning; let Technical Support view it. |
+| [`safety_checks/`](safety_checks/README.md) | `users`, `events`, `bookings`, `venues`, `equipment` | Let Safety Officers assess confirmed operational arrangements and atomically record the first decision. |
 
 Add one folder per use case, following the service structure in
 [`AGENTS.md`](../../../AGENTS.md).

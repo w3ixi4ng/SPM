@@ -1,18 +1,15 @@
 # Test cases — event_requests service (unit)
 
-Covers `tests/unit/composite/event_requests/test_app.py`: the composite
-service that stands between an event organiser and the `events`/`users`
-atomic services for the one workflow that spans both entities — turning a
-submission into an assigned event coordinator. Both outbound HTTP clients
-(`get_events_client`, `get_users_client`) are faked; no network, database, or
-Docker.
+Covers `test_app.py`, `test_s83.py`, and `test_s84.py`: the composite workflows spanning the
+events, users, and notifications atomic services. All three outbound HTTP
+clients are faked; no network, database, or Docker.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-09-29, branch `S-43/auto-assign-technical-support`, pre-commit working tree |
-| Environment | Python 3.12.4, pytest 9.1.1, FastAPI 0.141.1, Pydantic 2.13.5, httpx 0.28.1, supabase-py 2.31.0; no network, database, or Docker |
-| Result | 47 passed in this suite; 509 passed across `tests/unit` |
+| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
+| Result | 80 passed, 17 superseded S-12 cases skipped; 832 passed, 17 skipped across `tests/unit` |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -598,3 +595,472 @@ GET returns the persisted requirement and the assigned profile after reload.
 - **Actual:** As expected in the full unit run.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_support_assignment_dependency_failures_are_safe`, `test_app.py::test_support_assignment_preserves_a_stale_write_conflict`
+
+---
+
+## S-83 — Assign Event Requests from Unassigned Queue
+
+Story: S-83 Assign Event Requests from Unassigned Queue.
+
+Acceptance criteria confirmed by the developer on 2026-10-08:
+
+1. A newly submitted request is stored as `submitted` without an assigned
+   coordinator.
+2. Only an authenticated Event Coordinator Lead can view the unassigned queue
+   and assign a request.
+3. The queue shows the event name, start/end date and time, expected
+   attendance, and organiser.
+4. The Lead may assign any user whose trusted role is `event_coordinator`;
+   scheduling conflicts do not block assignment.
+5. Assignment removes the request from the queue and makes it visible to the
+   selected coordinator.
+6. Concurrent or repeated assignment to a different coordinator is rejected.
+7. Persistent in-app notifications are created for both the assigned
+   coordinator and the event organiser. No email or external notification is
+   required.
+8. Draft, returned, and already-assigned requests are not in the queue.
+
+The following cases were executed in the full unit run on 2026-10-08 on
+branch `S-83/assign-event-requests-from-unassigned-queue`.
+
+## TC-EVENTREQUESTS-040 — a new request is submitted without automatic assignment
+
+- **Scenario:** S-83 replaces automatic coordinator selection with the Lead's
+  unassigned queue.
+- **Pre-conditions:** Shared organiser session; the events create endpoint
+  returns a submitted event with `assigned_coordinator_id=null`.
+- **Steps:** `POST /event-requests` with the shared submitted body.
+- **Test data:** Shared organiser id and event window.
+- **Expected:** `201`; the events create call contains the organiser id and no
+  coordinator id. No coordinator-pool or coordinator-load request is made.
+- **Actual:** The submitted event carried a null Coordinator and neither pool nor load was queried.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_new_submission_enters_the_unassigned_queue`
+
+## TC-EVENTREQUESTS-041 — a draft's first submission is unassigned
+
+- **Scenario:** Submitting a saved draft follows the same S-83 queue path as a
+  brand-new request.
+- **Pre-conditions:** The organiser owns a `draft`; the internal submit call
+  accepts the complete payload.
+- **Steps:** `POST /event-requests/{event_id}/submit`.
+- **Test data:** Event `22222222-2222-4222-8222-222222222222`; shared submitted
+  body.
+- **Expected:** `200` with status `submitted` and
+  `assigned_coordinator_id=null`; no coordinator availability call occurs.
+- **Actual:** The draft was submitted with a null Coordinator without an availability call.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_first_draft_submission_is_unassigned`
+
+## TC-EVENTREQUESTS-042 — a returned request keeps its existing coordinator
+
+- **Scenario:** A returned request is not a new unassigned request when the
+  organiser resubmits it.
+- **Pre-conditions:** The organiser owns a `returned` event assigned to
+  coordinator A.
+- **Steps:** Resubmit the returned event with a changed date/time that overlaps
+  coordinator A's other work.
+- **Test data:** Coordinator A; shared event moved to `19:00`–`22:00`.
+- **Expected:** `200`; coordinator A remains assigned. No coordinator pool,
+  load, or conflict call occurs, and the event never enters the Lead queue.
+- **Actual:** Coordinator A was preserved despite the changed overlapping window; no conflict call occurred.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_returned_resubmission_keeps_its_coordinator`
+
+## TC-EVENTREQUESTS-043 — only a Lead can view the unassigned queue
+
+- **Scenario:** Queue access is restricted to the new trusted Lead role.
+- **Pre-conditions:** `/users/me` returns each recognized non-Lead role, an
+  unknown role, and no session in turn.
+- **Steps:** `GET /event-requests/unassigned` for every caller.
+- **Test data:** `event_coordinator`, `event_organiser`, `venue_staff`,
+  `technical_support`, `attendee`, `unknown`, and unauthenticated.
+- **Expected:** Non-Lead authenticated callers receive `403`; no session
+  receives `401`; the events service is never called.
+- **Actual:** Every named non-Lead role returned `403`, no session returned `401`, and events was untouched.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_a_lead_can_view_the_unassigned_queue`
+
+## TC-EVENTREQUESTS-044 — the queue contains only unassigned submissions and basic information
+
+- **Scenario:** The Lead receives enough information to choose an owner, with
+  organiser profiles resolved through the users service.
+- **Pre-conditions:** A Lead session; events returns one unassigned submitted
+  event; users resolves its organiser profile.
+- **Steps:** `GET /event-requests/unassigned`.
+- **Test data:** Event `Autumn Forum`, `2026-10-20 18:00`–`21:00`, attendance
+  `120`; organiser `Ada Organiser <ada@example.com>`.
+- **Expected:** `200`; the item contains id, name, start/end date and time,
+  expected attendance, and organiser id/name/email. No draft, returned, or
+  assigned event is requested or returned.
+- **Actual:** The queue item contained event and resolved organiser details from the two owning services.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_lead_queue_returns_basic_event_and_organiser_information`
+
+## TC-EVENTREQUESTS-045 — the Lead can list eligible coordinators
+
+- **Scenario:** The assignment control offers only trusted Event Coordinator
+  accounts.
+- **Pre-conditions:** A Lead session; `/internal/users/coordinators` returns A and B.
+- **Steps:** `GET /event-requests/coordinators`.
+- **Test data:** Coordinator A and B profiles.
+- **Expected:** `200` with the two id/name/email profiles; other roles receive
+  `403`; no availability or workload lookup is made.
+- **Actual:** Both trusted Coordinator profiles returned without a load or availability lookup.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_lead_lists_trusted_coordinators_without_availability_filtering`
+
+## TC-EVENTREQUESTS-046 — a Lead assigns any trusted coordinator despite a conflict
+
+- **Scenario:** Suitability is the Lead's judgment; scheduling overlap is not
+  an assignment rejection rule.
+- **Pre-conditions:** A Lead session; coordinator B appears in the trusted
+  coordinator pool; the events assignment succeeds.
+- **Steps:** `POST /event-requests/{event_id}/assignment` with B's id.
+- **Test data:** Event id from TC-EVENTREQUESTS-044; coordinator B, who is
+  described by the fixture as having an overlapping event.
+- **Expected:** `200` with B assigned. The composite does not request
+  coordinator load or conflict data.
+- **Actual:** The trusted Coordinator was assigned and no coordinator-load call occurred.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_lead_can_assign_a_conflicting_trusted_coordinator`
+
+## TC-EVENTREQUESTS-047 — a non-coordinator cannot be selected
+
+- **Scenario:** A user id is not sufficient; eligibility comes from trusted
+  Auth `app_metadata.role` exposed by the users service.
+- **Pre-conditions:** A Lead session; the trusted coordinator pool does not
+  contain the submitted id.
+- **Steps:** Attempt assignment using an organiser id, then an unknown UUID.
+- **Test data:** Organiser `11111111-1111-4111-8111-111111111111`; unknown
+  `99999999-9999-4999-8999-999999999999`.
+- **Expected:** Each request returns `422` identifying `coordinator_id`; no
+  event write and no notification call occurs.
+- **Actual:** An id outside the trusted Coordinator pool returned `422`; event and notification services were untouched.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_assignment_rejects_ids_outside_the_trusted_coordinator_pool`
+
+## TC-EVENTREQUESTS-048 — only a Lead can assign a request
+
+- **Scenario:** Assignment cannot be performed by a coordinator, organiser, or
+  another internal role.
+- **Pre-conditions:** The non-Lead caller roles from TC-EVENTREQUESTS-043.
+- **Steps:** `POST /event-requests/{event_id}/assignment` with coordinator A.
+- **Test data:** Shared event and coordinator A.
+- **Expected:** `403` for authenticated non-Leads and `401` without a session;
+  users eligibility, event assignment, and notifications are untouched.
+- **Actual:** All named non-Lead roles returned `403` and no session returned `401`, before any downstream write.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_only_a_lead_can_assign_an_event_request`
+
+## TC-EVENTREQUESTS-049 — missing and stale assignment targets preserve their result
+
+- **Scenario:** The composite does not hide an absent event or a concurrent
+  assignment behind a generic dependency error.
+- **Pre-conditions:** The events service returns `404`, then `409` because a
+  different Lead assigned the event first.
+- **Steps:** Attempt the same valid assignment in each case.
+- **Test data:** Shared event and coordinator A.
+- **Expected:** The client receives the same `404` or `409`; notification
+  creation is not attempted.
+- **Actual:** Atomic `404` and `409` responses were preserved and notifications were not attempted.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_assignment_preserves_missing_and_concurrent_results`
+
+## TC-EVENTREQUESTS-050 — assignment creates both persistent in-app notifications
+
+- **Scenario:** Both people named by the developer are notified after a valid
+  assignment.
+- **Pre-conditions:** A Lead session; valid coordinator A; the events response
+  includes organiser id and event name; notifications accepts the batch.
+- **Steps:** Assign coordinator A.
+- **Test data:** Event `Autumn Forum`; organiser and coordinator A ids.
+- **Expected:** One notification batch contains exactly two recipients—the
+  organiser and coordinator A—with event id, event name, assignment kind,
+  in-app message, and stable deduplication keys. Repeating the same assignment
+  with the same keys must leave exactly one assignment notification for the
+  coordinator and one for the organiser, never duplicates. No email/external
+  call exists.
+- **Actual:** One internal batch contained exactly the organiser and Coordinator with stable per-recipient keys and no external channel.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_assignment_notifies_coordinator_and_organiser_in_app`
+
+## TC-EVENTREQUESTS-051 — retry repairs notifications without changing assignment
+
+- **Scenario:** A transient notification failure is recoverable without a
+  second assignment or duplicate notification.
+- **Pre-conditions:** The event assignment to coordinator A has succeeded. The
+  notification call then fails in each uncertain state: (a) neither
+  notification persisted, (b) only the coordinator or only the organiser
+  notification persisted, and (c) both persisted but the success response was
+  lost. On retry, events reports A as the existing idempotent assignment and
+  notifications accepts the same stable deduplication keys.
+- **Steps:** For each uncertain state, retry the identical assignment request
+  and inspect the resulting logical notifications.
+- **Test data:** Shared event and coordinator A.
+- **Expected:** The failed first call does not claim notifications were
+  delivered. Every retry returns `200`, preserves coordinator A without a
+  second assignment write, creates whichever recipient notification is
+  missing, and finishes with exactly one coordinator notification and one
+  organiser notification—never zero, one, three, or four rows.
+- **Actual:** The first notification failure returned `502`; the identical retry accepted the existing assignment and resent the same two stable keys. Missing-row outcomes are covered by TC-NOTIFICATIONS-101.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_assignment_retry_repairs_notifications_idempotently`
+
+## TC-EVENTREQUESTS-052 — dependency failures are named and never fabricated as success
+
+- **Scenario:** Lead authentication, coordinator listing, event queue,
+  organiser lookup, event assignment, and notification calls fail safely.
+- **Pre-conditions:** Each downstream call raises or returns a non-contract
+  status in turn.
+- **Steps:** Exercise list, coordinator-list, and assignment operations.
+- **Test data:** Shared Lead, event, organiser, and coordinator ids.
+- **Expected:** Each case returns a service-specific `502`; later calls in the
+  workflow are skipped and no fabricated queue, assignment, or notification
+  response is returned.
+- **Actual:** Event queue, organiser lookup, event assignment, and notification connection failures returned the named safe `502` without fabricated success.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s83_dependency_failures_are_safe`
+
+---
+
+## S-84 — Reassign Event Coordinator
+
+Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
+confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
+
+## TC-EVENTREQUESTS-053 — only a Lead can list or reassign active assignments
+
+- **Expected:** A Lead can call the assigned-active list and reassignment
+  action. Authenticated non-Leads receive `403`; no session receives `401`;
+  downstream services are untouched on denial.
+- **Actual:** Non-Leads and missing sessions were rejected before any events
+  or notification call.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_only_a_lead_can_list_or_reassign_active_assignments`
+
+## TC-EVENTREQUESTS-054 — assigned events include trusted organiser and owner profiles
+
+- **Expected:** The Lead list returns basic event information, assignment
+  version, organiser profile, and current Coordinator profile. Missing profile
+  data falls back safely to the opaque id.
+- **Actual:** The Lead list joined organiser and current-owner profiles while
+  preserving the event's assignment version.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_lead_lists_active_assignments_with_profiles`
+
+## TC-EVENTREQUESTS-055 — any trusted different Coordinator may be selected
+
+- **Expected:** A trusted Coordinator is accepted despite an overlapping
+  schedule; a non-Coordinator or selecting the current owner returns `422`
+  before the event write.
+- **Actual:** A trusted different Coordinator was accepted without a load
+  query; same-owner and untrusted targets returned `422`.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_lead_reassigns_without_schedule_filtering`, `test_s84.py::test_reassignment_rejects_invalid_or_same_target`
+
+## TC-EVENTREQUESTS-056 — reassignment notifies former owner, new owner, and organiser
+
+- **Expected:** One internal notification batch contains exactly those three
+  recipients with `event_reassignment` messages and keys scoped by event,
+  returned assignment version, and recipient. No external channel is called.
+- **Actual:** One batch contained exactly the former owner, new owner, and
+  organiser with version-scoped reassignment keys.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_reassignment_creates_three_persistent_notifications`
+
+## TC-EVENTREQUESTS-057 — retry repairs any missing reassignment notification
+
+- **Expected:** If the event transition commits but notification persistence
+  fails, the identical request returns `502`; retry receives the same version
+  and previous owner, preserves the new owner, and sends the same three keys.
+  Notification upsert creates only missing rows and never duplicates.
+- **Actual:** The first notification failure returned `502`; retry used the
+  same three keys and preserved the committed event transition.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_reassignment_retry_repairs_notifications_idempotently`
+
+## TC-EVENTREQUESTS-058 — missing, ineligible, stale, and dependency failures remain explicit
+
+- **Expected:** Atomic `404`/`409` results are preserved. Users, events, and
+  notification outages return named `502` responses; later calls are skipped.
+- **Actual:** Atomic `404`/`409` responses were preserved and a simulated
+  events outage returned the named `502` without fabricated success.
+- **Status:** Pass
+- **Evidence:** `test_s84.py::test_reassignment_preserves_atomic_conflicts`, `test_s84.py::test_reassignment_dependency_failures_are_safe`
+
+---
+
+## S-85 — View Coordinator Assignments and Active Events
+
+Story: S-85 View Coordinator Assignments and Active Events. Acceptance
+criteria and test cases confirmed by the developer on 2026-10-09. Executed
+locally on 2026-10-09.
+
+## TC-EVENTREQUESTS-059 — only an authenticated Lead can read oversight
+
+- **Scenario:** The coordinator overview is a Lead-only read operation.
+- **Pre-conditions:** Users returns a Lead, another trusted role, or no valid
+  session in turn.
+- **Steps:** `GET /event-requests/coordinator-overview` for every caller.
+- **Test data:** `event_coordinator_lead`, `event_coordinator`,
+  `event_organiser`, and anonymous.
+- **Expected:** The Lead receives `200`; authenticated non-Leads receive
+  `403`; anonymous receives `401`. Denied requests make no coordinator-pool,
+  event, profile, notification, or persistence call.
+- **Actual:** Anonymous, Organiser, and Coordinator requests were rejected
+  before Events, profile, notification, or write calls; the Lead cases below
+  returned the overview.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_only_a_lead_can_read_coordinator_overview`
+
+## TC-EVENTREQUESTS-060 — every Coordinator is grouped with an assignment count
+
+- **Scenario:** Oversight includes idle Coordinators as well as assigned ones.
+- **Pre-conditions:** The trusted coordinator pool contains A, B, and C;
+  active events contain two for A, one for B, and none for C.
+- **Steps:** Read the overview and inspect group ordering, membership, and
+  counts.
+- **Test data:** Three Coordinator profiles and three active events.
+- **Expected:** Exactly one group per trusted Coordinator is returned; counts
+  are A=2, B=1, C=0; C has an empty `events` list. Events are grouped only by
+  their current `assigned_coordinator_id`.
+- **Actual:** The response sorted A/B/C by name, grouped event counts 2/1/0,
+  and retained C with an empty event list.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_groups_events_and_keeps_zero_assignment_coordinators`
+
+## TC-EVENTREQUESTS-061 — event summaries contain trusted profiles and required fields
+
+- **Scenario:** Each grouped event gives the Lead the confirmed oversight
+  information without exposing unrelated user data.
+- **Pre-conditions:** Events returns active rows and Users returns organiser
+  profiles.
+- **Steps:** Read the overview and inspect one event summary.
+- **Test data:** `Autumn Forum`, `under_review`, organiser Ada, coordinator
+  Alex, `2026-11-18 09:00`–`12:00`.
+- **Expected:** The summary includes event id/name/status, organiser profile,
+  start/end date and time, current Coordinator profile, and S-84 assignment
+  version. Missing organiser profiles use the existing safe id fallback.
+- **Actual:** The enriched `under_review` summary contained every required
+  identity, schedule, status, and version field. A separate case accepted all
+  five active statuses in one group.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_enriches_event_summaries_with_profiles`
+
+## TC-EVENTREQUESTS-062 — empty oversight remains structurally complete
+
+- **Scenario:** A Lead can distinguish no active assignments from a failed
+  request.
+- **Pre-conditions:** The Coordinator pool exists but Events returns no active
+  assigned rows; separately, both are empty.
+- **Steps:** Read the overview for each state.
+- **Expected:** Existing Coordinators are returned with count 0 and empty
+  event lists; a completely empty pool returns `{"coordinators":[]}` with
+  `200`, never a fabricated error or missing shape.
+- **Actual:** An existing idle Coordinator returned count 0 and `events: []`;
+  an empty pool returned `{"coordinators": []}` without a profile call.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_handles_empty_events_and_empty_pool`
+
+## TC-EVENTREQUESTS-063 — upstream failures are controlled and read-only
+
+- **Scenario:** Users or Events outages do not produce partial or misleading
+  oversight data.
+- **Pre-conditions:** Authentication succeeds; coordinator-pool, event-list,
+  or organiser-profile calls raise or return a non-contract status in turn.
+- **Steps:** Read the overview for every failure.
+- **Expected:** A named `502` is returned, later calls are skipped where
+  possible, and notifications plus all write methods remain untouched.
+- **Actual:** Pool, Events, and profile failures each returned the named
+  controlled `502`; notification and Events write methods remained untouched.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_dependency_failures_are_controlled_and_read_only`
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+A new route, `POST /event-requests/{id}/cancellation-decision`, reached by the
+browser through Kong. It forwards the decision to the events service and, on
+approval, removes the event's venue bookings. This composite gains a
+bookings client (`BOOKINGS_SERVICE_URL`). The criteria mapping and agreed
+decisions are in the S-61 section of `tests/unit/atomic/events/TEST_CASES.md`.
+
+### TC-EVENTREQUESTS-064 — approving cancels the event, then releases its bookings
+
+- **Scenario:** The two services are called in order and the result says what
+  was released (S-61 AC1, AC2).
+- **Pre-conditions:** The events fake answers the decision with `200` and E
+  `cancelled`. The bookings fake answers the delete with `{"deleted": 2}`.
+- **Steps:** `POST /event-requests/E/cancellation-decision` `{"decision": "approved"}`
+  with the Coordinator's cookie.
+- **Expected:** `200` with the event as the events service returned it, plus
+  `"released_bookings": 2`. The events call comes first, then
+  `DELETE /internal/events/E/bookings`. Both carry the caller's cookie.
+- **Actual:** `200` with the cancelled event and `released_bookings` 2; events then bookings, both with the cookie.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_approving_cancels_the_event_then_releases_its_bookings`
+
+### TC-EVENTREQUESTS-065 — declining touches only the event
+
+- **Scenario:** A decline leaves every booking in place.
+- **Pre-conditions:** The events fake answers with `200` and E still `planning`.
+- **Steps:** `POST /event-requests/E/cancellation-decision`
+  `{"decision": "declined", "reason": "Move the date instead"}`.
+- **Expected:** `200` with the event, and no `released_bookings`. The body
+  is forwarded unchanged. The bookings service is never called.
+- **Actual:** `200`, still `planning`, no `released_bookings`; body forwarded; bookings not called.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_declining_touches_only_the_event`
+
+### TC-EVENTREQUESTS-066 — a refused decision releases nothing
+
+- **Scenario:** If the events service says no, bookings are untouched.
+- **Pre-conditions:** The events fake answers with each refusal.
+- **Steps:** Approve E once per refusal.
+- **Test data:** `401`, `403`, `404` "Event not found", `409` "This
+  cancellation request has already been decided.", `422` with field errors.
+- **Expected:** The same status and body reach the caller. The bookings
+  service is never called.
+- **Actual:** Each of `401`, `403`, `404`, `409`, `422` reached the caller unchanged; bookings not called.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_refused_decision_releases_nothing`
+
+### TC-EVENTREQUESTS-067 — a failed release says so, and approving again finishes it
+
+- **Scenario:** The event is cancelled but its bookings weren't removed (S-61
+  decision 7).
+- **Pre-conditions:** The events fake answers the approval with `200` E
+  `cancelled`.
+- **Steps:**
+  1. Approve with the bookings fake answering `500`.
+  2. Approve with the bookings fake timing out.
+  3. Approve again with the bookings fake answering `{"deleted": 2}`.
+  4. Approve with the events service unreachable.
+- **Expected:**
+  1. and 2. `502` "The event is cancelled, but its venue bookings were not
+     released. Approve again to release them."
+  3. `200` with `"released_bookings": 2`.
+  4. `502` "The events service is unavailable. Nothing was changed.", with
+     no bookings call.
+- **Actual:** Bookings `500` and timeout gave `502` with the not-released message; approving again gave `200` with 2 released; events unreachable or `500` gave `502` "The events service is unavailable. Nothing was changed." with no bookings call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_failed_release_says_so`; `tests/unit/composite/event_requests/test_s61.py::test_approving_again_finishes_the_release`; `tests/unit/composite/event_requests/test_s61.py::test_events_down_changes_nothing`
+
+### TC-EVENTREQUESTS-068 — a refused edit keeps the events service's reason
+
+- **Scenario:** Saving changes to a closed event says why, instead of
+  claiming the service is down (added 2026-10-13 at the developer's request;
+  affected rejected events before S-61 and cancelled ones since).
+- **Pre-conditions:** Organiser session; the events fake answers the
+  forwarded `PATCH` with `409` and each detail.
+- **Steps:** `PATCH /event-requests/E` `{"venue": "Room 9"}`.
+- **Test data:** "This event has been cancelled and is closed."; "This
+  request has been rejected and is closed".
+- **Expected:** `409` with the same detail (before: `502` "Events service
+  unavailable"). `200`, `404` and `422` still pass through as before, and any
+  other answer is still `502`.
+- **Actual:** Both details came back as `409` unchanged; a `500` from the events service is still `502` "Events service unavailable".
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_refused_edit_keeps_the_events_services_reason`; `tests/unit/composite/event_requests/test_s61.py::test_an_unexpected_answer_on_edit_is_still_a_502`; `pytest tests/unit`: 967 passed, 17 skipped, 2026-10-13.

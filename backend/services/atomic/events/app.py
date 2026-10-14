@@ -13,6 +13,8 @@ from supabase import Client
 from authorization import require_permission
 from database import get_db
 from schemas import (
+    CancellationDecisionCreate,
+    CancellationRequestCreate,
     CoordinatorLoad,
     CoordinatorLoadRequest,
     DecisionCreate,
@@ -29,10 +31,16 @@ from schemas import (
     InternalEventSubmit,
     InternalTechnicalSupportAssignment,
     InternalEventUpdate,
+    InternalCoordinatorAssignment,
+    InternalCoordinatorAssignmentResult,
+    InternalCoordinatorReassignment,
+    InternalCoordinatorReassignmentResult,
+    InternalSafetyDecision,
     OverlappingEvent,
     OverlappingEventsRequest,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
+    SafetyDecisionValue,
 )
 from security import clear_session_cookies
 
@@ -41,6 +49,14 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "events"
 TABLE = "events"
+ACTIVE_ASSIGNMENT_STATUSES = ["submitted", "planning", "confirmed", "returned"]
+OVERSIGHT_ACTIVE_STATUSES = [
+    "submitted",
+    "under_review",
+    "returned",
+    "planning",
+    "confirmed",
+]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -292,6 +308,137 @@ def get_booking_status(
     return result.data[0]
 
 
+@app.get("/internal/events/unassigned", response_model=list[EventRead])
+def list_unassigned_events(db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("status", "submitted")
+        .is_("assigned_coordinator_id", "null")
+        .order("submitted_at")
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/assigned-active", response_model=list[EventRead])
+def list_active_assigned_events(db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .not_.is_("assigned_coordinator_id", "null")
+        .order("updated_at", desc=True)
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/coordinator-overview", response_model=list[EventRead])
+def list_coordinator_overview_events(db: Client = Depends(get_db)):
+    """Return assigned active rows for the S-85 composite read model.
+
+    The atomic service owns lifecycle filtering. Role checks, trusted
+    Coordinator profiles, grouping, and counts span Users and Events and
+    therefore stay in the composite service.
+    """
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .in_("status", OVERSIGHT_ACTIVE_STATUSES)
+        .not_.is_("assigned_coordinator_id", "null")
+        .order("updated_at", desc=True)
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/safety-review", response_model=list[EventRead])
+def list_safety_review_events(db: Client = Depends(get_db)):
+    """S-86 queue source.
+
+    `confirmed` is this project's lifecycle interpretation that the venue and
+    technical arrangements are ready for Operational Safety Check. The
+    atomic owner filters out any row whose current safety decision exists.
+    """
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("status", "confirmed")
+        .is_("safety_decision", "null")
+        .order("updated_at", desc=False)
+    )
+    return _execute(operation).data
+
+
+def _safety_review_event(event_id: UUID, db: Client) -> dict:
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = result.data[0]
+    if event.get("status") != "confirmed" or event.get("safety_decision") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This event is not awaiting an Operational Safety Check",
+        )
+    return event
+
+
+@app.get("/internal/events/safety-review/{event_id}", response_model=EventRead)
+def get_safety_review_event(event_id: UUID, db: Client = Depends(get_db)):
+    return _safety_review_event(event_id, db)
+
+
+_STATUS_AFTER_SAFETY_DECISION = {
+    SafetyDecisionValue.APPROVED: "preparation",
+    SafetyDecisionValue.REJECTED: "safety_rejected",
+    SafetyDecisionValue.CHANGES_REQUESTED: "safety_changes_requested",
+}
+
+
+@app.post(
+    "/internal/events/safety-review/{event_id}/decision",
+    response_model=EventRead,
+)
+def record_safety_decision(
+    event_id: UUID,
+    payload: InternalSafetyDecision,
+    db: Client = Depends(get_db),
+):
+    """Atomically record the first current safety decision.
+
+    The read gives missing/stale callers a useful status. The conditional
+    update is still authoritative: if another officer decides after the read,
+    only one update can match and the loser receives 409 without overwrite.
+    """
+    _safety_review_event(event_id, db)
+    values = {
+        "status": _STATUS_AFTER_SAFETY_DECISION[payload.decision],
+        "safety_decision": payload.decision.value,
+        "safety_decision_reason": payload.reason,
+        "safety_officer_id": str(payload.safety_officer_id),
+        "safety_decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(event_id))
+        .eq("status", "confirmed")
+        .is_("safety_decision", "null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(
+            status_code=409,
+            detail="This Operational Safety Check has already been decided",
+        )
+    return result.data[0]
+
+
 @app.get("/events/{event_id}", response_model=EventRead)
 def get_event(
     event_id: UUID,
@@ -299,6 +446,10 @@ def get_event(
     db: Client = Depends(get_db),
 ):
     return _get_owned_event(event_id, str(user.id), db)
+
+
+# S-61: shared by both edit routes below.
+_CANCELLED_CLOSED = "This event has been cancelled and is closed."
 
 
 @app.patch("/events/{event_id}", response_model=EventRead)
@@ -316,6 +467,9 @@ def update_event(
     # with it no longer being editable.
     if existing["status"] == "rejected":
         raise HTTPException(status_code=409, detail="This request has been rejected and is closed")
+    # S-61: a cancelled event is over too.
+    if existing["status"] == "cancelled":
+        raise HTTPException(status_code=409, detail=_CANCELLED_CLOSED)
 
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
@@ -398,6 +552,108 @@ def submit_draft(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
+    return result.data[0]
+
+
+# S-62: an Organiser may ask for a live event to be cancelled. Drafts can be
+# abandoned, and returned, rejected and already-ended events have nothing to
+# cancel. Requesting records the request on the event and never changes its
+# status -- a later review does that.
+_CANCELLABLE_STATUSES = (
+    "submitted", "under_review", "planning", "confirmed", "preparation",
+    "safety_changes_requested",
+)
+_NOT_CANCELLABLE = "This event can't be cancelled from its current status."
+_ALREADY_REQUESTED = "A cancellation request has already been sent for this event."
+
+
+@app.post("/events/{event_id}/cancellation-request", response_model=EventRead)
+def request_cancellation(
+    event_id: UUID,
+    payload: CancellationRequestCreate,
+    user=Depends(require_permission("events:request_cancellation")),
+    db: Client = Depends(get_db),
+):
+    organiser_id = str(user.id)
+    existing = _get_owned_event(event_id, organiser_id, db)
+    if existing["status"] not in _CANCELLABLE_STATUSES:
+        raise HTTPException(status_code=409, detail=_NOT_CANCELLABLE)
+    # S-61: after a decline the Organiser may ask again; the new request
+    # replaces the old one and its decision.
+    if existing.get("cancellation_requested_at") and existing.get("cancellation_decision") != "declined":
+        raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
+
+    # Guarded like submit: a status change or a request from another tab
+    # between the read and this write matches nothing instead of overwriting.
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({
+            "cancellation_reason": payload.reason,
+            "cancellation_requested_at": _submitted_now(),
+            "cancellation_requested_by": organiser_id,
+            "cancellation_decision": None,
+            "cancellation_decision_reason": None,
+            "cancellation_decided_by": None,
+            "cancellation_decided_at": None,
+        })
+        .eq("id", str(event_id))
+        .eq("organiser_id", organiser_id)
+        .in_("status", _CANCELLABLE_STATUSES)
+        .or_("cancellation_requested_at.is.null,cancellation_decision.eq.declined")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
+    return result.data[0]
+
+
+_NO_REQUEST = "There is no cancellation request to decide for this event."
+_ALREADY_DECIDED = "This cancellation request has already been decided."
+
+
+@app.post("/events/{event_id}/cancellation-decision", response_model=EventRead)
+def decide_cancellation(
+    event_id: UUID,
+    payload: CancellationDecisionCreate,
+    user=Depends(require_permission("events:decide_cancellation")),
+    db: Client = Depends(get_db),
+):
+    """S-61: the assigned Coordinator approves (the event becomes cancelled) or
+    declines (the status stays) a pending cancellation request. Only the
+    event changes here; the event_requests composite releases its bookings."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if not existing.get("cancellation_requested_at"):
+        raise HTTPException(status_code=409, detail=_NO_REQUEST)
+    decided = existing.get("cancellation_decision")
+    if decided:
+        # Approving again is how a failed booking release is retried, so it
+        # succeeds without writing anything.
+        if decided == "approved" and payload.decision == "approved":
+            return existing
+        raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
+
+    changes = {
+        "cancellation_decision": payload.decision,
+        "cancellation_decision_reason": payload.reason,
+        "cancellation_decided_by": coordinator_id,
+        "cancellation_decided_at": _submitted_now(),
+    }
+    if payload.decision == "approved":
+        changes["status"] = "cancelled"
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(changes)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .not_.is_("cancellation_requested_at", "null")
+        .is_("cancellation_decision", "null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
     return result.data[0]
 
 
@@ -703,6 +959,151 @@ def create_submitted_event_internal(
     return result.data[0]
 
 
+@app.post(
+    "/internal/events/{event_id}/assignment",
+    response_model=InternalCoordinatorAssignmentResult,
+)
+def assign_coordinator_internal(
+    event_id: UUID,
+    payload: InternalCoordinatorAssignment,
+    db: Client = Depends(get_db),
+):
+    """Conditionally assign one submitted request.
+
+    A repeat for the same coordinator is idempotent so the composite can
+    safely repair notification delivery after an uncertain downstream
+    failure. A different coordinator is a real concurrent-write conflict.
+    """
+    coordinator_id = str(payload.coordinator_id)
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({"assigned_coordinator_id": coordinator_id})
+        .eq("id", str(event_id))
+        .eq("status", "submitted")
+        .is_("assigned_coordinator_id", "null")
+        .select("*")
+    )
+    result = _execute(operation)
+    if result.data:
+        return {**result.data[0], "assignment_created": True}
+
+    current = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = current.data[0]
+    if (
+        event["status"] == "submitted"
+        and event.get("assigned_coordinator_id") == coordinator_id
+    ):
+        return {**event, "assignment_created": False}
+
+    raise HTTPException(
+        status_code=409,
+        detail="This event request is no longer available for assignment",
+    )
+
+
+def _is_exact_reassignment_retry(
+    event: dict,
+    *,
+    target_id: str,
+    expected_id: str,
+    expected_version: int,
+) -> bool:
+    return (
+        event.get("status") in ACTIVE_ASSIGNMENT_STATUSES
+        and event.get("assigned_coordinator_id") == target_id
+        and event.get("previous_coordinator_id") == expected_id
+        and event.get("coordinator_assignment_version") == expected_version + 1
+    )
+
+
+@app.post(
+    "/internal/events/{event_id}/reassignment",
+    response_model=InternalCoordinatorReassignmentResult,
+)
+def reassign_coordinator_internal(
+    event_id: UUID,
+    payload: InternalCoordinatorReassignment,
+    db: Client = Depends(get_db),
+):
+    """Versioned compare-and-set transfer with exact-retry recognition.
+
+    The version prevents an old notification retry from reverting a newer
+    reassignment. Schedule conflicts are deliberately irrelevant: selecting
+    a suitable Coordinator is the Lead's business decision.
+    """
+    target_id = str(payload.coordinator_id)
+    expected_id = str(payload.expected_coordinator_id)
+    expected_version = payload.expected_assignment_version
+
+    current = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = current.data[0]
+
+    if _is_exact_reassignment_retry(
+        event,
+        target_id=target_id,
+        expected_id=expected_id,
+        expected_version=expected_version,
+    ):
+        return {**event, "reassignment_created": False}
+
+    if (
+        target_id == expected_id
+        or event.get("status") not in ACTIVE_ASSIGNMENT_STATUSES
+        or event.get("assigned_coordinator_id") != expected_id
+        or event.get("coordinator_assignment_version") != expected_version
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This event assignment has changed. Reload before reassigning.",
+        )
+
+    next_version = expected_version + 1
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(
+            {
+                "assigned_coordinator_id": target_id,
+                "previous_coordinator_id": expected_id,
+                "coordinator_assignment_version": next_version,
+            }
+        )
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", expected_id)
+        .eq("coordinator_assignment_version", expected_version)
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .select("*")
+    )
+    result = _execute(operation)
+    if result.data:
+        return {**result.data[0], "reassignment_created": True}
+
+    latest = _execute(
+        db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
+    )
+    if latest.data and _is_exact_reassignment_retry(
+        latest.data[0],
+        target_id=target_id,
+        expected_id=expected_id,
+        expected_version=expected_version,
+    ):
+        return {**latest.data[0], "reassignment_created": False}
+    raise HTTPException(
+        status_code=409,
+        detail="This event assignment has changed. Reload before reassigning.",
+    )
+
+
 @app.post("/events/{event_id}/submit/internal", response_model=EventRead)
 def submit_draft_internal(
     event_id: UUID,
@@ -751,6 +1152,9 @@ def update_event_internal(
 
     if existing["status"] == "rejected":
         raise HTTPException(status_code=409, detail="This request has been rejected and is closed")
+    # S-61: a cancelled event is over too.
+    if existing["status"] == "cancelled":
+        raise HTTPException(status_code=409, detail=_CANCELLED_CLOSED)
 
     changes = payload.model_dump(exclude_unset=True, mode="json", exclude={"organiser_id"})
     if not changes:

@@ -7,6 +7,15 @@ from .conftest import BASE_URL, GATEWAY_BASE_URL, cookie_for, requires_env
 pytestmark = requires_env
 
 
+# S-75 adds a live clash warning to listed rows (and, on held/confirmed rows,
+# the venue's setup and turnaround). These compare the booking itself.
+S75_FIELDS = {"clashes", "setup_minutes", "turnaround_minutes"}
+
+
+def booking_only(row):
+    return {key: value for key, value in row.items() if key not in S75_FIELDS}
+
+
 # --- TC-VENUEBOOKINGS-101 --------------------------------------------------
 def test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coordinator(admin, auth_client, world):
     as_coordinator = cookie_for(auth_client, world["coordinator"])
@@ -103,10 +112,10 @@ def test_venue_edit_preserves_history_and_new_requests_use_saved_values(admin, a
         assert after == before
         pending = api.get("/venue-bookings/pending", headers=staff)
         assert pending.status_code == 200, pending.text
-        assert booking in pending.json()
+        assert booking in [booking_only(row) for row in pending.json()]
         sent = api.get("/venue-bookings", headers=coordinator, params={"event_id": world["event_id"]})
         assert sent.status_code == 200, sent.text
-        assert sent.json() == [booking]
+        assert [booking_only(row) for row in sent.json()] == [booking]
 
 
 # TC-VENUEBOOKINGS-104

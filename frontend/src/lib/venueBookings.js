@@ -1,5 +1,5 @@
 import { requestJSON } from './api.js'
-import { DAY_LABELS, optionLabel, WEEK } from './venues.js'
+import { DAY_LABELS, optionLabel, shiftClock, venueGap, WEEK } from './venues.js'
 
 // S-36: a Coordinator requests a venue for an event in planning; Venue Staff
 // see every pending request. The venue requirements belong to the event, so
@@ -10,6 +10,12 @@ import { DAY_LABELS, optionLabel, WEEK } from './venues.js'
 
 export function canRequestVenue(status) {
   return status === 'planning'
+}
+
+// S-79: an event can book several venues. Once one has been asked for --
+// whatever its status -- the same request screen adds another.
+export function venueRequestLinkLabel(bookings) {
+  return bookings.length > 0 ? 'Add another venue' : 'Request venue'
 }
 
 export function emptyVenueBookingForm(eventId) {
@@ -55,8 +61,11 @@ function hoursProblem(venue, when) {
   if (!when.startTime || !when.endTime) return null
   const open = hours.open.slice(0, 5)
   const close = hours.close.slice(0, 5)
-  if (open <= when.startTime && when.endTime <= close) return null
-  return `Open ${open}–${close} on ${DAY_LABELS[day]}s`
+  // S-75: the whole occupied window, setup to turnaround, must be open.
+  const { setup, turnaround } = venueGap(venue)
+  if (open <= shiftClock(when.startTime, -setup) && shiftClock(when.endTime, turnaround) <= close) return null
+  const base = `Open ${open}–${close} on ${DAY_LABELS[day]}s`
+  return setup || turnaround ? `${base}, with ${setup} min setup and ${turnaround} min turnaround` : base
 }
 
 // Why `venue` would not suit `event`, before anything is sent -- an empty list
@@ -174,8 +183,9 @@ export function bookingDecisionErrorMessage(error) {
   if (error.status === 401) return 'Your session has expired. Please sign in again.'
   if (error.status === 403) return 'Only Venue Staff can decide booking requests.'
   if (error.status === 404) return 'This booking request could not be found. Reload the list.'
-  // S-38's overlap, or an S-30 block on the booking's day.
-  if (error.status === 409 && (error.message?.includes('already confirmed')
+  // An overlap (S-76's refusal, which replaced S-38's wording, naming the
+  // booking in the way and its occupied period) or an S-30 block that day.
+  if (error.status === 409 && (error.message?.startsWith("Can't confirm this booking:")
     || error.message?.includes('is unavailable from'))) return error.message
   if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
   if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
@@ -193,4 +203,75 @@ export function bookingDateLabel(value) {
   const [year, month, day] = value.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+// --- S-75: setup/turnaround clashes, and one request per page ---------------
+
+const CLASH_STATES = { confirmed: 'confirmed', held: 'held' }
+
+// The warning a Coordinator sees on their booking when the venue's setup
+// and turnaround now make it clash. Another booking's time and state only:
+// the service never sends whose it is. null when there is no clash.
+export function bookingClashMessage(booking) {
+  const clashes = booking?.clashes ?? []
+  if (clashes.length === 0) return null
+  const parts = clashes.map((clash) => (
+    `another ${CLASH_STATES[clash.status] ?? clash.status} booking on ${bookingDateLabel(clash.booking_date)}, `
+    + `${shortTime(clash.start_time)}–${shortTime(clash.end_time)} `
+    + `(venue in use ${clash.occupied_start}–${clash.occupied_end})`
+  ))
+  return `Clashes with ${parts.join(' and ')} under ${booking.venue_name}'s setup and turnaround times. `
+    + 'Contact Venue Staff to rearrange.'
+}
+
+export function getVenueClashes(venueId) {
+  return requestJSON(`/venue-bookings/clashes?venue_id=${encodeURIComponent(venueId)}`)
+}
+
+// S-76: every venue's clashing pairs, for Venue Staff's standing review list.
+export function getClashesToReview() {
+  return requestJSON('/venue-bookings/clashes')
+}
+
+// "Studio B · 1 pair · setup 30 min, turnaround 45 min"
+export function clashReviewHeading(venue) {
+  const count = venue.pairs.length
+  return `${venue.venue_name} · ${count} ${count === 1 ? 'pair' : 'pairs'} · `
+    + `setup ${venue.setup_minutes} min, turnaround ${venue.turnaround_minutes} min`
+}
+
+function clashSide(side) {
+  return `${side.event_name} (${bookingStatusMeta(side.status).label}, `
+    + `${shortTime(side.start_time)}–${shortTime(side.end_time)})`
+}
+
+// "Alumni talk (Confirmed, 10:00–12:00) and Board lunch (Held, 12:30–14:00) on 12 Nov 2026"
+export function clashPairLabel(pair) {
+  return `${clashSide(pair.first)} and ${clashSide(pair.second)} on ${bookingDateLabel(pair.first.booking_date)}`
+}
+
+// One compact row in Venue Staff's request list. The details and every
+// action are on the request's own page.
+export function pendingRequestSummary(booking) {
+  return {
+    title: booking.event_name,
+    line: `${booking.venue_name} · ${bookingDateLabel(booking.booking_date)}, `
+      + `${shortTime(booking.start_time)}–${shortTime(booking.end_time)}`,
+    status: bookingStatusMeta(booking.status),
+    clash: (booking.clashes ?? []).length > 0 ? 'Clash' : null,
+  }
+}
+
+export function pendingRequestPath(booking) {
+  return `/venue-bookings/${encodeURIComponent(booking.id)}`
+}
+
+export function getVenueBooking(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}`)
+}
+
+// Shown once on the dashboard after a decision, then cleared.
+export function decisionNotice(decision, booking) {
+  const outcome = decision === 'approved' ? 'confirmed' : 'rejected'
+  return `Booking for ${booking.event_name} at ${booking.venue_name} ${outcome}.`
 }

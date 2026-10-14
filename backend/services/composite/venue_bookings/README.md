@@ -25,13 +25,16 @@ all read attempts fail, the existing safe `502` response is returned.
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. |
+| `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. An event may have several (S-79). |
 | `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
 | `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold on a pending request. |
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
+| `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround. |
+| `GET` | `/venue-bookings/clashes` | `venue_staff` | S-76: the same pairs for every venue that has any — Venue Staff's standing clashes to review. |
+| `GET` | `/venue-bookings/{id}` | `venue_staff` | S-75: one request, with its clash warning, for its own page. Decided requests are returned too. |
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30: mark whole days of a venue unavailable. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
@@ -86,6 +89,14 @@ the tentative hold, and only held and confirmed rows reserve time. Holds are
 exclusive. The bookings service refuses a request that overlaps another hold,
 a confirmed booking or a block, and this service passes its `409` through
 unchanged — see the table below.
+
+**Several venues per event (S-79).** An event can have any number of
+requests, at different venues, dates or times, and two may run at the same
+time in different venues. Each is checked on its own, as above. Capacity is
+always checked against the event's total expected attendance. A new request
+never replaces, releases or changes the event's other requests. Sending one
+that matches a pending or held request's venue, date and times exactly
+returns that request with `201` instead of storing a duplicate.
 
 Submitting a request writes nothing to the event — it is already in
 `planning` and stays there.
@@ -166,8 +177,10 @@ for request/response examples, SQL migration and exact test commands.
 
 Errors use `{"detail":"..."}`: 401 `Not authenticated`; 403 `Permission denied`;
 404 `Booking not found`; 409 `This booking request has already been decided`,
-or an S-38 conflict such as `Studio B is already confirmed on 12 Nov 2026
-from 10:00 to 12:00.`;
+or an S-76 conflict naming the booking in the way, such as `Can't confirm
+this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on
+12 Nov 2026 from 09:30 to 12:45 (event 10:00–12:00, 30 min setup, 45 min
+turnaround).` (holds: `Can't hold this booking: …`);
 422 `Please check the decision and provide a reason or alternative when rejecting`
 for downstream validation. Local body validation uses the existing 422
 `detail`/`errors` response. Unavailable downstream services return safe 502
@@ -255,3 +268,61 @@ through too: `409` `{"detail": "Studio B is unavailable from 13 Nov 2026 to 16 N
 [S-30 database setup](../../atomic/bookings/README.md#s-30-database-setup).
 Tests are those listed under
 [S-30 verification](../../atomic/bookings/README.md#s-30-verification).
+
+## Setup and turnaround (S-75)
+
+A booking occupies its venue from *start − setup* to *end + turnaround*,
+using the venue's **current** `setup_minutes` and `turnaround_minutes` (read
+from the venues service each time). This service applies that everywhere:
+
+- **Submitting a request:** the whole occupied window must be inside the
+  venue's opening hours, or `422` with `errors.operating_hours`, e.g.
+  `Studio B is open 08:00–20:00 on Thursdays; with 30 min setup and 45 min turnaround a booking must run within 08:30–19:15`.
+  The two times are passed to the bookings service, whose `409` says when the
+  clashing booking's venue is in use until.
+- **Hold and decision:** the booking (`GET /bookings/{id}`) and its venue are
+  read first, and their times passed on.
+- **Clashes** are worked out live from current data, between **held and
+  confirmed** bookings dated **today or later**; nothing is stored and no
+  booking is ever changed, released or removed because of one:
+  - `GET /venue-bookings?event_id=` and `GET /venue-bookings/pending` give
+    each row `clashes` — `[]` when there is none. For a held/confirmed row the
+    venue's `setup_minutes` and `turnaround_minutes` are added. Each clash
+    gives the other booking's date, times, occupied window and status only:
+    ```json
+    {"booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00", "occupied_start": "09:30", "occupied_end": "12:45", "status": "confirmed"}
+    ```
+  - `GET /venue-bookings/clashes?venue_id=` (Venue Staff) lists each clashing
+    pair once, with event and coordinator names:
+    ```json
+    {"venue_id": "…", "venue_name": "Studio B", "setup_minutes": 30, "turnaround_minutes": 45,
+     "pairs": [{"first": {"id": "…", "event_id": "…", "event_name": "Alumni talk", "coordinator_name": "…", "status": "confirmed",
+                          "booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00",
+                          "occupied_start": "09:30", "occupied_end": "12:45"},
+                "second": {"…": "the same fields for Board lunch"}}]}
+    ```
+- **Calendar:** `GET /venue-bookings/availability` adds `setup_minutes` and
+  `turnaround_minutes`.
+- **Clashes to review (S-76):** `GET /venue-bookings/clashes` with no
+  `venue_id` (Venue Staff) reads every venue and every live booking from today
+  (`GET /bookings?status=live&from=`) once, and returns the venues with at
+  least one clashing pair, by venue name, each pair as above:
+  ```json
+  {"venues": [{"venue_id": "…", "venue_name": "Hall C", "setup_minutes": 15, "turnaround_minutes": 15, "pairs": [ … ]}]}
+  ```
+  `{"venues": []}` when nothing clashes. A booking whose venue no longer
+  exists is skipped; venues or bookings failing is `502`, never an empty
+  list. Other roles `403`.
+
+`GET /venue-bookings/{id}` (Venue Staff) returns one request as the pending
+list does, with `clashes`; `404` `{"detail": "Booking not found"}`; other
+roles `403`. Venues or bookings failing is `502`, never a missing warning.
+
+**Before running it:** the S-75 block in
+[`venues.sql`](../../../sql/venues.sql) run in both projects (see the
+[venues README](../../atomic/venues/README.md#setup-and-turnaround-s-75)).
+
+Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
+recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
+and `pytest tests/e2e/test_setup_turnaround.py`.
+

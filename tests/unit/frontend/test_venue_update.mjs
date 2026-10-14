@@ -13,32 +13,35 @@ test('only venue staff have edit permission, including unknown-role denial', () 
 test('edit form loads only editable values and copies arrays', () => {
   const venue = { name: 'Hall', location: 'Block A', capacity: 250, facilities: ['projector'], accessibility: [] }
   const form = venueToEditForm(venue)
-  assert.deepEqual(form, { location: 'Block A', capacity: '250', facilities: ['projector'], accessibility: [] })
+  // S-75: a venue saved before setup/turnaround existed loads them as 0.
+  assert.deepEqual(form, { location: 'Block A', capacity: '250', facilities: ['projector'], accessibility: [], setupHours: '0', setupMins: '0', turnaroundHours: '0', turnaroundMins: '0' })
   form.facilities.push('wifi')
   assert.deepEqual(venue.facilities, ['projector'])
 })
 
 test('edit validation does not require protected create fields', () => {
-  assert.deepEqual(validateVenueEditForm({ location: 'Block B', capacity: '100' }), {})
+  const times = { setupHours: '0', setupMins: '0', turnaroundHours: '0', turnaroundMins: '0' }
+  assert.deepEqual(validateVenueEditForm({ location: 'Block B', capacity: '100', ...times }), {})
   for (const capacity of ['', '0', '-1', '1.5', 'abc', '2147483648']) {
-    assert.ok(validateVenueEditForm({ location: 'Block B', capacity }).capacity)
+    assert.ok(validateVenueEditForm({ location: 'Block B', capacity, ...times }).capacity)
   }
-  assert.ok(validateVenueEditForm({ location: ' ', capacity: '1' }).location)
+  assert.ok(validateVenueEditForm({ location: ' ', capacity: '1', ...times }).location)
 })
 
-test('load and PATCH use cookies and only four editable fields', async (t) => {
+test('load and PATCH use cookies and only the editable fields', async (t) => {
   const calls = []
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     calls.push({ url, options })
     return { ok: true, status: 200, json: async () => ({ capacity: 100 }) }
   })
   await getVenue('venue-id')
-  assert.deepEqual(await updateVenue('venue-id', { location: ' Block B ', capacity: '100', facilities: [], accessibility: [], name: 'Forbidden', operating_hours: [] }), { capacity: 100 })
+  assert.deepEqual(await updateVenue('venue-id', { location: ' Block B ', capacity: '100', facilities: [], accessibility: [], setupHours: '0', setupMins: '30', turnaroundHours: '0', turnaroundMins: '45', name: 'Forbidden', operating_hours: [] }), { capacity: 100 })
   assert.equal(calls[0].url, '/api/venues/venue-id')
   assert.equal(calls[0].options.credentials, 'include')
   assert.equal(calls[1].options.method, 'PATCH')
   assert.equal(calls[1].options.credentials, 'include')
-  assert.deepEqual(JSON.parse(calls[1].options.body), { location: 'Block B', capacity: 100, facilities: [], accessibility: [] })
+  // S-75 added setup and turnaround to the editable fields.
+  assert.deepEqual(JSON.parse(calls[1].options.body), { location: 'Block B', capacity: 100, facilities: [], accessibility: [], setup_minutes: 30, turnaround_minutes: 45 })
 })
 
 test('update failures remain failures and have safe actionable messages', async (t) => {

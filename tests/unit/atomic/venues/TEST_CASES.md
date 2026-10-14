@@ -484,3 +484,50 @@ Latest S-28 execution: 2026-09-27; base commit `0d27acc` plus uncommitted S-28 c
 - Actual: 164 focused tests and full 359-test Python suite passed.
 - Status: Pass
 - Evidence: `tests/unit/atomic/venues/test_update.py`; local execution, no CI run.
+
+---
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+Two new venue fields, `setup_minutes` and `turnaround_minutes`: whole minutes,
+0 or more, default 0, no maximum. They join the fields Venue Staff may edit.
+
+## TC-VENUES-033 — a new venue records its setup and turnaround times
+
+- **Steps:** `POST /venues` as Venue Staff with the existing valid body plus
+  `"setup_minutes": 30, "turnaround_minutes": 45`; then without them.
+- **Expected:** `201` echoing 30 and 45; without them, both stored and
+  returned as `0`.
+- **Actual:** Created with 30/45 echoed and stored; without them both stored and returned as 0.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_a_new_venue_records_its_setup_and_turnaround_times`; `tests/unit/atomic/venues/test_setup_turnaround.py::test_a_new_venue_without_times_starts_at_zero`
+
+## TC-VENUES-034 — times cannot be negative or fractional; 0 is accepted
+
+- **Steps:** Create and `PATCH` with each value for `setup_minutes`, then for
+  `turnaround_minutes`: `-1`, `1.5`, `"30"`, `null`, `0`, `600`.
+- **Expected:** `-1`, `1.5`, `"30"` and `null` → `422` naming the field, with
+  nothing written. `0` and `600` are accepted.
+- **Actual:** -1, 1.5, "30" and null were 422 naming the field on create and update, with nothing written; 0 and 600 accepted.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_times_cannot_be_negative_fractional_text_or_null`; `tests/unit/atomic/venues/test_setup_turnaround.py::test_zero_and_large_times_are_accepted`
+
+## TC-VENUES-035 — Venue Staff update the times at any time, leaving other fields as they are
+
+- **Steps:** `PATCH /venues/{id}` with only `{"setup_minutes": 15}`, then only
+  `{"turnaround_minutes": 0}`.
+- **Expected:** `200` each time; only that field changes. Non-staff → `403`
+  as for other venue edits (TC-VENUES-031 policy unchanged).
+- **Actual:** Each single-field PATCH wrote only that field; other roles 403 with no write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_staff_update_one_time_leaving_the_rest`; `tests/unit/atomic/venues/test_setup_turnaround.py::test_only_venue_staff_update_the_times`
+
+## TC-VENUES-036 — every venue read includes both times
+
+- **Steps:** `GET /venues` and `GET /venues/{id}`.
+- **Expected:** Each venue has `setup_minutes` and `turnaround_minutes`.
+- **Actual:** List and single reads both carried 30/45.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_every_venue_read_includes_both_times`

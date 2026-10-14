@@ -1,10 +1,12 @@
 name: Tests
 
 on:
+  # main, and each sprint's release branch (sprint3, sprint4, ...): story
+  # branches merge into the sprint branch, which merges into main at the end.
   pull_request:
-    branches: [main]
+    branches: [main, 'sprint*']
   push:
-    branches: [main]
+    branches: [main, 'sprint*']
   workflow_dispatch:
 
 concurrency:
@@ -78,6 +80,13 @@ jobs:
   integration:
     name: Integration (pytest + docker)
     runs-on: ubuntu-latest
+    # Both write to the one test Supabase project, so across all runs -- every
+    # PR and every branch -- only one of these jobs uses it at a time; the
+    # rest wait. GitHub keeps one job waiting per group: if a third arrives,
+    # the older waiting job is cancelled and needs "Re-run jobs".
+    concurrency:
+      group: supabase-test-project
+      cancel-in-progress: false
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
@@ -197,6 +206,13 @@ jobs:
   e2e:
     name: End-to-end (playwright)
     runs-on: ubuntu-latest
+    # Both write to the one test Supabase project, so across all runs -- every
+    # PR and every branch -- only one of these jobs uses it at a time; the
+    # rest wait. GitHub keeps one job waiting per group: if a third arrives,
+    # the older waiting job is cancelled and needs "Re-run jobs".
+    concurrency:
+      group: supabase-test-project
+      cancel-in-progress: false
     # Runs after integration, never alongside it: both write to the same test
     # Supabase project, and the e2e journeys create event_coordinator
     # accounts. One created mid-way through an integration test is a fresh,

@@ -410,7 +410,7 @@ def test_coordinator_listing_returns_only_that_role(client, db):
     ]
     on_in(db, coordinator_profiles)
 
-    response = client.get("/users/coordinators")
+    response = client.get("/internal/users/coordinators")
 
     assert response.status_code == 200
     assert response.json() == coordinator_profiles
@@ -426,7 +426,7 @@ def test_coordinator_listing_is_empty_when_no_one_holds_the_role(client, db):
         auth_admin_user("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "event_organiser"),
     ]
 
-    response = client.get("/users/coordinators")
+    response = client.get("/internal/users/coordinators")
 
     assert response.status_code == 200
     assert response.json() == []
@@ -475,3 +475,35 @@ def test_technical_support_listing_is_empty_when_no_one_holds_the_role(client, d
     assert response.status_code == 200
     assert response.json() == []
     db.schema.return_value.table.return_value.select.assert_not_called()
+
+
+# --- TC-USERS-031 ---------------------------------------------------------
+def test_internal_profile_lookup_returns_known_unique_profiles(client, db):
+    second_id = "22222222-2222-4222-8222-222222222222"
+    unknown_id = "99999999-9999-4999-8999-999999999999"
+    profiles = [
+        {"id": USER_ID, "name": NAME, "email": EMAIL},
+        {"id": second_id, "name": "Grace Hopper", "email": "grace@example.com"},
+    ]
+    on_in(db, profiles)
+
+    response = client.post(
+        "/internal/users/profiles",
+        json={"ids": [USER_ID, second_id, USER_ID, unknown_id]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == profiles
+    select = db.schema.return_value.table.return_value.select
+    select.assert_called_once_with("id,name,email")
+    assert select.return_value.in_.call_args.args == (
+        "id",
+        [USER_ID, second_id, unknown_id],
+    )
+
+
+def test_internal_profile_lookup_empty_input_skips_storage(client, db):
+    response = client.post("/internal/users/profiles", json={"ids": []})
+    assert response.status_code == 200
+    assert response.json() == []
+    db.schema.assert_not_called()

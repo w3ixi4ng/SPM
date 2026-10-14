@@ -149,6 +149,10 @@ its grants.
 - **Expected:** One returns `201`. The other returns `409`, saying the winner
   is "already tentatively held on 12 Nov 2026 from …". Exactly one row exists
   for that venue and date.
+  *Changed by S-76 (2026-10-09), which supersedes S-38/S-33 wording:* the
+  refused hold reads "Can't hold this booking: it overlaps spm-test
+  availability (tentatively held), which occupies Studio B on 12 Nov 2026
+  from …". Re-run 2026-10-09 on the S-76 branch: pass.
 - **Actual:** Of two simultaneous overlapping requests one returned `201` and one `409` "already tentatively held"; exactly one row stored.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_two_simultaneous_overlapping_requests_produce_exactly_one_hold`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
@@ -180,3 +184,20 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** Concurrent overlapping hold requests produced exactly one Held winner and one identified `409`; release allowed the range to be claimed again. No overlapping live rows were stored.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py`; complete integration suite, 41 passed.
+
+## S-75 — configure venue setup and turnaround time
+
+Story: S-75 Configure Venue Setup and Turnaround Time.
+Confirmed by the developer on 2026-10-07. Not yet executed.
+
+### TC-BOOKINGS-109 — the setup/turnaround gap is enforced against real rows
+
+- **Pre-conditions:** A fresh `.env.test` stack; Venue Staff session; a
+  random venue id.
+- **Steps:** Create and approve A 10:00–12:00. Request 12:30–13:00 with
+  `setup_minutes=30&turnaround_minutes=45`, then 13:15–14:00 with the same.
+- **Expected:** `409` "…in use until 12:45.", then `201`. Cleanup deletes
+  every row.
+- **Actual:** 12:30–13:00 was 409 ending "…it is in use until 12:45."; 13:15–14:00 was 201.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_setup_turnaround.py::test_the_setup_turnaround_gap_is_enforced_against_real_rows`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.

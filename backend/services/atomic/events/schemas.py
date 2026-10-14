@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator,
 class EventStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    # S-85 includes assigned events being actively handled at this stage in
+    # the Lead's oversight read model. Persistence transitions into this
+    # state belong to the workflow that owns the review, not to S-85.
+    UNDER_REVIEW = "under_review"
     # S-14: the outcomes of a coordinator's decision on a submitted request.
     # REJECTED is terminal; RETURNED goes back to the organiser to edit and
     # resubmit as the same record. S-36: an approval moves the event to
@@ -18,6 +22,9 @@ class EventStatus(str, Enum):
     # status moves on.
     PLANNING = "planning"
     CONFIRMED = "confirmed"
+    PREPARATION = "preparation"
+    SAFETY_REJECTED = "safety_rejected"
+    SAFETY_CHANGES_REQUESTED = "safety_changes_requested"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
     RETURNED = "returned"
@@ -27,6 +34,12 @@ class DecisionValue(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     RETURNED = "returned"
+
+
+class SafetyDecisionValue(str, Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CHANGES_REQUESTED = "changes_requested"
 
 
 # S-36: the event's venue requirements use the venue catalogue's fixed sets,
@@ -224,6 +237,9 @@ class EventRead(BaseModel):
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
+    # Monotonic compare-and-set token for S-84 reassignment. Initial S-83
+    # assignment remains version 0; every real owner-to-owner transfer adds 1.
+    coordinator_assignment_version: int = Field(default=0, ge=0)
     technical_support_required: bool = False
     technical_support_details: str | None = None
     assigned_technical_support_id: UUID | None = None
@@ -235,11 +251,71 @@ class EventRead(BaseModel):
     decision_reason: str | None
     decision_comment: str | None
     decided_at: datetime | None
+    # S-86: the current Operational Safety Check. These fields are separate
+    # from the Coordinator's original request decision above: rejecting a
+    # safety arrangement does not retroactively reject the event request.
+    safety_decision: SafetyDecisionValue | None = None
+    safety_decision_reason: str | None = None
+    safety_officer_id: UUID | None = None
+    safety_decided_at: datetime | None = None
+    # S-62: the Organiser's cancellation request, all null until one is sent.
+    # Requesting never changes status.
+    cancellation_reason: str | None = None
+    cancellation_requested_at: datetime | None = None
+    cancellation_requested_by: UUID | None = None
+    # S-61: the assigned Coordinator's latest decision on that request.
+    cancellation_decision: Literal["approved", "declined"] | None = None
+    cancellation_decision_reason: str | None = None
+    cancellation_decided_by: UUID | None = None
+    cancellation_decided_at: datetime | None = None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class CancellationRequestCreate(BaseModel):
+    """S-62: only the reason comes from the browser. Who asked and when are
+    set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_is_trimmed_and_not_blank(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("reason is required")
+        return value
+
+
+class CancellationDecisionCreate(BaseModel):
+    """S-61: approve, or decline with a reason. Who decided and when are
+    set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]
+    reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def blank_reason_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_only_when_declining(self):
+        if self.decision == "declined" and self.reason is None:
+            raise ValueError("reason is required when declining")
+        if self.decision == "approved" and self.reason is not None:
+            raise ValueError("reason is not accepted when approving")
+        return self
 
 
 class EventOptions(BaseModel):
@@ -351,12 +427,62 @@ class InternalTechnicalSupportAssignment(BaseModel):
 # session on the public routes.
 class InternalEventCreate(EventSubmittedCreate):
     organiser_id: UUID
-    assigned_coordinator_id: UUID
+    assigned_coordinator_id: UUID | None = None
 
 
 class InternalEventSubmit(EventSubmittedCreate):
     organiser_id: UUID
-    assigned_coordinator_id: UUID
+    assigned_coordinator_id: UUID | None = None
+
+
+class InternalCoordinatorAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+
+
+class InternalCoordinatorAssignmentResult(EventRead):
+    assignment_created: bool
+
+
+class InternalCoordinatorReassignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+    expected_coordinator_id: UUID
+    expected_assignment_version: int = Field(ge=0)
+
+
+class InternalCoordinatorReassignmentResult(EventRead):
+    previous_coordinator_id: UUID
+    reassignment_created: bool
+
+
+class InternalSafetyDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: SafetyDecisionValue
+    reason: str | None = None
+    safety_officer_id: UUID
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalise_reason(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_matches_decision(self):
+        if self.decision in (
+            SafetyDecisionValue.REJECTED,
+            SafetyDecisionValue.CHANGES_REQUESTED,
+        ):
+            if self.reason is None:
+                raise ValueError("reason is required to reject or request changes")
+        elif self.reason is not None:
+            raise ValueError("reason is not accepted when approving a safety check")
+        return self
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from .conftest import BOOKING_ID, EVENT_ID, fake_response, me
+from .conftest import BOOKING_ID, EVENT_ID, VENUE_ID, fake_response, me
 
 PATH = f'/venue-bookings/{BOOKING_ID}/decision'
 
@@ -17,10 +17,15 @@ def test_staff_decision_forwarded_with_credentials(client, services, decision):
     payload = {'decision': decision, 'reason': ' Repairs ', 'alternative': None}
     result = client.post(PATH, json=payload, cookies={'sb_access_token': 'token'})
     assert result.status_code == 200 and result.json() == saved
+    # S-75: checked by the booking's venue's current setup and turnaround.
     services.bookings.post.assert_awaited_once_with(f'/bookings/{BOOKING_ID}/decision',
-        json={**payload, 'reason': 'Repairs'}, cookies={'sb_access_token': 'token'})
+        json={**payload, 'reason': 'Repairs'}, params={'setup_minutes': 0, 'turnaround_minutes': 0}, cookies={'sb_access_token': 'token'})
     services.events.get.assert_not_called()
-    services.venues.get.assert_not_called()
+    # Only an approval reserves time, so only it reads the venue's times.
+    if decision == 'approved':
+        assert services.venues.get.await_args.args[0] == f'/venues/{VENUE_ID}'
+    else:
+        services.venues.get.assert_not_called()
 
 
 @pytest.mark.parametrize('role', ['event_coordinator', 'event_organiser', 'technical_support', 'attendee'])
@@ -79,4 +84,4 @@ def test_assigned_coordinator_sees_saved_decision(client, services):
     rows = [{'id': BOOKING_ID, 'status': 'rejected', 'decision_reason': 'Repairs', 'decision_alternative': 'Try Friday'}]
     services.pending = fake_response(200, rows)
     result = client.get('/venue-bookings', params={'event_id': EVENT_ID})
-    assert result.status_code == 200 and result.json() == rows
+    assert result.status_code == 200 and result.json() == [{**row, 'clashes': []} for row in rows]

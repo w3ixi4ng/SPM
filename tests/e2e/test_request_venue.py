@@ -8,7 +8,7 @@ Staff's dashboard renders the pending list after a fresh sign-in.
 import re
 import uuid
 
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 
 pytestmark = requires_env
 
@@ -103,5 +103,9 @@ def test_a_coordinators_venue_request_stays_on_the_event_and_shows_up_for_venue_
     pending = page.get_by_role("list", name="Pending booking requests")
     row = pending.get_by_role("listitem").filter(has_text=event_name)
     row.wait_for(timeout=20000)
-    for text in (venue_name, "12 Nov 2026", "09:00–12:00", "120 expected", "Theatre", "E2E Tester", "Pending"):
+    # S-75: the dashboard row is compact; the full request is on its own page.
+    for text in (venue_name, "12 Nov 2026", "09:00–12:00", "Pending"):
         row.get_by_text(text, exact=False).first.wait_for()
+    open_request(page, event_name)
+    for text in (venue_name, "12 Nov 2026", "09:00–12:00", "120", "Theatre", "E2E Tester", "Pending"):
+        page.get_by_text(text, exact=False).first.wait_for()

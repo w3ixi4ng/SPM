@@ -1,4 +1,8 @@
-"""TC-E2E-223/224 -- explicit tentative holds and automatic release (S-33)."""
+"""TC-E2E-223/224 -- explicit tentative holds and automatic release (S-33).
+
+S-79: a second request for the same event no longer replaces the first, so
+TC-E2E-223 now checks the hold survives it.
+"""
 
 import re
 import uuid
@@ -6,7 +10,7 @@ import uuid
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import requires_env
+from .conftest import open_request, requires_env
 from .test_venue_availability import add_event, add_venue, d, day_cell, day_detail, open_calendar, show_month
 
 pytestmark = requires_env
@@ -32,7 +36,7 @@ def booking_row(page, event_name):
     ).filter(has_text=event_name)
 
 
-def test_tentative_hold_is_distinct_and_replacement_releases_it(
+def test_tentative_hold_is_distinct_and_a_second_request_keeps_it(
     admin, page, make_user, sign_in
 ):
     coordinator = make_user("event_coordinator")
@@ -44,9 +48,11 @@ def test_tentative_hold_is_distinct_and_replacement_releases_it(
 
     sign_in(staff)
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
-    row = booking_row(page, event["name"])
-    row.get_by_role("button", name="Place hold").click()
-    expect(row).to_contain_text("Tentatively held", timeout=20000)
+    # S-75: the hold is placed on the request's own page.
+    open_request(page, event["name"])
+    page.get_by_role("button", name="Place hold").click()
+    expect(page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
+    expect(page.get_by_text("Tentatively held").first).to_be_visible()
 
     open_calendar(page, venue["name"], "/dashboard/venue-staff")
     show_month(page, d(5))
@@ -75,9 +81,7 @@ def test_tentative_hold_is_distinct_and_replacement_releases_it(
     stored = admin.schema("bookings").table("bookings").select(
         "id,status,hold_release_reason"
     ).eq("id", original["id"]).execute().data[0]
-    assert stored == {
-        "id": original["id"], "status": "pending", "hold_release_reason": "booking_replaced"
-    }
+    assert stored == {"id": original["id"], "status": "held", "hold_release_reason": None}
 
 
 @pytest.mark.parametrize("terminal_status", ["rejected", "cancelled"])
