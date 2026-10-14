@@ -141,6 +141,13 @@ function entryItem(entry, gap = NO_GAP) {
   const start = shortTime(entry.start_time)
   const end = shortTime(entry.end_time)
   let label = `${meta.label} ${start}–${end}`
+  if (entry.state === 'held' && entry.expires_at) {
+    const expiry = new Intl.DateTimeFormat('en-SG', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      hour12: false, timeZone: 'Asia/Singapore',
+    }).format(new Date(entry.expires_at))
+    label += ` · expires ${expiry}`
+  }
   if (gap.setup || gap.turnaround) {
     label += ` · venue in use ${shiftClock(start, -gap.setup)}–${shiftClock(end, gap.turnaround)}`
   }

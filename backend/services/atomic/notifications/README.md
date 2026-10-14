@@ -4,7 +4,8 @@ Atomic FastAPI service for persistent in-app notifications. It owns
 `notifications.notifications`; no other service reads or writes that table.
 
 Stories: S-83 Assign Event Requests from Unassigned Queue, S-84 Reassign
-Event Coordinator, and S-77 Mark Venue Temporarily Unavailable.
+Event Coordinator, S-77 Mark Venue Temporarily Unavailable, and S-81 Place
+Tentative Venue Hold with Expiry.
 
 ## Endpoints
 
@@ -35,8 +36,9 @@ Event Coordinator, and S-77 Mark Venue Temporarily Unavailable.
 
 All fields are required. The batch contains 1–20 rows and cannot repeat a
 deduplication key. Supported kinds are `event_assignment`,
-`event_reassignment` and, since S-77, `venue_unavailable` (a Coordinator's
-booking needs alternative arrangements). S-84 sends a three-row reassignment batch whose keys
+`event_reassignment`, `venue_unavailable` (a Coordinator's booking needs
+alternative arrangements), and `venue_hold_expiry` (the time a tentative hold
+will be released). S-84 sends a three-row reassignment batch whose keys
 include the event's monotonic assignment version.
 
 ## Response

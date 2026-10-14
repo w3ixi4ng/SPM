@@ -19,7 +19,7 @@ internal-service contract. Atomic services never call the users service.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
-| `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold. The service records `held_by` and `held_at`; an overlapping live slot returns `409`. |
+| `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold until the required future `expires_at`. The service records the staff member and timestamps; an overlapping live slot returns `409`. |
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
 | `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or an unavailable period is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
@@ -246,7 +246,9 @@ unavailable period (S-77). The range is `[start,end)`, so back-to-back requests 
 rejected requests hold nothing. The database constraint
 `bookings_no_live_overlap` is the final authority, so of two simultaneous
 overlapping requests exactly one is stored. Rejecting a request releases its
-hold. A hold has no expiry.
+hold. S-81 requires a timezone-aware expiry. Before every relevant read or
+write the service calls the database expiry function, which releases due holds
+to `pending`, records release reason `expired`, and immediately frees the slot.
 
 **Blocks (unavailable periods, S-77).** A period a venue cannot be used, from
 `start_date` + `start_time` up to, but not including, `end_date` + `end_time`.

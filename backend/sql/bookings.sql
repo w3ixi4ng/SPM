@@ -41,6 +41,7 @@ create table if not exists bookings.bookings (
   status                     text not null default 'pending',
   held_by                    uuid,
   held_at                    timestamptz,
+  hold_expires_at            timestamptz,
   hold_released_at           timestamptz,
   hold_release_reason        text,
 
@@ -65,6 +66,7 @@ create table if not exists bookings.bookings (
 
   constraint bookings_hold_valid check (
     (status = 'held' and held_by is not null and held_at is not null
+      and hold_expires_at is not null
       and hold_released_at is null and hold_release_reason is null)
     or (status <> 'held'
       and ((hold_released_at is null and hold_release_reason is null)
@@ -73,7 +75,8 @@ create table if not exists bookings.bookings (
 
   constraint bookings_hold_release_reason_allowed check (
     hold_release_reason is null or hold_release_reason in (
-      'staff_released', 'event_rejected', 'event_cancelled', 'booking_replaced'
+      'staff_released', 'event_rejected', 'event_cancelled', 'booking_replaced',
+      'expired'
     )
   ),
 
@@ -431,6 +434,65 @@ alter table bookings.blocks add constraint blocks_reason_allowed check (reason i
 notify pgrst, 'reload schema';
 commit;
 -- END S-77 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-81 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- Existing indefinite holds receive a seven-day window from when they were
+-- placed. A window already in the past is released on the next bookings
+-- operation and remains recorded with release reason `expired`.
+begin;
+
+alter table bookings.bookings
+  add column if not exists hold_expires_at timestamptz;
+
+update bookings.bookings
+set hold_expires_at = held_at + interval '7 days'
+where status = 'held' and hold_expires_at is null;
+
+alter table bookings.bookings drop constraint if exists bookings_hold_valid;
+alter table bookings.bookings drop constraint if exists bookings_hold_release_reason_allowed;
+
+alter table bookings.bookings add constraint bookings_hold_release_reason_allowed
+  check (hold_release_reason is null or hold_release_reason in (
+    'staff_released', 'event_rejected', 'event_cancelled', 'booking_replaced',
+    'expired'
+  ));
+
+alter table bookings.bookings add constraint bookings_hold_valid check (
+  (status = 'held' and held_by is not null and held_at is not null
+    and hold_expires_at is not null
+    and hold_released_at is null and hold_release_reason is null)
+  or (status <> 'held'
+    and ((hold_released_at is null and hold_release_reason is null)
+      or (hold_released_at is not null and hold_release_reason is not null)))
+);
+
+-- This function is also called by the atomic service before every relevant
+-- read or write, so expiry changes are visible without a background worker.
+create or replace function bookings.expire_holds()
+returns setof bookings.bookings
+language sql
+security definer
+set search_path = bookings, pg_temp
+as $$
+  update bookings.bookings
+     set status = 'pending', hold_released_at = now(),
+         hold_release_reason = 'expired'
+   where status = 'held' and hold_expires_at <= now()
+  returning *;
+$$;
+
+-- Older draft versions of S-81 installed a write trigger here. Remove it:
+-- invoking the same UPDATE from a BEFORE UPDATE trigger can attempt to change
+-- one tuple twice in a statement. The atomic service calls expire_holds()
+-- before every relevant read and write instead, including before the overlap
+-- exclusion constraint is reached.
+drop trigger if exists bookings_release_expired_before_write on bookings.bookings;
+drop function if exists bookings.release_expired_holds();
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-81 DATA-PRESERVING MIGRATION
 
 -- BEGIN S-78 DATA-PRESERVING MIGRATION
 -- Existing installations: run this entire block in BOTH dev and test. Fresh

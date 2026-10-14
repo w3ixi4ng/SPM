@@ -73,7 +73,8 @@ def test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_ko
         assert a.status_code == b.status_code == 201, (a.text, b.text)
         confirmed = api.post(f"/venue-bookings/{a.json()['id']}/decision", headers=staff, json={'decision': 'approved'})
         assert confirmed.status_code == 200, confirmed.text
-        held = api.post(f"/venue-bookings/{b.json()['id']}/hold", headers=staff)
+        held = api.post(f"/venue-bookings/{b.json()['id']}/hold", headers=staff,
+                        json={"expires_at": "2099-01-01T12:00:00+08:00"})
         assert held.status_code == 200, held.text
         assert calendar() == [('confirmed', '2026-11-12', '09:00'), ('held', '2026-11-12', '14:00')]
 
@@ -89,7 +90,8 @@ def test_the_calendar_reflects_a_hold_a_confirmed_booking_and_a_block_through_ko
         assert rejected.status_code == 200, rejected.text
         c = request(event_c, '15:00', '17:00')
         assert c.status_code == 201, c.text
-        held = api.post(f"/venue-bookings/{c.json()['id']}/hold", headers=staff)
+        held = api.post(f"/venue-bookings/{c.json()['id']}/hold", headers=staff,
+                        json={"expires_at": "2099-01-01T12:00:00+08:00"})
         assert held.status_code == 200, held.text
         assert calendar() == [('confirmed', '2026-11-12', '09:00'), ('held', '2026-11-12', '15:00')]
 

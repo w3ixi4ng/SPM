@@ -1058,3 +1058,45 @@ original's state after Venue Staff approve.
 - **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
+  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
+  S-86 plus S-84/S-85 regressions, 3 passed.
+
+## S-26 — Update Equipment Preparation Status
+
+### TC-E2E-232 — assigned Technical Support updates preparation and the Coordinator sees it
+
+- **Scenario:** A browser proves the protected S-26 write, persistence, and read-only Coordinator visibility.
+- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; planning event assigned to a Coordinator and Technical Support A.
+- **Steps:** Sign in as A; observe Not Started; change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open the event.
+- **Test data:** One event requiring equipment and assigned support.
+- **Expected:** Each save confirms the server response. Ready survives reload. The Coordinator sees Ready on the event readiness view and no preparation edit control. Direct storage inspection shows Ready, A's id, and a non-null server timestamp.
+- **Actual:** Not run.
+- **Status:** Approved
+- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`
+
+## S-24 — Track Event Readiness
+
+### TC-E2E-233 — Coordinator readiness follows current venue, equipment, and preparation data
+
+- **Scenario:** The assigned Coordinator sees all five readiness areas on the event view.
+- **Pre-conditions:** Fresh `.env.test` stack; an assigned planning event with a confirmed venue, recorded equipment requirement, and preparation Ready.
+- **Steps:** Sign in as the Coordinator; open the event; inspect readiness; change the server-owned preparation status to In Progress; reload.
+- **Expected:** Initially Venue, Equipment, and Technical support are Complete and the total is 3 of 3. Programme and Registration are visible as Not available yet. After the underlying change and reload, Technical support becomes Outstanding and the total becomes 2 of 3 without a duplicate readiness record being edited.
+- **Actual:** The Coordinator saw all five indicators, three implemented areas complete, and two future areas unavailable. After preparation changed to In Progress and the page reloaded, the total changed to 2 of 3 and Technical support became Outstanding.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
+
+## TC-E2E-235 — a tentative hold expires and releases its slot
+
+- **Scenario:** Venue Staff place a visibly tentative hold with a required
+  expiry; its Coordinator is informed before it expires and the same
+  venue/time becomes available again.
+- **Expected:** Blank expiry is refused; the request and calendar show the
+  hold and expiry distinctly; the Coordinator receives an expiry notice; the
+  calendar removes the hold after expiry without manual release and storage
+  records `expired`.
+- **Actual:** Chromium refused a blank expiry, displayed the active hold and
+  expiry, showed the Coordinator notice, and showed the slot as available
+  after automatic expiry; storage recorded `pending/expired`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_tentative_hold_expiry.py::test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot`; `.env.test` stack recreated immediately before, 2026-10-13; full suite reached 35 passed with only this new assertion pending, then the corrected S-81 journey passed on its complete focused rerun (all 36 journeys passed).

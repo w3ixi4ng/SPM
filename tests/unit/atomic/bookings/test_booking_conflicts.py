@@ -49,7 +49,7 @@ def test_a_refused_approval_names_the_booking_and_its_occupied_period(client, db
 def test_a_refused_hold_says_the_same(client, db, auth):
     lookups(db, [B], [A], [])
 
-    response = client.post(f'/bookings/{BOOKING_ID}/hold', params=GAP, cookies=COOKIE)
+    response = client.post(f'/bookings/{BOOKING_ID}/hold', params=GAP, json={'expires_at': '2099-11-12T10:00:00+08:00'}, cookies=COOKIE)
 
     assert response.status_code == 409
     assert response.json() == {'detail': f"Can't hold this booking: {OCCUPIED}"}

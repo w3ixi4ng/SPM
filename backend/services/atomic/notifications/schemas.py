@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-NotificationKind = Literal["event_assignment", "event_reassignment", "venue_unavailable"]
+NotificationKind = Literal["event_assignment", "event_reassignment", "venue_unavailable", "venue_hold_expiry"]
 
 
 class NotificationCreate(BaseModel):

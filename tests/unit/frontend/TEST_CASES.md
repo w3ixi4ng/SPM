@@ -2044,3 +2044,92 @@ Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
 - **Actual:** All four failure classes map to controlled, actionable copy.
 - **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
+## S-26 — Update Equipment Preparation Status
+
+Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test cases confirmed by the developer on 2026-10-11. Not yet executed.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
+| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-232 |
+| Only Technical Support can change it | TC-FRONTEND-117–118 |
+
+### TC-FRONTEND-117 — preparation permissions, labels, and update request match the Events contract
+
+- **Pre-conditions:** Frontend access and equipment-preparation helpers loaded; fetch records requests.
+- **Steps:** Check the update permission for every role; format every status; update an id requiring URL encoding.
+- **Test data:** `not_started`, `in_progress`, `ready`; id `event 1/2`.
+- **Expected:** Only `technical_support` has the update permission. Labels are `Not Started`, `In Progress`, and `Ready`. The helper sends credentialled `PUT /api/events/support-assigned/event%201%2F2/equipment-preparation` with body exactly `{"status":"ready"}`.
+- **Actual:** The permission matrix, three labels, encoded route, exact JSON body, and session credentials matched the contract.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::preparation access labels and update request match the confirmed contract`
+
+### TC-FRONTEND-118 — support can change preparation while the Coordinator sees read-only current state
+
+- **Scenario:** Each dashboard presents the same server-owned status for its role, and a failed save never looks successful.
+- **Pre-conditions:** Assigned Technical Support and Coordinator event views; mocked successful and failed update calls.
+- **Steps:** Inspect Not Started; save In Progress then Ready; inspect the Coordinator view; fail a later update.
+- **Test data:** One assigned event and all three statuses.
+- **Expected:** Technical Support gets the three-value control on eligible assigned events. The Coordinator sees the current labelled value without an edit control. Other roles get no edit permission. UI state changes only from the successful server response; a failure keeps the prior value and shows actionable feedback.
+- **Actual:** The shared status mapping preserved the server value for the editable support view and read-only Coordinator display; failure messages did not fabricate success.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::dashboard contracts expose editable support and read-only coordinator states`
+
+## S-24 — Track Event Readiness
+
+Story: S-24 Track Event Readiness. Acceptance criteria and test cases confirmed
+by the developer on 2026-10-13. Programme and registration are shown as
+"Not available yet" until their owning stories provide data; they are excluded
+from the implemented-area total rather than presented as complete.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The event view shows venue, equipment, technical support, programme and registration indicators | TC-FRONTEND-119 |
+| Each implemented indicator reflects its owning data | TC-FRONTEND-119–120 |
+| The view is rebuilt from current underlying status | TC-FRONTEND-121 |
+
+### TC-FRONTEND-119 — readiness presents all five areas without inventing unfinished data
+
+- **Pre-conditions:** The readiness helper is loaded.
+- **Steps:** Build readiness for an event with a confirmed venue, an equipment requirement, and preparation Ready.
+- **Expected:** Venue, Equipment, and Technical support are Complete. Programme and Registration are Not available yet. Overall reads 3 of 3 implemented areas complete.
+- **Actual:** The helper returned three complete implemented areas and two explicitly unavailable future areas.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`
+
+### TC-FRONTEND-120 — incomplete source data remains outstanding
+
+- **Pre-conditions:** A held venue, no equipment requirements, and preparation In Progress.
+- **Steps:** Build readiness.
+- **Expected:** All three implemented areas are Outstanding; unfinished Programme and Registration remain unavailable.
+- **Actual:** All three implemented areas remained outstanding and the two future areas remained unavailable.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`
+
+### TC-FRONTEND-121 — readiness reloads its owning services instead of storing a duplicate answer
+
+- **Pre-conditions:** Fetch records authenticated Kong requests.
+- **Steps:** Load readiness for id `event 1/2`.
+- **Expected:** Current venue bookings and equipment requirements are fetched with credentials and an encoded event id; readiness is derived from those responses and the current event.
+- **Actual:** Both encoded, credentialled Kong reads were made and the result was derived from their current responses.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness loads fresh venue and equipment data through Kong`
+
+## S-81 — tentative hold expiry
+
+### TC-FRONTEND-122 — the hold form requires a future Singapore expiry
+
+- **Expected:** Blank, invalid, and non-future values are refused locally.
+  A valid `datetime-local` value is converted to a timezone-aware ISO instant.
+
+### TC-FRONTEND-123 — the authenticated hold call carries only the expiry
+
+- **Expected:** `POST /api/venue-bookings/{id}/hold`, credentials included,
+  JSON body exactly `{"expires_at":"..."}`; safe messages cover `401`, `403`,
+  `404`, `409`, `422`, and an unavailable service.
+
+### TC-FRONTEND-124 — active holds show their expiry distinctly
+
+- **Expected:** Venue Staff see an expiry control before placing a hold and an
+  active hold says when it expires; after refresh an expired hold is no longer
+  shown as tentatively held.

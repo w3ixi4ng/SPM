@@ -18,9 +18,41 @@ export function getTechnicalSupportEvent(eventId) {
   return requestJSON(`/events/support-assigned/${encodeURIComponent(eventId)}`)
 }
 
+export const EQUIPMENT_PREPARATION_OPTIONS = Object.freeze([
+  Object.freeze({ value: 'not_started', label: 'Not Started' }),
+  Object.freeze({ value: 'in_progress', label: 'In Progress' }),
+  Object.freeze({ value: 'ready', label: 'Ready' }),
+])
+
+export function equipmentPreparationLabel(status) {
+  return EQUIPMENT_PREPARATION_OPTIONS.find((option) => option.value === status)?.label
+    ?? status
+    ?? 'Not Started'
+}
+
+export function updateEquipmentPreparation(eventId, status) {
+  return requestJSON(
+    `/events/support-assigned/${encodeURIComponent(eventId)}/equipment-preparation`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    },
+  )
+}
+
+export function equipmentPreparationErrorMessage(error) {
+  if (error.status === 401) return 'Your session has expired. Please sign in again.'
+  if (error.status === 403) return 'Your role is not permitted to update equipment preparation.'
+  if (error.status === 404) return 'This event was not found or is no longer assigned to you.'
+  if (error.status === 409) return error.message || 'The event changed. Reload and try again.'
+  if (error.status >= 500) return 'The preparation status was not saved. Try again in a moment.'
+  return error.message || "We couldn't save the preparation status."
+}
+
 export function assignedEventWork(events, requirements) {
   const activeEvents = events.filter((event) => (
-    event.status === 'planning' || event.status === 'confirmed'
+    event.status === 'planning' || event.status === 'confirmed' || event.status === 'preparation'
   ))
   const byEvent = new Map(activeEvents.map((event) => [event.id, []]))
 

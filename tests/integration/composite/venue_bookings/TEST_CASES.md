@@ -345,6 +345,18 @@ Status resets to Not Executed until re-run.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_through_kong_a_request_and_a_hold_inside_the_period_are_refused`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
 
+### TC-VENUEBOOKINGS-114 — hold expiry is notified and released through Kong
+
+- **Scenario:** The complete S-81 service path stores a required expiry, informs the Coordinator before it occurs, and removes the expired hold from availability.
+- **Pre-conditions:** `.env.test` stack; S-81 bookings and notifications migrations applied in the test project.
+- **Steps:** Request a venue through Kong; place a hold with an expiry as Venue Staff; read the Coordinator inbox; move the expiry into the past; load availability through Kong.
+- **Test data:** 12 Nov 2026, 09:00–12:00; expiry one hour ahead and then one second behind the current time.
+- **Expected:** The hold contains its expiry; exactly one `venue_hold_expiry` notification names the tentative hold; availability has no live booking after expiry; storage retains the row as pending with release reason `expired` and a release timestamp.
+- **Actual:** Kong stored the expiry and one Coordinator notice; after expiry,
+  the calendar had no live entry and storage retained `pending/expired` audit data.
+- **Status:** Pass
+- **Evidence:** `test_hold_expiry.py::test_hold_expiry_is_notified_and_released_through_kong`; `.env.test` stack recreated immediately before, 2026-10-13; full `pytest tests/integration`: 56 passed, 5 skipped.
+
 ## S-78 — request replacement venue for affected booking
 
 Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the

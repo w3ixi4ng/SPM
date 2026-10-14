@@ -165,8 +165,29 @@ export function decideVenueBooking(id, { decision, reason = '', alternative = ''
   })
 }
 
-export function placeVenueHold(id) {
-  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/hold`, { method: 'POST' })
+export function holdExpiryToIso(value, now = new Date()) {
+  if (!value) return { error: 'Choose when the tentative hold expires.' }
+  const parsed = new Date(`${value}:00+08:00`)
+  if (Number.isNaN(parsed.getTime())) return { error: 'Choose a valid expiry date and time.' }
+  if (parsed <= now) return { error: 'The hold expiry must be in the future.' }
+  return { expiresAt: parsed.toISOString() }
+}
+
+export function holdExpiryLabel(value) {
+  if (!value) return ''
+  return new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Asia/Singapore',
+  }).format(new Date(value))
+}
+
+export function placeVenueHold(id, expiresAt) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/hold`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expires_at: expiresAt }),
+  })
 }
 
 export function releaseVenueHold(id) {
@@ -178,6 +199,7 @@ export function holdActionErrorMessage(error) {
   if (error.status === 403) return 'Only Venue Staff can manage tentative holds.'
   if (error.status === 404) return 'This booking request could not be found. Reload the list.'
   if (error.status === 409) return error.message
+  if (error.status === 422) return error.message
   return "We couldn't update the tentative hold. Reload the list before trying again."
 }
 

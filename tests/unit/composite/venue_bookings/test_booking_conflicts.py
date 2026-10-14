@@ -57,7 +57,8 @@ def test_a_refused_approval_reaches_venue_staff_unchanged(client, services, acti
     services.user = me("venue_staff")
     services.bookings.post = AsyncMock(return_value=fake_response(409, {"detail": detail}))
 
-    response = client.post(f"/venue-bookings/{BOOKING_ID}/{action}", json=body)
+    request_body = {"expires_at": "2099-11-12T10:00:00+08:00"} if action == "hold" else body
+    response = client.post(f"/venue-bookings/{BOOKING_ID}/{action}", json=request_body)
 
     assert response.status_code == 409
     assert response.json() == {"detail": detail}

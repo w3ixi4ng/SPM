@@ -3,6 +3,8 @@ import { ArrowLeft, Building2, Check, Headphones, RotateCcw, X } from 'lucide-re
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
+import EventReadinessPanel from '../components/EventReadinessPanel.jsx'
+import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
@@ -795,6 +797,7 @@ export default function EventCoordinatorEventDetail() {
                 {safetyNotice}
               </p>
             )}
+            <EventReadinessPanel event={state.event} />
 
             <div
               role="group"
@@ -822,6 +825,12 @@ export default function EventCoordinatorEventDetail() {
                   status={state.event.status}
                   editable={isCoordinator}
                 />
+                <div className="border rounded-sm p-5" style={{ borderColor: C.line }} aria-label="Equipment preparation readiness">
+                  <p className="font-ui text-xs uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Equipment preparation</p>
+                  <p className="font-ui text-base font-medium" style={{ color: C.ink }}>
+                    {equipmentPreparationLabel(state.event.equipment_preparation_status)}
+                  </p>
+                </div>
               </section>
 
               {canAssignTechnicalSupport && (

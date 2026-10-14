@@ -18,15 +18,25 @@ from .conftest import (
 @pytest.mark.parametrize("action", ["hold", "release"])
 def test_staff_hold_actions_are_authenticated_and_forwarded(client, services, action):
     services.user = me("venue_staff", id=STAFF_ID)
-    saved = {"id": BOOKING_ID, "status": "held" if action == "hold" else "pending"}
+    saved = {
+        **services.booking.json(),
+        "coordinator_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "event_name": "Alumni networking evening", "venue_name": "Studio B",
+        "status": "held" if action == "hold" else "pending",
+        "hold_expires_at": "2099-11-12T02:00:00+00:00",
+    }
     services.bookings.post = AsyncMock(return_value=fake_response(200, saved))
 
-    response = client.post(f"/venue-bookings/{BOOKING_ID}/{action}")
+    body = {"expires_at": "2099-11-12T10:00:00+08:00"} if action == "hold" else None
+    response = client.post(f"/venue-bookings/{BOOKING_ID}/{action}", json=body)
 
     assert response.status_code == 200
     assert response.json() == saved
     # S-75: a hold is checked by the venue's current setup and turnaround.
-    expected = {"params": {'setup_minutes': 0, 'turnaround_minutes': 0}, "cookies": {}} if action == "hold" else {
+    expected = {
+        "params": {'setup_minutes': 0, 'turnaround_minutes': 0},
+        "json": {"expires_at": "2099-11-12T10:00:00+08:00"}, "cookies": {},
+    } if action == "hold" else {
         "json": {"reason": "staff_released"}, "cookies": {}
     }
     services.bookings.post.assert_awaited_once_with(
@@ -40,6 +50,18 @@ def test_nonstaff_cannot_manage_holds(client, services, role):
 
     assert client.post(f"/venue-bookings/{BOOKING_ID}/hold").status_code == 403
     assert client.post(f"/venue-bookings/{BOOKING_ID}/release").status_code == 403
+    services.bookings.post.assert_not_called()
+
+
+@pytest.mark.parametrize("body", [
+    None,
+    {"expires_at": "2099-11-12T10:00:00"},
+    {"expires_at": "2020-01-01T10:00:00+08:00"},
+])
+def test_staff_hold_requires_a_future_timezone_aware_expiry(client, services, body):
+    services.user = me("venue_staff", id=STAFF_ID)
+    response = client.post(f"/venue-bookings/{BOOKING_ID}/hold", json=body)
+    assert response.status_code == 422
     services.bookings.post.assert_not_called()
 
 

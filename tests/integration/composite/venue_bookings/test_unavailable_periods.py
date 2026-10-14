@@ -114,7 +114,8 @@ def test_through_kong_a_request_and_a_hold_inside_the_period_are_refused(admin, 
 
         assert api.delete(f'/venue-bookings/blocks/{first}', headers=staff).status_code == 204
         mark('11:00', '13:00')
-        held = api.post(f"/venue-bookings/{q.json()['id']}/hold", headers=staff)
+        held = api.post(f"/venue-bookings/{q.json()['id']}/hold", headers=staff,
+                        json={"expires_at": "2099-01-01T12:00:00+08:00"})
         assert held.status_code == 409, held.text
         assert held.json()['detail'] == f'{venue_name} is unavailable from 12 Nov 2026 11:00 to 12 Nov 2026 13:00.'
 

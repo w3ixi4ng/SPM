@@ -146,3 +146,15 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Actual:** Through Kong: the request returned `200`; `GET` showed status `planning` with the reason, requester and time; the second request returned `409`. `events.events` agreed.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/events/test_cancellation_request.py::test_a_cancellation_request_is_stored_with_the_event_through_kong`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-62/request-event-cancellation` at `cb446d3`; S-62 SQL applied to dev and test. `pytest tests/integration/atomic/events`: 6 passed.
+## S-26 — Update Equipment Preparation Status
+
+### TC-EVENTS-126 — equipment preparation persists through the real Events boundary
+
+- **Scenario:** The committed Events schema and authenticated HTTP route store and return S-26 state together.
+- **Pre-conditions:** Fresh `.env.test` Docker stack; `backend/sql/events.sql` applied, exposed, and granted in the test project; assigned Technical Support and Coordinator accounts; one eligible event.
+- **Steps:** Verify the database default; update through Kong as assigned Technical Support; load through both the support and Coordinator event views; attempt the same write as an unassigned worker.
+- **Test data:** `not_started` → `in_progress` → `ready` on one planning event.
+- **Expected:** The default, current value, updater, and timestamp persist in `events.events`; both authorised reads agree; the unassigned write is denied and leaves the row unchanged. The test deletes every row and account it creates.
+- **Actual:** Not run.
+- **Status:** Approved
+- **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`

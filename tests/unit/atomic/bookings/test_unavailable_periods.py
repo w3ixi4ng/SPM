@@ -209,7 +209,7 @@ def test_a_hold_overlapping_the_period_is_refused(client, db, auth):
     r1 = booking_row(venue_id=STUDIO_B, booking_date='2026-11-13', start_time='14:00:00', end_time='16:00:00')
     lookups(db, [r1], [], [P])
 
-    response = client.post(f'/bookings/{r1["id"]}/hold', params=GAP, cookies=COOKIE)
+    response = client.post(f'/bookings/{r1["id"]}/hold', params=GAP, json={'expires_at': '2099-11-12T10:00:00+08:00'}, cookies=COOKIE)
 
     assert response.status_code == 409
     assert response.json() == {'detail': UNAVAILABLE}
@@ -225,7 +225,7 @@ def test_a_hold_that_ends_as_the_period_starts_is_placed(client, db, auth):
         data=[{**r2, **table(db).update.call_args.args[0]}]
     )
 
-    response = client.post(f'/bookings/{r2["id"]}/hold', params=GAP, cookies=COOKIE)
+    response = client.post(f'/bookings/{r2["id"]}/hold', params=GAP, json={'expires_at': '2099-11-12T10:00:00+08:00'}, cookies=COOKIE)
 
     assert response.status_code == 200, response.text
     assert response.json()['status'] == 'held'

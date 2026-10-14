@@ -28,7 +28,10 @@ def seed(admin, event, venue, coordinator, staff, status, start, end):
     if status == "confirmed":
         row.update(decided_by=staff["id"], decided_at="2026-10-01T00:00:00+00:00")
     if status == "held":
-        row.update(held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00")
+        row.update(
+            held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00",
+            hold_expires_at="2099-01-01T04:00:00+00:00",
+        )
     return admin.schema("bookings").table("bookings").insert(row).execute().data[0]
 
 
@@ -107,6 +110,7 @@ def test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page(admi
     expect(page.get_by_role("link", name="Back to dashboard")).to_be_visible()
 
     # 3. Hold, then approve; back on the dashboard once, and P has left the list.
+    page.get_by_label("Hold expiry").fill("2099-01-01T12:00")
     page.get_by_role("button", name="Place hold").click()
     expect(page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
     page.get_by_role("radio", name="Approve", exact=True).check()

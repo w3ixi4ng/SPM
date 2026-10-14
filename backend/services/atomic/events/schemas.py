@@ -54,6 +54,16 @@ class SafetyReviewRecord(BaseModel):
     reason: str | None = None
     safety_officer_id: UUID
     decided_at: datetime
+class EquipmentPreparationStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    READY = "ready"
+
+
+class EquipmentPreparationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: EquipmentPreparationStatus
 
 
 # S-36: the event's venue requirements use the venue catalogue's fixed sets,
@@ -258,6 +268,11 @@ class EventRead(BaseModel):
     technical_support_details: str | None = None
     assigned_technical_support_id: UUID | None = None
     technical_support_assigned_at: datetime | None = None
+    equipment_preparation_status: EquipmentPreparationStatus = (
+        EquipmentPreparationStatus.NOT_STARTED
+    )
+    equipment_preparation_updated_by: UUID | None = None
+    equipment_preparation_updated_at: datetime | None = None
     # The coordinator's decision and its record -- all null until decided,
     # and cleared again on resubmit after a return. See
     # POST /events/{event_id}/decision.
