@@ -11,7 +11,7 @@ from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class VenueBookingRequest(BaseModel):
@@ -120,3 +120,34 @@ class HoldRequest(BaseModel):
         if value <= datetime.now(value.tzinfo):
             raise ValueError("The hold expiry must be in the future")
         return value
+
+
+class ReplacementRequest(BaseModel):
+    """S-78: what a Coordinator chooses for a replacement -- the venue, and
+    notes. The date and times are the affected booking's, and everything else
+    is the event's, so neither is taken from the browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    venue_id: UUID
+    notes: str | None = None
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def blank_notes_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+
+class ResolutionRequest(BaseModel):
+    """S-78: what a Coordinator arranged instead of replacing the venue."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def strip_note(cls, value):
+        return value.strip() if isinstance(value, str) else value

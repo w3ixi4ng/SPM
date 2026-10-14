@@ -1930,6 +1930,82 @@ Their tests were updated and re-run with S-77, and pass.
 - **Actual:** A gave the exact label, rose colour and detail; two periods in date order; A4 null.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — a Coordinator's flagged booking says it needs alternative arrangements, and why`
+
+## S-78 — request replacement venue for affected booking
+
+Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed. The
+criteria mapping and the agreed decisions are in
+`tests/unit/composite/venue_bookings/TEST_CASES.md`. The test file is
+`tests/unit/frontend/test_replacement_venue.mjs`, importing
+`frontend/src/lib/venueBookings.js`.
+
+Test data: A is Studio B, `confirmed`, `2026-11-13` `10:00`–`12:00`,
+flagged. R1 is Hall C, `replaces_booking_id` A.
+
+## TC-FRONTEND-112 — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither
+
+- **Scenario:** The way in starts from the affected booking (AC1).
+- **Steps:** Call `replacementState(booking, bookings)` for each row:
+- **Expected:**
+  - A flagged, with no replacement in `bookings` → `{actions: ["replace", "resolve"], label: null}`
+  - A flagged, R1 `pending` or `held` → `{actions: ["resolve"], label: "Replacement requested: Hall C, waiting for Venue Staff"}`
+  - A flagged, R1 `rejected` → `{actions: ["replace", "resolve"], label: "Hall C declined the replacement request"}`
+  - A `replaced` by R1 → `{actions: [], label: "Replaced by Hall C"}`
+  - A not flagged, with `alternative_resolution_note` "Moved online" → `{actions: [], label: "Resolved: Moved online"}`
+  - A not flagged and never resolved, or `pending` → `{actions: [], label: null}`
+  - R1 itself → `{actions: [], label: "Replacement for Studio B"}`
+- **Actual:** Every row gave exactly the expected actions and label.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither`
+
+## TC-FRONTEND-113 — the resolution note must be written, and not too long
+
+- **Steps:** Call `validateResolutionNote(note)`.
+- **Expected:**
+  - `""` or `"   "` → `"Say what you've arranged instead."`
+  - 501 characters → `"Keep the note to 500 characters."`
+  - `"  Moved online  "` → `null`, and `resolutionPayload` gives `{note: "Moved online"}`
+- **Actual:** Blank and spaces gave the "Say what…" message, 501 characters the length message, 500 and the trimmed note `null`; payload trimmed.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the resolution note must be written, and not too long`
+
+## TC-FRONTEND-114 — the replacement request sends only the venue and notes
+
+- **Scenario:** Nothing about the event is sent from the browser (AC3).
+- **Steps:** Call `requestReplacementVenue("aaaaaaaa-…", {venueId: "cccccccc-…", notes: "  "})`
+  with `fetch` stubbed.
+- **Expected:** One `POST` to `/api/venue-bookings/aaaaaaaa-…/replacement`
+  with body `{"venue_id": "cccccccc-…", "notes": null}`. No event, date or
+  time field. `resolveAlternativeArrangements(id, "Moved online")` sends
+  `POST …/{id}/resolution` with `{"note":"Moved online"}`.
+  `searchReplacementVenues(id)` sends `GET …/{id}/replacement-venues`.
+- **Actual:** One `POST` to `…/replacement` with `{"venue_id":…,"notes":null}`; `…/resolution` with the note; `GET …/replacement-venues`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the replacement request sends only the venue and notes`
+
+## TC-FRONTEND-115 — every failure says what happened and what to do next
+
+- **Steps:** Call `replacementErrorMessages(error)` for each response.
+- **Expected:**
+  - `409` "This booking doesn't need a replacement venue" → `["This booking no longer needs a replacement. Go back to the event to see its current state."]`
+  - `409` "A replacement request for this booking is already with Venue Staff" → `["You've already asked for a replacement for this booking. Wait for Venue Staff's decision."]`
+  - `409` naming a taken or unavailable slot → `[<the service's detail>, "Choose another venue."]`
+  - `422` with `errors` `{expected_attendance: "…", required_facilities: "…"}` → both messages, in order
+  - `404` → `["We couldn't find this booking. Go back to the event and try again."]`
+  - `502` or a network failure → `["We couldn't reach the booking service. Try again in a moment."]`
+- **Actual:** Every response gave exactly the expected list.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — every failure says what happened and what to do next`
+
+## TC-FRONTEND-116 — the replacement screen's path and its empty state
+
+- **Steps / Expected:**
+  - `replacementPath("eeeeeeee-…", "aaaaaaaa-…")` → `"/coordinator/events/eeeeeeee-…/bookings/aaaaaaaa-…/replacement"`
+  - `replacementSearchSummary({booking: A, venues: []})` → `"No venue can take this event on 13 Nov 2026 from 10:00 to 12:00. Resolve the booking with a note if you've made other arrangements."`
+  - With two venues → `"2 venues can take this event on 13 Nov 2026 from 10:00 to 12:00."`. With one → `"1 venue can …"`
+- **Actual:** Path and all three summaries exact.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the replacement screen's path and its empty state`
 ## S-87 — returned safety feedback and resubmission
 
 Story: S-87 Return Event to Planning After Safety Changes Requested.
@@ -1974,11 +2050,11 @@ Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test ca
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| Technical Support can set all three preparation statuses | TC-FRONTEND-103 |
-| Current preparation status is visible on the readiness view | TC-FRONTEND-104, TC-E2E-232 |
-| Only Technical Support can change it | TC-FRONTEND-103–104 |
+| Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
+| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-232 |
+| Only Technical Support can change it | TC-FRONTEND-117–118 |
 
-### TC-FRONTEND-103 — preparation permissions, labels, and update request match the Events contract
+### TC-FRONTEND-117 — preparation permissions, labels, and update request match the Events contract
 
 - **Pre-conditions:** Frontend access and equipment-preparation helpers loaded; fetch records requests.
 - **Steps:** Check the update permission for every role; format every status; update an id requiring URL encoding.
@@ -1988,7 +2064,7 @@ Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test ca
 - **Status:** Pass
 - **Evidence:** `test_equipment_preparation.mjs::preparation access labels and update request match the confirmed contract`
 
-### TC-FRONTEND-104 — support can change preparation while the Coordinator sees read-only current state
+### TC-FRONTEND-118 — support can change preparation while the Coordinator sees read-only current state
 
 - **Scenario:** Each dashboard presents the same server-owned status for its role, and a failed save never looks successful.
 - **Pre-conditions:** Assigned Technical Support and Coordinator event views; mocked successful and failed update calls.
@@ -2008,11 +2084,11 @@ from the implemented-area total rather than presented as complete.
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| The event view shows venue, equipment, technical support, programme and registration indicators | TC-FRONTEND-105 |
-| Each implemented indicator reflects its owning data | TC-FRONTEND-105–106 |
-| The view is rebuilt from current underlying status | TC-FRONTEND-107 |
+| The event view shows venue, equipment, technical support, programme and registration indicators | TC-FRONTEND-119 |
+| Each implemented indicator reflects its owning data | TC-FRONTEND-119–120 |
+| The view is rebuilt from current underlying status | TC-FRONTEND-121 |
 
-### TC-FRONTEND-105 — readiness presents all five areas without inventing unfinished data
+### TC-FRONTEND-119 — readiness presents all five areas without inventing unfinished data
 
 - **Pre-conditions:** The readiness helper is loaded.
 - **Steps:** Build readiness for an event with a confirmed venue, an equipment requirement, and preparation Ready.
@@ -2021,7 +2097,7 @@ from the implemented-area total rather than presented as complete.
 - **Status:** Pass
 - **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`
 
-### TC-FRONTEND-106 — incomplete source data remains outstanding
+### TC-FRONTEND-120 — incomplete source data remains outstanding
 
 - **Pre-conditions:** A held venue, no equipment requirements, and preparation In Progress.
 - **Steps:** Build readiness.
@@ -2030,7 +2106,7 @@ from the implemented-area total rather than presented as complete.
 - **Status:** Pass
 - **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`
 
-### TC-FRONTEND-107 — readiness reloads its owning services instead of storing a duplicate answer
+### TC-FRONTEND-121 — readiness reloads its owning services instead of storing a duplicate answer
 
 - **Pre-conditions:** Fetch records authenticated Kong requests.
 - **Steps:** Load readiness for id `event 1/2`.
@@ -2041,18 +2117,18 @@ from the implemented-area total rather than presented as complete.
 
 ## S-81 — tentative hold expiry
 
-### TC-FRONTEND-112 — the hold form requires a future Singapore expiry
+### TC-FRONTEND-122 — the hold form requires a future Singapore expiry
 
 - **Expected:** Blank, invalid, and non-future values are refused locally.
   A valid `datetime-local` value is converted to a timezone-aware ISO instant.
 
-### TC-FRONTEND-113 — the authenticated hold call carries only the expiry
+### TC-FRONTEND-123 — the authenticated hold call carries only the expiry
 
 - **Expected:** `POST /api/venue-bookings/{id}/hold`, credentials included,
   JSON body exactly `{"expires_at":"..."}`; safe messages cover `401`, `403`,
   `404`, `409`, `422`, and an unavailable service.
 
-### TC-FRONTEND-114 — active holds show their expiry distinctly
+### TC-FRONTEND-124 — active holds show their expiry distinctly
 
 - **Expected:** Venue Staff see an expiry control before placing a hold and an
   active hold says when it expires; after refresh an expired hold is no longer

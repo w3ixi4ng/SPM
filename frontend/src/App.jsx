@@ -17,6 +17,7 @@ import VenueAvailability from './pages/VenueAvailability.jsx'
 import VenueBookingRequest from './pages/VenueBookingRequest.jsx'
 import VenueForm from './pages/VenueForm.jsx'
 import VenueRequestForm from './pages/VenueRequestForm.jsx'
+import ReplacementVenueRequest from './pages/ReplacementVenueRequest.jsx'
 import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
 import SafetyOfficerDashboard from './pages/SafetyOfficerDashboard.jsx'
 import SafetyCheckDetail from './pages/SafetyCheckDetail.jsx'
@@ -151,6 +152,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.REQUEST_VENUE_BOOKING}>
               <VenueRequestForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/coordinator/events/:id/bookings/:bookingId/replacement"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.REQUEST_VENUE_BOOKING}>
+              <ReplacementVenueRequest />
             </ProtectedRoute>
           )}
         />

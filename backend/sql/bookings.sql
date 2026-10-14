@@ -493,3 +493,105 @@ drop function if exists bookings.release_expired_holds();
 notify pgrst, 'reload schema';
 commit;
 -- END S-81 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-78 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test. Fresh
+-- installations need it too. Safe to run twice.
+--
+-- S-78 lets a Coordinator replace a booking an unavailable period affects.
+--
+-- 1. A replacement request points at the booking it replaces
+--    (replaces_booking_id). When Venue Staff confirm it, the trigger below
+--    marks the original `replaced` in the same transaction, pointing back
+--    (replaced_by_booking_id) -- so a replacement is never confirmed while
+--    its original still reserves the old venue. `replaced` is not live, so
+--    the original stops reserving its slot (bookings_no_live_overlap only
+--    covers held and confirmed).
+-- 2. A Coordinator can instead resolve the flag with a note. The booking is
+--    not changed; the three alternative_resolution columns record who, when
+--    and what was arranged. The venue_bookings composite ignores every
+--    period created up to alternative_resolved_at.
+begin;
+
+alter table bookings.bookings
+  add column if not exists replaces_booking_id uuid
+    references bookings.bookings (id) on delete set null,
+  add column if not exists replaced_by_booking_id uuid
+    references bookings.bookings (id) on delete set null,
+  add column if not exists replaced_at timestamptz,
+  add column if not exists alternative_resolved_at timestamptz,
+  add column if not exists alternative_resolved_by uuid,
+  add column if not exists alternative_resolution_note text;
+
+-- An event's replacement requests for one booking, oldest first.
+create index if not exists bookings_bookings_replaces_booking_id_idx
+  on bookings.bookings (replaces_booking_id)
+  where replaces_booking_id is not null;
+
+-- Repeated in backend/services/atomic/bookings/schemas.py. Change both.
+alter table bookings.bookings drop constraint if exists bookings_status_allowed;
+alter table bookings.bookings add constraint bookings_status_allowed
+  check (status in ('pending', 'held', 'confirmed', 'rejected', 'replaced'));
+
+-- As S-33's, plus `replaced`: the original may have been pending, held
+-- (never decided) or confirmed (decided) when its replacement was confirmed.
+alter table bookings.bookings drop constraint if exists bookings_decision_valid;
+alter table bookings.bookings add constraint bookings_decision_valid check (
+  (decision_reason is null or decision_reason ~ '[^[:space:]]')
+  and (decision_alternative is null or decision_alternative ~ '[^[:space:]]')
+  and (
+    status = 'replaced'
+    or (status in ('pending', 'held') and decided_by is null and decided_at is null
+      and decision_reason is null and decision_alternative is null)
+    or (status in ('confirmed', 'rejected') and decided_by is not null
+      and decided_at is not null
+      and (status = 'confirmed' or decision_reason is not null
+           or decision_alternative is not null))
+  )
+);
+
+-- replaced_by_booking_id is not required: deleting the replacement sets it
+-- null (on delete set null), and the original stays replaced.
+alter table bookings.bookings drop constraint if exists bookings_replaced_valid;
+alter table bookings.bookings add constraint bookings_replaced_valid check (
+  (status = 'replaced') = (replaced_at is not null)
+  and (replaces_booking_id is null or replaces_booking_id <> id)
+);
+
+alter table bookings.bookings drop constraint if exists bookings_alternative_resolution_valid;
+alter table bookings.bookings add constraint bookings_alternative_resolution_valid check (
+  (alternative_resolved_at is null and alternative_resolved_by is null
+    and alternative_resolution_note is null)
+  or (alternative_resolved_at is not null and alternative_resolved_by is not null
+    and btrim(alternative_resolution_note) <> ''
+    and char_length(alternative_resolution_note) <= 500)
+);
+
+create or replace function bookings.replace_original_on_confirm()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Only an original that still stands is replaced: one already rejected or
+  -- replaced by another booking is left as it is.
+  update bookings.bookings
+     set status = 'replaced',
+         replaced_by_booking_id = new.id,
+         replaced_at = now()
+   where id = new.replaces_booking_id
+     and status in ('pending', 'held', 'confirmed');
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_replace_original_on_confirm on bookings.bookings;
+create trigger bookings_replace_original_on_confirm
+  after update of status on bookings.bookings
+  for each row
+  when (new.status = 'confirmed' and old.status is distinct from 'confirmed'
+        and new.replaces_booking_id is not null)
+  execute function bookings.replace_original_on_confirm();
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-78 DATA-PRESERVING MIGRATION

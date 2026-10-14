@@ -141,6 +141,8 @@ const BOOKING_STATUS_META = {
   held: { label: 'Tentatively held', color: '#B5842B' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
   rejected: { label: 'Rejected', color: '#B25547' },
+  // S-78: its replacement was confirmed, so it no longer reserves the venue.
+  replaced: { label: 'Replaced', color: '#4C5A70' },
 }
 
 export function bookingStatusMeta(status) {
@@ -339,4 +341,133 @@ export function getVenueBooking(id) {
 export function decisionNotice(decision, booking) {
   const outcome = decision === 'approved' ? 'confirmed' : 'rejected'
   return `Booking for ${booking.event_name} at ${booking.venue_name} ${outcome}.`
+}
+
+// --- S-78: replacing an affected booking -------------------------------------
+//
+// A booking S-77 flags can be replaced by a request for another venue, at its
+// own date and times and for the same event, or resolved with a note. The
+// venue_bookings composite works out which venues are suitable and available,
+// and copies the event's details onto the request; the browser sends only the
+// venue and notes.
+
+const ACTIVE_REPLACEMENT = ['pending', 'held']
+export const RESOLUTION_NOTE_MAX = 500
+
+function replacementsOf(booking, bookings) {
+  return bookings.filter((row) => row.replaces_booking_id === booking.id)
+}
+
+// What a booking's row offers and says about replacing it: `actions` is what
+// the Coordinator can do ("replace", "resolve"), `label` the state in words.
+export function replacementState(booking, bookings = []) {
+  if (booking.status === 'replaced') {
+    const replacement = bookings.find((row) => row.id === booking.replaced_by_booking_id)
+    return { actions: [], label: `Replaced by ${replacement?.venue_name ?? 'another venue'}` }
+  }
+  if (booking.requires_alternative_arrangements) {
+    const latest = replacementsOf(booking, bookings).at(-1)
+    if (latest && ACTIVE_REPLACEMENT.includes(latest.status)) {
+      return {
+        actions: ['resolve'],
+        label: `Replacement requested: ${latest.venue_name}, waiting for Venue Staff`,
+      }
+    }
+    return {
+      actions: ['replace', 'resolve'],
+      label: latest?.status === 'rejected' ? `${latest.venue_name} declined the replacement request` : null,
+    }
+  }
+  if (booking.alternative_resolution_note) {
+    return { actions: [], label: `Resolved: ${booking.alternative_resolution_note}` }
+  }
+  if (booking.replaces_booking_id) {
+    const original = bookings.find((row) => row.id === booking.replaces_booking_id)
+    return { actions: [], label: original ? `Replacement for ${original.venue_name}` : 'Replacement request' }
+  }
+  return { actions: [], label: null }
+}
+
+// For Venue Staff: which booking a replacement request replaces, or null.
+export function replacementOriginLabel(booking) {
+  return booking?.replaces ? `Replacement for ${booking.replaces.venue_name}` : null
+}
+
+export function validateResolutionNote(note) {
+  const trimmed = (note ?? '').trim()
+  if (!trimmed) return "Say what you've arranged instead."
+  if (trimmed.length > RESOLUTION_NOTE_MAX) return `Keep the note to ${RESOLUTION_NOTE_MAX} characters.`
+  return null
+}
+
+export function resolutionPayload(note) {
+  return { note: note.trim() }
+}
+
+export function replacementPath(eventId, bookingId) {
+  return `/coordinator/events/${encodeURIComponent(eventId)}/bookings/${encodeURIComponent(bookingId)}/replacement`
+}
+
+export function searchReplacementVenues(bookingId) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/replacement-venues`)
+}
+
+export function requestReplacementVenue(bookingId, { venueId, notes = '' }) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/replacement`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ venue_id: venueId, notes: notes.trim() || null }),
+  })
+}
+
+export function resolveAlternativeArrangements(bookingId, note) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/resolution`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(resolutionPayload(note)),
+  })
+}
+
+function whenLabel(booking) {
+  return `on ${bookingDateLabel(booking.booking_date)} from ${shortTime(booking.start_time)} to ${shortTime(booking.end_time)}`
+}
+
+// The line above the replacement screen's venue list.
+export function replacementSearchSummary({ booking, venues }) {
+  if (venues.length === 0) {
+    return `No venue can take this event ${whenLabel(booking)}. `
+      + "Resolve the booking with a note if you've made other arrangements."
+  }
+  return `${venues.length} ${venues.length === 1 ? 'venue' : 'venues'} can take this event ${whenLabel(booking)}.`
+}
+
+const BACK_TO_EVENT = 'Go back to the event to see its current state.'
+
+// Always a list, like venueBookingErrorMessages: a refused venue can fail
+// several checks at once. Used for the search, the request and resolving.
+export function replacementErrorMessages(error) {
+  if (error.status === 422 && error.fieldErrors) {
+    const messages = Object.values(error.fieldErrors)
+    if (messages.length > 0) return messages
+  }
+  if (error.status === 401) return ['Your session has expired. Please sign in again.']
+  if (error.status === 403) return ['Only the Coordinator of this event can replace its venues.']
+  if (error.status === 404) return ["We couldn't find this booking. Go back to the event and try again."]
+  if (error.status === 409) {
+    if (error.message === "This booking doesn't need a replacement venue") {
+      return [`This booking no longer needs a replacement. ${BACK_TO_EVENT}`]
+    }
+    if (error.message === "This booking doesn't need alternative arrangements") {
+      return [`This booking no longer needs alternative arrangements. ${BACK_TO_EVENT}`]
+    }
+    if (error.message === 'A replacement request for this booking is already with Venue Staff') {
+      return ["You've already asked for a replacement for this booking. Wait for Venue Staff's decision."]
+    }
+    if (error.message === "This event's venue bookings can no longer be changed"
+      || error.message === 'This booking can no longer be replaced') {
+      return [`${error.message}. ${BACK_TO_EVENT}`]
+    }
+    return [error.message, 'Choose another venue.']
+  }
+  return ["We couldn't reach the booking service. Try again in a moment."]
 }

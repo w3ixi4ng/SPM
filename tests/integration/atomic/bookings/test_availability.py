@@ -110,7 +110,7 @@ def test_rejecting_a_hold_releases_the_slot(booking_ids, actors):
     assert again.json()['status'] == 'pending'
 
 
-# --- TC-BOOKINGS-112 ------------------------------------------------------
+# --- TC-BOOKINGS-114 ------------------------------------------------------
 def test_an_expired_hold_is_released_before_the_slot_is_claimed_again(
     admin, booking_ids, actors,
 ):

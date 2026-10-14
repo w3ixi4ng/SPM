@@ -72,13 +72,26 @@ def period(block: dict) -> dict:
     }
 
 
+def _after_resolution(booking: dict, block: dict) -> bool:
+    """S-78: once a Coordinator resolves the flag, the periods they dealt with
+    -- every one created up to then -- stop flagging the booking. A period
+    created later flags it again."""
+    resolved_at = booking.get("alternative_resolved_at")
+    if not resolved_at or not block.get("created_at"):
+        return True
+    return datetime.fromisoformat(str(block["created_at"])) > datetime.fromisoformat(str(resolved_at))
+
+
 def flag(booking: dict, blocks: list[dict], venue: dict | None) -> dict:
     """The fields every booking read carries: whether it needs alternative
     arrangements, and the periods that say so, in start order."""
     found = []
     if venue is not None:
         found = sorted(
-            (block for block in blocks if affects(booking, block, venue)),
+            (
+                block for block in blocks
+                if affects(booking, block, venue) and _after_resolution(booking, block)
+            ),
             key=lambda block: bounds(block)[0],
         )
     return {

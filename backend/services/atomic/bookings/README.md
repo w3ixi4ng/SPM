@@ -31,6 +31,7 @@ internal-service contract. Atomic services never call the users service.
 | `GET` | `/blocks/{id}` | S-77: one period, for the composite (internal). `404` `{"detail": "Block not found"}` if missing. |
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
+| `POST` | `/bookings/{id}/alternative-resolution` | S-78, Coordinators only: record what was arranged instead for a held or confirmed booking. See [S-78](#s-78-replacement-requests-and-resolutions). |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -56,6 +57,7 @@ internal-service contract. Atomic services never call the users service.
 | `required_facilities` | array of string | no | From the venue facility set. Defaults to `[]`. |
 | `room_layout` | string or null | no | From the venue layout set. |
 | `notes` | string or null | no | Blank becomes null. |
+| `replaces_booking_id` | UUID or null | no | S-78: the booking this request replaces. See [S-78](#s-78-replacement-requests-and-resolutions). |
 
 Repeated entries in the two arrays are dropped. `status` and `submitted_at`
 are set by the service; sending either is a `422`. Any other unknown field is
@@ -344,6 +346,77 @@ also changes the reasons: `internal_activity` becomes `other`, keeping its
 note. Safe to run twice.
 
 ### S-77 verification
+
+```bash
+pytest tests/unit/atomic/bookings
+
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/atomic/bookings
+```
+
+## S-78 replacement requests and resolutions
+
+A Coordinator can replace a booking an unavailable period affects, or say
+what they arranged instead. The venue_bookings composite decides who may and
+when; this service stores it.
+
+**Replacement requests.** `POST /bookings` takes an optional
+`replaces_booking_id`. It must name a booking of the same `event_id` that
+still stands:
+
+| Status | Body | When |
+| --- | --- | --- |
+| `422` | `{"detail": "Please check the details you entered", "errors": {"replaces_booking_id": "The booking being replaced doesn't exist"}}` | No such booking. |
+| `422` | `{..., "errors": {"replaces_booking_id": "A replacement must be for the same event"}}` | It belongs to another event. |
+| `409` | `{"detail": "This booking can no longer be replaced"}` | It is `rejected` or `replaced`. |
+
+Everything else about the request is as for any other, including the overlap
+and period checks.
+
+**Approval replaces the original.** When `POST /bookings/{id}/decision`
+confirms a request with `replaces_booking_id`, a database trigger
+(`bookings_replace_original_on_confirm`) sets the original's `status` to
+`replaced`, with `replaced_by_booking_id` and `replaced_at`, in the same
+transaction. The original is only changed if it is still `pending`, `held`
+or `confirmed`. `replaced` is not live, so the original stops reserving its
+venue. Rejecting a replacement changes nothing else.
+
+### `POST /bookings/{id}/alternative-resolution`
+
+Coordinator session (`sb_access_token` cookie). Body:
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `note` | string | yes | Trimmed; 1–500 characters. |
+
+`200` with the booking, which now has `alternative_resolved_at` and
+`alternative_resolved_by` (set here) and `alternative_resolution_note`.
+Nothing else on it changes. Calling it again overwrites all three.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `401` | `{"detail": "Not authenticated"}` | No or expired session. |
+| `403` | `{"detail": "Permission denied"}` | Not an `event_coordinator`. |
+| `404` | `{"detail": "Booking not found"}` | No such booking. |
+| `409` | `{"detail": "Only a held or confirmed booking can be resolved"}` | It is `pending`, `rejected` or `replaced`. |
+| `422` | `{"detail": "Please check the details you entered", "errors": {"note": "..."}}` | Blank, too long, or a server-owned field was sent. |
+
+Every booking read (`BookingRead`) now also has `replaces_booking_id`,
+`replaced_by_booking_id`, `replaced_at`, `alternative_resolved_at`,
+`alternative_resolved_by` and `alternative_resolution_note`, all `null` until
+set. `status` may be `replaced`.
+
+### S-78 database setup
+
+Copy the entire block between `BEGIN S-78 DATA-PRESERVING MIGRATION` and
+`END S-78 DATA-PRESERVING MIGRATION` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects, after the S-77 block. It adds the six columns, allows the
+`replaced` status, and creates the trigger. Safe to run twice. No new schema,
+grant or port: `bookings` is already exposed and granted.
+
+### S-78 verification
 
 ```bash
 pytest tests/unit/atomic/bookings

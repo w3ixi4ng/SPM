@@ -169,7 +169,7 @@ its grants.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_availability.py::test_rejecting_a_hold_releases_the_slot`; `.env.test` stack recreated immediately before; bookings container verified on the test project's `SUPABASE_URL`; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 14 passed, 0 skipped.
 
-### TC-BOOKINGS-112 — an expired hold releases its slot before another hold
+### TC-BOOKINGS-114 — an expired hold releases its slot before another hold
 
 - **Scenario:** S-81 expiry is enforced by the real bookings database and service.
 - **Pre-conditions:** `.env.test` stack; S-81 bookings migration applied, exposed and granted.
@@ -267,3 +267,48 @@ Executed until re-run.
 - **Actual:** `equipment_failure` stored; `internal_activity`, `other` with no note, and end before start each refused with `23514`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_unavailable_periods.py::test_the_database_accepts_only_the_storys_periods`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+
+## S-78 — request replacement venue for affected booking
+
+**Story:** S-78 Request Replacement Venue for Affected Booking. Confirmed by the
+developer on 2026-10-14. Tests in `test_replacement_venue.py`. Executed 2026-10-14 after the S-78
+block in `backend/sql/bookings.sql` was run in the test project. The criteria
+mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-BOOKINGS-112 — approving a real replacement replaces the original row and frees its slot
+
+- **Scenario:** Against real rows, the link column, the `replaced` status,
+  the approval write and the exclusion constraint all agree (AC2, AC4).
+- **Pre-conditions:** The `.env.test` stack recreated immediately before.
+  The S-78 SQL applied. Two venues V1 and V2. A booking A for event E at V1,
+  `2026-11-12` `10:00`–`12:00`, held and then approved by Venue Staff.
+- **Steps:**
+  1. `POST /bookings` for E at V2, at the same date and times, with `replaces_booking_id` A.
+  2. As Venue Staff, approve it.
+  3. Read A and the new row with the admin client.
+  4. `POST /bookings` for another event at V1, `2026-11-12` `10:00`–`12:00`.
+- **Expected:**
+  1. `201`, stored with `replaces_booking_id` A.
+  2. `200` `confirmed`.
+  3. A is `replaced` with `replaced_by_booking_id` set to the new row and
+     `replaced_at` set. Its other columns are unchanged.
+  4. `201`: A no longer holds V1.
+  Cleanup deletes every row created.
+- **Actual:** Replacement stored with `replaces_booking_id`; approval `200` confirmed; the original became `replaced` with `replaced_by_booking_id` and `replaced_at`, every other column unchanged; a new request at V1 for the same slot `201`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_replacement_venue.py::test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+
+### TC-BOOKINGS-113 — a resolution note is saved and read back
+
+- **Scenario:** The three resolution columns exist, are granted, and
+  round-trip (AC4).
+- **Pre-conditions:** As TC-BOOKINGS-112 steps up to A confirmed. A real
+  Coordinator session.
+- **Steps:** `POST /bookings/{A}/alternative-resolution` with
+  `{"note": "Moved online"}`, then `GET /bookings/{A}`.
+- **Expected:** `200` both times. `alternative_resolution_note` is
+  `"Moved online"`, `alternative_resolved_by` is the Coordinator, and
+  `alternative_resolved_at` is set. `status` is still `confirmed`.
+- **Actual:** Resolution `200`; the write and `GET /bookings/{id}` both carried note "Moved online", the Coordinator as resolver and a time; status still `confirmed`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_replacement_venue.py::test_a_resolution_note_is_saved_and_read_back`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
