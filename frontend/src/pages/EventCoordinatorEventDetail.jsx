@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Building2, Check, Headphones, RotateCcw, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
@@ -20,7 +20,13 @@ import {
   bookingStatusMeta,
   canRequestVenue,
   listVenueBookingsForEvent,
+  replacementErrorMessages,
+  replacementPath,
+  replacementState,
+  resolveAlternativeArrangements,
+  RESOLUTION_NOTE_MAX,
   shortTime,
+  validateResolutionNote,
   venueRequestLinkLabel,
 } from '../lib/venueBookings.js'
 import {
@@ -220,24 +226,147 @@ function DecisionForm({ eventId, onDecided }) {
   )
 }
 
+// S-78: the Coordinator says what they arranged instead of a replacement
+// venue. A slide-over: one field, and the event page stays behind it.
+function ResolvePanel({ booking, onClose, onResolved }) {
+  const [note, setNote] = useState('')
+  const [state, setState] = useState({ saving: false, errors: [] })
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    panelRef.current?.querySelector('textarea')?.focus()
+  }, [])
+
+  useEffect(() => {
+    const panel = panelRef.current
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button, textarea')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    const problem = validateResolutionNote(note)
+    if (problem) {
+      setState({ saving: false, errors: [problem] })
+      return
+    }
+    setState({ saving: true, errors: [] })
+    try {
+      await resolveAlternativeArrangements(booking.id, note)
+      onResolved()
+    } catch (error) {
+      setState({ saving: false, errors: replacementErrorMessages(error) })
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resolve-panel-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="resolve-panel-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            Mark resolved
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="csp-focus rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
+          {booking.venue_name}, {bookingDateLabel(booking.booking_date)} {shortTime(booking.start_time)}–{shortTime(booking.end_time)}.
+          The booking stays as it is. It is flagged again only if the venue is marked unavailable again.
+        </p>
+        <form onSubmit={handleSubmit} noValidate>
+          <label htmlFor="resolution-note" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
+            What have you arranged instead?
+          </label>
+          <textarea
+            id="resolution-note"
+            rows={4}
+            maxLength={RESOLUTION_NOTE_MAX}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="csp-focus w-full rounded-sm border px-3 py-2 font-ui text-sm mb-4"
+            style={{ borderColor: C.line, color: C.ink, backgroundColor: C.paper }}
+            placeholder="For example: moved online for this session"
+          />
+          {state.errors.length > 0 && (
+            <div role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>
+              {state.errors.map((message) => <p key={message}>{message}</p>)}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={state.saving}
+            className="csp-focus px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {state.saving ? 'Saving…' : 'Mark resolved'}
+          </button>
+        </form>
+      </div>
+    </>
+  )
+}
+
 // What this Coordinator has already asked for, so a reload never leaves them
 // guessing whether a request went out.
 function VenueRequests({ eventId, canRequest, notice }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
+  const [resolving, setResolving] = useState(null)
+  const [resolvedNotice, setResolvedNotice] = useState(null)
+  const triggerRef = useRef(null)
+
+  const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
+    (bookings) => setState({ status: 'ready', bookings }),
+    () => setState({ status: 'error', bookings: [] }),
+  ), [eventId])
 
   useEffect(() => {
-    let active = true
-    listVenueBookingsForEvent(eventId)
-      .then((bookings) => {
-        if (active) setState({ status: 'ready', bookings })
-      })
-      .catch(() => {
-        if (active) setState({ status: 'error', bookings: [] })
-      })
-    return () => {
-      active = false
-    }
-  }, [eventId])
+    load()
+  }, [load])
+
+  function openResolve(booking, trigger) {
+    triggerRef.current = trigger
+    setResolving(booking)
+  }
+
+  function closeResolve() {
+    setResolving(null)
+    triggerRef.current?.focus()
+  }
+
+  async function handleResolved() {
+    setResolvedNotice(`${resolving.venue_name} booking marked resolved.`)
+    setResolving(null)
+    await load()
+  }
 
   return (
     <section aria-labelledby="venue-requests-heading">
@@ -266,6 +395,7 @@ function VenueRequests({ eventId, canRequest, notice }) {
           {state.bookings.map((booking) => {
             const { label, color } = bookingStatusMeta(booking.status)
             const unavailable = alternativeArrangementsNotice(booking)
+            const replacing = replacementState(booking, state.bookings)
             return (
               <li
                 key={booking.id}
@@ -306,13 +436,40 @@ function VenueRequests({ eventId, canRequest, notice }) {
                     <p className="mt-0.5" style={{ color: C.ink }}>{unavailable.detail}</p>
                   </div>
                 )}
+                {(replacing.label || replacing.actions.length > 0) && (
+                  // S-78: replace the venue or resolve the flag, and where that stands.
+                  <div className="w-full font-ui text-sm">
+                    {replacing.label && <p style={{ color: C.inkFaint }}>{replacing.label}</p>}
+                    {replacing.actions.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-3 mt-2">
+                        {replacing.actions.includes('replace') && (
+                          <Link
+                            to={replacementPath(eventId, booking.id)}
+                            className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                            style={{ borderColor: C.ink, color: C.ink }}
+                          >
+                            Find a replacement venue
+                          </Link>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => openResolve(booking, e.currentTarget)}
+                          className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                          style={{ borderColor: C.line, color: C.ink }}
+                        >
+                          Mark resolved
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </li>
             )
           })}
         </ul>
       )}
-      {canRequest && (
-        <div className="flex flex-wrap items-center gap-4 mt-6">
+      <div className="flex flex-wrap items-center gap-4 mt-6">
+        {canRequest && (
           <Link
             to={`/coordinator/events/${eventId}/request-venue`}
             className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
@@ -321,11 +478,12 @@ function VenueRequests({ eventId, canRequest, notice }) {
             <Building2 size={16} aria-hidden="true" />
             {venueRequestLinkLabel(state.bookings)}
           </Link>
-          <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-            {notice}
-          </p>
-        </div>
-      )}
+        )}
+        <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
+          {resolvedNotice ?? notice}
+        </p>
+      </div>
+      {resolving && <ResolvePanel booking={resolving} onClose={closeResolve} onResolved={handleResolved} />}
     </section>
   )
 }
@@ -549,6 +707,20 @@ export default function EventCoordinatorEventDetail() {
 
   return (
     <div className="min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
+      <style>{`
+        .csp-focus:focus-visible {
+          outline: 2px solid ${C.teal};
+          outline-offset: 2px;
+        }
+        @keyframes panelIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .csp-panel-in { animation: panelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        @media (prefers-reduced-motion: reduce) {
+          .csp-panel-in { animation: none; }
+        }
+      `}</style>
       <div className="w-full max-w-3xl mx-auto">
         <header className="flex items-center justify-between gap-6 mb-10">
           <Logo />
