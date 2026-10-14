@@ -27,6 +27,7 @@ def _reviewable(**changes):
         "safety_decision_reason": None,
         "safety_officer_id": None,
         "safety_decided_at": None,
+        "safety_review_history": [],
     }
     values.update(changes)
     return event_row(**values)
@@ -91,7 +92,7 @@ def test_safety_detail_distinguishes_missing_from_ineligible(client, db):
         (
             "changes_requested",
             "Revise crowd movement and equipment placement",
-            "safety_changes_requested",
+            "planning",
         ),
     ],
 )
@@ -105,6 +106,15 @@ def test_safety_decision_records_audit_and_distinct_lifecycle_state(
         safety_decision_reason=reason,
         safety_officer_id=OFFICER_ID,
         safety_decided_at="2026-10-10T09:00:00Z",
+        safety_review_history=[
+            {
+                "review_number": 1,
+                "decision": decision,
+                "reason": reason,
+                "safety_officer_id": OFFICER_ID,
+                "decided_at": "2026-10-10T09:00:00Z",
+            }
+        ],
     )
     _event_select(db, [current])
     _decision_update(db, [stored])
@@ -126,6 +136,15 @@ def test_safety_decision_records_audit_and_distinct_lifecycle_state(
     assert values["safety_decision_reason"] == reason
     assert values["safety_officer_id"] == OFFICER_ID
     assert values["safety_decided_at"]
+    assert values["safety_review_history"] == [
+        {
+            "review_number": 1,
+            "decision": decision,
+            "reason": reason,
+            "safety_officer_id": OFFICER_ID,
+            "decided_at": values["safety_decided_at"],
+        }
+    ]
 
 
 @pytest.mark.parametrize(

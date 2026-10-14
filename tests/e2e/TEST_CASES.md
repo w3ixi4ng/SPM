@@ -17,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-10, branch `S-86/conduct-operational-safety-check`, commit `49a0f8b` |
+| Last run | 2026-10-13, branch `S-87/return-event-to-planning-after-safety-changes-requested`, commit `72886bb` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-86 journey plus S-84/S-85 regressions: 3 passed |
+| Result | Combined S-77/S-87 browser regression: 5 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -864,8 +864,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   id and a server timestamp.
 - **Status:** Pass
 - **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
-  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
-  S-86 plus S-84/S-85 regressions, 3 passed.
+  local run at commit `72886bb` on 2026-10-13 against the freshly recreated
+  `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
 
 ## S-79 — book multiple venues for one event
 
@@ -931,7 +931,6 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.
-
 ## S-77 — mark venue temporarily unavailable
 
 Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
@@ -1035,3 +1034,27 @@ original's state after Venue Staff approve.
 - **Actual:** In Chromium through Kong: the link opened the replacement screen with the event, date, times and requirements read-only and no date, time or number inputs; Venue B listed, Venue A not. After sending, K was still flagged with "Replacement requested: Venue B, waiting for Venue Staff". Venue Staff's page said "Replacement for Venue A". After approval K read "Replaced by Venue B" with no flag and Venue B's row read Confirmed; in the database K `replaced`, the new row `confirmed` with `replaces_booking_id` K.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_replace_affected_booking.py::test_a_coordinator_replaces_a_flagged_booking_and_approval_clears_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+## TC-E2E-235 — requested safety changes complete a fresh review cycle
+
+- **Scenario:** The browser proves S-87 across both roles and the existing
+  arrangement workflow.
+- **Pre-conditions:** Fresh `.env.test` stack with S-87 Events SQL; confirmed
+  event with assigned Coordinator, Safety Officer, confirmed venue, equipment
+  requirement and Technical Support assignment.
+- **Steps:** Safety Officer requests changes; Coordinator sees the returned
+  marker and feedback; revises Technical Support notes; resubmits; Safety
+  Officer sees the event reappear and approves it; inspect storage.
+- **Test data:** Feedback `Move speakers away from the east emergency exit`;
+  revised notes `Speakers moved to the west wall away from emergency exits`.
+- **Expected:** The journey is `changes_requested → planning → revise/resubmit
+  → confirmed → Safety Officer queue → fresh approval → preparation`.
+  History contains both reviews, and the confirmed venue remains untouched.
+- **Actual:** Chromium showed the returned marker, Safety Officer feedback and
+  `planning` state to the assigned Coordinator. The revised Technical Support
+  notes were saved before resubmission; the event reappeared in the Safety
+  Officer queue and fresh approval produced `preparation`. Storage retained
+  both reviews, the revised notes and the original confirmed booking.
+- **Status:** Pass
+- **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
+  local run at commit `72886bb` on 2026-10-13 against the freshly recreated
+  `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.

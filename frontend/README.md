@@ -114,9 +114,25 @@ are distinct.
 
 The browser posts only `decision` and the applicable reason. The composite
 derives the Safety Officer id from the verified session. Approval advances to
-`preparation`; rejection uses `safety_rejected`; requested changes use
-`safety_changes_requested`. Conflicts never display success, and S-86 sends no
-notification.
+`preparation`; rejection uses `safety_rejected`; requested changes return the
+event to `planning` with preserved feedback and history. Conflicts never
+display success, and S-86 sends no notification.
+
+## S-87 safety changes and resubmission
+
+An assigned Coordinator's dashboard marks a planning event whose current
+safety decision is `changes_requested` as **Returned after safety review**.
+The event detail loads the preserved reason, Safety Officer identity, decision
+time and history from `GET /api/safety-checks/coordinator/events/{id}`. Venue,
+equipment and Technical Support controls remain available because the event is
+back in `planning` and no existing arrangement is deleted.
+
+**Resubmit for Safety Review** posts to the route's `/resubmit` action. It is
+shown only for a safety-returned planning event. Success changes the displayed
+event to `confirmed`, announces that a fresh review is required, and disables
+planning-only arrangement edits. Loading, controlled error and success states
+are distinct. S-87 adds no notifications and does not replace S-17's general
+confirmation workflow.
 
 ## S-77 mark venue temporarily unavailable
 

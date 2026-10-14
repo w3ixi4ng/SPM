@@ -210,7 +210,7 @@ def test_detail_enriches_event_organiser_venues_technical_support_and_equipment(
     [
         ("approved", None, "preparation"),
         ("rejected", "Unsafe crowd route", "safety_rejected"),
-        ("changes_requested", "Move equipment away from exit", "safety_changes_requested"),
+        ("changes_requested", "Move equipment away from exit", "planning"),
     ],
 )
 def test_decision_forwards_verified_officer_and_returns_transition(

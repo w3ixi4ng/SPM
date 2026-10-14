@@ -1,9 +1,12 @@
-# S-86 Safety Checks — Integration Test Cases
+# S-86/S-87 Safety Checks — Integration Test Cases
 
-Story: S-86 Conduct Operational Safety Check. Specification confirmed by the
-developer on 2026-10-10. Latest execution: 2026-10-10, branch
-`S-86/conduct-operational-safety-check`, commit `49a0f8b`; freshly recreated
-`.env.test` stack verified against the test Supabase project: 1 passed.
+Stories: S-86 Conduct Operational Safety Check and S-87 Return Event to
+Planning After Safety Changes Requested. Specifications confirmed by the
+developer on 2026-10-10. Latest execution: 2026-10-13, branch
+`S-87/return-event-to-planning-after-safety-changes-requested`, working tree
+based on commit `72886bb`; freshly recreated `.env.test` stack verified against
+the test Supabase project. Both S-86/S-87 cases passed, and the combined
+S-77/S-87 targeted integration regression run passed all 8 cases.
 
 ## TC-SAFETYCHECKS-101 — enriched review and atomic approval through Kong
 
@@ -27,3 +30,26 @@ developer on 2026-10-10. Latest execution: 2026-10-10, branch
   remained unchanged.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_safety_officer_reviews_enriched_event_and_approves`
+
+## TC-SAFETYCHECKS-102 — changes, planning, resubmission and fresh approval
+
+- **Scenario:** A real cross-service cycle returns an event for safety changes,
+  preserves arrangements, resubmits it and records a fresh approval.
+- **Pre-conditions:** Fresh `.env.test` stack with S-87 Events SQL; assigned
+  Coordinator, Safety Officer, confirmed booking, equipment requirement and
+  Technical Support assignment.
+- **Steps:** Request changes; read feedback as the Coordinator; resubmit;
+  inspect the S-86 queue; approve as Safety Officer; inspect Events, Bookings
+  and Equipment storage.
+- **Expected:** The path is `confirmed → planning → confirmed → preparation`.
+  The first review remains in history, current feedback clears on resubmit,
+  the event re-enters the queue, fresh approval appends review 2, and resource
+  rows remain unchanged.
+- **Actual:** The change request returned the event to `planning` with its
+  feedback and first review intact. Resubmission changed it to `confirmed`,
+  cleared the current blocking decision without deleting history, and put it
+  back in the S-86 queue. Fresh approval produced `preparation` and review 2;
+  the booking, equipment requirement and Technical Support assignment were
+  unchanged.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_changes_return_to_planning_and_complete_a_fresh_review_cycle`

@@ -42,6 +42,20 @@ class SafetyDecisionValue(str, Enum):
     CHANGES_REQUESTED = "changes_requested"
 
 
+class SafetyReviewRecord(BaseModel):
+    """One immutable Operational Safety Check audit entry.
+
+    S-87 keeps this history on the Events-owned row so appending the review
+    and changing the event lifecycle remain one atomic compare-and-set write.
+    """
+
+    review_number: int = Field(ge=1)
+    decision: SafetyDecisionValue
+    reason: str | None = None
+    safety_officer_id: UUID
+    decided_at: datetime
+
+
 # S-36: the event's venue requirements use the venue catalogue's fixed sets,
 # so each venue can be checked against them. Repeated here rather than
 # imported -- each Docker image holds only its own service's code. Keep in
@@ -263,6 +277,7 @@ class EventRead(BaseModel):
     cancellation_reason: str | None = None
     cancellation_requested_at: datetime | None = None
     cancellation_requested_by: UUID | None = None
+    safety_review_history: list[SafetyReviewRecord] = Field(default_factory=list)
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
@@ -453,6 +468,12 @@ class InternalSafetyDecision(BaseModel):
         elif self.reason is not None:
             raise ValueError("reason is not accepted when approving a safety check")
         return self
+
+
+class InternalSafetyResubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

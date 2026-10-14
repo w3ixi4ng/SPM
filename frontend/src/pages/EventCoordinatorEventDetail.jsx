@@ -35,6 +35,11 @@ import {
   requestTechnicalSupportAssignment,
   technicalSupportAssignmentErrorMessage,
 } from '../lib/technicalSupportAssignments.js'
+import {
+  getReturnedSafetyReview,
+  resubmitSafetyReview,
+  safetyReturnErrorMessage,
+} from '../lib/safetyChecks.js'
 
 const C = {
   ink: '#10192B',
@@ -584,10 +589,88 @@ function TechnicalSupportAssignment({ eventId, eventStatus }) {
   )
 }
 
+function SafetyReturnPanel({ event, onResubmitted }) {
+  const [state, setState] = useState({ status: 'loading', detail: null, error: null })
+  const [submit, setSubmit] = useState({ status: 'idle', error: null })
+
+  useEffect(() => {
+    let active = true
+    getReturnedSafetyReview(event.id).then(
+      (detail) => { if (active) setState({ status: 'ready', detail, error: null }) },
+      (error) => { if (active) setState({ status: 'error', detail: null, error: safetyReturnErrorMessage(error) }) },
+    )
+    return () => { active = false }
+  }, [event.id])
+
+  async function resubmit() {
+    setSubmit({ status: 'saving', error: null })
+    try {
+      const updated = await resubmitSafetyReview(event.id)
+      setSubmit({ status: 'success', error: null })
+      onResubmitted(updated)
+    } catch (error) {
+      setSubmit({ status: 'idle', error: safetyReturnErrorMessage(error) })
+    }
+  }
+
+  const feedback = state.detail?.current_return
+  return (
+    <section
+      className="border rounded-sm p-6 sm:p-7 mt-8"
+      style={{ borderColor: C.amber, backgroundColor: `${C.amber}0D` }}
+      aria-labelledby="safety-feedback-heading"
+    >
+      <p className="font-ui text-xs font-medium uppercase tracking-widest mb-2" style={{ color: C.amber }}>
+        Returned after safety review
+      </p>
+      <h2 id="safety-feedback-heading" className="font-display text-2xl mb-3" style={{ color: C.ink }}>
+        Safety Officer feedback
+      </h2>
+      <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>
+        Current event state: planning. Revise the affected arrangements below, then submit them for a completely fresh Operational Safety Check.
+      </p>
+
+      {state.status === 'loading' && <p className="font-ui text-sm">Loading safety feedback…</p>}
+      {state.status === 'error' && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
+      {state.status === 'ready' && feedback && (
+        <div className="font-ui text-sm space-y-2">
+          <p className="whitespace-pre-wrap"><span className="font-medium">Reason:</span> {feedback.reason}</p>
+          <p>
+            <span className="font-medium">Safety Officer:</span>{' '}
+            {feedback.safety_officer?.name || feedback.safety_officer_id}
+          </p>
+          <p><span className="font-medium">Decision time:</span> {new Date(feedback.decided_at).toLocaleString()}</p>
+          <p className="sr-only">Safety review history contains {state.detail.safety_review_history.length} review records.</p>
+        </div>
+      )}
+
+      {submit.status === 'success' ? (
+        <p role="status" className="font-ui text-sm font-medium mt-5" style={{ color: C.green }}>
+          Revised arrangements submitted for a fresh safety review. The event is now confirmed.
+        </p>
+      ) : (
+        <>
+          {submit.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{submit.error}</p>}
+          <button
+            type="button"
+            onClick={resubmit}
+            disabled={state.status !== 'ready' || submit.status === 'saving'}
+            className="mt-5 px-5 py-3 rounded-sm font-ui font-medium text-sm text-white disabled:opacity-60"
+            style={{ backgroundColor: C.teal }}
+          >
+            {submit.status === 'saving' ? 'Resubmitting…' : 'Resubmit for Safety Review'}
+          </button>
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function EventCoordinatorEventDetail() {
   const { id } = useParams()
   const { user } = useAuth()
   const [state, setState] = useState({ status: 'loading', event: null, error: null })
+  const [safetyNotice, setSafetyNotice] = useState(null)
   const location = useLocation()
   const navigate = useNavigate()
   // Set by the venue request screen after a send. Read once, then cleared
@@ -697,6 +780,21 @@ export default function EventCoordinatorEventDetail() {
                 <Field label="Other requirements" value={form.specialRequirements} />
               </div>
             </section>
+
+            {state.event.status === 'planning' && state.event.safety_decision === 'changes_requested' && (
+              <SafetyReturnPanel
+                event={state.event}
+                onResubmitted={(updated) => {
+                  setState({ status: 'ready', event: updated, error: null })
+                  setSafetyNotice('Revised arrangements submitted for a fresh safety review. The event is now confirmed.')
+                }}
+              />
+            )}
+            {safetyNotice && (
+              <p role="status" className="font-ui text-sm font-medium mt-6" style={{ color: C.green }}>
+                {safetyNotice}
+              </p>
+            )}
 
             <div
               role="group"

@@ -1810,7 +1810,6 @@ TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Both requested events were tagged "Cancellation requested"; every status without a request, and an event without the field, gave `null`; labels stayed "Planning" and "Confirmed".
 - **Status:** Pass
 - **Evidence:** `test_event_cancellation.mjs::the dashboard tags an event with a pending cancellation request`; `node --test tests/unit/frontend/test_*.mjs`: 131 passed, 2026-10-11.
-
 ## S-77 — mark venue temporarily unavailable
 
 Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed.
@@ -2007,3 +2006,41 @@ flagged. R1 is Hall C, `replaces_booking_id` A.
 - **Actual:** Path and all three summaries exact.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the replacement screen's path and its empty state`
+## S-87 — returned safety feedback and resubmission
+
+Story: S-87 Return Event to Planning After Safety Changes Requested.
+Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
+2026-10-13 at commit `72886bb` in the full Node unit run: 138 passed.
+
+### TC-FRONTEND-112 — Coordinator safety-return API contract
+
+- **Steps:** Load a returned review and resubmit it through the frontend
+  helpers.
+- **Expected:** Credentialled requests use
+  `/api/safety-checks/coordinator/events/{id}` and its `/resubmit` action;
+  resubmission is POST.
+- **Actual:** Both helpers used the required credentialled routes and the
+  resubmission helper sent POST.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::safety-check helpers use credentialled composite routes`
+
+### TC-FRONTEND-113 — returned event states and feedback are prominent
+
+- **Steps:** Inspect the Coordinator dashboard and detail implementation.
+- **Expected:** The dashboard marks returned safety work. Detail includes
+  loading/error states, reason, Safety Officer, decision time, history,
+  current planning state, resubmit control, and success feedback while the
+  existing venue/equipment/Technical Support controls remain available.
+- **Actual:** Both pages contain the returned marker and detail contains every
+  feedback, lifecycle, loading and success contract while retaining the
+  existing resource sections.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::Coordinator detail presents returned feedback and resubmission states`
+
+### TC-FRONTEND-114 — returned-safety failures are controlled
+
+- **Expected:** Session expiry, wrong ownership/role, stale transition and
+  service outage have specific controlled messages and never show success.
+- **Actual:** All four failure classes map to controlled, actionable copy.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`

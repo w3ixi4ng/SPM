@@ -21,6 +21,7 @@ app = FastAPI(title="Safety Checks Service")
 logger = logging.getLogger(__name__)
 
 SAFETY_OFFICER_ROLE = "safety_officer"
+EVENT_COORDINATOR_ROLE = "event_coordinator"
 
 
 @app.exception_handler(RequestValidationError)
@@ -67,6 +68,18 @@ async def _safety_officer(request: Request, users: httpx.AsyncClient) -> dict:
         raise _unavailable("Users")
     user = response.json()
     if user.get("role") != SAFETY_OFFICER_ROLE:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return user
+
+
+async def _event_coordinator(request: Request, users: httpx.AsyncClient) -> dict:
+    response = await _call("Users", users.get("/users/me", cookies=request.cookies))
+    if response.status_code == 401:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if response.status_code != 200:
+        raise _unavailable("Users")
+    user = response.json()
+    if user.get("role") != EVENT_COORDINATOR_ROLE:
         raise HTTPException(status_code=403, detail="Permission denied")
     return user
 
@@ -154,6 +167,73 @@ async def _confirmed_venues(
             }
         )
     return enriched
+
+
+@app.get("/safety-checks/coordinator/events/{event_id}")
+async def get_returned_safety_review(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """Show S-87 feedback only to the currently assigned Coordinator."""
+
+    coordinator = await _event_coordinator(request, users)
+    event = await _json(
+        "Events",
+        events.get(
+            f"/internal/events/{event_id}/safety-return",
+            params={"coordinator_id": coordinator["id"]},
+        ),
+        identified={404, 409},
+    )
+    history = event.get("safety_review_history") or []
+    profiles = await _profiles(
+        users,
+        [row.get("safety_officer_id") for row in history],
+    )
+    enriched = [
+        {
+            **row,
+            "safety_officer": profiles.get(row.get("safety_officer_id"))
+            or _unknown_profile(row.get("safety_officer_id"), "Unknown Safety Officer"),
+        }
+        for row in history
+    ]
+    current = next(
+        (
+            row
+            for row in reversed(enriched)
+            if row["decision"] == "changes_requested"
+            and row["decided_at"] == event.get("safety_decided_at")
+        ),
+        enriched[-1] if enriched else None,
+    )
+    return {
+        "event": event,
+        "current_return": current,
+        "safety_review_history": enriched,
+    }
+
+
+@app.post("/safety-checks/coordinator/events/{event_id}/resubmit")
+async def resubmit_returned_safety_review(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """Run only the narrow S-87 resubmission transition."""
+
+    coordinator = await _event_coordinator(request, users)
+    return await _json(
+        "Events",
+        events.post(
+            f"/internal/events/{event_id}/safety-resubmit",
+            json={"coordinator_id": coordinator["id"]},
+        ),
+        identified={404, 409},
+    )
 
 
 @app.get("/safety-checks/{event_id}")
