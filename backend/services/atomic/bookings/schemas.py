@@ -106,6 +106,39 @@ class BookingCreate(BaseModel):
         return self
 
 
+class BookingChange(BaseModel):
+    """S-80: a Coordinator moves one booking. Only where and when it is, and
+    its notes; the event snapshot stays as it was taken. venue_name is
+    looked up by the composite, never taken from the browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    venue_id: UUID
+    venue_name: str = Field(min_length=1)
+    booking_date: date
+    start_time: time
+    end_time: time
+    notes: str | None = None
+
+    @field_validator("venue_name", mode="before")
+    @classmethod
+    def strip_venue_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def blank_notes_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def end_must_follow_start(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
+
+
 class BookingRead(BaseModel):
     decision_reason: str | None = None
     decision_alternative: str | None = None

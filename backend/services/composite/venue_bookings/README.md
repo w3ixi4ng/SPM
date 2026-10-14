@@ -29,6 +29,8 @@ all read attempts fail, the existing safe `502` response is returned.
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/venue-bookings` | `event_coordinator` | Check a venue request and submit it as pending. An event may have several (S-79). |
+| `PATCH` | `/venue-bookings/{id}` | `event_coordinator` | S-80: change one booking's venue, date, times or notes. It goes back to pending; the event's other bookings are untouched. |
+| `DELETE` | `/venue-bookings/{id}` | `event_coordinator` | S-80: cancel one booking. It is deleted, so its time is free; the event's other bookings are untouched. |
 | `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
@@ -104,6 +106,34 @@ returns that request with `201` instead of storing a duplicate.
 
 Submitting a request writes nothing to the event — it is already in
 `planning` and stays there.
+
+## Changing or cancelling one booking (S-80)
+
+Only the Coordinator the booking's event is assigned to (the events service
+is read with their own session), only while the event is `planning`, and
+only for a `pending`, `held` or `confirmed` booking.
+
+**`PATCH /venue-bookings/{id}`** takes the same fields as a request, minus
+`event_id`: `venue_id`, `booking_date`, `start_time`, `end_time`, `notes`
+(blank or missing clears it). It is checked exactly like a new request: the
+suitability table above, then the bookings service's availability check,
+which never counts the booking against itself. It returns `200` with the
+booking, now **`pending`**: its hold or decision is cleared, its old slot is
+free at once, and Venue Staff review it again.
+
+```json
+{"venue_id": "dddddddd-…", "booking_date": "2026-11-12", "start_time": "14:00", "end_time": "16:00", "notes": null}
+```
+
+**`DELETE /venue-bookings/{id}`** returns `204`. The booking is deleted.
+
+| Status | Detail |
+| --- | --- |
+| `403` | Not an Event Coordinator. |
+| `404` | `Booking not found`, or `Event not found` when the event isn't assigned to the caller. |
+| `409` | `A venue can only be requested for an event in planning`; `Only a pending, held or confirmed booking can be changed` / `cancelled`; or the bookings service's clash or block wording, unchanged. |
+| `422` | A malformed body, or `This venue can't take this booking` with `errors` as for a request. |
+| `502` | A service failed; nothing is reported as done. |
 
 ## Responses
 

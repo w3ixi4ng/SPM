@@ -1010,3 +1010,35 @@ Coordinator.
 - **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+## TC-E2E-235 — Coordinator changes one venue booking and cancels another; the third is untouched
+
+- **Scenario:** The change screen and the cancel panel work through Kong,
+  and the event's other bookings stay as they were (S-80 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; Chromium. K assigned to planning E with two `confirmed` bookings:
+  Hall 09:00–12:00 and Studio 13:00–15:00, both on `2026-11-12`.
+- **Steps:**
+  1. K opens E. Click **Change** on the Studio booking; the change screen
+     opens with Studio, 12 Nov, 13:00–15:00 filled in.
+  2. Set 15:00–17:00 and click **Save changes**.
+  3. Click **Cancel** on the Hall booking; the panel names it. Click
+     **Keep booking**.
+  4. Click **Cancel** on the Hall booking again, then **Cancel booking**.
+  5. Reload.
+- **Expected:**
+  - After 2: back on E with "Venue booking changed. It's pending until
+    Venue Staff review it again."; the Studio row reads 15:00–17:00
+    "Pending"; the Hall row still reads 09:00–12:00 "Confirmed".
+  - After 3: nothing changed.
+  - After 4 and 5: "Venue booking cancelled. Its time is free for other
+    events." (after 4); only the Studio row remains, 15:00–17:00 Pending.
+  Cleanup deletes every row created.
+- **Actual:** Not run: the test project lost the S-77 section of `backend/sql/bookings.sql` on 2026-10-14 (rebuilt from an older copy) and it has not been re-applied yet.
+- **Status:** Blocked
+- **Evidence:** `tests/e2e/test_change_cancel_booking.py::test_a_coordinator_changes_one_booking_and_cancels_another[chromium]`

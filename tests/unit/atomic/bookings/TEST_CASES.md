@@ -914,3 +914,83 @@ follows. Their tests were updated and re-run with S-77, and pass:
 - **Actual:** `GET /blocks/{id}` `200` with times; unknown id `404` "Block not found"; the range list returned P and left out a period ending at 00:00 on `from`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_one_period_is_read_by_id`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_an_unknown_period_is_a_404`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_is_listed_for_a_range_it_touches`
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+New routes `PATCH /bookings/{id}` and `DELETE /bookings/{id}`, for an Event
+Coordinator session, called only by the `venue_bookings` composite after it
+has checked the Coordinator is assigned to the event. The criteria mapping
+and agreed decisions are in the S-80 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-BOOKINGS-047 — a booking's venue, date and time are changed and it goes back to pending
+
+- **Scenario:** Only this booking changes, and it needs Venue Staff again
+  (S-80 AC1, AC2).
+- **Pre-conditions:** Coordinator session. The fake returns B (`held`, held
+  by staff S), then no overlapping live booking and no block, then the
+  updated row.
+- **Steps:** `PATCH /bookings/B?setup_minutes=0&turnaround_minutes=0` once
+  for each of B `pending`, `held`, `confirmed` (with a decision recorded).
+- **Test data:** `{"venue_id": V2, "venue_name": "Studio C", "booking_date": "2026-11-12", "start_time": "14:00", "end_time": "16:00", "notes": "Move to Studio C"}`
+- **Expected:** `200` with the row `pending` at Studio C 14:00–16:00. The
+  write sets the five fields and notes, `status` `pending`, and clears
+  `held_by`, `held_at`, `hold_released_at`, `hold_release_reason`,
+  `decided_by`, `decided_at`, `decision_reason`, `decision_alternative`.
+  It is filtered by id B only and guarded by status `pending`/`held`/
+  `confirmed`. The overlap lookup excludes B itself.
+- **Actual:** For pending, held and confirmed: `200` pending at the new venue and time; the write set the six fields, `pending` and cleared all eight review fields; filtered by id, guarded by the three statuses; the overlap lookup excluded the booking.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_a_change_goes_back_to_pending_and_touches_only_this_booking`
+
+### TC-BOOKINGS-048 — a change into a taken or blocked slot is refused
+
+- **Scenario:** A changed booking is checked like a new request (S-80 AC1).
+- **Pre-conditions:** Coordinator session; B `held`.
+- **Steps:** `PATCH /bookings/B` with the test data, once with the overlap
+  lookup finding another event's `confirmed` booking at Studio C 13:00–15:00,
+  once with a block over 12 Nov, once moving B to 14:00–16:00 at its own
+  venue (overlapping only its own old time).
+- **Expected:** `409` with the S-30 wording ("Studio C is already confirmed
+  on 12 Nov 2026 from 13:00 to 15:00." / "… is unavailable from …") and no
+  update; the last is `200` — a booking never clashes with itself.
+- **Actual:** A confirmed clash and a block each gave `409` with the S-30/S-77 wording and no update; overlapping its own old time gave `200`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_a_change_into_a_taken_slot_is_refused`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_change_into_a_blocked_period_is_refused`; `tests/unit/atomic/bookings/test_change_cancel.py::test_moving_over_its_own_old_time_is_fine`
+
+### TC-BOOKINGS-049 — a rejected, missing or malformed change is refused
+
+- **Steps:** `PATCH /bookings/{id}` for a `rejected` booking; for a missing
+  id; with `end_time` before `start_time`; with an extra `status` field.
+- **Expected:** `409` "Only a pending, held or confirmed booking can be
+  changed"; `404` "Booking not found"; `422`; `422`. No update.
+- **Actual:** Rejected `409`; missing `404` (change and cancel); end-before-start and an extra field `422` with no database call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_a_rejected_booking_cannot_be_changed`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_missing_booking_is_404`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_malformed_change_is_422`
+
+### TC-BOOKINGS-050 — cancelling deletes that booking only
+
+- **Scenario:** A cancelled booking's time is free, and nothing else goes
+  (S-80 AC1, AC2).
+- **Pre-conditions:** Coordinator session.
+- **Steps:** `DELETE /bookings/A` for A `pending`, `held`, `confirmed`; then
+  for a `rejected` booking; then for a missing id.
+- **Expected:** `204` each time for the live ones, with one delete filtered
+  by id A and guarded by status `pending`/`held`/`confirmed`; `409` "Only a
+  pending, held or confirmed booking can be cancelled"; `404`. No delete for
+  the last two.
+- **Actual:** For pending, held and confirmed: `204` with one delete by id, guarded by the three statuses; rejected `409` with no delete.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_cancelling_deletes_that_booking_only`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_rejected_booking_cannot_be_cancelled`
+
+### TC-BOOKINGS-051 — only a Coordinator session can change or cancel
+
+- **Steps:** `PATCH` and `DELETE /bookings/A` without a session, and as each
+  of `event_organiser`, `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** `401`; `403` for each role. No database call.
+- **Actual:** No session `401`; four other roles `403`; no database call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_without_a_session_nothing_changes`; `tests/unit/atomic/bookings/test_change_cancel.py::test_other_roles_cannot_change_or_cancel`

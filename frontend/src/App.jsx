@@ -154,6 +154,15 @@ function App() {
             </ProtectedRoute>
           )}
         />
+        {/* S-80: the same screen, changing one booking. */}
+        <Route
+          path="/coordinator/events/:id/venue-bookings/:bookingId/change"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.REQUEST_VENUE_BOOKING}>
+              <VenueRequestForm />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AuthProvider>

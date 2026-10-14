@@ -14,6 +14,33 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
+class VenueBookingChange(BaseModel):
+    """S-80: where and when one booking now is, and its notes. The event is
+    the booking's own, so there is no event_id; the venue's name is looked up
+    by this service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    venue_id: UUID
+    booking_date: date
+    start_time: time
+    end_time: time
+    notes: str | None = None
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def blank_notes_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def end_must_follow_start(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
+
+
 class VenueBookingRequest(BaseModel):
     """What a Coordinator chooses: the venue, the date and time, and notes.
     Everything else on the booking -- the event's name, purpose, attendance

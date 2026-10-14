@@ -344,3 +344,34 @@ Status resets to Not Executed until re-run.
 - **Actual:** Through Kong: `15:00`–`16:00` refused `409` with the period's detail and nothing stored; `15:30`–`16:30` `201`; after re-marking `11:00`–`13:00`, holding Q `409` with that detail and Q still `pending`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_through_kong_a_request_and_a_hold_inside_the_period_are_refused`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+No new SQL: S-80 needs only the schemas already in `backend/sql/`. The criteria mapping and agreed decisions are
+in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-VENUEBOOKINGS-110 — one booking changes and another is cancelled, and the rest stay, through Kong
+
+- **Scenario:** Real services agree that one booking moves or goes without
+  touching the others (S-80 AC1, AC2).
+- **Pre-conditions:** A fresh `.env.test` stack. K assigned to planning E
+  with A `confirmed`, B `held`, C `pending` (shared test data), and another
+  planning event F assigned to K.
+- **Steps:** As K, through `/api/venue-bookings`:
+  1. Change B to Studio B 16:00–17:00.
+  2. Request Studio B 13:00–15:00 for F (B's old slot).
+  3. Cancel A.
+  4. List E's bookings.
+- **Expected:**
+  1. `200`; B `pending` at 16:00–17:00 with no hold or decision fields.
+  2. `201` — the old slot is free.
+  3. `204`; A is gone from `bookings.bookings`.
+  4. Exactly B (pending, 16:00–17:00) and C (unchanged, `pending`
+     15:00–16:00).
+  Cleanup deletes every row created.
+- **Actual:** Not run: the test project lost the S-77 section of `backend/sql/bookings.sql` on 2026-10-14 (rebuilt from an older copy) and it has not been re-applied yet.
+- **Status:** Blocked
+- **Evidence:** `tests/integration/composite/venue_bookings/test_change_cancel.py::test_one_booking_changes_another_is_cancelled_and_the_rest_stay`
