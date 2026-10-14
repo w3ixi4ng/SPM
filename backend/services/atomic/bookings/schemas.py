@@ -40,8 +40,10 @@ RoomLayout = Literal[
     "cocktail",
 ]
 
-# S-36 creates pending requests; S-37 records final staff decisions.
-BookingStatus = Literal["pending", "held", "confirmed", "rejected"]
+# S-36 creates pending requests; S-37 records final staff decisions. S-78: a
+# booking whose replacement is confirmed becomes `replaced`. Keep in step with
+# backend/sql/bookings.sql.
+BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced"]
 HoldReleaseReason = Literal["staff_released", "event_rejected", "event_cancelled", "booking_replaced"]
 
 
@@ -79,6 +81,8 @@ class BookingCreate(BaseModel):
     room_layout: RoomLayout | None = None
     notes: str | None = None
     venue_name: str = Field(min_length=1)
+    # S-78: the booking this request replaces, for the same event.
+    replaces_booking_id: UUID | None = None
 
     @field_validator(
         "coordinator_name", "coordinator_email", "event_name", "event_purpose", "venue_name", mode="before"
@@ -135,6 +139,13 @@ class BookingRead(BaseModel):
     notes: str | None
     venue_name: str
     submitted_at: datetime
+    # S-78
+    replaces_booking_id: UUID | None = None
+    replaced_by_booking_id: UUID | None = None
+    replaced_at: datetime | None = None
+    alternative_resolved_at: datetime | None = None
+    alternative_resolved_by: UUID | None = None
+    alternative_resolution_note: str | None = None
 
 
 # S-77: why Venue Staff marked a venue unavailable. Keep in step with
@@ -226,3 +237,17 @@ class HoldRelease(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: HoldReleaseReason
+
+
+class AlternativeResolution(BaseModel):
+    """S-78: what a Coordinator arranged instead, for a booking an unavailable
+    period affects. Who resolved it and when are set by this service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def strip_note(cls, value):
+        return value.strip() if isinstance(value, str) else value

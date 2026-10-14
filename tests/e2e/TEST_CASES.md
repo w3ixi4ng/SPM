@@ -987,3 +987,51 @@ Coordinator.
 - **Actual:** In Chromium through Kong: the empty description was refused with "Describe the operational reason." and nothing stored; the saved panel said "1 booking needs alternative arrangements. Their Coordinators have been notified." and listed E as Booked; the Coordinator's dashboard showed the notification; E's page flagged K with the period and "Other operational reason: Water leak in ceiling", still Confirmed and Planning; K `confirmed` and E `planning` in the database.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_mark_venue_unavailable.py::test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_told`; `.env.test` stack recreated immediately before, 2026-10-12; `pytest tests/e2e`: 35 passed
+
+## S-78 — request replacement venue for affected booking
+
+Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the
+developer on 2026-10-14. Test in `test_replace_affected_booking.py`. Executed 2026-10-14 after the S-78
+SQL for `bookings` was run in the test project. Needs the whole `.env.test`
+stack, recreated immediately before.
+
+The search rules, the one-at-a-time rule and the resolution rules are covered
+by the unit and integration cases. This journey proves only what a browser
+can: the way in from the flagged booking, the replacement screen, and the
+original's state after Venue Staff approve.
+
+## TC-E2E-235 — a Coordinator replaces a flagged booking without re-entering the event, and approval clears the flag
+
+- **Scenario:** In a real browser through Kong, from the flagged booking to
+  a confirmed replacement (AC1–AC4).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before. The S-78 SQL applied. Chromium. Created with the admin client:
+  - a Venue Staff user and a Coordinator;
+  - venues `"spm-e2e Venue A <hex>"` and `"spm-e2e Venue B <hex>"`, both
+    open every day `08:00`–`20:00`, both suitable for E, with setup and
+    turnaround 0;
+  - a `planning` event E assigned to the Coordinator;
+  - a confirmed booking K for E at Venue A, `2026-11-12` `10:00`–`12:00`;
+  - a period on Venue A from `2026-11-12` `09:00` to `13:00`.
+- **Steps:**
+  1. Sign in as the Coordinator, open E, and click **Find a replacement venue** on K's row.
+  2. On the replacement screen, choose Venue B and click **Send replacement request**.
+  3. Sign out and sign in as Venue Staff. Open the new request and approve it.
+  4. Sign out, sign in as the Coordinator, and open E.
+- **Expected:**
+  - Step 1 opens `/coordinator/events/<E>/bookings/<K>/replacement`, which
+    shows E's name, "12 Nov 2026 · 10:00–12:00" and E's requirements as
+    read-only text. Venue B is listed and Venue A is not. There are no
+    inputs for date, time, attendance or requirements.
+  - After step 2 the page returns to E with "Replacement request sent to
+    Venue B." K's row still says "Needs alternative arrangements" and
+    "Replacement requested: Venue B, waiting for Venue Staff".
+  - In step 3, Venue Staff's request page shows "Replacement for Venue A".
+  - After step 4, K's row reads "Replaced by Venue B" with no flag. Venue
+    B's row reads "Confirmed".
+  - With the admin client, K is `replaced` and the new row is `confirmed`
+    with `replaces_booking_id` K.
+  Cleanup deletes the period, both bookings, E, both venues and both users.
+- **Actual:** In Chromium through Kong: the link opened the replacement screen with the event, date, times and requirements read-only and no date, time or number inputs; Venue B listed, Venue A not. After sending, K was still flagged with "Replacement requested: Venue B, waiting for Venue Staff". Venue Staff's page said "Replacement for Venue A". After approval K read "Replaced by Venue B" with no flag and Venue B's row read Confirmed; in the database K `replaced`, the new row `confirmed` with `replaces_booking_id` K.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_replace_affected_booking.py::test_a_coordinator_replaces_a_flagged_booking_and_approval_clears_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14

@@ -914,3 +914,107 @@ follows. Their tests were updated and re-run with S-77, and pass:
 - **Actual:** `GET /blocks/{id}` `200` with times; unknown id `404` "Block not found"; the range list returned P and left out a period ending at 00:00 on `from`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_one_period_is_read_by_id`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_an_unknown_period_is_a_404`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_is_listed_for_a_range_it_touches`
+
+## S-78 — request replacement venue for affected booking
+
+**Story:** S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed. The
+criteria mapping and the agreed decisions are in the S-78 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+**Shared test data.** Event E1 `eeeeeeee-…`. Original booking A
+`aaaaaaaa-…`, Studio B, `confirmed`, `2026-11-13` `10:00`–`12:00`, event E1.
+Replacement R1 `11111111-…`, Hall C `cccccccc-…`, the same date and times,
+event E1, `replaces_booking_id` A. The Venue Staff session is S, and the
+Coordinator session is C2 (`event_coordinator`).
+
+**Changes to existing cases.** `BookingRead` gains `replaces_booking_id`,
+`replaced_by_booking_id`, `replaced_at`, `alternative_resolved_at`,
+`alternative_resolved_by` and `alternative_resolution_note`, all `null` on
+existing rows. `status` may also be `replaced`. Cases asserting a whole row
+are updated to match.
+
+### TC-BOOKINGS-051 — a replacement request is stored with its link to the original
+
+- **Scenario:** `POST /bookings` accepts `replaces_booking_id`, and the link
+  must point at a booking that can be replaced, for the same event.
+- **Pre-conditions:** The fake holds A.
+- **Steps / Expected:** `POST /bookings` with R1's body:
+  - `replaces_booking_id` A → `201`, the insert carries `"replaces_booking_id": "aaaaaaaa-…"`, `status` `pending`
+  - No `replaces_booking_id` → `201` with `null`, as before S-78
+  - `replaces_booking_id` that doesn't exist → `422` with `errors.replaces_booking_id` `"The booking being replaced doesn't exist"`, no insert
+  - A belongs to another event → `422` with `errors.replaces_booking_id` `"A replacement must be for the same event"`, no insert
+  - A is `rejected` or `replaced` → `409` `{"detail":"This booking can no longer be replaced"}`, no insert
+  - The usual overlap and period checks still apply: Hall C taken → the S-30 `409`
+- **Actual:** Linked insert `201` pending with `replaces_booking_id`; no link `201` with `null`; missing and other-event originals `422` with the exact messages; rejected and replaced originals `409` "This booking can no longer be replaced"; Hall C taken `409` with the S-30 detail. No insert in any refusal.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_replacement_is_stored_with_its_link`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_an_ordinary_request_has_no_link`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_link_to_a_missing_or_foreign_booking_is_refused`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_link_to_a_settled_booking_is_refused`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_replacement_still_gets_the_overlap_check`
+
+### TC-BOOKINGS-052 — approving a replacement replaces the original
+
+- **Scenario:** Approval confirms R1, and A stops reserving Studio B.
+- **Pre-conditions:** R1 is `pending`. Run once with A `confirmed`, once
+  with A `held`, and once with A `pending`.
+- **Steps:** As S, `POST /bookings/{R1}/decision` with `{"decision":"approved"}`.
+- **Expected:**
+  - `200` with R1 `confirmed`, `decided_by` S.
+  - A is updated conditionally on its status being `pending`, `held` or
+    `confirmed`, to `"status": "replaced"`, `"replaced_by_booking_id": "11111111-…"`
+    and `replaced_at` set. Nothing else on A changes, including
+    `decided_by`, `decided_at` and the snapshot fields.
+  - R1's confirmation and A's replacement are one database operation:
+    either both happen or neither does.
+- **Actual:** Service half: approving R1 `200` `confirmed`, `decided_by` S, exactly one update (R1). The original's replacement is the `bookings_replace_original_on_confirm` trigger, so it happens in the same transaction by construction; the S-78 SQL block defines it with the update to `replaced`, `replaced_by_booking_id` and `replaced_at`. Against real rows that is TC-BOOKINGS-112, which passed on 2026-10-14.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_deciding_a_replacement_writes_only_the_replacement`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_trigger_replaces_a_standing_original_when_its_replacement_is_confirmed`; `tests/integration/atomic/bookings/test_replacement_venue.py::test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot`
+
+### TC-BOOKINGS-053 — approving a replacement whose original is already settled leaves the original alone
+
+- **Scenario:** If A was rejected or replaced some other way, approving R1
+  still confirms R1.
+- **Pre-conditions:** R1 `pending`. A `rejected`, then (separately) A
+  `replaced` by another booking R0.
+- **Steps:** As S, approve R1.
+- **Expected:** `200` with R1 `confirmed`. A is unchanged. In the second run
+  it still points at R0.
+- **Actual:** The trigger only updates an original whose status is `pending`, `held` or `confirmed` (checked in the SQL text). There is no unit-level fake for a trigger, so this can only run against real rows.
+- **Status:** Not Executed
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_trigger_replaces_a_standing_original_when_its_replacement_is_confirmed` — the SQL condition only; no real-row test runs the settled-original case yet
+
+### TC-BOOKINGS-054 — rejecting a replacement, or approving an ordinary request, touches no other row
+
+- **Scenario:** Only an approved replacement writes a second row.
+- **Steps / Expected:**
+  1. As S, `POST /bookings/{R1}/decision` with `{"decision":"rejected","reason":"Hall C is being repainted"}` → `200` R1 `rejected`. A is not updated.
+  2. Approve a pending request with `replaces_booking_id` `null` → `200` `confirmed`, and exactly one row is updated, as before S-78.
+- **Actual:** Rejecting R1 `200` `rejected` with one update; approving an unlinked request `200` with one update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_deciding_a_replacement_writes_only_the_replacement`; `tests/unit/atomic/bookings/test_decision.py::test_decision_preserves_request`
+
+### TC-BOOKINGS-055 — a Coordinator records a resolution note on a live booking
+
+- **Scenario:** `POST /bookings/{id}/alternative-resolution` stores who
+  resolved it, when, and the note. The booking itself doesn't change.
+- **Pre-conditions:** A `confirmed`, then (separately) A `held`.
+- **Steps:** As C2, `POST /bookings/{A}/alternative-resolution` with
+  `{"note": "  Moved online for this session  "}`.
+- **Expected:** `200` with A, with `"alternative_resolution_note": "Moved online for this session"`,
+  `alternative_resolved_by` C2's id and `alternative_resolved_at` set by
+  the service. `status`, the hold and decision fields, and the snapshot are
+  unchanged. A second call overwrites all three fields.
+- **Actual:** Confirmed and held each `200`; the update set only the three fields, note trimmed, by C2, time from the service, conditional on `held`/`confirmed`; status and decision fields unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_coordinator_records_a_resolution_note`
+
+### TC-BOOKINGS-056 — the resolution write is refused for the wrong caller, booking or note
+
+- **Steps / Expected:** `POST /bookings/{id}/alternative-resolution`, with
+  no update in any row:
+  - No session → `401`
+  - Venue Staff session → `403` `{"detail":"Permission denied"}`
+  - An unknown id → `404` `{"detail":"Booking not found"}`
+  - A `pending`, `rejected` or `replaced` → `409` `{"detail":"Only a held or confirmed booking can be resolved"}`
+  - `{"note": "   "}`, `{}`, or 501 characters → `422` with `errors.note`
+  - `alternative_resolved_by` or `alternative_resolved_at` in the body → `422`
+- **Actual:** No session `401`; Venue Staff `403`; unknown `404`; pending, rejected, replaced `409` with the detail; blank, missing, 501 characters and server-owned fields `422`. No update in any row.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_resolution_needs_a_coordinator_session`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_resolution_of_an_unknown_booking_is_not_found`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_only_a_live_booking_can_be_resolved`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_bad_resolution_body_is_refused`

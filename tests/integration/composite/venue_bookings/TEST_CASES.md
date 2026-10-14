@@ -344,3 +344,60 @@ Status resets to Not Executed until re-run.
 - **Actual:** Through Kong: `15:00`–`16:00` refused `409` with the period's detail and nothing stored; `15:30`–`16:30` `201`; after re-marking `11:00`–`13:00`, holding Q `409` with that detail and Q still `pending`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_through_kong_a_request_and_a_hold_inside_the_period_are_refused`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+
+## S-78 — request replacement venue for affected booking
+
+Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the
+developer on 2026-10-14. Tests in `test_replacement_venue.py`. Executed 2026-10-14 after the S-78
+block in `backend/sql/bookings.sql` was run in the test project.
+
+For the criteria mapping and the agreed decisions, see the S-78 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-VENUEBOOKINGS-112 — through Kong, a Coordinator finds a free venue, requests it, and approval ends the flag
+
+- **Scenario:** With real services behind Kong, the search excludes a taken
+  venue, the replacement is stored linked to the original, the original
+  stays flagged until approval, and then reads as replaced (AC1, AC2, AC4).
+- **Pre-conditions:** The shared pre-conditions. Three venues, all suitable
+  for the event and open on `2026-11-12`, with setup and turnaround 0: V1,
+  V2 and V3. A confirmed booking K for the event at V1, `2026-11-12`
+  `10:00`–`12:00`. A confirmed booking for another event at V3,
+  `2026-11-12` `11:00`–`12:00`. A period on V1 from `2026-11-12` `09:00` to
+  `13:00`, saved by Venue Staff.
+- **Steps:**
+  1. As the Coordinator, `GET /api/venue-bookings/{K}/replacement-venues`.
+  2. `POST /api/venue-bookings/{K}/replacement` with `{"venue_id": "<V2>"}`.
+  3. `GET /api/venue-bookings?event_id=<event>`.
+  4. As Venue Staff, approve the new request.
+  5. As the Coordinator, `GET /api/venue-bookings?event_id=<event>`.
+- **Expected:**
+  1. `200`. `venues` includes V2 and excludes V1 and V3. (Other test
+     venues may appear; only these three are asserted.)
+  2. `201`. In `bookings.bookings`, the row has `replaces_booking_id` K, the
+     same `event_id`, `2026-11-12` `10:00`–`12:00`, and the event's name and
+     attendance.
+  3. K is `confirmed` and flagged. The new row is `pending`.
+  4. `200` `confirmed`.
+  5. K is `replaced`, with `replaced_by_booking_id` set to the new row, and
+     `requires_alternative_arrangements` `false`. The new row is `confirmed`.
+  Cleanup deletes the period, both bookings, the other event's booking and
+  the shared fixtures.
+- **Actual:** Through Kong: the search offered V2 and left out V1 and V3; the replacement `201` was stored linked to K for the same event, date, times, name and attendance; K stayed confirmed and flagged while it was pending; approval `200`; then K `replaced` pointing at the new row, unflagged, and the new row `confirmed`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_replacement_venue.py::test_through_kong_a_coordinator_finds_a_free_venue_requests_it_and_approval_ends_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+
+### TC-VENUEBOOKINGS-113 — through Kong, resolving the flag with a note clears it
+
+- **Scenario:** The resolution route reaches the bookings service with the
+  Coordinator's session, and the flag reads cleared (AC4).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-112, up to K flagged.
+- **Steps:** As the Coordinator, `POST /api/venue-bookings/{K}/resolution`
+  with `{"note": "Moved online"}`, then
+  `GET /api/venue-bookings?event_id=<event>`.
+- **Expected:** `200`, then K `confirmed`, with
+  `requires_alternative_arrangements` `false` and
+  `alternative_resolution_note` `"Moved online"`.
+- **Actual:** Through Kong: resolution `200`; K still `confirmed`, unflagged, note "Moved online".
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
