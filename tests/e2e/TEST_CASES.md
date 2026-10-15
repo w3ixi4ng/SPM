@@ -1087,6 +1087,6 @@ Confirmed by the developer on 2026-10-14.
   - After 4 and 5: "Venue booking cancelled. Its time is free for other
     events." (after 4); only the Studio row remains, 15:00–17:00 Pending.
   Cleanup deletes every row created.
-- **Actual:** Not run: the test project lost the S-77 section of `backend/sql/bookings.sql` on 2026-10-14 (rebuilt from an older copy) and it has not been re-applied yet.
-- **Status:** Blocked
-- **Evidence:** `tests/e2e/test_change_cancel_booking.py::test_a_coordinator_changes_one_booking_and_cancels_another[chromium]`
+- **Actual:** Chromium: Change opened the screen pre-filled 13:00; saving 15:00–17:00 returned to E with the changed notice, the Studio row Pending 15:00–17:00 and the Hall row still Confirmed 09:00–12:00; Keep booking changed nothing; Cancel booking showed the cancelled notice; after a reload only the Studio row remained.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_change_cancel_booking.py::test_a_coordinator_changes_one_booking_and_cancels_another[chromium]` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. With the S-77, S-78, S-30, S-33 and S-79 venue journeys: 8 passed, 1 failed (S-78's replacement journey: its venue search makes two sequential reads per venue, about 80 for the 41 venues on the test project, and outlasts the 20 s wait; S-80 changes nothing on that path). A first run had failed on a DNS outage and was rerun.

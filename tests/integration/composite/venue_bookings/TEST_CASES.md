@@ -429,6 +429,6 @@ in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
   4. Exactly B (pending, 16:00–17:00) and C (unchanged, `pending`
      15:00–16:00).
   Cleanup deletes every row created.
-- **Actual:** Not run: the test project lost the S-77 section of `backend/sql/bookings.sql` on 2026-10-14 (rebuilt from an older copy) and it has not been re-applied yet.
-- **Status:** Blocked
-- **Evidence:** `tests/integration/composite/venue_bookings/test_change_cancel.py::test_one_booking_changes_another_is_cancelled_and_the_rest_stay`
+- **Actual:** Through Kong: B changed to 16:00–17:00 and stored `pending` with no hold; another event then took B's old 13:00–15:00 (`201`); cancelling A gave `204` and removed it; E listed exactly B and C, C unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_change_cancel.py::test_one_booking_changes_another_is_cancelled_and_the_rest_stay` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. `pytest tests/integration/composite/venue_bookings tests/integration/atomic/bookings`: 29 passed.
