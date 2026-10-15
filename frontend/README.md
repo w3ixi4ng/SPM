@@ -154,6 +154,24 @@ also gets an in-app notification. Bookings and events are never changed by a
 period. Helpers are in `src/lib/venueAvailability.js` and
 `src/lib/venueBookings.js`.
 
+## S-78 request replacement venue for affected booking
+
+On the Coordinator's event page, a booking flagged "Needs alternative
+arrangements" offers **Find a replacement venue** and **Mark resolved**.
+
+**Find a replacement venue** opens its own screen,
+`/coordinator/events/:id/bookings/:bookingId/replacement`. It shows the
+booking's date and times and the event's requirements as read-only text, and
+lists only the venues the service says are suitable and free then. The
+Coordinator picks one, can add notes, and sends it. Back on the event page,
+the booking stays flagged and reads "Replacement requested: <venue>, waiting
+for Venue Staff". Once Venue Staff approve, it reads "Replaced by <venue>".
+Venue Staff's request page says "Replacement for <venue>".
+
+**Mark resolved** opens a slide-over panel for a note on what was arranged
+instead. The booking then reads "Resolved: <note>". Helpers are in
+`src/lib/venueBookings.js`.
+
 ## Development
 
 From this directory:

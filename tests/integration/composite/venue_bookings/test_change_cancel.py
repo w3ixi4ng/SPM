@@ -1,4 +1,4 @@
-"""TC-VENUEBOOKINGS-110 (S-80): one booking changes and another is cancelled,
+"""TC-VENUEBOOKINGS-114 (S-80): one booking changes and another is cancelled,
 and the event's other bookings stay as they were, through Kong."""
 
 import httpx

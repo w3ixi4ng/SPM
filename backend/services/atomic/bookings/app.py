@@ -18,8 +18,17 @@ from fastapi.responses import JSONResponse
 from supabase import Client
 
 from database import get_db
-from schemas import BlockCreate, BlockRead, BookingChange, BookingCreate, BookingRead, BookingDecision, HoldRelease
-from security import require_event_coordinator, require_user, require_venue_staff
+from schemas import (
+    AlternativeResolution,
+    BlockCreate,
+    BlockRead,
+    BookingChange,
+    BookingCreate,
+    BookingDecision,
+    BookingRead,
+    HoldRelease,
+)
+from security import require_coordinator, require_user, require_venue_staff
 
 app = FastAPI(title="Bookings Service")
 logger = logging.getLogger(__name__)
@@ -31,6 +40,7 @@ BLOCKS = "blocks"
 # S-30: a pending request is a tentative hold, and holds are exclusive, so a
 # new request must not overlap either of these.
 LIVE_STATUSES = ["held", "confirmed"]
+CANNOT_RESOLVE = "Only a held or confirmed booking can be resolved"
 
 
 @app.exception_handler(RequestValidationError)
@@ -283,6 +293,8 @@ def decide_booking(
     # The conditional update protects this request from two decisions. The
     # database exclusion constraint protects different requests for the same
     # venue/slot, including simultaneous confirmations after the check above.
+    # S-78: confirming a replacement also marks its original `replaced` -- a
+    # trigger does that in the same transaction (backend/sql/bookings.sql).
     try:
         result = db.schema(SCHEMA).table(TABLE).update(values).eq(
             "id", str(booking_id)
@@ -389,6 +401,8 @@ CHANGEABLE_STATUSES = ["pending", "held", "confirmed"]
 _REVIEW_CLEARED = {
     "held_by": None, "held_at": None, "hold_released_at": None, "hold_release_reason": None,
     "decided_by": None, "decided_at": None, "decision_reason": None, "decision_alternative": None,
+    # S-78: a resolved unavailability flag was about the old time and venue.
+    "alternative_resolved_at": None, "alternative_resolved_by": None, "alternative_resolution_note": None,
 }
 
 
@@ -397,7 +411,7 @@ def change_booking(
     booking_id: UUID,
     payload: BookingChange,
     gap: Gap = Depends(venue_gap),
-    _coordinator=Depends(require_event_coordinator),
+    _coordinator=Depends(require_coordinator),
     db: Client = Depends(get_db),
 ):
     """S-80: move one booking. It goes back to pending, so its old slot is
@@ -433,7 +447,7 @@ def change_booking(
 @app.delete("/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def cancel_booking(
     booking_id: UUID,
-    _coordinator=Depends(require_event_coordinator),
+    _coordinator=Depends(require_coordinator),
     db: Client = Depends(get_db),
 ):
     """S-80: cancel one booking. It is deleted, so its time shows as
@@ -453,6 +467,27 @@ def cancel_booking(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _replacement_problem(db: Client, values: dict):
+    """S-78: a replacement must point at a booking of the same event that
+    still stands. A JSONResponse to return when it doesn't, else None."""
+    original = _booking(db, values["replaces_booking_id"])
+    if original is None or str(original["event_id"]) != str(values["event_id"]):
+        message = (
+            "The booking being replaced doesn't exist" if original is None
+            else "A replacement must be for the same event"
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Please check the details you entered",
+                "errors": {"replaces_booking_id": message},
+            },
+        )
+    if original["status"] in ("rejected", "replaced"):
+        raise HTTPException(status_code=409, detail="This booking can no longer be replaced")
+    return None
+
+
 @app.post("/bookings", response_model=BookingRead, status_code=status.HTTP_201_CREATED)
 def create_booking(
     payload: BookingCreate,
@@ -460,6 +495,10 @@ def create_booking(
     db: Client = Depends(get_db),
 ):
     values = payload.model_dump(mode="json")
+    if values["replaces_booking_id"] is not None:
+        problem = _replacement_problem(db, values)
+        if problem is not None:
+            return problem
     values["status"] = "pending"
     # Set here, never taken from the payload, so a request cannot be
     # backdated ahead of others in Venue Staff's queue.
@@ -488,6 +527,36 @@ def create_booking(
             detail="Could not create booking",
         )
     return result.data[0]
+
+
+@app.post("/bookings/{booking_id}/alternative-resolution", response_model=BookingRead)
+def resolve_alternative_arrangements(
+    booking_id: UUID,
+    payload: AlternativeResolution,
+    user=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-78: a Coordinator records what they arranged instead of the venue an
+    unavailable period took away. The booking itself is not changed. Whether
+    the event is theirs and the booking is flagged is the venue_bookings
+    composite's check; this one keeps the write to live bookings."""
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] not in LIVE_STATUSES:
+        raise HTTPException(status_code=409, detail=CANNOT_RESOLVE)
+    values = {
+        "alternative_resolved_at": datetime.now(timezone.utc).isoformat(),
+        "alternative_resolved_by": str(user.id),
+        "alternative_resolution_note": payload.note,
+    }
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(booking_id)).in_("status", LIVE_STATUSES)
+    )
+    if result.data:
+        return result.data[0]
+    raise HTTPException(status_code=409, detail=CANNOT_RESOLVE)
 
 
 def _date_range(venue_id, from_date, to_date):

@@ -1511,6 +1511,333 @@ Their tests were updated and re-run with S-77, and pass.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_failed_period_lookup_is_an_error_never_a_missing_flag`
 
+## S-78 — request replacement venue for affected booking
+
+**Story:** S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed.
+
+**Acceptance criteria → cases**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: From the affected booking, the Coordinator can search for suitable, available venues using the event's existing requirements and date/time | 079–081; TC-FRONTEND-112, 116 |
+| AC2: The Coordinator can submit a replacement booking request linked to the affected booking and the same event | 082–086; TC-BOOKINGS-051 |
+| AC3: The event's original information is preserved and does not need to be re-entered | 082, 083; TC-FRONTEND-114 |
+| AC4: The affected booking stays flagged until a replacement is approved or the Coordinator resolves it | 087–092; TC-BOOKINGS-052–056 |
+
+The conditions agreed with the developer behind the criteria (2026-10-13):
+
+- **Affected** is S-77's flag: a held or confirmed booking from today on
+  that has `requires_alternative_arrangements: true`. Every S-78 route
+  refuses a booking without the flag with `409`.
+- **Same date and times.** The search and the replacement use the affected
+  booking's `booking_date`, `start_time` and `end_time`. The Coordinator
+  picks only the venue and may add `notes`.
+- **The event's existing requirements** are the event's current ones, read
+  from the events service as S-36 does: `expected_attendance`,
+  `room_layout`, `required_facilities` and `required_accessibility`.
+- **Suitable** is S-36's check: capacity, layout, facilities, accessibility,
+  and the whole occupied window (with the venue's setup and turnaround)
+  inside its opening hours that weekday.
+- **Available** is the bookings service's own rule for a new request: no
+  held or confirmed booking at the venue within the setup + turnaround gap
+  (S-75), and no unavailable period overlapping the occupied window (S-77).
+  A pending request doesn't reserve time, so it doesn't make a venue
+  unavailable. The affected booking's own venue is never offered.
+- **One replacement at a time.** A booking may have one pending or held
+  replacement request. Once that request is rejected, the Coordinator may
+  send another.
+- **Approval replaces the original.** When Venue Staff approve the
+  replacement, the original booking's status becomes `replaced`, with
+  `replaced_by_booking_id` and `replaced_at`, and it stops reserving its
+  venue. The bookings service does this as part of the approval.
+- **Resolving** means the Coordinator marks the flag resolved with a note
+  (1–500 characters after trimming). The booking itself is not changed. The
+  flag then ignores every period created at or before
+  `alternative_resolved_at`, so a later period flags the booking again.
+  Resolving leaves a pending replacement request where it is; Venue Staff
+  may still approve it, and that still replaces the original.
+- **Event status.** Replacing or resolving is allowed while the event is
+  `planning`, `confirmed`, `preparation` or `safety_changes_requested`.
+  Any other status gets `409` `{"detail":"This event's venue bookings can no longer be changed"}`.
+- **Who.** Only the event's **current** assigned Coordinator, checked with
+  `GET /events/assigned/{event_id}` using the caller's session. If the
+  booking doesn't exist or its event isn't assigned to the caller, the
+  answer is the same `404` `{"detail":"Booking not found"}`, so nobody
+  learns about another Coordinator's booking.
+
+**Shared test data.** Coordinator C2's session. Event E1
+`eeeeeeee-…` "Alumni talk", status `planning`, assigned to C2, purpose
+"Annual alumni lecture", `expected_attendance` 120, `room_layout`
+`theatre`, `required_facilities` `["projector","microphones"]`,
+`required_accessibility` `["wheelchair_access"]`, `special_requirements`
+"Lectern on stage", running `2026-11-13` `09:00`–`18:00`.
+
+Affected booking A `aaaaaaaa-…`: event E1, Studio B `bbbbbbbb-…`,
+`confirmed`, `2026-11-13` (a Friday) `10:00`–`12:00`. Period P covers Studio B
+from `2026-11-13` `09:00` to `2026-11-14` `17:00`, `created_at`
+`2026-10-12T08:00:00Z`, so A is flagged. Today is `2026-10-13`.
+
+Candidate venues from `GET /venues`. Unless the row says otherwise, each one
+holds 200, offers `theatre`, has `projector` and `microphones`, has
+`wheelchair_access`, is open Fridays `08:00`–`20:00`, and has setup and
+turnaround 0:
+
+| Venue | Difference | Offered? |
+| --- | --- | --- |
+| Studio B | The affected venue, under P | no |
+| Hall C | none | yes |
+| Room D | holds 100 | no, too small |
+| Hall E | no `microphones` | no, missing a facility |
+| Hall F | a confirmed booking `11:00`–`13:00` that day | no, taken |
+| Hall G | setup 30, turnaround 30; a held booking `08:00`–`09:30` that day | no, within the setup/turnaround gap |
+| Hall H | a period `2026-11-13` `12:00`–`14:00` | yes, A ends exactly when it starts |
+| Hall J | closed Fridays | no, closed |
+| Hall K | a pending request `10:00`–`12:00` that day | yes, pending doesn't reserve time |
+
+### TC-VENUEBOOKINGS-079 — the search offers only suitable, available venues for the affected booking
+
+- **Scenario:** From A, C2 gets the venues that could take A's event at A's
+  date and time (AC1).
+- **Pre-conditions:** The shared data. The bookings fake returns A from
+  `GET /bookings/{A}`, each venue's bookings for `2026-11-13`, and the
+  periods for Studio B and Hall H.
+- **Steps:** `GET /venue-bookings/aaaaaaaa-…/replacement-venues`.
+- **Expected:**
+  - `200` with
+    `{"booking": {"id": "aaaaaaaa-…", "venue_name": "Studio B", "booking_date": "2026-11-13", "start_time": "10:00:00", "end_time": "12:00:00"}, "venues": [...]}`.
+  - `venues` is Hall C, Hall H, Hall K, ordered by name. Each entry is the
+    venue exactly as `GET /venues` returned it.
+  - Studio B, Room D, Hall E, Hall F, Hall G and Hall J are absent.
+  - No write to any service.
+- **Actual:** `200` with A's summary and Hall C, Hall H, Hall K by name, Hall C exactly as `GET /venues` gave it; Studio B, Room D, Hall E, Hall F, Hall G and Hall J absent; no writes.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_the_search_offers_only_suitable_available_venues`
+
+### TC-VENUEBOOKINGS-080 — the search uses the event's current requirements, not the booking's snapshot
+
+- **Scenario:** The event's existing requirements drive the search. Nothing
+  is typed in again (AC1, AC3).
+- **Pre-conditions:** The shared data, except that E1's
+  `expected_attendance` is now 250. A's snapshot still says 120.
+- **Steps:** `GET /venue-bookings/aaaaaaaa-…/replacement-venues`.
+- **Expected:** `200` with `"venues": []`, because no candidate holds 250.
+  The response is still `200`, not an error. The events fake got
+  `GET /events/assigned/eeeeeeee-…` with C2's cookies.
+- **Actual:** Attendance 250 gave `200` with `"venues": []`; the event was read at `/events/assigned/E1` with C2's cookies.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_the_search_uses_the_events_current_requirements`
+
+### TC-VENUEBOOKINGS-081 — the search is refused for the wrong caller or an unflagged booking, and fails loudly
+
+- **Scenario:** Only E1's current Coordinator can search, only from a
+  flagged booking, and a failed read is never shown as "no venues" (AC1).
+- **Steps / Expected:** In every row except the last, `GET /venues` is
+  never called.
+  - No session → `401` `{"detail":"Not authenticated"}`
+  - `venue_staff` session → `403` `{"detail":"Permission denied"}`
+  - An unknown booking id (bookings fake `404`) → `404` `{"detail":"Booking not found"}`
+  - A, but the events fake returns `404` for E1 (E1 is not assigned to the caller) → `404` `{"detail":"Booking not found"}`
+  - A booking without the flag: A2 `pending`, A3 `rejected`, A5 `replaced`, a confirmed booking no period overlaps, or a confirmed booking dated `2026-10-01` → `409` `{"detail":"This booking doesn't need a replacement venue"}`
+  - A resolved at `2026-10-12T09:00:00Z`, with P its only period (created earlier) → `409` with the same detail
+  - E1 in `cancelled` (and, separately, `rejected`) → `409` `{"detail":"This event's venue bookings can no longer be changed"}`
+  - E1 in `confirmed`, `preparation` or `safety_changes_requested` → `200` as in TC-VENUEBOOKINGS-079
+  - `GET /venues`, or a venue's bookings or periods read, returns `500` → `502` with `{"detail":"Venues service unavailable"}` or `{"detail":"Bookings service unavailable"}`, never `200` with `[]`
+- **Actual:** No session `401`, Venue Staff `403`; unknown booking and unassigned event both `404` "Booking not found"; pending, rejected, replaced, no period, past and resolved each `409` "This booking doesn't need a replacement venue"; cancelled and rejected events `409` with the event detail; confirmed, preparation and safety_changes_requested `200` with the same three venues; `GET /venues` `500` gave `502` Venues, a periods read `500` gave `502` Bookings. `GET /venues` was never called in the refused rows.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_no_session_or_the_wrong_role_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_an_unknown_booking_or_another_coordinators_event_is_not_found`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_booking_without_the_flag_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_closed_event_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_an_open_event_past_planning_may_still_search`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_failed_read_is_an_error_never_no_venues`
+
+### TC-VENUEBOOKINGS-082 — a replacement request is stored linked to A and E1, with the event's details copied in
+
+- **Scenario:** C2 picks a venue, and everything else comes from the event
+  and from A (AC2, AC3).
+- **Pre-conditions:** The shared data. The venues fake returns Hall C
+  `cccccccc-…` from `GET /venues/{id}`. C2 is `{"id": "<C2>", "name": "Ben Tan", "email": "ben@example.com"}`.
+  A has no other replacement request.
+- **Steps:** `POST /venue-bookings/aaaaaaaa-…/replacement` with
+  `{"venue_id": "cccccccc-…", "notes": "  Same setup as Studio B  "}`.
+- **Expected:**
+  - `201` with the stored request, `status` `pending`, and
+    `"replaces_booking_id": "aaaaaaaa-…"`.
+  - The bookings fake got exactly one `POST /bookings`, with the Hall C
+    `setup_minutes`/`turnaround_minutes` params and this body:
+    ```json
+    {"event_id": "eeeeeeee-…", "venue_id": "cccccccc-…", "replaces_booking_id": "aaaaaaaa-…",
+     "booking_date": "2026-11-13", "start_time": "10:00:00", "end_time": "12:00:00",
+     "notes": "Same setup as Studio B",
+     "coordinator_id": "<C2>", "coordinator_name": "Ben Tan", "coordinator_email": "ben@example.com",
+     "event_name": "Alumni talk", "event_purpose": "Annual alumni lecture", "expected_attendance": 120,
+     "special_requirements": "Lectern on stage", "room_layout": "theatre",
+     "required_facilities": ["projector", "microphones"], "required_accessibility": ["wheelchair_access"],
+     "venue_name": "Hall C"}
+    ```
+  - No write to the events service. A is not written.
+- **Actual:** `201` pending with `replaces_booking_id` A; one `POST /bookings` with Hall C's gap params and exactly the body in the case; no events write, A not written.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_replacement_is_stored_linked_with_the_events_details`
+
+### TC-VENUEBOOKINGS-083 — the replacement body takes only a venue and notes
+
+- **Scenario:** The Coordinator can't re-enter or override the event's
+  details or A's date and time (AC3).
+- **Steps / Expected:** `POST /venue-bookings/aaaaaaaa-…/replacement`. Every
+  row is `422` with `errors` keyed by the field, and nothing reaches
+  `POST /bookings`:
+  - `{}` → `errors.venue_id`
+  - `{"venue_id": "not-a-uuid"}` → `errors.venue_id`
+  - `{"venue_id": "cccccccc-…", "booking_date": "2026-11-20"}` → `errors.booking_date`
+  - The same with each of `event_id`, `start_time`, `end_time`,
+    `expected_attendance`, `room_layout`, `required_facilities`,
+    `replaces_booking_id` → `422` keyed by that field
+  - `{"venue_id": "cccccccc-…", "notes": "   "}` → `201`, stored `notes` `null`
+- **Actual:** Each listed body `422` keyed by its field with no `POST /bookings`; blank notes `201` stored as `null`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_the_replacement_body_takes_only_a_venue_and_notes`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_blank_notes_are_stored_as_none`
+
+### TC-VENUEBOOKINGS-084 — an unsuitable or unavailable venue is refused, and nothing is stored
+
+- **Scenario:** The same checks as S-36 apply on send, so a venue that
+  changed after the search is still caught (AC2).
+- **Steps / Expected:** `POST /venue-bookings/aaaaaaaa-…/replacement` with
+  `venue_id` set to:
+  - Room D → `422` `{"detail":"This venue can't take this booking","errors":{"expected_attendance":"Room D holds 100 people; this event expects 120"}}`, no `POST /bookings`
+  - Hall J → `422` with `errors.operating_hours` `"Hall J is closed on Fridays"`, no `POST /bookings`
+  - Hall F, where the bookings fake answers `POST /bookings` with `409` `"Hall F is already confirmed on 13 Nov 2026 from 11:00 to 13:00."` → `409` with that detail unchanged
+  - Studio B, where the bookings fake answers `409` `"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00."` → `409` with that detail unchanged
+  - An unknown venue (venues fake `404`) → `404` `{"detail":"Venue not found"}`
+- **Actual:** Room D `422` with the exact attendance error; Hall J `422` "Hall J is closed on Fridays"; neither posted. Hall F and Studio B `409`s passed through unchanged; unknown venue `404` "Venue not found".
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_an_unsuitable_venue_is_refused_and_nothing_is_stored`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_taken_or_unavailable_venue_passes_the_refusal_through`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_an_unknown_venue_is_not_found`
+
+### TC-VENUEBOOKINGS-085 — one replacement request at a time, and another after a rejection
+
+- **Scenario:** A repeated send doesn't create a duplicate. A second venue
+  can't be requested while one is waiting, but it can be once that one is
+  rejected (AC2).
+- **Pre-conditions:** The shared data. `GET /bookings?event_id=E1` also
+  returns R1, a replacement for A at Hall C, same date and times.
+- **Steps / Expected:**
+  1. R1 `pending`, then R1 `held`. Send `{"venue_id": "<Hall C>"}` → `201` with R1, and no `POST /bookings`.
+  2. R1 `pending`. Send `{"venue_id": "<Hall H>"}` → `409` `{"detail":"A replacement request for this booking is already with Venue Staff"}`, and no `POST /bookings`.
+  3. R1 `rejected`. Send `{"venue_id": "<Hall H>"}` → `201`, stored with `replaces_booking_id` A.
+  4. A request for a different booking at Hall C (`replaces_booking_id` another id) doesn't count for A: send `{"venue_id": "<Hall H>"}` → `201`.
+- **Actual:** Same venue with R1 pending or held `201` R1, no post; another venue while R1 pending `409` with the detail, no post; after R1 rejected, and with another booking's replacement pending, `201` linked to A.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_the_same_venue_again_returns_the_waiting_request`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_another_venue_while_one_is_waiting_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_another_request_may_follow_a_rejection_or_another_bookings_replacement`
+
+### TC-VENUEBOOKINGS-086 — sending a replacement is refused for the wrong caller or an unflagged booking
+
+- **Scenario:** The same gate as the search, on the write (AC2).
+- **Steps / Expected:** `POST /venue-bookings/{id}/replacement` with
+  `{"venue_id": "<Hall C>"}`, for each row of TC-VENUEBOOKINGS-081 except
+  the last. The status and detail are the same, and `POST /bookings` is
+  never called.
+- **Actual:** Every gate row of TC-VENUEBOOKINGS-081 gave the same status and detail on the replacement route, and `POST /bookings` was never called.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_no_session_or_the_wrong_role_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_an_unknown_booking_or_another_coordinators_event_is_not_found`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_booking_without_the_flag_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_closed_event_is_refused`
+
+### TC-VENUEBOOKINGS-087 — sending a replacement leaves A flagged, and both are listed
+
+- **Scenario:** A pending replacement isn't an approved one, so A keeps its
+  flag (AC4).
+- **Pre-conditions:** The shared data. `GET /bookings?event_id=E1` returns
+  A and R1 (Hall C, `pending`, `replaces_booking_id` A).
+- **Steps:** `GET /venue-bookings?event_id=E1`.
+- **Expected:** `200`. A is `confirmed`, with
+  `"requires_alternative_arrangements": true` and P in
+  `unavailable_periods`. R1 is listed with `"replaces_booking_id": "aaaaaaaa-…"`,
+  `false` and `[]`.
+- **Actual:** A `confirmed`, flagged with P; R1 listed with `replaces_booking_id` A, `false` and `[]`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_the_original_stays_flagged_until_the_replacement_is_approved`
+
+### TC-VENUEBOOKINGS-088 — once the replacement is approved, A reads as replaced and is no longer flagged
+
+- **Scenario:** Approval is the first way the flag ends (AC4).
+- **Pre-conditions:** The shared data. `GET /bookings?event_id=E1` returns
+  A as the bookings service leaves it after approving R1:
+  `"status": "replaced"`, `"replaced_by_booking_id": "<R1>"`,
+  `"replaced_at": "2026-10-13T10:00:00Z"`. R1 is `confirmed`.
+- **Steps:**
+  1. As Venue Staff, `POST /venue-bookings/{R1}/decision` with `{"decision":"approved"}`.
+  2. As C2, `GET /venue-bookings?event_id=E1`.
+- **Expected:**
+  1. `200` with R1 `confirmed`, passed through. The composite sends one
+     decision call and doesn't write A itself.
+  2. A has `"status": "replaced"`, its `replaced_by_booking_id`,
+     `"requires_alternative_arrangements": false` and
+     `"unavailable_periods": []`, even though P still covers it. R1 is
+     `confirmed`.
+- **Actual:** Approval `200` with R1 confirmed, one decision call and no write to A; then A `replaced` with `replaced_by_booking_id` R1, `false` and `[]`; R1 `confirmed`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_once_approved_the_original_reads_replaced_and_unflagged`
+
+### TC-VENUEBOOKINGS-089 — a rejected replacement leaves A flagged
+
+- **Scenario:** Only approval ends the flag (AC4).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-087, but R1 is `rejected` with
+  reason "Hall C is being repainted".
+- **Steps:** `GET /venue-bookings?event_id=E1`.
+- **Expected:** A is still `confirmed` and flagged with P. R1 is
+  `rejected` with its reason.
+- **Actual:** A still `confirmed` and flagged with P; R1 `rejected` with its reason.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_the_original_stays_flagged_until_the_replacement_is_approved`
+
+### TC-VENUEBOOKINGS-090 — the Coordinator resolves the flag with a note, and a later period flags A again
+
+- **Scenario:** Resolving is the second way the flag ends. It covers the
+  periods C2 has dealt with, not future ones (AC4).
+- **Pre-conditions:** The shared data. The bookings fake answers
+  `POST /bookings/{A}/alternative-resolution` with A carrying
+  `"alternative_resolved_at": "2026-10-13T10:00:00Z"`,
+  `"alternative_resolved_by": "<C2>"` and
+  `"alternative_resolution_note": "Moved online for this session"`.
+- **Steps:**
+  1. `POST /venue-bookings/aaaaaaaa-…/resolution` with `{"note": "  Moved online for this session  "}`.
+  2. `GET /venue-bookings?event_id=E1`, with the bookings fake returning A
+     resolved as above and P the only period.
+  3. As step 2, but there is also period P2 on Studio B, `2026-11-13`
+     `11:00`–`13:00`, `created_at` `2026-10-14T08:00:00Z`.
+- **Expected:**
+  1. `200` with A as returned. The bookings fake got one
+     `POST /bookings/{A}/alternative-resolution` with
+     `{"note": "Moved online for this session"}` and C2's cookies. A's
+     `status` is unchanged (`confirmed`).
+  2. A has `false` and `[]`, and carries its resolution fields.
+  3. A has `true`, and `unavailable_periods` is P2 only.
+- **Actual:** `200` with A `confirmed`; one resolution post with the trimmed note and C2's cookies; then A `false`/`[]` with its note; with P2 created later, A `true` with P2 only.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_resolving_clears_the_flag_until_a_later_period`
+
+### TC-VENUEBOOKINGS-091 — resolving is refused for the wrong caller, an unflagged booking or a bad note
+
+- **Scenario:** The same gate as the search, plus the note rules (AC4).
+- **Steps / Expected:** `POST /venue-bookings/{id}/resolution`.
+  `POST /bookings/{id}/alternative-resolution` is never called in any of
+  these rows:
+  - Each row of TC-VENUEBOOKINGS-081 except the last, with a valid note → the same status and detail. For the unflagged rows the detail is `{"detail":"This booking doesn't need alternative arrangements"}`
+  - `{}`, `{"note": "   "}` → `422` with `errors.note`
+  - `{"note": <501 characters>}` → `422` with `errors.note`. Exactly 500 → `200`
+  - `{"note": "Fine", "alternative_resolved_by": "<C2>"}` → `422`
+  - The bookings fake answers the resolution with `500` → `502` `{"detail":"Bookings service unavailable"}`
+- **Actual:** Every gate row gave the same status, with "This booking doesn't need alternative arrangements" for unflagged rows; `{}`, blank and 501 characters `422` on `note`; 500 characters `200`; `alternative_resolved_by` `422`; a resolution `500` gave `502` Bookings. No resolution post in the refused rows.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_no_session_or_the_wrong_role_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_an_unknown_booking_or_another_coordinators_event_is_not_found`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_booking_without_the_flag_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_closed_event_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_bad_note_is_refused`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_500_character_note_is_accepted`; `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_a_failed_resolution_write_is_a_502`
+
+### TC-VENUEBOOKINGS-092 — resolving leaves a pending replacement request with Venue Staff
+
+- **Scenario:** Resolving the flag doesn't withdraw a replacement already
+  sent (agreed condition).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-087, with R1 `pending`.
+- **Steps:** `POST /venue-bookings/aaaaaaaa-…/resolution` with
+  `{"note": "Moved online for this session"}`.
+- **Expected:** `200`. The bookings fake got no call for R1: no decision,
+  release or update. R1 still appears in `GET /venue-bookings/pending` for
+  Venue Staff.
+- **Actual:** `200`; the only bookings write was A's resolution; R1 still in Venue Staff's pending list.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_resolving_leaves_a_pending_replacement_with_venue_staff`
+
 ## S-80 — change or cancel an individual venue booking
 
 Story: S-80 Change or Cancel an Individual Venue Booking.
@@ -1520,8 +1847,8 @@ Confirmed by the developer on 2026-10-14.
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| AC1: A Coordinator can change or cancel a single venue booking of an event | BOOKINGS-047, 048, 050, VENUEBOOKINGS-067, 068, 070, 110, FRONTEND-110, 111, E2E-235 |
-| AC2: The event's other venue bookings are not changed or removed | BOOKINGS-047, 050, VENUEBOOKINGS-067, 070, 110, E2E-235 |
+| AC1: A Coordinator can change or cancel a single venue booking of an event | BOOKINGS-057, 058, 060, VENUEBOOKINGS-093, 094, 096, 114, FRONTEND-117, 118, E2E-236 |
+| AC2: The event's other venue bookings are not changed or removed | BOOKINGS-057, 060, VENUEBOOKINGS-093, 096, 114, E2E-236 |
 | AC3: The change or cancellation is recorded in the event history | **Dropped by the developer on 2026-10-14** (the AC is being reworded); no history is recorded |
 
 Decisions agreed with the developer on 2026-10-14:
@@ -1545,7 +1872,7 @@ A Main Hall 09:00–12:00 `confirmed`, B Studio B 13:00–15:00 `held`,
 C Seminar Room 15:00–16:00 `pending`. Venues open `thu` 08:00–20:00,
 setup and turnaround 0.
 
-### TC-VENUEBOOKINGS-067 — the assigned Coordinator changes one booking
+### TC-VENUEBOOKINGS-093 — the assigned Coordinator changes one booking
 
 - **Scenario:** One booking moves; the event's others are untouched (S-80
   AC1, AC2).
@@ -1563,9 +1890,9 @@ setup and turnaround 0.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_the_assigned_coordinator_changes_one_booking`
 
-### TC-VENUEBOOKINGS-068 — an unsuitable change is refused before anything is written
+### TC-VENUEBOOKINGS-094 — an unsuitable change is refused before anything is written
 
-- **Pre-conditions:** As TC-VENUEBOOKINGS-067, but Studio C holds 40.
+- **Pre-conditions:** As TC-VENUEBOOKINGS-093, but Studio C holds 40.
 - **Steps:** `PATCH /venue-bookings/B`; then with `start_time` `17:00`,
   `end_time` `19:00` (outside E's window).
 - **Expected:** `422` with `errors.expected_attendance`; then `422` with
@@ -1574,7 +1901,7 @@ setup and turnaround 0.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_an_unsuitable_change_is_refused_before_anything_is_written`
 
-### TC-VENUEBOOKINGS-069 — a change that isn't allowed is refused
+### TC-VENUEBOOKINGS-095 — a change that isn't allowed is refused
 
 - **Steps:** `PATCH /venue-bookings/B` when:
   1. the caller isn't a Coordinator; 2. E isn't assigned to them (events
@@ -1589,10 +1916,10 @@ setup and turnaround 0.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_change_that_isnt_allowed_is_refused`; `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_conflicting_change_keeps_the_bookings_services_wording`
 
-### TC-VENUEBOOKINGS-070 — the assigned Coordinator cancels one booking
+### TC-VENUEBOOKINGS-096 — the assigned Coordinator cancels one booking
 
 - **Scenario:** One booking goes; the event's others stay (S-80 AC1, AC2).
-- **Pre-conditions:** As TC-VENUEBOOKINGS-067; bookings answers the delete
+- **Pre-conditions:** As TC-VENUEBOOKINGS-093; bookings answers the delete
   with `204`.
 - **Steps:** `DELETE /venue-bookings/A`.
 - **Expected:** `204`. Exactly one bookings write: `DELETE /bookings/A` with
@@ -1601,17 +1928,17 @@ setup and turnaround 0.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_the_assigned_coordinator_cancels_one_booking`
 
-### TC-VENUEBOOKINGS-071 — a cancellation that isn't allowed is refused
+### TC-VENUEBOOKINGS-097 — a cancellation that isn't allowed is refused
 
 - **Steps:** `DELETE /venue-bookings/A` in each case 1–5 of
-  TC-VENUEBOOKINGS-069.
+  TC-VENUEBOOKINGS-095.
 - **Expected:** The same statuses, with "cancelled" in place of "changed"
   in case 4. No bookings write.
 - **Actual:** The same five refusals, with "cancelled"; no write.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_cancellation_that_isnt_allowed_is_refused`
 
-### TC-VENUEBOOKINGS-072 — a dependency failure never reports success
+### TC-VENUEBOOKINGS-098 — a dependency failure never reports success
 
 - **Steps:** Change B, then cancel A, with the bookings write answering
   `500`; then with events, then venues, unreachable.

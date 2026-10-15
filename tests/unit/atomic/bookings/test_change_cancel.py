@@ -1,6 +1,6 @@
 """S-80: a Coordinator changes or cancels one booking.
 
-TC-BOOKINGS-047..051.
+TC-BOOKINGS-057..051.
 """
 
 from types import SimpleNamespace
@@ -59,7 +59,7 @@ def _deleted(db, rows):
     return delete
 
 
-# --- TC-BOOKINGS-047 -------------------------------------------------------
+# --- TC-BOOKINGS-057 -------------------------------------------------------
 @pytest.mark.parametrize("current", ["pending", "held", "confirmed"])
 def test_a_change_goes_back_to_pending_and_touches_only_this_booking(client, db, signed_in, current):
     query = lookups(db, [booking_row(status=current, **REVIEWED[current])], [], [])
@@ -81,7 +81,7 @@ def test_a_change_goes_back_to_pending_and_touches_only_this_booking(client, db,
     query.neq.assert_any_call("id", BOOKING_ID)
 
 
-# --- TC-BOOKINGS-048 -------------------------------------------------------
+# --- TC-BOOKINGS-058 -------------------------------------------------------
 def test_a_change_into_a_taken_slot_is_refused(client, db, signed_in):
     taken = {"id": "other", "status": "confirmed", "event_name": "Other", "venue_name": "Studio C",
              "booking_date": "2026-11-12", "start_time": "13:00:00", "end_time": "15:00:00"}
@@ -117,7 +117,7 @@ def test_moving_over_its_own_old_time_is_fine(client, db, signed_in):
     assert response.status_code == 200, response.text
 
 
-# --- TC-BOOKINGS-049 -------------------------------------------------------
+# --- TC-BOOKINGS-059 -------------------------------------------------------
 def test_a_rejected_booking_cannot_be_changed(client, db, signed_in):
     lookups(db, [booking_row(status="rejected", decided_by=STAFF, decided_at="2026-10-10T09:00:00+00:00",
                              decision_reason="Too small")])
@@ -148,7 +148,7 @@ def test_a_malformed_change_is_422(client, db, signed_in, body):
     db.schema.assert_not_called()
 
 
-# --- TC-BOOKINGS-050 -------------------------------------------------------
+# --- TC-BOOKINGS-060 -------------------------------------------------------
 @pytest.mark.parametrize("current", ["pending", "held", "confirmed"])
 def test_cancelling_deletes_that_booking_only(client, db, signed_in, current):
     lookups(db, [booking_row(status=current, **REVIEWED[current])])
@@ -174,7 +174,7 @@ def test_a_rejected_booking_cannot_be_cancelled(client, db, signed_in):
     table(db).delete.assert_not_called()
 
 
-# --- TC-BOOKINGS-051 -------------------------------------------------------
+# --- TC-BOOKINGS-061 -------------------------------------------------------
 def test_without_a_session_nothing_changes(client, db):
     assert client.patch(URL, json=CHANGE).status_code == 401
     assert client.delete(URL).status_code == 401

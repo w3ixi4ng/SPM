@@ -14,6 +14,7 @@ import {
   pendingListErrorMessage,
   placeVenueHold,
   releaseVenueHold,
+  replacementOriginLabel,
   shortTime,
 } from '../lib/venueBookings.js'
 import { optionLabel } from '../lib/venues.js'
@@ -171,6 +172,15 @@ export default function VenueBookingRequest() {
               {booking.venue_name} · {bookingDateLabel(booking.booking_date)},{' '}
               {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
             </p>
+            {replacementOriginLabel(booking) && (
+              // S-78: the Coordinator is replacing a booking an unavailable
+              // period affects. Approving this replaces that one.
+              <p className="font-ui text-sm -mt-4 mb-6" style={{ color: C.inkFaint }}>
+                {replacementOriginLabel(booking)} ({bookingDateLabel(booking.replaces.booking_date)},{' '}
+                {shortTime(booking.replaces.start_time)}–{shortTime(booking.replaces.end_time)}). Approving this
+                request releases that booking.
+              </p>
+            )}
 
             <Clashes booking={booking} />
 

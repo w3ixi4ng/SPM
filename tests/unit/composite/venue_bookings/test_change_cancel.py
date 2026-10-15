@@ -1,6 +1,6 @@
 """S-80: the assigned Coordinator changes or cancels one booking.
 
-TC-VENUEBOOKINGS-067..072. The fakes hold booking B of event E; any write
+TC-VENUEBOOKINGS-093..072. The fakes hold booking B of event E; any write
 the composite makes is recorded, so a write to another booking would show.
 """
 
@@ -49,7 +49,7 @@ def _no_writes(services):
     services.bookings.post.assert_not_called()
 
 
-# --- TC-VENUEBOOKINGS-067 ----------------------------------------------------
+# --- TC-VENUEBOOKINGS-093 ----------------------------------------------------
 def test_the_assigned_coordinator_changes_one_booking(client, writes):
     _booking(writes)
 
@@ -69,7 +69,7 @@ def test_the_assigned_coordinator_changes_one_booking(client, writes):
     writes.bookings.post.assert_not_called()
 
 
-# --- TC-VENUEBOOKINGS-068 ----------------------------------------------------
+# --- TC-VENUEBOOKINGS-094 ----------------------------------------------------
 def test_an_unsuitable_change_is_refused_before_anything_is_written(client, writes):
     _booking(writes)
     writes.set_venue(id=STUDIO_C, name="Studio C", capacity=40)
@@ -85,7 +85,7 @@ def test_an_unsuitable_change_is_refused_before_anything_is_written(client, writ
     _no_writes(writes)
 
 
-# --- TC-VENUEBOOKINGS-069 ----------------------------------------------------
+# --- TC-VENUEBOOKINGS-095 ----------------------------------------------------
 @pytest.mark.parametrize(
     ("setup", "expected_status", "expected_detail"),
     [
@@ -119,7 +119,7 @@ def test_a_conflicting_change_keeps_the_bookings_services_wording(client, writes
     assert response.json()["detail"] == detail
 
 
-# --- TC-VENUEBOOKINGS-070 ----------------------------------------------------
+# --- TC-VENUEBOOKINGS-096 ----------------------------------------------------
 def test_the_assigned_coordinator_cancels_one_booking(client, writes):
     _booking(writes, status="confirmed")
 
@@ -134,7 +134,7 @@ def test_the_assigned_coordinator_cancels_one_booking(client, writes):
     writes.bookings.post.assert_not_called()
 
 
-# --- TC-VENUEBOOKINGS-071 ----------------------------------------------------
+# --- TC-VENUEBOOKINGS-097 ----------------------------------------------------
 @pytest.mark.parametrize(
     ("setup", "expected_status", "expected_detail"),
     [
@@ -157,7 +157,7 @@ def test_a_cancellation_that_isnt_allowed_is_refused(client, writes, setup, expe
     _no_writes(writes)
 
 
-# --- TC-VENUEBOOKINGS-072 ----------------------------------------------------
+# --- TC-VENUEBOOKINGS-098 ----------------------------------------------------
 def test_a_failed_write_never_reports_success(client, writes):
     _booking(writes)
     writes.bookings.patch = AsyncMock(return_value=fake_response(500, {"detail": "Booking storage unavailable"}))

@@ -33,7 +33,7 @@ os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
 # service's conftest already loaded, so `pytest tests/unit` remains
 # collectable.
 _MODULE_NAMES = (
-    "app", "availability", "clients", "database", "occupancy", "schemas", "suitability",
+    "app", "availability", "clients", "database", "occupancy", "replacement", "schemas", "suitability",
     "unavailability",
 )
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}

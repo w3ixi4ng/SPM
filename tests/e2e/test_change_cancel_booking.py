@@ -1,8 +1,8 @@
-"""TC-E2E-235 -- a Coordinator changes one venue booking and cancels another;
+"""TC-E2E-236 -- a Coordinator changes one venue booking and cancels another;
 the event's other booking is untouched (S-80).
 
 The rules (who, which statuses, conflicts, suitability) are
-TC-BOOKINGS-047..051 and TC-VENUEBOOKINGS-067..072/110's job and are not
+TC-BOOKINGS-057..051 and TC-VENUEBOOKINGS-093..072/110's job and are not
 restaged here. This proves the change screen and the cancel panel through
 Kong, and that the rows on the event page reflect exactly one booking each.
 """
@@ -19,7 +19,7 @@ pytestmark = requires_env
 DAY = "2026-11-12"
 
 
-# --- TC-E2E-235 -----------------------------------------------------------
+# --- TC-E2E-236 -----------------------------------------------------------
 def test_a_coordinator_changes_one_booking_and_cancels_another(admin, page, make_user, sign_in):
     coordinator = make_user("event_coordinator")
     organiser = make_user("event_organiser")

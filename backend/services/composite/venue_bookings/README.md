@@ -15,6 +15,7 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `bookings` — `GET /bookings?status=live&from&venue_id`, `GET /blocks/{id}` | S-77: the bookings an unavailable period affects |
 | `events` — `GET /internal/events/assigned-active` | S-77: each affected event's current Coordinator |
 | `notifications` — `POST /internal/notifications` | S-77: tell those Coordinators that alternative arrangements are required |
+| `venues` — `GET /venues`; `bookings` — `GET /bookings/{id}`, `POST /bookings/{id}/alternative-resolution` | S-78: replacement venues and resolutions |
 
 Reached through Kong at `/api/venue-bookings`.
 
@@ -43,6 +44,9 @@ all read attempts fail, the existing safe `502` response is returned.
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30/S-77: mark a venue unavailable for a timed period; the response names the bookings it affects. See [S-77](#s-77-unavailable-periods). |
 | `POST` | `/venue-bookings/blocks/{id}/notify` | `venue_staff` | S-77: retry telling the Coordinators of the bookings a period affects. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
+| `GET` | `/venue-bookings/{id}/replacement-venues` | `event_coordinator` | S-78: venues that could replace an affected booking. See [S-78](#s-78-replacement-venues). |
+| `POST` | `/venue-bookings/{id}/replacement` | `event_coordinator` | S-78: request a replacement venue for an affected booking. |
+| `POST` | `/venue-bookings/{id}/resolution` | `event_coordinator` | S-78: resolve an affected booking's flag with a note. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
 ## Requests
@@ -460,3 +464,99 @@ The calendar's `blocked` entries now carry the period's `start_time` and
 Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
 recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
 and `pytest tests/e2e/test_mark_venue_unavailable.py`.
+
+
+## S-78 replacement venues
+
+A Coordinator can replace a booking an unavailable period affects with
+another venue, without entering the event again, or resolve the flag with a
+note.
+
+**Who and which booking.** All three routes are for the event's **current**
+Coordinator, checked with `GET /events/assigned/{event_id}` using the
+caller's session. The booking must carry S-77's flag
+(`requires_alternative_arrangements: true`). Its event must be `planning`,
+`confirmed`, `preparation` or `safety_changes_requested`.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `401` | `{"detail": "Not authenticated"}` | No valid session. |
+| `403` | `{"detail": "Permission denied"}` | Not a Coordinator. |
+| `404` | `{"detail": "Booking not found"}` | No such booking, or its event isn't assigned to the caller. |
+| `409` | `{"detail": "This booking doesn't need a replacement venue"}` (resolution: `"This booking doesn't need alternative arrangements"`) | Not flagged: pending, rejected, replaced, past, no period, or already resolved. |
+| `409` | `{"detail": "This event's venue bookings can no longer be changed"}` | The event is in any other status. |
+| `502` | `{"detail": "<Users\|Events\|Venues\|Bookings> service unavailable"}` | A downstream service failed. Never an empty result. |
+
+### `GET /venue-bookings/{id}/replacement-venues`
+
+`200`:
+
+```json
+{
+  "booking": {"id": "…", "venue_name": "Studio B", "booking_date": "2026-11-13", "start_time": "10:00:00", "end_time": "12:00:00"},
+  "venues": [{"id": "…", "name": "Hall C", "...": "every field, exactly as GET /venues returns it"}]
+}
+```
+
+Venues by name, each one both:
+
+- **suitable**, by the event's **current** requirements and the booking's
+  date and times — the same checks as `POST /venue-bookings`: capacity,
+  layout, facilities, accessibility, and the occupied window inside opening
+  hours;
+- **available** then — no held or confirmed booking within the venue's
+  setup + turnaround gap, and no unavailable period over its occupied window.
+  A pending request doesn't reserve time, so it doesn't count.
+
+The booking's own venue is never listed. `"venues": []` when none qualifies.
+
+### `POST /venue-bookings/{id}/replacement`
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `venue_id` | UUID | yes | |
+| `notes` | string or null | no | Blank becomes null. |
+
+Any other field is `422`. The request is stored for the booking's event,
+date and times, with `replaces_booking_id` set to the booking, and the
+event's details are copied in as for `POST /venue-bookings`. `201` with the
+stored request.
+
+- **One at a time.** If a pending or held replacement for this booking
+  exists, sending the same venue returns it with `201`. Any other venue is
+  `409` `{"detail": "A replacement request for this booking is already with Venue Staff"}`.
+  Once that request is rejected, another may be sent.
+- Refusals as for `POST /venue-bookings`: `422` `{"detail": "This venue can't take this booking", "errors": {...}}`,
+  the bookings service's slot `409`s passed through, `404` `{"detail": "Venue not found"}`.
+- **The original stays flagged** until Venue Staff approve the replacement.
+  Approving it (`POST /venue-bookings/{id}/decision`) makes the original
+  `replaced` — see the
+  [bookings contract](../../atomic/bookings/README.md#s-78-replacement-requests-and-resolutions).
+  A replaced booking is never flagged.
+
+### `POST /venue-bookings/{id}/resolution`
+
+Body `{"note": "Moved online for this session"}`: trimmed, 1–500 characters;
+any other field is `422`. `200` with the booking, which now carries
+`alternative_resolved_at`, `alternative_resolved_by` and
+`alternative_resolution_note`. The booking is otherwise unchanged. A
+replacement request already sent stays with Venue Staff.
+
+From then on the flag ignores every period created at or before
+`alternative_resolved_at`. A period created later flags the booking again.
+
+### Venue Staff's request page
+
+`GET /venue-bookings/{id}` adds `replaces`: `null`, or for a replacement
+request, the booking it replaces:
+
+```json
+{"replaces": {"id": "…", "venue_name": "Studio B", "booking_date": "2026-11-13", "start_time": "10:00:00", "end_time": "12:00:00", "status": "confirmed"}}
+```
+
+**Before running it:** the S-78 block in
+[`bookings.sql`](../../../sql/bookings.sql) run in both projects.
+
+Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
+recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
+and `pytest tests/e2e/test_replace_affected_booking.py`.
