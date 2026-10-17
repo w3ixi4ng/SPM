@@ -1837,3 +1837,112 @@ turnaround 0:
 - **Actual:** `200`; the only bookings write was A's resolution; R1 still in Venue Staff's pending list.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_replacement_venue.py::test_resolving_leaves_a_pending_replacement_with_venue_staff`
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+**Acceptance criteria → cases (all layers)**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: A Coordinator can change or cancel a single venue booking of an event | BOOKINGS-057, 058, 060, VENUEBOOKINGS-093, 094, 096, 114, FRONTEND-117, 118, E2E-236 |
+| AC2: The event's other venue bookings are not changed or removed | BOOKINGS-057, 060, VENUEBOOKINGS-093, 096, 114, E2E-236 |
+| AC3: The change or cancellation is recorded in the event history | **Dropped by the developer on 2026-10-14** (the AC is being reworded); no history is recorded |
+
+Decisions agreed with the developer on 2026-10-14:
+
+- **What changes:** venue, date, start and end time, notes. Checked exactly
+  like a new request (S-36 suitability, S-30/S-75 availability and blocks).
+- **A changed booking goes back to `pending`**, whatever it was. Its hold or
+  approval is cleared and the old slot is free at once; Venue Staff hold or
+  approve it again.
+- **Cancelling deletes the booking**, so its time shows as available (as
+  S-61).
+- **Who and when:** the event's assigned Coordinator, while the event is
+  `planning`, for `pending`, `held` or `confirmed` bookings. `rejected` ones
+  can't be changed or cancelled.
+- **One booking at a time.** No bulk action; touching one never touches
+  another. No reason is asked for.
+
+**Shared test data.** Coordinator K is assigned planning event E
+(`2026-11-12` 08:00–18:00, attendance 120). E has three bookings:
+A Main Hall 09:00–12:00 `confirmed`, B Studio B 13:00–15:00 `held`,
+C Seminar Room 15:00–16:00 `pending`. Venues open `thu` 08:00–20:00,
+setup and turnaround 0.
+
+### TC-VENUEBOOKINGS-093 — the assigned Coordinator changes one booking
+
+- **Scenario:** One booking moves; the event's others are untouched (S-80
+  AC1, AC2).
+- **Pre-conditions:** Coordinator K; the fakes return B, E (`planning`,
+  assigned to K) and Studio C (open, capacity 150, the event's needs met).
+  The bookings fake answers the change with B `pending` at the new time.
+- **Steps:** `PATCH /venue-bookings/B` with the test data.
+- **Test data:** `{"venue_id": V2, "booking_date": "2026-11-12", "start_time": "14:00", "end_time": "16:00", "notes": "Move to Studio C"}`
+- **Expected:** `200` with B `pending`. E is read through
+  `/events/assigned/E` with K's cookie. Exactly one bookings write:
+  `PATCH /bookings/B` with the venue's name looked up (never from the
+  browser), Studio C's setup and turnaround as params, and K's cookie. No
+  write to A or C.
+- **Actual:** `200` pending; the event read through `/events/assigned/E`; one `PATCH /bookings/B` with the looked-up venue name, the venue's 15/30 gap and the cookie; no other write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_the_assigned_coordinator_changes_one_booking`
+
+### TC-VENUEBOOKINGS-094 — an unsuitable change is refused before anything is written
+
+- **Pre-conditions:** As TC-VENUEBOOKINGS-093, but Studio C holds 40.
+- **Steps:** `PATCH /venue-bookings/B`; then with `start_time` `17:00`,
+  `end_time` `19:00` (outside E's window).
+- **Expected:** `422` with `errors.expected_attendance`; then `422` with
+  `errors.booking_date`. No bookings write.
+- **Actual:** Capacity and window each gave `422` with their error; no bookings write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_an_unsuitable_change_is_refused_before_anything_is_written`
+
+### TC-VENUEBOOKINGS-095 — a change that isn't allowed is refused
+
+- **Steps:** `PATCH /venue-bookings/B` when:
+  1. the caller isn't a Coordinator; 2. E isn't assigned to them (events
+  answers `404`); 3. E isn't `planning`; 4. B is `rejected`; 5. B is
+  missing; 6. the bookings service answers `409` with the S-30 conflict
+  wording.
+- **Expected:** 1 `403`; 2 `404` "Event not found"; 3 `409` (the S-36
+  not-in-planning message); 4 `409` "Only a pending, held or confirmed
+  booking can be changed"; 5 `404` "Booking not found"; 6 `409` with the
+  wording unchanged. No bookings write in 1–5.
+- **Actual:** Not a Coordinator `403`; not assigned `404`; not planning `409`; rejected `409`; missing `404`; no write. A bookings `409` clash reached the caller unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_change_that_isnt_allowed_is_refused`; `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_conflicting_change_keeps_the_bookings_services_wording`
+
+### TC-VENUEBOOKINGS-096 — the assigned Coordinator cancels one booking
+
+- **Scenario:** One booking goes; the event's others stay (S-80 AC1, AC2).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-093; bookings answers the delete
+  with `204`.
+- **Steps:** `DELETE /venue-bookings/A`.
+- **Expected:** `204`. Exactly one bookings write: `DELETE /bookings/A` with
+  K's cookie. No write to B or C.
+- **Actual:** `204`; one `DELETE /bookings/A` with the cookie; no other write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_the_assigned_coordinator_cancels_one_booking`
+
+### TC-VENUEBOOKINGS-097 — a cancellation that isn't allowed is refused
+
+- **Steps:** `DELETE /venue-bookings/A` in each case 1–5 of
+  TC-VENUEBOOKINGS-095.
+- **Expected:** The same statuses, with "cancelled" in place of "changed"
+  in case 4. No bookings write.
+- **Actual:** The same five refusals, with "cancelled"; no write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_cancellation_that_isnt_allowed_is_refused`
+
+### TC-VENUEBOOKINGS-098 — a dependency failure never reports success
+
+- **Steps:** Change B, then cancel A, with the bookings write answering
+  `500`; then with events, then venues, unreachable.
+- **Expected:** `502` each time; never `200`/`204`.
+- **Actual:** A bookings `500` on change and cancel, and events or venues unreachable, all gave `502`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_failed_write_never_reports_success`; `tests/unit/composite/venue_bookings/test_change_cancel.py::test_an_unreachable_service_never_reports_success`

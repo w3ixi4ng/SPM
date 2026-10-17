@@ -2044,3 +2044,42 @@ Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
 - **Actual:** All four failure classes map to controlled, actionable copy.
 - **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+### TC-FRONTEND-117 — which bookings offer Change and Cancel, and what the screens say
+
+- **Pre-conditions:** `frontend/src/lib/venueBookings.js` imported directly.
+- **Steps:** Call the helpers with each booking and event status.
+- **Expected:**
+  - Change and Cancel are offered for `pending`, `held` and `confirmed`
+    bookings of a `planning` event; not for `rejected`, and not for any
+    booking once the event isn't `planning`.
+  - A booking pre-fills the change form with its venue, date, `HH:MM` times
+    and notes.
+  - The cancel panel reads "Cancel Main Hall on 12 Nov 2026, 09:00–12:00?
+    Its time is freed for other events. Your other venue bookings stay as
+    they are."
+  - The notice after a change reads "Venue booking changed. It's pending
+    until Venue Staff review it again."; after a cancel, "Venue booking
+    cancelled. Its time is free for other events."
+- **Actual:** Offered for pending, held and confirmed in planning only; the form pre-filled with `HH:MM` times and notes; the prompt and both notices as specified.
+- **Status:** Pass
+- **Evidence:** `test_change_cancel_booking.mjs::which bookings offer Change and Cancel, and what the screens say`
+
+### TC-FRONTEND-118 — the change and cancel calls, and their failure messages
+
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:** Change `b 1/2` with a form; cancel `b 1/2`; map errors `409`,
+  `422`, `404`, `500`, `0` for each.
+- **Expected:** `PATCH /api/venue-bookings/b%201%2F2` with credentials and
+  `{venue_id, booking_date, start_time, end_time, notes}` (no `event_id`);
+  `DELETE /api/venue-bookings/b%201%2F2` with credentials. A `409` shows the
+  service's message; every other failure ends "The booking has not
+  changed."
+- **Actual:** Two `PATCH` and one `DELETE` to `/api/venue-bookings/b%201%2F2` with credentials; no `event_id`; blank notes sent as `null`; `409` shows the service's message, the rest end "The booking has not changed."
+- **Status:** Pass
+- **Evidence:** `test_change_cancel_booking.mjs::the change and cancel calls go through Kong`; `test_change_cancel_booking.mjs::a failed change or cancel says the booking has not changed`

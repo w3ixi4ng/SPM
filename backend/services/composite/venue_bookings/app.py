@@ -34,6 +34,7 @@ from schemas import (
     BookingDecision,
     ReplacementRequest,
     ResolutionRequest,
+    VenueBookingChange,
     VenueBookingRequest,
 )
 
@@ -336,6 +337,84 @@ async def submit_venue_booking(
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
     return response.json()
+
+
+# S-80: what a Coordinator may change or cancel; a rejected request is closed.
+CHANGEABLE_STATUSES = ("pending", "held", "confirmed")
+
+
+async def _changeable_booking(booking_id, action, request, events, bookings) -> tuple[dict, dict]:
+    """S-80: the booking, and its event -- read with the Coordinator's own
+    session, so the events service only returns it if they are assigned.
+    Refused unless the event is in planning and the booking is still open."""
+    booking = await _booking_by_id(bookings, booking_id)
+    event = await _fetch(
+        "Events", events, f'/events/assigned/{booking["event_id"]}', request.cookies, "Event not found"
+    )
+    if event.get("status") != "planning":
+        raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
+    if booking["status"] not in CHANGEABLE_STATUSES:
+        raise HTTPException(
+            status_code=409, detail=f"Only a pending, held or confirmed booking can be {action}"
+        )
+    return booking, event
+
+
+@app.patch("/venue-bookings/{booking_id}")
+async def change_venue_booking(
+    booking_id: UUID,
+    payload: VenueBookingChange,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-80: move one booking of an event; its other bookings are untouched.
+    Checked exactly like a new request, and back to pending for Venue Staff."""
+    await _authenticate(request, users, COORDINATOR_ROLE)
+    _, event = await _changeable_booking(booking_id, "changed", request, events, bookings)
+    venue = await _fetch(
+        "Venues", venues, f"/venues/{payload.venue_id}", request.cookies, "Venue not found"
+    )
+    problems = suitability.problems(payload, event, venue)
+    if problems:
+        return JSONResponse(status_code=422, content={"detail": UNSUITABLE, "errors": problems})
+
+    response = await _call("Bookings", bookings.patch(
+        f"/bookings/{booking_id}",
+        json={**payload.model_dump(mode="json"), "venue_name": venue["name"]},
+        params=occupancy.gap_params(venue),
+        cookies=request.cookies,
+    ))
+    conflict = _identified_conflict(response)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    return response.json()
+
+
+@app.delete(
+    "/venue-bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
+async def cancel_venue_booking(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-80: cancel one booking of an event. It is deleted, so its time is
+    free; the event's other bookings are untouched."""
+    await _authenticate(request, users, COORDINATOR_ROLE)
+    await _changeable_booking(booking_id, "cancelled", request, events, bookings)
+    response = await _call("Bookings", bookings.delete(
+        f"/bookings/{booking_id}", cookies=request.cookies,
+    ))
+    if response.status_code != status.HTTP_204_NO_CONTENT:
+        raise _unavailable("Bookings")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/venue-bookings")
