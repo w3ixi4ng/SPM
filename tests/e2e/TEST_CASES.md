@@ -17,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-13, branch `S-87/return-event-to-planning-after-safety-changes-requested`, commit `72886bb` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, merge tree of `833c9b2` and `sprint3` commit `d237cd0` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Combined S-77/S-87 browser regression: 5 passed |
+| Result | Targeted S-83/S-84/S-85 journeys and new integrity case: 4 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -1090,3 +1090,14 @@ Confirmed by the developer on 2026-10-14.
 - **Actual:** Chromium: Change opened the screen pre-filled 13:00; saving 15:00–17:00 returned to E with the changed notice, the Studio row Pending 15:00–17:00 and the Hall row still Confirmed 09:00–12:00; Keep booking changed nothing; Cancel booking showed the cancelled notice; after a reload only the Studio row remained.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_change_cancel_booking.py::test_a_coordinator_changes_one_booking_and_cancels_another[chromium]` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. With the S-77, S-78, S-30, S-33 and S-79 venue journeys: 8 passed, 1 failed (S-78's replacement journey: its venue search makes two sequential reads per venue, about 80 for the 41 venues on the test project, and outlasts the 20 s wait; S-80 changes nothing on that path). A first run had failed on a DNS outage and was rerun.
+
+## TC-E2E-237 — Lead sees profile-less Coordinators but not invalid owners
+
+- **Scenario:** The S-85 browser view distinguishes eligible Coordinators from active events with invalid owners, while preserving S-83 and S-84 controls.
+- **Pre-conditions:** Fresh `.env.test` stack and disposable fixtures: a profiled Coordinator with one event, a profile-less trusted Coordinator with zero events, and an active event whose Auth owner has been deleted. All fixture changes are cleaned up.
+- **Steps:** Sign in as Lead; inspect the oversight groups and separate integrity warning; use S-84 to reassign the valid event to the profile-less Coordinator; reload; inspect the S-83 assignment queue.
+- **Test data:** Profiled `Alex <alex@example.com>`; profile-less Auth identity `blair@example.com`; deleted owner D; one event for Alex and one orphaned event for D.
+- **Expected:** Blair appears as a zero-assignment Coordinator using Auth identity display. D never appears as a Coordinator group; its event is reported only in the integrity warning. Reassignment moves the valid event to Blair and updates counts both immediately and after reload. The S-83 queue remains available; the orphan's assignment is not changed.
+- **Actual:** Chromium showed the profile-less Coordinator under its Auth email with count 0 and the deleted owner's event only in the integrity warning. The email-labelled S-84 choice moved the valid event and updated counts before and after reload; the S-83 queue remained visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_sees_profileless_coordinator_and_invalid_assignment_separately[chromium]`; freshly recreated `.env.test` stack, 2026-10-18, after merging `sprint3`; four targeted browser journeys passed.

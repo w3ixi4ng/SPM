@@ -9,9 +9,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | Targeted S-85 case and S-84 regression: 2 passed |
+| Result | Targeted S-83/S-84/S-85 regressions and new integrity case: 4 passed |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -282,3 +282,14 @@ must no longer execute after S-83 replaces that workflow.
   received `403`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_overview_groups_and_tracks_reassignment`
+
+## TC-EVENTREQUESTS-111 — real Auth eligibility survives missing profiles and invalid owners
+
+- **Scenario:** The real S-85 endpoint uses complete trusted Auth eligibility across Users, Events, Kong, and the test Supabase project.
+- **Pre-conditions:** A freshly recreated `.env.test` stack; disposable test Auth Coordinators A/B, with A profiled and B profile-less; a disposable non-Coordinator N; active events for A and N; and a deleted test Auth owner D with an existing event. B has no active event initially. Fixtures must clean up every row and account they create.
+- **Steps:** Read the Lead overview through Kong, inspect groups and `invalid_assignments`, then read S-83 candidates and attempt S-84 reassignment to B and N.
+- **Test data:** A has one active event; B has zero before reassignment; N and D each own one active event; all fixture emails are unique per run.
+- **Expected:** A and B are the only fixture Coordinator groups; B appears with its Auth email and count zero before reassignment. N/D events appear only as integrity diagnostics, not groups. B is an eligible S-83/S-84 candidate and N is rejected; a successful A→B reassignment yields updated counts without changing N/D ownership. Fixture cleanup leaves the project as it was.
+- **Actual:** The real Auth pool included profile-less B in the overview and candidate list; wrong-role N and deleted D were diagnostics only. N was refused as a target, A→B succeeded, and the invalid assignments remained unchanged. The integration fixture event names were absent after cleanup.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners`; `.env.test` stack recreated and URL checked, 2026-10-18.

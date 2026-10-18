@@ -7,9 +7,9 @@ clients are faked; no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
 | Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 80 passed, 17 superseded S-12 cases skipped; 832 passed, 17 skipped across `tests/unit` |
+| Result | 86 passed, 17 superseded S-12 cases skipped; 840 passed, 17 skipped across `tests/unit` |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -956,10 +956,12 @@ locally on 2026-10-09.
   assigned rows; separately, both are empty.
 - **Steps:** Read the overview for each state.
 - **Expected:** Existing Coordinators are returned with count 0 and empty
-  event lists; a completely empty pool returns `{"coordinators":[]}` with
-  `200`, never a fabricated error or missing shape.
+  event lists; a completely empty pool returns
+  `{"coordinators":[],"invalid_assignments":[]}` with `200`, never a
+  fabricated error or missing shape.
 - **Actual:** An existing idle Coordinator returned count 0 and `events: []`;
-  an empty pool returned `{"coordinators": []}` without a profile call.
+  an empty pool returned `{"coordinators": [], "invalid_assignments": []}`
+  without a profile call.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_overview_handles_empty_events_and_empty_pool`
 
@@ -976,3 +978,30 @@ locally on 2026-10-09.
   controlled `502`; notification and Events write methods remained untouched.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_overview_dependency_failures_are_controlled_and_read_only`
+
+## S-85 oversight integrity regression — confirmed 2026-10-18
+
+These cases supplement the already-confirmed S-83 cases 043–052, S-84 cases
+053–058, and S-85 cases 059–063. They do not replace those regressions.
+
+## TC-EVENTREQUESTS-064 — only trusted pool members receive oversight groups
+
+- **Scenario:** Active events assigned to an ineligible or nonexistent owner are reported separately, never presented as Coordinator groups.
+- **Pre-conditions:** The Users coordinator pool contains A only. Events returns one active event for A, one for a deleted Auth user D, and one for a user N whose trusted role is `safety_officer`; profile lookup may return a profile for N but none for D.
+- **Steps:** Read `GET /event-requests/coordinator-overview`; inspect groups, counts, and integrity diagnostics; repeat for each of the five existing active statuses.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; N `99999999-9999-4999-8999-999999999999`; statuses `submitted`, `under_review`, `returned`, `planning`, `confirmed`.
+- **Expected:** Exactly A is a Coordinator group, with only A's events and its unchanged active-assignment count. D and N receive no group even if a profile exists; their event records remain untouched and appear only in a separate `invalid_assignments` diagnostic containing event ID/name/status and assigned owner ID. No assignment, notification, or other write is attempted.
+- **Actual:** For each of the five active statuses, only A was grouped and counted. The deleted and wrong-role owners appeared as two separate integrity records; no write method was called.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_reports_invalid_owners_without_creating_groups`; local unit run, 2026-10-18.
+
+## TC-EVENTREQUESTS-065 — profile-less trusted Coordinators remain visible and countable
+
+- **Scenario:** S-85 oversight groups every trusted Coordinator, regardless of profile or current workload.
+- **Pre-conditions:** The trusted pool contains A with a profile and one active event, B without a profile and two active events, and C without a profile and no active events. The Users pool supplies safe Auth identity display fields for B and C.
+- **Steps:** Read the overview; inspect each group's identity, event ownership, count, and ordering; reassign A's event to C through the existing S-84 path and read the overview again.
+- **Test data:** A `Alex <alex@example.com>`; B Auth email `blair@example.com`; C Auth email `casey@example.com`; event counts 1/2/0 before reassignment.
+- **Expected:** Exactly three groups appear, using the profile display for A and Auth email display for B/C, with counts 1/2/0. B's two events appear only under B; C remains visible while idle. After S-84 reassignment, the next overview reports 0/2/1, while the existing target-role validation, queue, and notification behavior remain unchanged.
+- **Actual:** All three trusted Coordinators appeared with counts 1/2/0 and profile-less Auth email display. The S-84 transfer to idle C succeeded; a fresh overview returned counts 0/2/1.
+- **Status:** Pass
+- **Evidence:** `test_s85.py::test_overview_groups_profileless_trusted_coordinators_and_keeps_idle`; local unit run, 2026-10-18.

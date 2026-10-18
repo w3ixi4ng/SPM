@@ -429,14 +429,7 @@ async def coordinator_overview(
         raise HTTPException(status_code=502, detail="Events service unavailable")
 
     rows = response.json()
-    coordinator_by_id = {item["id"]: item for item in coordinators}
-    organiser_ids = [row["organiser_id"] for row in rows]
-    missing_owner_ids = [
-        row["assigned_coordinator_id"]
-        for row in rows
-        if row["assigned_coordinator_id"] not in coordinator_by_id
-    ]
-    profiles = await _profiles_by_id(users, organiser_ids + missing_owner_ids)
+    profiles = await _profiles_by_id(users, [row["organiser_id"] for row in rows])
 
     groups = {
         item["id"]: {
@@ -446,19 +439,20 @@ async def coordinator_overview(
         }
         for item in coordinators
     }
+    invalid_assignments = []
 
     for row in rows:
         owner_id = row["assigned_coordinator_id"]
         if owner_id not in groups:
-            owner = profiles.get(
-                owner_id,
-                {"id": owner_id, "name": "Unknown coordinator", "email": None},
+            invalid_assignments.append(
+                {
+                    "event_id": row["id"],
+                    "name": row["name"],
+                    "status": row["status"],
+                    "assigned_coordinator_id": owner_id,
+                }
             )
-            groups[owner_id] = {
-                "coordinator": owner,
-                "active_assignment_count": 0,
-                "events": [],
-            }
+            continue
 
         owner = groups[owner_id]["coordinator"]
         organiser = profiles.get(
@@ -479,7 +473,7 @@ async def coordinator_overview(
             group["coordinator"]["id"],
         ),
     )
-    return {"coordinators": ordered}
+    return {"coordinators": ordered, "invalid_assignments": invalid_assignments}
 
 
 @app.post("/event-requests/{event_id}/assignment")
