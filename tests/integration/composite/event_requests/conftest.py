@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from supabase import create_client
+from tests.supabase_client import create_client
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ENV_TEST = REPO_ROOT / ".env.test"

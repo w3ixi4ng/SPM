@@ -43,7 +43,8 @@ test('saved booking statuses have distinct labels and safe failure messages', ()
 })
 
 test('overlap conflict identifies the unavailable venue slot', () => {
-  const detail = 'Studio B is already confirmed on 12 Nov 2026 from 10:00 to 12:00.'
+  // S-76 replaced S-38's wording; it still identifies the venue, date and time.
+  const detail = "Can't confirm this booking: it overlaps Alumni talk (confirmed), which occupies Studio B on 12 Nov 2026 from 10:00 to 12:00."
   assert.equal(bookingDecisionErrorMessage({ status: 409, message: detail }), detail)
   assert.doesNotMatch(bookingDecisionErrorMessage({ status: 409, message: detail }), /decision saved/i)
 })

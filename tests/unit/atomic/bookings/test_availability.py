@@ -1,4 +1,5 @@
-"""S-30: exclusive holds, venue blocks and the calendar's lookups."""
+"""S-30: exclusive holds, venue blocks and the calendar's lookups. S-77 made
+blocks timed periods; its own cases are in test_unavailable_periods.py."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -15,7 +16,9 @@ BLOCK = {
     'venue_id': STUDIO_B,
     'venue_name': 'Studio B',
     'start_date': '2026-11-13',
+    'start_time': '09:00',
     'end_date': '2026-11-16',
+    'end_time': '17:00',
     'reason': 'maintenance',
     'note': '  Ceiling repair  ',
 }
@@ -24,6 +27,8 @@ BLOCK = {
 def block_row(**changes):
     row = {
         **BLOCK,
+        'start_time': '09:00:00',
+        'end_time': '17:00:00',
         'note': 'Ceiling repair',
         'id': BLOCK_ID,
         'created_by': STAFF,
@@ -131,7 +136,7 @@ def test_a_request_on_a_blocked_day_is_refused(client, db, day):
     response = client.post('/bookings', json={**BOOKING, 'booking_date': day})
 
     assert response.status_code == 409
-    assert response.json() == {'detail': 'Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.'}
+    assert response.json() == {'detail': 'Studio B is unavailable from 13 Nov 2026 09:00 to 16 Nov 2026 17:00.'}
     table(db).insert.assert_not_called()
     query.lte.assert_called_once_with('start_date', day)
     query.gte.assert_called_once_with('end_date', day)
@@ -154,7 +159,7 @@ def test_a_pending_request_on_a_blocked_day_cannot_be_confirmed(client, db, auth
     response = client.post(f'/bookings/{booking["id"]}/decision', json={'decision': 'approved'}, cookies=COOKIE)
 
     assert response.status_code == 409
-    assert response.json() == {'detail': 'Studio B is unavailable from 13 Nov 2026 to 16 Nov 2026.'}
+    assert response.json() == {'detail': 'Studio B is unavailable from 13 Nov 2026 09:00 to 16 Nov 2026 17:00.'}
     table(db).update.assert_not_called()
 
 
@@ -223,9 +228,9 @@ def test_a_block_may_cover_existing_bookings_without_changing_them(client, db, a
 
 # --- TC-BOOKINGS-032 ------------------------------------------------------
 @pytest.mark.parametrize('changes, field, message', [
-    ({'end_date': '2026-11-12'}, 'body', 'end_date must be on or after start_date'),
+    ({'end_date': '2026-11-12'}, 'body', 'The period must end after it starts'),
     ({'reason': 'flood'}, 'reason', None),
-    ({'reason': 'other', 'note': '  '}, 'body', 'Add a note when the reason is other'),
+    ({'reason': 'other', 'note': '  '}, 'body', 'Add a description when the reason is other'),
     ({'created_by': STAFF}, 'created_by', None),
 ])
 def test_invalid_blocks_are_refused_with_a_field_error(client, db, auth, changes, field, message):

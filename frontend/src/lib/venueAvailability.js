@@ -1,20 +1,22 @@
 import { requestJSON } from './api.js'
-import { bookingStatusMeta, shortTime } from './venueBookings.js'
-import { optionLabel, shiftClock, WEEK } from './venues.js'
+import { blockReasonLabel, bookingDateLabel, bookingStatusMeta, shortTime } from './venueBookings.js'
+import { shiftClock, WEEK } from './venues.js'
 
 // S-30: a venue's availability calendar. A pending request is a tentative
 // hold, a confirmed one is shown as just "Booked", and Venue Staff can mark
-// whole days unavailable. The venue_bookings composite decides what each role
-// may see; this file only decides how the calendar looks. Dates are ISO
-// "YYYY-MM-DD" strings throughout: a booking is a calendar date at the venue,
-// not an instant, so no timezone ever applies to them.
+// a venue unavailable -- since S-77 for a timed period, from a start date and
+// time up to an end date and time. The venue_bookings composite decides what
+// each role may see; this file only decides how the calendar looks. Dates are
+// ISO "YYYY-MM-DD" strings throughout: a booking is a calendar date at the
+// venue, not an instant, so no timezone ever applies to them.
 
-export const BLOCK_REASONS = Object.freeze(['maintenance', 'renovation', 'safety', 'internal_activity', 'other'])
+export const BLOCK_REASONS = Object.freeze(['maintenance', 'equipment_failure', 'renovation', 'safety', 'other'])
 
 const ROSE = '#B25547'
 const GREEN = '#3F8F5F'
 const SKY = '#3C6E96'
 const INK_FAINT = '#4C5A70'
+const INK = '#10192B'
 
 // Every state carries a text label; the colour only ever repeats it, and no
 // two states share one. Booked is red -- taken -- so it never reads as free.
@@ -23,6 +25,7 @@ export const STATE_META = Object.freeze({
   held: { label: 'Tentatively held', color: bookingStatusMeta('pending').color },
   confirmed: { label: 'Booked', color: ROSE },
   blocked: { label: 'Unavailable', color: SKY },
+  partly_blocked: { label: 'Partly unavailable', color: INK },
   closed: { label: 'Closed', color: INK_FAINT },
 })
 
@@ -120,7 +123,7 @@ export function shortDayLabel(day) {
 }
 
 export function blockLabel(reason) {
-  return `Unavailable — ${optionLabel(reason)}`
+  return `Unavailable — ${blockReasonLabel(reason)}`
 }
 
 const NO_GAP = Object.freeze({ setup: 0, turnaround: 0 })
@@ -144,23 +147,55 @@ function entryItem(entry, gap = NO_GAP) {
   return { state: entry.state, label, color: meta.color }
 }
 
-// One day of the range. A block outranks everything, closed included -- a
-// venue under repair is unavailable, whatever its hours say.
+const MIDNIGHT = '00:00:00'
+
+// S-77: a period runs from its start up to, not including, its end, so one
+// ending at 00:00 stopped the day before.
+function periodTouches(entry, iso) {
+  if (entry.start_date > iso || entry.end_date < iso) return false
+  return !(entry.end_date === iso && entry.end_time === MIDNIGHT)
+}
+
+function periodCovers(entry, iso) {
+  const startsBefore = entry.start_date < iso || entry.start_time === MIDNIGHT
+  return startsBefore && entry.end_date > iso
+}
+
+// The part of the day a period takes, for a day it only partly covers.
+function periodNote(entry, iso) {
+  const starts = entry.start_date === iso && entry.start_time !== MIDNIGHT
+  const ends = entry.end_date === iso
+  let when = `until ${shortTime(entry.end_time)}`
+  if (starts && ends) when = `${shortTime(entry.start_time)}–${shortTime(entry.end_time)}`
+  else if (starts) when = `from ${shortTime(entry.start_time)}`
+  return { label: `Unavailable ${when} · ${blockReasonLabel(entry.reason)}`, block: entry }
+}
+
+// One day of the range. A period covering the whole day outranks
+// everything, closed included -- a venue under repair is unavailable,
+// whatever its hours say. A period covering part of the day is listed in the
+// day's detail; with nothing else on, the day reads Partly unavailable.
 function dayOf(iso, entries, operatingHours, gap) {
-  const block = entries.find((entry) => entry.state === 'blocked' && entry.start_date <= iso && iso <= entry.end_date)
+  const touching = entries.filter((entry) => entry.state === 'blocked' && periodTouches(entry, iso))
+  const block = touching.find((entry) => periodCovers(entry, iso))
   if (block) {
-    return { date: iso, state: 'blocked', label: blockLabel(block.reason), color: STATE_META.blocked.color, items: [], block }
+    return { date: iso, state: 'blocked', label: blockLabel(block.reason), color: STATE_META.blocked.color, items: [], periods: [], block }
   }
+  const periods = touching.map((entry) => periodNote(entry, iso))
   const items = entries
     .filter((entry) => entry.state !== 'blocked' && entry.start_date === iso)
     .sort((a, b) => a.start_time.localeCompare(b.start_time))
     .map((entry) => entryItem(entry, gap))
   if (items.length > 0) {
     const state = items.some((item) => item.state === 'confirmed') ? 'confirmed' : 'held'
-    return { date: iso, state, label: items.map((item) => item.label).join(', '), color: STATE_META[state].color, items }
+    return { date: iso, state, label: items.map((item) => item.label).join(', '), color: STATE_META[state].color, items, periods }
+  }
+  if (periods.length > 0) {
+    const meta = STATE_META.partly_blocked
+    return { date: iso, state: 'partly_blocked', label: meta.label, color: meta.color, items: [], periods }
   }
   const state = isOpen(operatingHours, iso) ? 'available' : 'closed'
-  return { date: iso, state, label: STATE_META[state].label, color: STATE_META[state].color, items: [] }
+  return { date: iso, state, label: STATE_META[state].label, color: STATE_META[state].color, items: [], periods: [] }
 }
 
 export function availabilityDays({ from, to }, entries, operatingHours, gap = NO_GAP) {
@@ -218,17 +253,21 @@ export function availabilityErrorMessage(error) {
 }
 
 export function emptyBlockForm(venueId, from) {
-  return { venueId, startDate: from, endDate: from, reason: '', note: '' }
+  return { venueId, startDate: from, startTime: '', endDate: from, endTime: '', reason: '', note: '' }
 }
 
-// What would stop the block being saved, before anything is sent. The
-// bookings service checks the same rules again.
+// What would stop the period being saved, before anything is sent. The
+// bookings service checks the same rules again. Times are "HH:MM", so the
+// date and time compare as one string.
 export function validateBlockForm(form) {
   const errors = []
-  if (!form.startDate || !form.endDate) errors.push('Choose the first and last unavailable day.')
-  else if (form.endDate < form.startDate) errors.push('The last day must be on or after the first day.')
+  if (!form.startDate || !form.startTime) errors.push('Choose when the unavailable period starts.')
+  if (!form.endDate || !form.endTime) errors.push('Choose when the unavailable period ends.')
+  if (errors.length === 0 && `${form.endDate}T${form.endTime}` <= `${form.startDate}T${form.startTime}`) {
+    errors.push('The period must end after it starts.')
+  }
   if (!form.reason) errors.push('Choose a reason.')
-  else if (form.reason === 'other' && !form.note.trim()) errors.push('Add a note saying why the venue is unavailable.')
+  else if (form.reason === 'other' && !form.note.trim()) errors.push('Describe the operational reason.')
   return errors
 }
 
@@ -236,7 +275,9 @@ export function blockFormToPayload(form) {
   return {
     venue_id: form.venueId,
     start_date: form.startDate,
+    start_time: form.startTime,
     end_date: form.endDate,
+    end_time: form.endTime,
     reason: form.reason,
     note: form.note.trim() || null,
   }
@@ -248,6 +289,48 @@ export function addVenueBlock(form) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(blockFormToPayload(form)),
   })
+}
+
+// S-77: tell the Coordinators of the bookings a period affects again, after
+// the first attempt failed. Nobody is told twice.
+export function retryBlockNotifications(id) {
+  return requestJSON(`/venue-bookings/blocks/${encodeURIComponent(id)}/notify`, { method: 'POST' })
+}
+
+function affectedRow(booking) {
+  return [
+    booking.event_name,
+    bookingDateLabel(booking.booking_date),
+    `${shortTime(booking.start_time)}–${shortTime(booking.end_time)}`,
+    STATE_META[booking.status]?.label ?? booking.status,
+    booking.coordinator_name,
+  ].join(' · ')
+}
+
+// S-77: what Venue Staff are told once a period is saved -- the bookings it
+// affects, and whether their Coordinators know. `retry` shows Notify
+// Coordinators. `venueName` is used when the response is a retry's, which
+// carries no block.
+export function affectedBookingsSummary(response, venueName = response.venue_name) {
+  const heading = `${venueName} marked unavailable`
+  const affected = response.affected_bookings
+  if (affected == null) {
+    return {
+      heading,
+      line: "The period is saved, but we couldn't check which bookings it affects.",
+      rows: [],
+      retry: true,
+    }
+  }
+  const rows = affected.map(affectedRow)
+  if (rows.length === 0) return { heading, line: 'No bookings are affected.', rows, retry: false }
+  const count = rows.length === 1
+    ? '1 booking needs alternative arrangements.'
+    : `${rows.length} bookings need alternative arrangements.`
+  if (!response.coordinators_notified) {
+    return { heading, line: "The period is saved, but the Coordinators haven't been notified yet.", rows, retry: true }
+  }
+  return { heading, line: `${count} Their Coordinators have been notified.`, rows, retry: false }
 }
 
 export function removeVenueBlock(id) {

@@ -8,7 +8,12 @@ pytestmark = requires_env
 
 # S-75 adds a live clash warning to listed rows (and, on held/confirmed rows,
 # the venue's setup and turnaround). These compare the booking itself.
-S75_FIELDS = {"clashes", "setup_minutes", "turnaround_minutes"}
+# Read-time fields the composite adds to each row: S-75's clash warning and the
+# venue's times, and S-77's alternative-arrangements flag.
+S75_FIELDS = {
+    "clashes", "setup_minutes", "turnaround_minutes",
+    "requires_alternative_arrangements", "unavailable_periods",
+}
 
 
 def booking_only(row):
@@ -25,6 +30,13 @@ def other_coordinators(admin):
     finally:
         for user in created:
             admin.auth.admin.delete_user(user['id'])
+
+
+def unchanged(after: dict, before: dict) -> bool:
+    """Every field the row had before still holds the same value. Columns
+    added to the shared test project while the suite runs are not a rewrite
+    by the decision, so they are ignored."""
+    return {key: after.get(key) for key in before} == before
 
 
 def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_client, world, other_coordinators):
@@ -56,8 +68,8 @@ def test_saved_decisions_visible_only_under_existing_event_access(admin, auth_cl
     pending = httpx.get(f'{GATEWAY_BASE_URL}/venue-bookings/pending', headers=staff, timeout=20)
     assert pending.status_code == 200
     assert not {r['id'] for r in saved} & {r['id'] for r in pending.json()}
-    assert admin.schema('events').table('events').select('*').eq('id', event_id).execute().data[0] == before_event
-    assert admin.schema('venues').table('venues').select('*').eq('id', world['venue_id']).execute().data[0] == before_venue
+    assert unchanged(admin.schema('events').table('events').select('*').eq('id', event_id).execute().data[0], before_event)
+    assert unchanged(admin.schema('venues').table('venues').select('*').eq('id', world['venue_id']).execute().data[0], before_venue)
     # Existing access rule remains: even the requester loses access after reassignment.
     new_assigned, unrelated = other_coordinators
     admin.schema('events').table('events').update({'assigned_coordinator_id': new_assigned['id']}).eq('id', event_id).execute()

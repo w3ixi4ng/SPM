@@ -91,6 +91,18 @@ create table if not exists events.events (
   -- submitted_at is cleared-then-reset across a draft/submit cycle.
   decided_at                 timestamptz,
 
+  -- S-86: the current Operational Safety Check is independent of the Event
+  -- Coordinator's original request decision above. A safety rejection is a
+  -- rejection of the arrangements, not a rejection of the event request.
+  safety_decision            text,
+  safety_decision_reason     text,
+  safety_officer_id          uuid,
+  safety_decided_at          timestamptz,
+  -- S-87: append-only audit records for every completed safety review. The
+  -- current decision fields above may be cleared when revised arrangements
+  -- are resubmitted; this history is never cleared or replaced.
+  safety_review_history      jsonb not null default '[]'::jsonb,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -105,7 +117,11 @@ create table if not exists events.events (
   -- underway. There is no 'approved' status; approved is only ever the
   -- recorded decision (see the decision column).
   constraint events_status_allowed
-    check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned')),
+    check (status in (
+      'draft', 'submitted', 'under_review', 'planning', 'confirmed',
+      'preparation', 'safety_rejected', 'safety_changes_requested',
+      'cancelled', 'rejected', 'returned'
+    )),
 
   constraint events_name_not_blank
     check (name is null or btrim(name) <> ''),
@@ -186,8 +202,11 @@ create table if not exists events.events (
   -- always do.
   constraint events_decision_matches_status
     check (
-      (status in ('draft', 'submitted') and decision is null)
-      or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
+      (status in ('draft', 'submitted', 'under_review') and decision is null)
+      or (status in (
+        'planning', 'confirmed', 'preparation', 'safety_rejected',
+        'safety_changes_requested', 'cancelled', 'rejected', 'returned'
+      ) and decision is not null)
     ),
 
   constraint events_decision_allowed
@@ -218,6 +237,49 @@ create table if not exists events.events (
     check (
       (decision is null and decided_at is null)
       or (decision is not null and decided_at is not null)
+    ),
+
+  constraint events_safety_decision_allowed
+    check (
+      safety_decision is null
+      or safety_decision in ('approved', 'rejected', 'changes_requested')
+    ),
+
+  constraint events_safety_review_history_array
+    check (jsonb_typeof(safety_review_history) = 'array'),
+
+  constraint events_safety_state_consistent
+    check (
+      (
+        safety_decision is null
+        and safety_decision_reason is null
+        and safety_officer_id is null
+        and safety_decided_at is null
+        and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+      )
+      or (
+        safety_decision = 'approved'
+        and safety_decision_reason is null
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'preparation'
+      )
+      or (
+        safety_decision = 'rejected'
+        and safety_decision_reason is not null
+        and btrim(safety_decision_reason) <> ''
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'safety_rejected'
+      )
+      or (
+        safety_decision = 'changes_requested'
+        and safety_decision_reason is not null
+        and btrim(safety_decision_reason) <> ''
+        and safety_officer_id is not null
+        and safety_decided_at is not null
+        and status = 'planning'
+      )
     ),
 
   constraint events_technical_support_details_not_blank
@@ -287,15 +349,102 @@ alter table events.events
   add column if not exists assigned_technical_support_id uuid,
   add column if not exists technical_support_assigned_at timestamptz;
 
+-- S-86/S-87 upgrade path. The four scalar fields form the current decision;
+-- S-87 adds an append-only JSON history so resubmission can clear the current
+-- blocker without deleting its audit record.
+alter table events.events
+  add column if not exists safety_decision text,
+  add column if not exists safety_decision_reason text,
+  add column if not exists safety_officer_id uuid,
+  add column if not exists safety_decided_at timestamptz,
+  add column if not exists safety_review_history jsonb not null default '[]'::jsonb;
+
+-- Preserve pre-S-87 current decisions as review 1 before any lifecycle
+-- migration. Reapplying the file is harmless because only empty histories are
+-- backfilled.
+update events.events
+set safety_review_history = jsonb_build_array(
+  jsonb_build_object(
+    'review_number', 1,
+    'decision', safety_decision,
+    'reason', safety_decision_reason,
+    'safety_officer_id', safety_officer_id,
+    'decided_at', safety_decided_at
+  )
+)
+where safety_decision is not null
+  and safety_review_history = '[]'::jsonb;
+
+alter table events.events drop constraint if exists events_safety_review_history_array;
+alter table events.events add constraint events_safety_review_history_array
+  check (jsonb_typeof(safety_review_history) = 'array');
+
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
-  check (status in ('draft', 'submitted', 'planning', 'confirmed', 'cancelled', 'rejected', 'returned'));
+  check (status in (
+    'draft', 'submitted', 'under_review', 'planning', 'confirmed',
+    'preparation', 'safety_rejected', 'safety_changes_requested',
+    'cancelled', 'rejected', 'returned'
+  ));
 
 alter table events.events drop constraint if exists events_decision_matches_status;
 alter table events.events add constraint events_decision_matches_status
   check (
-    (status in ('draft', 'submitted') and decision is null)
-    or (status in ('planning', 'confirmed', 'cancelled', 'rejected', 'returned') and decision is not null)
+    (status in ('draft', 'submitted', 'under_review') and decision is null)
+    or (status in (
+      'planning', 'confirmed', 'preparation', 'safety_rejected',
+      'safety_changes_requested', 'cancelled', 'rejected', 'returned'
+    ) and decision is not null)
+  );
+
+alter table events.events drop constraint if exists events_safety_decision_allowed;
+alter table events.events add constraint events_safety_decision_allowed
+  check (
+    safety_decision is null
+    or safety_decision in ('approved', 'rejected', 'changes_requested')
+  );
+
+alter table events.events drop constraint if exists events_safety_state_consistent;
+-- Existing S-86 change requests used the transient status below. S-87 makes
+-- their return automatic while the preserved current decision marks why the
+-- event is back in planning.
+update events.events
+set status = 'planning'
+where status = 'safety_changes_requested'
+  and safety_decision = 'changes_requested';
+
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'preparation'
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'planning'
+    )
   );
 
 alter table events.events
@@ -325,6 +474,33 @@ alter table events.events add constraint events_technical_support_state_consiste
     )
   );
 
+-- S-62 upgrade path. Safe to run repeatedly. An Organiser's cancellation
+-- request is stored on the event: one per event, all three fields set
+-- together or none. Requesting never changes status -- the event is only
+-- cancelled once a later review completes it.
+alter table events.events
+  add column if not exists cancellation_reason text,
+  add column if not exists cancellation_requested_at timestamptz,
+  add column if not exists cancellation_requested_by uuid;
+
+alter table events.events
+  drop constraint if exists events_cancellation_request_consistent;
+alter table events.events add constraint events_cancellation_request_consistent
+  check (
+    (
+      cancellation_reason is null
+      and cancellation_requested_at is null
+      and cancellation_requested_by is null
+    )
+    or (
+      cancellation_reason is not null
+      and btrim(cancellation_reason) <> ''
+      and char_length(cancellation_reason) <= 1000
+      and cancellation_requested_at is not null
+      and cancellation_requested_by is not null
+    )
+  );
+
 -- Event access is scoped by the authenticated organiser, so this supports
 -- owner-filtered reads and updates without scanning the full table.
 create index if not exists events_events_organiser_id_idx
@@ -343,6 +519,10 @@ create index if not exists events_events_assigned_technical_support_id_idx
   on events.events (assigned_technical_support_id)
   where status in ('planning', 'confirmed')
     and assigned_technical_support_id is not null;
+
+create index if not exists events_events_pending_safety_review_idx
+  on events.events (updated_at)
+  where status = 'confirmed' and safety_decision is null;
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.

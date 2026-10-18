@@ -12,6 +12,12 @@ export function canRequestVenue(status) {
   return status === 'planning'
 }
 
+// S-79: an event can book several venues. Once one has been asked for --
+// whatever its status -- the same request screen adds another.
+export function venueRequestLinkLabel(bookings) {
+  return bookings.length > 0 ? 'Add another venue' : 'Request venue'
+}
+
 export function emptyVenueBookingForm(eventId) {
   return {
     eventId,
@@ -135,6 +141,8 @@ const BOOKING_STATUS_META = {
   held: { label: 'Tentatively held', color: '#B5842B' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
   rejected: { label: 'Rejected', color: '#B25547' },
+  // S-78: its replacement was confirmed, so it no longer reserves the venue.
+  replaced: { label: 'Replaced', color: '#4C5A70' },
 }
 
 export function bookingStatusMeta(status) {
@@ -177,8 +185,9 @@ export function bookingDecisionErrorMessage(error) {
   if (error.status === 401) return 'Your session has expired. Please sign in again.'
   if (error.status === 403) return 'Only Venue Staff can decide booking requests.'
   if (error.status === 404) return 'This booking request could not be found. Reload the list.'
-  // S-38's overlap, or an S-30 block on the booking's day.
-  if (error.status === 409 && (error.message?.includes('already confirmed')
+  // An overlap (S-76's refusal, which replaced S-38's wording, naming the
+  // booking in the way and its occupied period) or an S-30 block that day.
+  if (error.status === 409 && (error.message?.startsWith("Can't confirm this booking:")
     || error.message?.includes('is unavailable from'))) return error.message
   if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
   if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
@@ -196,6 +205,49 @@ export function bookingDateLabel(value) {
   const [year, month, day] = value.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+// --- S-77: unavailable periods ------------------------------------------------
+
+// Why Venue Staff marked a venue unavailable, as the bookings service stores
+// it. Keep in step with backend/services/atomic/bookings/schemas.py.
+export const BLOCK_REASON_LABELS = Object.freeze({
+  maintenance: 'Maintenance',
+  equipment_failure: 'Equipment failure',
+  renovation: 'Renovation',
+  safety: 'Safety concern',
+  other: 'Other operational reason',
+})
+
+export function blockReasonLabel(reason) {
+  return BLOCK_REASON_LABELS[reason] ?? reason
+}
+
+// "13 Nov 2026 09:00", a period's start or end at the venue.
+export function periodMomentLabel(day, time) {
+  return `${bookingDateLabel(day)} ${shortTime(time)}`
+}
+
+function periodPhrase(period) {
+  const why = period.note
+    ? `${blockReasonLabel(period.reason)}: ${period.note}`
+    : blockReasonLabel(period.reason)
+  return `from ${periodMomentLabel(period.start_date, period.start_time)} `
+    + `to ${periodMomentLabel(period.end_date, period.end_time)} (${why})`
+}
+
+// What a Coordinator sees on a booking an unavailable period affects: a
+// label, never colour alone, and when and why. null when nothing affects it.
+export function alternativeArrangementsNotice(booking) {
+  if (!booking?.requires_alternative_arrangements) return null
+  const periods = [...(booking.unavailable_periods ?? [])].sort((a, b) => (
+    `${a.start_date}T${a.start_time}`.localeCompare(`${b.start_date}T${b.start_time}`)
+  ))
+  return {
+    label: 'Needs alternative arrangements',
+    color: '#B25547',
+    detail: `${booking.venue_name} is unavailable ${periods.map(periodPhrase).join(' and ')}.`,
+  }
 }
 
 // --- S-75: setup/turnaround clashes, and one request per page ---------------
@@ -219,6 +271,18 @@ export function bookingClashMessage(booking) {
 
 export function getVenueClashes(venueId) {
   return requestJSON(`/venue-bookings/clashes?venue_id=${encodeURIComponent(venueId)}`)
+}
+
+// S-76: every venue's clashing pairs, for Venue Staff's standing review list.
+export function getClashesToReview() {
+  return requestJSON('/venue-bookings/clashes')
+}
+
+// "Studio B · 1 pair · setup 30 min, turnaround 45 min"
+export function clashReviewHeading(venue) {
+  const count = venue.pairs.length
+  return `${venue.venue_name} · ${count} ${count === 1 ? 'pair' : 'pairs'} · `
+    + `setup ${venue.setup_minutes} min, turnaround ${venue.turnaround_minutes} min`
 }
 
 function clashSide(side) {
@@ -255,4 +319,191 @@ export function getVenueBooking(id) {
 export function decisionNotice(decision, booking) {
   const outcome = decision === 'approved' ? 'confirmed' : 'rejected'
   return `Booking for ${booking.event_name} at ${booking.venue_name} ${outcome}.`
+}
+
+// --- S-78: replacing an affected booking -------------------------------------
+//
+// A booking S-77 flags can be replaced by a request for another venue, at its
+// own date and times and for the same event, or resolved with a note. The
+// venue_bookings composite works out which venues are suitable and available,
+// and copies the event's details onto the request; the browser sends only the
+// venue and notes.
+
+const ACTIVE_REPLACEMENT = ['pending', 'held']
+export const RESOLUTION_NOTE_MAX = 500
+
+function replacementsOf(booking, bookings) {
+  return bookings.filter((row) => row.replaces_booking_id === booking.id)
+}
+
+// What a booking's row offers and says about replacing it: `actions` is what
+// the Coordinator can do ("replace", "resolve"), `label` the state in words.
+export function replacementState(booking, bookings = []) {
+  if (booking.status === 'replaced') {
+    const replacement = bookings.find((row) => row.id === booking.replaced_by_booking_id)
+    return { actions: [], label: `Replaced by ${replacement?.venue_name ?? 'another venue'}` }
+  }
+  if (booking.requires_alternative_arrangements) {
+    const latest = replacementsOf(booking, bookings).at(-1)
+    if (latest && ACTIVE_REPLACEMENT.includes(latest.status)) {
+      return {
+        actions: ['resolve'],
+        label: `Replacement requested: ${latest.venue_name}, waiting for Venue Staff`,
+      }
+    }
+    return {
+      actions: ['replace', 'resolve'],
+      label: latest?.status === 'rejected' ? `${latest.venue_name} declined the replacement request` : null,
+    }
+  }
+  if (booking.alternative_resolution_note) {
+    return { actions: [], label: `Resolved: ${booking.alternative_resolution_note}` }
+  }
+  if (booking.replaces_booking_id) {
+    const original = bookings.find((row) => row.id === booking.replaces_booking_id)
+    return { actions: [], label: original ? `Replacement for ${original.venue_name}` : 'Replacement request' }
+  }
+  return { actions: [], label: null }
+}
+
+// For Venue Staff: which booking a replacement request replaces, or null.
+export function replacementOriginLabel(booking) {
+  return booking?.replaces ? `Replacement for ${booking.replaces.venue_name}` : null
+}
+
+export function validateResolutionNote(note) {
+  const trimmed = (note ?? '').trim()
+  if (!trimmed) return "Say what you've arranged instead."
+  if (trimmed.length > RESOLUTION_NOTE_MAX) return `Keep the note to ${RESOLUTION_NOTE_MAX} characters.`
+  return null
+}
+
+export function resolutionPayload(note) {
+  return { note: note.trim() }
+}
+
+export function replacementPath(eventId, bookingId) {
+  return `/coordinator/events/${encodeURIComponent(eventId)}/bookings/${encodeURIComponent(bookingId)}/replacement`
+}
+
+export function searchReplacementVenues(bookingId) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/replacement-venues`)
+}
+
+export function requestReplacementVenue(bookingId, { venueId, notes = '' }) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/replacement`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ venue_id: venueId, notes: notes.trim() || null }),
+  })
+}
+
+export function resolveAlternativeArrangements(bookingId, note) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/resolution`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(resolutionPayload(note)),
+  })
+}
+
+function whenLabel(booking) {
+  return `on ${bookingDateLabel(booking.booking_date)} from ${shortTime(booking.start_time)} to ${shortTime(booking.end_time)}`
+}
+
+// The line above the replacement screen's venue list.
+export function replacementSearchSummary({ booking, venues }) {
+  if (venues.length === 0) {
+    return `No venue can take this event ${whenLabel(booking)}. `
+      + "Resolve the booking with a note if you've made other arrangements."
+  }
+  return `${venues.length} ${venues.length === 1 ? 'venue' : 'venues'} can take this event ${whenLabel(booking)}.`
+}
+
+const BACK_TO_EVENT = 'Go back to the event to see its current state.'
+
+// Always a list, like venueBookingErrorMessages: a refused venue can fail
+// several checks at once. Used for the search, the request and resolving.
+export function replacementErrorMessages(error) {
+  if (error.status === 422 && error.fieldErrors) {
+    const messages = Object.values(error.fieldErrors)
+    if (messages.length > 0) return messages
+  }
+  if (error.status === 401) return ['Your session has expired. Please sign in again.']
+  if (error.status === 403) return ['Only the Coordinator of this event can replace its venues.']
+  if (error.status === 404) return ["We couldn't find this booking. Go back to the event and try again."]
+  if (error.status === 409) {
+    if (error.message === "This booking doesn't need a replacement venue") {
+      return [`This booking no longer needs a replacement. ${BACK_TO_EVENT}`]
+    }
+    if (error.message === "This booking doesn't need alternative arrangements") {
+      return [`This booking no longer needs alternative arrangements. ${BACK_TO_EVENT}`]
+    }
+    if (error.message === 'A replacement request for this booking is already with Venue Staff') {
+      return ["You've already asked for a replacement for this booking. Wait for Venue Staff's decision."]
+    }
+    if (error.message === "This event's venue bookings can no longer be changed"
+      || error.message === 'This booking can no longer be replaced') {
+      return [`${error.message}. ${BACK_TO_EVENT}`]
+    }
+    return [error.message, 'Choose another venue.']
+  }
+  return ["We couldn't reach the booking service. Try again in a moment."]
+}
+
+// S-80: one booking of an event, changed or cancelled by its Coordinator.
+// The venue_bookings composite is authoritative; this decides what the page
+// offers and says.
+const CHANGEABLE = new Set(['pending', 'held', 'confirmed'])
+
+export function canChangeVenueBooking(booking, eventStatus) {
+  return canRequestVenue(eventStatus) && CHANGEABLE.has(booking?.status)
+}
+
+export function bookingToChangeForm(booking) {
+  return {
+    eventId: booking.event_id,
+    venueId: booking.venue_id,
+    bookingDate: booking.booking_date,
+    startTime: shortTime(booking.start_time),
+    endTime: shortTime(booking.end_time),
+    notes: booking.notes ?? '',
+  }
+}
+
+export function cancelVenueBookingPrompt(booking) {
+  return (
+    `Cancel ${booking.venue_name} on ${bookingDateLabel(booking.booking_date)}, `
+    + `${shortTime(booking.start_time)}–${shortTime(booking.end_time)}? `
+    + 'Its time is freed for other events. Your other venue bookings stay as they are.'
+  )
+}
+
+export const VENUE_BOOKING_CHANGED = "Venue booking changed. It's pending until Venue Staff review it again."
+export const VENUE_BOOKING_CANCELLED = 'Venue booking cancelled. Its time is free for other events.'
+
+export function changeVenueBooking(id, form) {
+  const { event_id: _eventId, ...change } = venueBookingFormToPayload(form)
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes: null, ...change }),
+  })
+}
+
+export function cancelVenueBooking(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+const UNCHANGED = 'The booking has not changed.'
+
+// A 409 carries the service's own reason (a clash, a block, the event out of
+// planning); every other failure says the booking is as it was.
+export function venueBookingChangeErrorMessage(error) {
+  if (error.status === 409 && error.message) return error.message
+  if (error.status === 422) return `Check the venue, date and times. ${UNCHANGED}`
+  if (error.status === 404) return `This booking or its event wasn't found. ${UNCHANGED}`
+  if (error.status === 401) return `Your session has expired. Sign in again and retry. ${UNCHANGED}`
+  if (error.status === 403) return `Your role can't change venue bookings. ${UNCHANGED}`
+  if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${UNCHANGED}`
+  return `The booking service is unavailable. Try again in a moment. ${UNCHANGED}`
 }

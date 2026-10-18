@@ -12,6 +12,7 @@ import {
   submitVenueBooking,
   venueBookingErrorMessages,
   venueFit,
+  venueRequestLinkLabel,
   venueWarning,
 } from '../../../frontend/src/lib/venueBookings.js'
 
@@ -239,4 +240,16 @@ test('a closed venue produces the S-35 warning', () => {
     venueWarning(NO_NEEDS, THURSDAY_ONLY, { date: '2026-11-14', startTime: '10:00', endTime: '12:00' }),
     "Studio B doesn't suit this event: Closed on Saturdays. Choose a venue that fits.",
   )
+})
+
+// --- TC-FRONTEND-103 -------------------------------------------------------
+test('the event page offers Add another venue once a venue is requested', () => {
+  assert.equal(venueRequestLinkLabel([]), 'Request venue')
+  for (const bookings of [
+    [{ status: 'held' }],
+    [{ status: 'rejected' }],
+    [{ status: 'pending' }, { status: 'confirmed' }],
+  ]) {
+    assert.equal(venueRequestLinkLabel(bookings), 'Add another venue', JSON.stringify(bookings))
+  }
 })

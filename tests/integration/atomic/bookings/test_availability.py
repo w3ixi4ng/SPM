@@ -38,8 +38,8 @@ def test_a_block_can_be_saved_read_back_and_removed(admin, block_ids, actors):
     venue_id = str(uuid.uuid4())
 
     created = httpx.post(f'{BASE_URL}/blocks', headers=staff, json={
-        'venue_id': venue_id, 'venue_name': 'Studio B', 'start_date': '2026-11-13',
-        'end_date': '2026-11-16', 'reason': 'renovation', 'note': 'spm-test block',
+        'venue_id': venue_id, 'venue_name': 'Studio B', 'start_date': '2026-11-13', 'start_time': '00:00',
+        'end_date': '2026-11-17', 'end_time': '00:00', 'reason': 'renovation', 'note': 'spm-test block',
     }, timeout=15)
     assert created.status_code == 201, created.text
     block = created.json()
@@ -81,7 +81,11 @@ def test_two_simultaneous_overlapping_requests_produce_exactly_one_hold(admin, b
 
     assert sorted(response.status_code for response in responses) == [200, 409]
     conflict = next(response for response in responses if response.status_code == 409)
-    assert 'Studio B is already tentatively held on 12 Nov 2026 from ' in conflict.json()['detail']
+    # S-76: Venue Staff are told which booking holds the slot and when.
+    assert conflict.json()['detail'].startswith(
+        "Can't hold this booking: it overlaps spm-test availability (tentatively held), "
+        'which occupies Studio B on 12 Nov 2026 from '
+    )
     rows = admin.schema('bookings').table('bookings').select('status').eq('venue_id', venue_id).execute().data
     assert sorted(row['status'] for row in rows) == ['held', 'pending']
 

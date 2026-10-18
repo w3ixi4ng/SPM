@@ -17,7 +17,10 @@ import VenueAvailability from './pages/VenueAvailability.jsx'
 import VenueBookingRequest from './pages/VenueBookingRequest.jsx'
 import VenueForm from './pages/VenueForm.jsx'
 import VenueRequestForm from './pages/VenueRequestForm.jsx'
+import ReplacementVenueRequest from './pages/ReplacementVenueRequest.jsx'
 import VenueStaffDashboard from './pages/VenueStaffDashboard.jsx'
+import SafetyOfficerDashboard from './pages/SafetyOfficerDashboard.jsx'
+import SafetyCheckDetail from './pages/SafetyCheckDetail.jsx'
 
 // Each role's landing page. event_organiser and attendee still share the
 // generic Dashboard component (no distinct page has been asked for yet);
@@ -29,6 +32,7 @@ const ROLE_DASHBOARDS = {
   event_coordinator_lead: EventCoordinatorLeadDashboard,
   venue_staff: VenueStaffDashboard,
   technical_support: TechnicalSupportDashboard,
+  safety_officer: SafetyOfficerDashboard,
   attendee: Dashboard,
 }
 
@@ -128,6 +132,14 @@ function App() {
           )}
         />
         <Route
+          path="/safety-checks/:id"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_SAFETY_CHECKS}>
+              <SafetyCheckDetail />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/coordinator/events/:id"
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_ASSIGNED_EVENTS}>
@@ -137,6 +149,23 @@ function App() {
         />
         <Route
           path="/coordinator/events/:id/request-venue"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.REQUEST_VENUE_BOOKING}>
+              <VenueRequestForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/coordinator/events/:id/bookings/:bookingId/replacement"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.REQUEST_VENUE_BOOKING}>
+              <ReplacementVenueRequest />
+            </ProtectedRoute>
+          )}
+        />
+        {/* S-80: the same screen, changing one booking. */}
+        <Route
+          path="/coordinator/events/:id/venue-bookings/:bookingId/change"
           element={(
             <ProtectedRoute permission={PERMISSIONS.REQUEST_VENUE_BOOKING}>
               <VenueRequestForm />

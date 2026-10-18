@@ -86,3 +86,9 @@ is skipped on pull requests from forks — see
 
 Details: [`unit/README.md`](unit/README.md) ·
 [`integration/README.md`](integration/README.md)
+
+Integration and e2e fixtures build their Supabase clients with
+`from tests.supabase_client import create_client`, not supabase's own: it
+retries a connection that drops before the request is sent, so one reset
+handshake to the hosted test project cannot fail a green run. Use it in any
+new conftest.

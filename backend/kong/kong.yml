@@ -99,6 +99,16 @@ services:
           - /api/equipment-requirements
         strip_path: true
 
+  - name: safety-checks
+    # Safety Officers use one composite route; the event, booking, venue,
+    # equipment and user atomic reads behind it remain internal.
+    url: http://safety_checks:8103/safety-checks
+    routes:
+      - name: safety-checks
+        paths:
+          - /api/safety-checks
+        strip_path: true
+
   # The frontend, last and least specific. Kong matches the longest path
   # prefix first, so the `/api/...` routes above still win over `/` and
   # this only catches what they did not.

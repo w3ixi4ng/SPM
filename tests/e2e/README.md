@@ -102,3 +102,8 @@ In order of likelihood:
 3. **The database is not set up** — the same list as the integration tests.
 4. **Email confirmation is on**, and TC-E2E-201 skipped rather than ran. A skip
    is not a pass; the case is Blocked until the setting changes.
+# S-86 browser case
+
+`test_operational_safety_check.py` proves that a Safety Officer can open the
+real enriched review through Kong and atomically approve it into preparation.
+It requires the S-86 Events SQL in the test Supabase project.

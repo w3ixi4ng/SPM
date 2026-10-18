@@ -29,8 +29,10 @@ def _block_entry(block: dict, staff: bool) -> dict:
         "state": "blocked",
         "start_date": block["start_date"],
         "end_date": block["end_date"],
-        "start_time": None,
-        "end_time": None,
+        # S-77: periods are timed, from start_date + start_time up to, not
+        # including, end_date + end_time.
+        "start_time": block["start_time"],
+        "end_time": block["end_time"],
         "reason": block["reason"],
     }
     if staff:
@@ -40,8 +42,7 @@ def _block_entry(block: dict, staff: bool) -> dict:
 
 
 def entries(bookings: list[dict], blocks: list[dict], *, staff: bool) -> list[dict]:
-    """The calendar's entries, in date order and then by start time. A
-    whole-day block sorts ahead of that day's bookings."""
+    """The calendar's entries, in date order and then by start time."""
     found = [_booking_entry(booking) for booking in bookings if booking["status"] in STATES]
     found += [_block_entry(block, staff) for block in blocks]
     return sorted(found, key=lambda entry: (entry["start_date"], entry["start_time"] or ""))

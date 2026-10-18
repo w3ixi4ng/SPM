@@ -22,6 +22,9 @@ class EventStatus(str, Enum):
     # status moves on.
     PLANNING = "planning"
     CONFIRMED = "confirmed"
+    PREPARATION = "preparation"
+    SAFETY_REJECTED = "safety_rejected"
+    SAFETY_CHANGES_REQUESTED = "safety_changes_requested"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
     RETURNED = "returned"
@@ -31,6 +34,26 @@ class DecisionValue(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     RETURNED = "returned"
+
+
+class SafetyDecisionValue(str, Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CHANGES_REQUESTED = "changes_requested"
+
+
+class SafetyReviewRecord(BaseModel):
+    """One immutable Operational Safety Check audit entry.
+
+    S-87 keeps this history on the Events-owned row so appending the review
+    and changing the event lifecycle remain one atomic compare-and-set write.
+    """
+
+    review_number: int = Field(ge=1)
+    decision: SafetyDecisionValue
+    reason: str | None = None
+    safety_officer_id: UUID
+    decided_at: datetime
 
 
 # S-36: the event's venue requirements use the venue catalogue's fixed sets,
@@ -242,11 +265,42 @@ class EventRead(BaseModel):
     decision_reason: str | None
     decision_comment: str | None
     decided_at: datetime | None
+    # S-86: the current Operational Safety Check. These fields are separate
+    # from the Coordinator's original request decision above: rejecting a
+    # safety arrangement does not retroactively reject the event request.
+    safety_decision: SafetyDecisionValue | None = None
+    safety_decision_reason: str | None = None
+    safety_officer_id: UUID | None = None
+    safety_decided_at: datetime | None = None
+    # S-62: the Organiser's cancellation request, all null until one is sent.
+    # Requesting never changes status.
+    cancellation_reason: str | None = None
+    cancellation_requested_at: datetime | None = None
+    cancellation_requested_by: UUID | None = None
+    safety_review_history: list[SafetyReviewRecord] = Field(default_factory=list)
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class CancellationRequestCreate(BaseModel):
+    """S-62: only the reason comes from the browser. Who asked and when are
+    set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_is_trimmed_and_not_blank(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("reason is required")
+        return value
 
 
 class EventOptions(BaseModel):
@@ -387,6 +441,39 @@ class InternalCoordinatorReassignment(BaseModel):
 class InternalCoordinatorReassignmentResult(EventRead):
     previous_coordinator_id: UUID
     reassignment_created: bool
+
+
+class InternalSafetyDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: SafetyDecisionValue
+    reason: str | None = None
+    safety_officer_id: UUID
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalise_reason(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def reason_matches_decision(self):
+        if self.decision in (
+            SafetyDecisionValue.REJECTED,
+            SafetyDecisionValue.CHANGES_REQUESTED,
+        ):
+            if self.reason is None:
+                raise ValueError("reason is required to reject or request changes")
+        elif self.reason is not None:
+            raise ValueError("reason is not accepted when approving a safety check")
+        return self
+
+
+class InternalSafetyResubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

@@ -404,7 +404,7 @@ def test_any_venue_staff_member_sees_every_pending_request(client, services):
 
     assert response.status_code == 200
     # S-75: each row carries its live clash warning; none here.
-    assert response.json() == [{**row, "clashes": []} for row in pending]
+    assert response.json() == [{**row, "clashes": [], "requires_alternative_arrangements": False, "unavailable_periods": []} for row in pending]
     services.bookings.get.assert_called_once()
     assert services.bookings.get.call_args.args[0] == "/bookings"
     assert services.bookings.get.call_args.kwargs["params"] == {"status": "actionable"}
@@ -492,7 +492,7 @@ def test_the_events_requests_come_back_with_their_status(client, services):
 
     assert response.status_code == 200
     # S-75: each row carries its live clash warning; none here.
-    assert response.json() == [{**row, "clashes": []} for row in sent]
+    assert response.json() == [{**row, "clashes": [], "requires_alternative_arrangements": False, "unavailable_periods": []} for row in sent]
     services.bookings.get.assert_called_once()
     assert services.bookings.get.call_args.args[0] == "/bookings"
     assert services.bookings.get.call_args.kwargs["params"] == {"event_id": EVENT_ID}

@@ -19,6 +19,7 @@ queries another service's tables.
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning` and `confirmed` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
+| `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -37,6 +38,11 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
 | `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `confirmed`, and `returned` events, newest update first. |
 | `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, and `confirmed` events, newest update first. |
+| `GET` | `/internal/events/safety-review` | S-86 queue source: list `confirmed` events with no current safety decision, oldest update first. |
+| `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
+| `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
+| `GET` | `/internal/events/{event_id}/safety-return?coordinator_id=…` | S-87: return a planning event's preserved safety feedback only when the supplied Coordinator is its current assignee. |
+| `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
@@ -52,7 +58,7 @@ Technical Support workflows have the following event permissions:
 
 | Role | Permissions |
 | --- | --- |
-| `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own` |
+| `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
 | `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned` |
@@ -195,6 +201,14 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "decision_reason": null,
   "decision_comment": null,
   "decided_at": null,
+  "cancellation_reason": null,
+  "cancellation_requested_at": null,
+  "cancellation_requested_by": null,
+  "safety_decision": null,
+  "safety_decision_reason": null,
+  "safety_officer_id": null,
+  "safety_decided_at": null,
+  "safety_review_history": [],
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
@@ -213,6 +227,31 @@ It excludes null assignments and every other lifecycle state. S-85 does not
 create or transition event statuses and makes no schema change; it only
 defines how an assigned `under_review` row is treated when that workflow state
 is supplied by its owning lifecycle feature.
+
+S-86 interprets `confirmed` as meaning the event's required venue and
+technical arrangements have been confirmed and are ready for Operational
+Safety Check. The safety result is deliberately separate from the original
+Coordinator decision:
+
+- `approved` moves the event to `preparation`;
+- `rejected` moves it to `safety_rejected`, not generic `rejected`;
+- `changes_requested` appends an immutable history record and returns the event
+  directly to `planning`, while remaining the current blocking decision.
+
+Rejection and changes require a nonblank reason; approval forbids one. The
+service stores the verified Safety Officer id and server time. A conditional
+update matching `confirmed` plus null `safety_decision` makes repeated, stale,
+and concurrent decisions return `409` without overwrite.
+
+S-87's narrow resubmission action applies only to a `planning` event whose
+current decision is `changes_requested` and whose current assignee matches the
+verified Coordinator supplied by the composite. It changes the event to
+`confirmed` and clears only the current safety fields. The append-only
+`safety_review_history` remains intact, so the prior feedback is never lost;
+the null current decision makes the event eligible for a completely fresh
+S-86 review. The same conditional write makes stale, repeated, reassigned, or
+concurrent attempts return `409`. No venue, equipment, Technical Support, or
+event-information field is changed.
 
 The four `technical_support_*` fields are controlled by the S-43 assignment
 flow. They record whether support was explicitly requested, the optional
@@ -237,18 +276,23 @@ user, most recently updated first. No assigned active events returns `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14, S-36, S-43)
+## Status model (S-14, S-36, S-43, S-86, S-87)
 
 ```
 draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
                     ▲   │ ────reject───> rejected   (terminal)
                     │   └─────return───> returned
                     └──edit + resubmit──────┘
+
+planning ──arrangements confirmed──> confirmed ──safety approve──> preparation
+                                          │────safety reject────> safety_rejected
+                                          └──request changes───> planning
+                                                └──S-87 resubmit──> confirmed
 ```
 
-`confirmed` is now a valid stored state because S-43 must include confirmed
-events when checking Technical Support commitments. S-43 does not introduce a
-transition into it. `completed` and `cancelled` remain later workflow states.
+For S-86, `confirmed` is the documented interpretation that required venue and
+technical arrangements are confirmed. The earlier story that performs the
+planning-to-confirmed transition is outside S-86.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
@@ -258,9 +302,14 @@ transition into it. `completed` and `cancelled` remain later workflow states.
   `decision=approved`). Venue booking requests are made against events in
   this status. No further submit action; edits still go through the same
   `PATCH`.
-- **confirmed** — a live commitment for Technical Support workload and
-  overlap checks. This story defines how it is counted, not how an event
-  moves from planning to confirmed.
+- **confirmed** — venue and technical arrangements are ready for safety review;
+  also a live commitment for Technical Support workload and overlap checks.
+- **preparation** — the Safety Officer approved the arrangements.
+- **safety_rejected** — the safety arrangement was rejected; this is distinct
+  from the original request's generic `rejected` state.
+- **safety_changes_requested** — retained only as a legacy-compatible enum for
+  pre-S-87 data; applying the S-87 SQL migrates such rows to `planning` while
+  preserving their decision in history.
 - **rejected** — the coordinator's negative decision. **Closed
   permanently**: `PATCH` and `POST /events/{event_id}/submit` both answer
   `409` for a rejected event, with no exception.
@@ -298,13 +347,42 @@ Returns `200` with the updated event, `decided_at` set. `status` becomes
 including a decision already made, since a decision cannot be changed once
 recorded. `404` if the caller is not the assigned coordinator.
 
+## Cancellation requests (S-62)
+
+**`POST /events/{event_id}/cancellation-request`** is for the organiser who
+owns the event only. It is reached through Kong at
+`/api/events/{event_id}/cancellation-request`.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Trimmed; 1–1000 characters. Any other field is a `422`. |
+
+```json
+{"reason": "Keynote speaker withdrew and no replacement is available"}
+```
+
+Returns `200` with the event. `cancellation_reason`,
+`cancellation_requested_at` (server time) and `cancellation_requested_by`
+(the caller) are set. **`status` is unchanged**: the event is not cancelled
+until a later review completes it. There is one request per event, and it
+comes back on `GET /events` and `GET /events/{event_id}`.
+
+| Status | When |
+| --- | --- |
+| `401` | No valid session. |
+| `403` | Not an `event_organiser`. |
+| `404` | `Event not found`: missing, or not the caller's. |
+| `409` | `This event can't be cancelled from its current status.`: only `submitted`, `under_review`, `planning`, `confirmed`, `preparation` and `safety_changes_requested` qualify. |
+| `409` | `A cancellation request has already been sent for this event.`: also returned when another request lands between the read and the write. |
+| `422` | Missing, blank or over-long `reason`, or an extra field. |
+| `500` | `Event storage unavailable`: nothing was recorded. |
+
 ## Internal routes (composite-only)
 
-These six exist for the `event_requests` composite service
-([`backend/services/composite/event_requests`](../../composite/event_requests/README.md)),
-which is the only caller — there is no Kong route for any of them, and they
-carry no session-derived authorization of their own. A browser cannot reach
-them from outside the Docker network.
+These routes support the repository's composite services. There is no Kong
+route for any of them, and they carry no session-derived authorization of
+their own. A browser cannot reach them from outside the Docker network; each
+calling composite authenticates and authorizes its workflow first.
 
 ### `POST /events/coordinator-load`
 

@@ -13,6 +13,8 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
         "events:view_own",
         "events:update_own_draft",
         "events:submit_own",
+        # S-62
+        "events:request_cancellation",
     }
 )
 

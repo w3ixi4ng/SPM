@@ -7,7 +7,7 @@ service.
 ## Role-aware access
 
 On startup, `AuthProvider` calls `GET /users/me`. The response's trusted `role`
-selects one of six dashboards:
+selects a role dashboard:
 
 | Role | Dashboard |
 | --- | --- |
@@ -16,6 +16,7 @@ selects one of six dashboards:
 | `event_coordinator_lead` | `/dashboard/event-coordinator-lead` |
 | `venue_staff` | `/dashboard/venue-staff` |
 | `technical_support` | `/dashboard/technical-support` |
+| `safety_officer` | `/dashboard/safety-officer` |
 | `attendee` | `/dashboard/attendee` |
 
 The shared presentation policy lives in `src/lib/access.js`. Route guards hide
@@ -105,6 +106,75 @@ their assignments are left unchanged. The S-83 unassigned queue and S-84 reassig
 remain on the same dashboard; their choices show Coordinator emails so
 duplicate profile names are distinguishable. A successful reassignment moves the event
 between the displayed groups and updates both counts without a reload.
+
+## S-86 operational safety checks
+
+Safety Officers load `GET /api/safety-checks` and open an eligible confirmed
+event at `/safety-checks/{id}`. The detail combines organiser and schedule,
+confirmed venue capacity/layout/accessibility/restrictions, Technical Support
+assignment/notes, equipment requirements, and the event's special
+requirements. Loading, empty, controlled failure, detail and success states
+are distinct.
+
+The browser posts only `decision` and the applicable reason. The composite
+derives the Safety Officer id from the verified session. Approval advances to
+`preparation`; rejection uses `safety_rejected`; requested changes return the
+event to `planning` with preserved feedback and history. Conflicts never
+display success, and S-86 sends no notification.
+
+## S-87 safety changes and resubmission
+
+An assigned Coordinator's dashboard marks a planning event whose current
+safety decision is `changes_requested` as **Returned after safety review**.
+The event detail loads the preserved reason, Safety Officer identity, decision
+time and history from `GET /api/safety-checks/coordinator/events/{id}`. Venue,
+equipment and Technical Support controls remain available because the event is
+back in `planning` and no existing arrangement is deleted.
+
+**Resubmit for Safety Review** posts to the route's `/resubmit` action. It is
+shown only for a safety-returned planning event. Success changes the displayed
+event to `confirmed`, announces that a fresh review is required, and disables
+planning-only arrangement edits. Loading, controlled error and success states
+are distinct. S-87 adds no notifications and does not replace S-17's general
+confirmation workflow.
+
+## S-77 mark venue temporarily unavailable
+
+On a venue's availability calendar, Venue Staff choose **Mark unavailable**
+and enter a start date and time, an end date and time, and a reason
+(Maintenance, Equipment failure, Renovation, Safety concern, or Other
+operational reason, which needs a description). The slide-over panel stays
+open after saving and lists the held and confirmed bookings the period
+affects. If their Coordinators couldn't be notified, it offers **Notify
+Coordinators** to retry.
+
+The calendar marks a day the period covers completely as Unavailable. A day
+it covers only partly reads Partly unavailable (or keeps its booking state)
+and lists the period's times in the day's detail.
+
+On the Coordinator's event page, a booking a period affects shows "Needs
+alternative arrangements" with the period and its reason. The Coordinator
+also gets an in-app notification. Bookings and events are never changed by a
+period. Helpers are in `src/lib/venueAvailability.js` and
+`src/lib/venueBookings.js`.
+
+## S-78 request replacement venue for affected booking
+
+On the Coordinator's event page, a booking flagged "Needs alternative
+arrangements" offers **Find a replacement venue** and **Mark resolved**.
+
+**Find a replacement venue** opens its own screen,
+`/coordinator/events/:id/bookings/:bookingId/replacement`. It shows the
+booking's date and times and the event's requirements as read-only text, and
+lists only the venues the service says are suitable and free then. The
+Coordinator picks one, can add notes, and sends it. Back on the event page,
+the booking stays flagged and reads "Replacement requested: <venue>, waiting
+for Venue Staff". Once Venue Staff approve, it reads "Replaced by <venue>".
+Venue Staff's request page says "Replacement for <venue>".
+
+**Mark resolved** opens a slide-over panel for a note on what was arranged
+instead. The booking then reads "Resolved: <note>". Helpers are in
+`src/lib/venueBookings.js`.
 
 ## Development
 

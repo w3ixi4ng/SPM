@@ -5,6 +5,7 @@ export const PERMISSIONS = Object.freeze({
   VIEW_OWN_EVENTS: 'events:view_own',
   UPDATE_OWN_EVENT_DRAFT: 'events:update_own_draft',
   SUBMIT_OWN_EVENT: 'events:submit_own',
+  REQUEST_EVENT_CANCELLATION: 'events:request_cancellation',
   CREATE_VENUE: 'venues:create',
   UPDATE_VENUE: 'venues:update',
   VIEW_VENUES: 'venues:view',
@@ -27,6 +28,8 @@ export const PERMISSIONS = Object.freeze({
   EDIT_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:edit',
   VIEW_EQUIPMENT_REQUIREMENTS: 'equipment_requirements:view',
   CHECK_EQUIPMENT_AVAILABILITY: 'equipment:check_availability',
+  VIEW_SAFETY_CHECKS: 'safety_checks:view',
+  DECIDE_SAFETY_CHECK: 'safety_checks:decide',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -50,6 +53,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.VIEW_OWN_EVENTS,
       PERMISSIONS.UPDATE_OWN_EVENT_DRAFT,
       PERMISSIONS.SUBMIT_OWN_EVENT,
+      PERMISSIONS.REQUEST_EVENT_CANCELLATION,
     ]),
   }),
   event_coordinator: Object.freeze({
@@ -107,6 +111,16 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.VIEW_SUPPORT_ASSIGNED_EVENTS,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
       PERMISSIONS.CHECK_EQUIPMENT_AVAILABILITY,
+    ]),
+  }),
+  safety_officer: Object.freeze({
+    label: 'Safety Officer',
+    dashboardPath: '/dashboard/safety-officer',
+    description: 'Review confirmed event arrangements for operational safety.',
+    permissions: Object.freeze([
+      ...DASHBOARD_PERMISSION,
+      PERMISSIONS.VIEW_SAFETY_CHECKS,
+      PERMISSIONS.DECIDE_SAFETY_CHECK,
     ]),
   }),
   attendee: Object.freeze({
