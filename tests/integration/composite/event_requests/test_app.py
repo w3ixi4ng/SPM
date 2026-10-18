@@ -8,6 +8,7 @@ non-deterministic. See conftest.py's `block_other_coordinators`.
 """
 
 from datetime import datetime
+import uuid
 
 import httpx
 import pytest
@@ -838,3 +839,97 @@ def test_coordinator_overview_groups_and_tracks_reassignment(
             headers=organiser_headers,
         )
         assert denied.status_code == 403, denied.text
+
+
+# --- TC-EVENTREQUESTS-111 ---------------------------------------------------
+def test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners(
+    organiser_session, coordinator_session, second_coordinator, lead_session, admin
+):
+    first_id = coordinator_session["user_id"]
+    second_id = second_coordinator
+    lead_headers = {"Cookie": f"sb_access_token={lead_session['access_token']}"}
+    organiser_id = organiser_session["user_id"]
+    second_email = admin.auth.admin.get_user_by_id(second_id).user.email
+    admin.schema("users").table("users").delete().eq("id", second_id).execute()
+
+    wrong = admin.auth.admin.create_user({
+        "email": f"spm-event-requests-{uuid.uuid4().hex[:12]}@example.com",
+        "password": "correct-horse-battery-staple",
+        "email_confirm": True,
+        "app_metadata": {"role": "safety_officer"},
+    }).user
+    deleted = admin.auth.admin.create_user({
+        "email": f"spm-event-requests-{uuid.uuid4().hex[:12]}@example.com",
+        "password": "correct-horse-battery-staple",
+        "email_confirm": True,
+        "app_metadata": {"role": "event_coordinator"},
+    }).user
+    wrong_id = str(wrong.id)
+    deleted_id = str(deleted.id)
+    admin.auth.admin.delete_user(deleted_id)
+
+    def seed(name, owner_id):
+        row = admin.schema("events").table("events").insert({
+            "organiser_id": organiser_id,
+            "status": "submitted",
+            "assigned_coordinator_id": owner_id,
+            "name": name,
+            "purpose": "S-85 integrity regression",
+            "start_date": "2026-11-18",
+            "start_time": "09:00",
+            "end_date": "2026-11-18",
+            "end_time": "12:00",
+            "expected_attendance": 20,
+            "submitted_at": "2026-10-09T00:00:00Z",
+        }).execute().data[0]
+        organiser_session["event_ids"].append(row["id"])
+        return row
+
+    try:
+        valid = seed("S-85 valid owner", first_id)
+        invalid_role = seed("S-85 wrong role", wrong_id)
+        missing_auth = seed("S-85 deleted owner", deleted_id)
+
+        with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0, headers=lead_headers) as gateway:
+            before = request_with_retry(gateway, "GET", "/event-requests/coordinator-overview")
+            assert before.status_code == 200, before.text
+            groups = {g["coordinator"]["id"]: g for g in before.json()["coordinators"]}
+            assert {first_id, second_id} <= set(groups)
+            assert wrong_id not in groups and deleted_id not in groups
+            assert groups[first_id]["active_assignment_count"] == 1
+            assert groups[second_id]["active_assignment_count"] == 0
+            assert groups[second_id]["coordinator"] == {
+                "id": second_id, "name": second_email, "email": second_email,
+            }
+            invalid = {x["event_id"]: x for x in before.json()["invalid_assignments"]}
+            assert invalid[invalid_role["id"]]["assigned_coordinator_id"] == wrong_id
+            assert invalid[missing_auth["id"]]["assigned_coordinator_id"] == deleted_id
+
+            candidates = request_with_retry(gateway, "GET", "/event-requests/coordinators")
+            assert candidates.status_code == 200, candidates.text
+            candidate_ids = {c["id"] for c in candidates.json()}
+            assert second_id in candidate_ids and wrong_id not in candidate_ids
+
+            rejected = request_with_retry(gateway, "POST", f"/event-requests/{valid['id']}/reassignment", json={
+                "coordinator_id": wrong_id,
+                "expected_coordinator_id": first_id,
+                "expected_assignment_version": 0,
+            })
+            assert rejected.status_code == 422, rejected.text
+
+            moved = request_with_retry(gateway, "POST", f"/event-requests/{valid['id']}/reassignment", json={
+                "coordinator_id": second_id,
+                "expected_coordinator_id": first_id,
+                "expected_assignment_version": 0,
+            })
+            assert moved.status_code == 200, moved.text
+            after = request_with_retry(gateway, "GET", "/event-requests/coordinator-overview")
+            assert after.status_code == 200, after.text
+            groups = {g["coordinator"]["id"]: g for g in after.json()["coordinators"]}
+            assert groups[first_id]["active_assignment_count"] == 0
+            assert groups[second_id]["active_assignment_count"] == 1
+            assert [e["id"] for e in groups[second_id]["events"]] == [valid["id"]]
+            unchanged = {x["event_id"] for x in after.json()["invalid_assignments"]}
+            assert {invalid_role["id"], missing_auth["id"]} <= unchanged
+    finally:
+        admin.auth.admin.delete_user(wrong_id)

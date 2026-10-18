@@ -45,11 +45,15 @@ is the only caller. The first lists trusted Coordinator choices for a Lead;
 the profile route resolves organiser details for the unassigned queue; the
 third finds candidates for an event's Technical Support assignment. Role
 routes use only trusted Supabase Auth `app_metadata.role`, including across
-all Auth pagination pages, and return the matching profile rows:
+all Auth pagination pages. The Coordinator route returns every matching Auth
+account even when its `users.users` profile is missing. Profile name/email
+enrich the display when available; otherwise Auth email supplies both display
+fields (or Auth phone/id supplies the name if no email exists):
 
 ```json
 // 200
-[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com"}]
+[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com"},
+ {"id": "bbbb...", "name": "idle@example.com", "email": "idle@example.com"}]
 ```
 
 `[]` when no account currently holds that role.
@@ -61,8 +65,8 @@ preserving order, and returns the profiles that exist:
 {"ids": ["11111111-1111-4111-8111-111111111111"]}
 ```
 
-`GET /users/technical-support` has the same response shape and returns only
-accounts whose trusted role is `technical_support`. A role in editable
+`GET /users/technical-support` still returns only profiled accounts whose
+trusted role is `technical_support`. A role in editable
 `user_metadata`, or a profile-table value, never makes an account eligible.
 
 ### Request and response

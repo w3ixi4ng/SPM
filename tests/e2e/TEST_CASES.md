@@ -16,9 +16,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-85 journey and S-84 regression: 2 passed |
+| Result | Targeted S-83/S-84/S-85 journeys and new integrity case: 4 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -825,3 +825,14 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   visible.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+
+## TC-E2E-231 — Lead sees profile-less Coordinators but not invalid owners
+
+- **Scenario:** The S-85 browser view distinguishes eligible Coordinators from active events with invalid owners, while preserving S-83 and S-84 controls.
+- **Pre-conditions:** Fresh `.env.test` stack and disposable fixtures: a profiled Coordinator with one event, a profile-less trusted Coordinator with zero events, and an active event whose Auth owner has been deleted. All fixture changes are cleaned up.
+- **Steps:** Sign in as Lead; inspect the oversight groups and separate integrity warning; use S-84 to reassign the valid event to the profile-less Coordinator; reload; inspect the S-83 assignment queue.
+- **Test data:** Profiled `Alex <alex@example.com>`; profile-less Auth identity `blair@example.com`; deleted owner D; one event for Alex and one orphaned event for D.
+- **Expected:** Blair appears as a zero-assignment Coordinator using Auth identity display. D never appears as a Coordinator group; its event is reported only in the integrity warning. Reassignment moves the valid event to Blair and updates counts both immediately and after reload. The S-83 queue remains available; the orphan's assignment is not changed.
+- **Actual:** Chromium showed the profile-less Coordinator under its Auth email with count 0 and the deleted owner's event only in the integrity warning. The email-labelled S-84 choice moved the valid event and updated counts before and after reload; the S-83 queue remained visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_sees_profileless_coordinator_and_invalid_assignment_separately[chromium]`; freshly recreated `.env.test` stack, 2026-10-18.
