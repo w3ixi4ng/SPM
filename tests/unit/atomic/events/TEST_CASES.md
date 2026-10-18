@@ -2054,8 +2054,8 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Expected:** 1 validates and `status == "pending_safety_check"`. 2 is
   refused at the database by `events_decision_matches_status` (covered by
   TC-EVENTS-147); the Pydantic model accepts the status value itself.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_pending_safety_check_is_a_valid_status`
 
 ## TC-EVENTS-136 — the assigned Coordinator's planning event moves to pending_safety_check
@@ -2070,8 +2070,8 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   update, values `{"status": "pending_safety_check"}`, filtered on `id = E1`,
   `status = planning`, `assigned_coordinator_id = C1`. No resource field
   (venue, equipment, Technical Support, sign-off) is in the update.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_planning_event_moves_to_pending_safety_check`
 
 ## TC-EVENTS-137 — only a planning event of the caller can be submitted
@@ -2085,9 +2085,9 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Test data:** As above.
 - **Expected:** 1 → `409` "This event is not in planning", no update call.
   2 → `404`, no update call. 3 → `409`, no second update.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_only_assigned_planning_event_can_be_submitted`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_only_planning_events_can_be_submitted`; `test_s17.py::test_only_assigned_planning_event_can_be_submitted`; `test_s17.py::test_safety_returned_event_is_resubmitted_not_submitted`
 
 ## TC-EVENTS-138 — the S-86 queue reads pending_safety_check
 
@@ -2100,9 +2100,9 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Expected:** 1 filters `status = pending_safety_check` and
   `safety_decision is null`, oldest `updated_at` first. 2 → `409` for
   `confirmed`, `200` for `pending_safety_check`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_safety_queue_reads_pending_safety_check`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_pending_events`
 
 ## TC-EVENTS-139 — safety approval makes the event Confirmed
 
@@ -2116,9 +2116,9 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   respectively. Each conditional update filters `status =
   pending_safety_check` and `safety_decision is null`. No outcome sets
   `preparation`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_safety_outcomes_from_pending_safety_check`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`; `test_s86.py::test_empty_conditional_update_reports_concurrent_decision_without_overwrite`
 
 ## TC-EVENTS-140 — S-87 resubmission returns to pending_safety_check
 
@@ -2130,9 +2130,9 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Test data:** As above.
 - **Expected:** `200`, `status == "pending_safety_check"`, current safety
   decision fields null, history unchanged (still one record).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_safety_resubmit_returns_to_pending_safety_check`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_resubmit_clears_only_current_blocker_and_preserves_history`
 
 ## TC-EVENTS-141 — assigned Technical Support records a sign-off
 
@@ -2149,9 +2149,9 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   `technical_signoff_by: T1`, a server timestamp, reason and comment null.
   2 stores the comment. 3 stores `"declined"` and the reason, comment null.
   4 returns all five sign-off fields to the Coordinator.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_assigned_support_records_signoff`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_assigned_support_records_signoff`; `test_s17.py::test_coordinator_reads_the_signoff`
 
 ## TC-EVENTS-142 — sign-off payload rules
 
@@ -2164,8 +2164,8 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   `{"decision": "approved", "override_comment": "  "}`; reason of 501
   characters; `{"decision": "maybe"}`.
 - **Expected:** Every payload → `422` and no update.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_signoff_payload_rules`
 
 ## TC-EVENTS-143 — only the assigned Technical Support, only in planning
@@ -2177,8 +2177,8 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Test data:** `{"decision": "approved"}`.
 - **Expected:** 1 → `404`, no update. 2 → `409` "Technical Support sign-off
   can only change while the event is in planning", no update.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_signoff_limited_to_assigned_support_in_planning`
 
 ## TC-EVENTS-144 — clearing a sign-off returns it to awaiting
@@ -2190,8 +2190,8 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Test data:** As above.
 - **Expected:** `200` each time; afterwards all five sign-off fields are null.
   Clearing when none exists is not an error.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_clear_signoff_returns_to_awaiting`
 
 ## TC-EVENTS-145 — the Organiser sees each stage
@@ -2203,8 +2203,8 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   `confirmed`.
 - **Test data:** As above.
 - **Expected:** `200` with `status` `pending_safety_check`, then `confirmed`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_organiser_reads_pending_and_confirmed`
 
 ## TC-EVENTS-146 — pending_safety_check counts as an open event wherever confirmed does
@@ -2217,6 +2217,6 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Test data:** As above.
 - **Expected:** 1 and 2 include `E1`; 3 → `200`; 4 → `200`, exactly as for a
   `confirmed` event.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`

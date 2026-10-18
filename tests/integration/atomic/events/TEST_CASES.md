@@ -174,6 +174,6 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Expected:** 1 succeeds. 2 is refused (`23514`). 3 reads back decision,
   reason, Technical Support id and timestamp. 4 is refused (`23514`).
   5 leaves no row.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Not run: the S-17 SQL (events.sql, and the S-78 block of bookings.sql) is not yet applied to the test Supabase project.
+- **Status:** Blocked
 - **Evidence:** `test_s17.py::test_status_and_signoff_columns`

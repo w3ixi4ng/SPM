@@ -102,6 +102,6 @@ Specification updated by the developer on 2026-10-05.
 - **Test data:** Quantity 1 → 2.
 - **Expected:** 2 shows `approved` with the Technical Support id. 4 shows
   every sign-off field null.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Not run: the S-17 SQL (events.sql, and the S-78 block of bookings.sql) is not yet applied to the test Supabase project.
+- **Status:** Blocked
 - **Evidence:** `test_s17.py::test_signoff_stored_and_cleared_by_change`

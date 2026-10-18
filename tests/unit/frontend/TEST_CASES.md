@@ -2197,8 +2197,8 @@ page wiring is proven by TC-E2E-243.
   `amber` (`#B5842B`); `confirmed` → "Confirmed", `green` — unchanged;
   `preparation` keeps its existing entry. `pending_safety_check` is in the
   Organiser's list of statuses shown on their dashboard.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_safety_submission.mjs` — "labels the new stage"
 
 ## TC-FRONTEND-133 — readiness comes from the server's outstanding list
@@ -2211,8 +2211,8 @@ page wiring is proven by TC-E2E-243.
 - **Expected:** (a) `canSubmit: true`, no items. (b) `canSubmit: false`, six
   rows whose text equals each `label` in the same order, each with an
   "Outstanding" status label (not colour alone).
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_safety_submission.mjs` — "builds readiness from the server"
 
 ## TC-FRONTEND-134 — submit result handling
@@ -2227,8 +2227,8 @@ page wiring is proven by TC-E2E-243.
   body. (a) resolves to the updated event. (b) rejects with
   `outstanding` = the two items. (c) and (d) reject with a message saying what
   happened and what to do next.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_safety_submission.mjs` — "handles each submit outcome"
 
 ## TC-FRONTEND-135 — Technical Support sign-off payloads
@@ -2244,8 +2244,8 @@ page wiring is proven by TC-E2E-243.
   `{"decision": "declined", "reason": "Only one sound desk exists"}`; the
   blank decline is refused client-side with "Enter a reason for declining".
   A `409` shortage response yields the `short` list for display.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_safety_submission.mjs` — "builds sign-off payloads"
 
 ## TC-FRONTEND-136 — the Coordinator sees the sign-off outcome
@@ -2258,6 +2258,6 @@ page wiring is proven by TC-E2E-243.
 - **Expected:** (a) "Awaiting Technical Support"; (b) "Approved by
   Technical Support"; (c) as (b) plus the comment text; (d) "Declined by
   Technical Support" plus the reason text.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_safety_submission.mjs` — "describes the sign-off"

@@ -1145,8 +1145,8 @@ rejection that blocks submission for the safety check.
   09:00–17:00`, `replaces_booking_id: B2`.
 - **Test data:** As above.
 - **Expected:** `201`, `status: "pending"`, `replaces_booking_id: B2`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_rejected_booking_accepts_replacement`
 
 ## TC-BOOKINGS-063 — a replaced booking still cannot be replaced
@@ -1156,6 +1156,6 @@ rejection that blocks submission for the safety check.
 - **Steps:** As TC-BOOKINGS-062.
 - **Test data:** As above.
 - **Expected:** `409` "This booking can no longer be replaced"; no insert.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_replaced_booking_still_refuses_replacement`

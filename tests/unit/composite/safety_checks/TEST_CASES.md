@@ -164,8 +164,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** `200`, body `status == "pending_safety_check"`. Events
   `POST /internal/events/E1/safety-submission` called once with
   `{"coordinator_id": C1}`. No call writes to Bookings or Equipment.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_fully_arranged_event_moves_to_pending_safety_check`
 
 ## TC-SAFETYCHECKS-011 — no equipment and no support required: venue alone is enough
@@ -178,8 +178,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Test data:** As above.
 - **Expected:** `200`, `pending_safety_check`; the Technical Support items are
   not checked.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_venue_only_event_needs_no_technical_signoff`
 
 ## TC-SAFETYCHECKS-012 — no confirmed venue
@@ -191,8 +191,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** `409`, body `{"detail": "This event has outstanding
   arrangements", "outstanding": [{"code": "venue_missing", ...}]}`. Events
   write not called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_no_confirmed_venue_is_outstanding`
 
 ## TC-SAFETYCHECKS-013 — a booking still with Venue Staff is outstanding
@@ -206,8 +206,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
   with `booking_id` `B2` and `B3`, labels "Studio 2 on 20 Nov 2026 is waiting
   for Venue Staff" and "Room 5 on 20 Nov 2026 is waiting for Venue Staff".
   No write.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_pending_and_held_bookings_are_outstanding`
 
 ## TC-SAFETYCHECKS-014 — one rejected booking keeps the event in Planning
@@ -220,8 +220,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** 1 → `409`, `outstanding` is one `venue_rejected` item with
   `booking_id: B2`. 2 → no Events, Bookings or Equipment write was made: the
   event is still `planning` and `B1` is still `confirmed` on `E1`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_rejected_booking_keeps_event_in_planning`
 
 ## TC-SAFETYCHECKS-015 — a rejected booking stops counting once replaced
@@ -235,8 +235,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Test data:** As above.
 - **Expected:** (a) `409`, outstanding is `venue_rejected` for `B2` **and**
   `venue_awaiting` for `B3`. (b) `200`, `pending_safety_check`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_rejected_booking_cleared_by_confirmed_replacement`
 
 ## TC-SAFETYCHECKS-026 — a rejected replacement request is not counted twice
@@ -254,8 +254,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Test data:** As above.
 - **Expected:** 1 → `409`, outstanding is exactly `venue_rejected` for `B2`.
   2 → `200`, `pending_safety_check`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_rejected_replacement_request_does_not_count_again`
 
 ## TC-SAFETYCHECKS-016 — an unresolved unavailability flag blocks; a resolved one doesn't
@@ -270,8 +270,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** (a) `409`, one `venue_unavailable` item for `B1`. (b) `200`.
   (c) `409`, `venue_unavailable` for `B1` — a period created after the
   resolution flags it again (S-78's rule).
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_unavailability_flag_blocks_until_resolved`
 
 ## TC-SAFETYCHECKS-017 — sign-off needed but nobody assigned
@@ -285,8 +285,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** Both → `409`; outstanding is `technical_support_unassigned`,
   `technical_signoff_awaiting`, `equipment_preparation` (label "Equipment
   preparation is Not Started"), in that order. No write.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_signoff_needed_without_support_assigned`
 
 ## TC-SAFETYCHECKS-018 — sign-off awaiting or declined
@@ -300,8 +300,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** (a) `409`, `technical_signoff_awaiting`. (b) `409`,
   `technical_signoff_declined` labelled "Technical Support declined: Only one
   sound desk exists". (c) `200` — an overridden approval is an approval.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_signoff_awaiting_or_declined_is_outstanding`
 
 ## TC-SAFETYCHECKS-019 — equipment preparation must be Ready
@@ -312,8 +312,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Test data:** As above.
 - **Expected:** `409` each, one `equipment_preparation` item labelled
   "Equipment preparation is Not Started" / "… In Progress".
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_equipment_preparation_must_be_ready`
 
 ## TC-SAFETYCHECKS-020 — every outstanding item is listed at once
@@ -329,9 +329,9 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
   `technical_support_unassigned`, `technical_signoff_awaiting`,
   `equipment_preparation`. Readiness → `200` `{"ready": false, "outstanding":
   [the same six]}`. Neither writes.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_every_outstanding_item_listed`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_every_outstanding_item_listed`; `test_s17.py::test_readiness_of_a_ready_event`
 
 ## TC-SAFETYCHECKS-021 — there is no override
 
@@ -341,8 +341,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
   `{"force": true, "outstanding": []}`.
 - **Test data:** As above.
 - **Expected:** `422` for any body (the route takes none); no Events write.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_submission_cannot_be_overridden`
 
 ## TC-SAFETYCHECKS-022 — only the assigned Coordinator, only from Planning
@@ -356,8 +356,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Test data:** `E1` otherwise fully arranged.
 - **Expected:** 1 → `404`. 2 → `403`. 3 → `409` "This event is not in
   planning" before any readiness reads. 4 → `401`. No Events write in any.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_submission_limited_to_assigned_coordinator_in_planning`
 
 ## TC-SAFETYCHECKS-023 — S-87 resubmission runs the same check
@@ -371,8 +371,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** (a) `409` with the same body shape as TC-SAFETYCHECKS-014; the
   Events resubmit is not called. (b) `200`, `status ==
   "pending_safety_check"`, history retained.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_safety_resubmit_runs_the_same_check`
 
 ## TC-SAFETYCHECKS-024 — a failing dependency never submits
@@ -383,8 +383,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
   Equipment, Events (read) in turn returns `500` or times out.
 - **Test data:** As TC-SAFETYCHECKS-010.
 - **Expected:** `502` naming the service; the Events write is never called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_dependency_failure_never_submits`
 
 ## TC-SAFETYCHECKS-025 — the queue and decisions follow the new stage
@@ -398,6 +398,6 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Test data:** As above.
 - **Expected:** 1 lists it. 2 returns `status == "confirmed"` (not
   `preparation`).
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_queue_and_approval_use_new_stage`

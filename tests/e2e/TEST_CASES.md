@@ -1172,6 +1172,6 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
   "Equipment preparation is Not Started"; no override control is on the
   page; status still "Planning". 3 shows "Pending Safety Check". 4 shows
   "Pending Safety Check". 6 shows "Confirmed".
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Not run: the S-17 SQL (events.sql, and the S-78 block of bookings.sql) is not yet applied to the test Supabase project.
+- **Status:** Blocked
 - **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`

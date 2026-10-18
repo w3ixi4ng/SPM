@@ -373,8 +373,8 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Test data:** As above.
 - **Expected:** `200`. Events `PUT /internal/events/E1/technical-signoff`
   called once with `{"technical_support_id": T1, "decision": "approved"}`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_approve_without_shortage`
 
 ## TC-EQUIPMENTREQUIREMENTS-024 — a shortage blocks approval and is listed
@@ -386,8 +386,8 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Expected:** `409`, body `{"detail": "Some equipment is short for this
   event", "short": [{"equipment_item_id": P1, "name": "Projector",
   "required": 4, "available": 2}]}`. Events write not called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_shortage_blocks_approval`
 
 ## TC-EQUIPMENTREQUIREMENTS-025 — approval over a shortage needs a comment
@@ -400,8 +400,8 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Test data:** As above.
 - **Expected:** (a) `200`, Events write includes the comment. (b) `422`, no
   write.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_shortage_override_requires_comment`
 
 ## TC-EQUIPMENTREQUIREMENTS-026 — decline needs a reason
@@ -414,8 +414,8 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Expected:** (a) `200`, Events write `{"decision": "declined", "reason":
   "Only one sound desk exists"}`; availability not checked. (b) `422`, no
   write.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_decline_requires_reason`
 
 ## TC-EQUIPMENTREQUIREMENTS-027 — only the assigned Technical Support
@@ -426,8 +426,8 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
   (d) `T1` with `E1` `pending_safety_check`.
 - **Test data:** `{"decision": "approved"}`.
 - **Expected:** (a) `404`; (b) `403`; (c) `401`; (d) `409`. No Events write.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_signoff_limited_to_assigned_support`
 
 ## TC-EQUIPMENTREQUIREMENTS-028 — a Coordinator change clears the sign-off first
@@ -441,8 +441,8 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Expected:** Each → its usual success (`200` / `204`). Events
   `POST /internal/events/E1/technical-signoff/clear` is called **before** the
   Equipment write, once per request.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_requirement_change_clears_signoff`
 
 ## TC-EQUIPMENTREQUIREMENTS-029 — if the sign-off can't be cleared, nothing changes
@@ -452,6 +452,6 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Steps:** `PUT /equipment-requirements/E1/P1` with `{"required_quantity": 5}` as `C1`.
 - **Test data:** As above.
 - **Expected:** `502`; Equipment write not called.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_failed_clear_blocks_requirement_change`

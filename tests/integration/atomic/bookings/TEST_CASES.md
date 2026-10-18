@@ -324,6 +324,6 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Expected:** 2 → `201`. 4 → `status: "replaced"`,
   `replaced_by_booking_id: B4`, `replaced_at` set; its rejection reason is
   kept.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Not run: the S-17 SQL (events.sql, and the S-78 block of bookings.sql) is not yet applied to the test Supabase project.
+- **Status:** Blocked
 - **Evidence:** `test_s17.py::test_confirmed_replacement_retires_rejected_original`

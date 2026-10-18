@@ -74,6 +74,6 @@ S-77/S-87 targeted integration regression run passed all 8 cases.
   `technical_signoff_awaiting`, `equipment_preparation`; storage still
   `planning`. 3 → `200`, stored `pending_safety_check`. 4 lists `E1`.
   5 → stored `confirmed`. 6 → `status: "confirmed"`.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Not run: the S-17 SQL (events.sql, and the S-78 block of bookings.sql) is not yet applied to the test Supabase project.
+- **Status:** Blocked
 - **Evidence:** `test_s17.py::test_submission_through_to_confirmed`

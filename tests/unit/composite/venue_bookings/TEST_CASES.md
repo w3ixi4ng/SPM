@@ -1983,9 +1983,9 @@ submission can be cleared. Everything else about S-78 is unchanged.
 - **Test data:** As above.
 - **Expected:** 1 → `200`, Studio 3 listed. 2 → `201`; the Bookings insert
   carries `replaces_booking_id: B2` and `B2`'s date and times.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s17.py::test_rejected_booking_can_be_replaced`
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_rejected_booking_can_be_replaced`; `tests/unit/frontend/test_safety_submission.mjs` — "offers a replacement for a rejected booking"
 
 ## TC-VENUEBOOKINGS-115 — other bookings still need a flag
 
@@ -1995,8 +1995,8 @@ submission can be cleared. Everything else about S-78 is unchanged.
   `B3` (`pending`).
 - **Test data:** As above.
 - **Expected:** `409` "This booking doesn't need a replacement venue" each.
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_unflagged_live_booking_still_refused`
 
 ## TC-VENUEBOOKINGS-116 — one replacement at a time for a rejected booking
@@ -2008,6 +2008,6 @@ submission can be cleared. Everything else about S-78 is unchanged.
 - **Test data:** As above.
 - **Expected:** Studio 3 → `201` returning `B4` (a retry). Room 5 → `409` "A
   replacement request for this booking is already with Venue Staff".
-- **Actual:**
-- **Status:** Not Executed
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_one_waiting_replacement_for_rejected_booking`
