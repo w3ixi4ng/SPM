@@ -794,10 +794,14 @@ async def remove_venue_block(
 # --- S-78: replacing an affected booking ---------------------------------------
 
 
-async def _affected_booking(booking_id, request: Request, users, events, venues, bookings, not_needed: str):
+async def _affected_booking(
+    booking_id, request: Request, users, events, venues, bookings, not_needed: str,
+    *, rejected_too: bool = False,
+):
     """The caller, the booking and its event, once the caller is the event's
-    current Coordinator and the booking carries S-77's flag. A booking whose
-    event isn't the caller's is the same 404 as one that doesn't exist."""
+    current Coordinator and the booking carries S-77's flag -- or, with
+    `rejected_too` (S-17), was rejected by Venue Staff. A booking whose event
+    isn't the caller's is the same 404 as one that doesn't exist."""
     user = await _authenticate(request, users, COORDINATOR_ROLE)
     booking = await _booking_by_id(bookings, booking_id)
     event = await _fetch(
@@ -805,6 +809,8 @@ async def _affected_booking(booking_id, request: Request, users, events, venues,
     )
     if event.get("status") not in replacement.OPEN_EVENT_STATUSES:
         raise HTTPException(status_code=409, detail=EVENT_CLOSED)
+    if rejected_too and booking.get("status") == "rejected":
+        return user, booking, event
     [flagged] = await _with_clashes([booking], venues, bookings, request.cookies)
     if not flagged["requires_alternative_arrangements"]:
         raise HTTPException(status_code=409, detail=not_needed)
@@ -823,7 +829,8 @@ async def search_replacement_venues(
     """S-78: the venues that could take the affected booking's event at its
     date and times, by name. A failed read is a 502, never "no venues"."""
     _, booking, event = await _affected_booking(
-        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED
+        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED,
+        rejected_too=True,
     )
     listed = await _get("Venues", venues, "/venues", cookies=request.cookies)
     if listed.status_code != status.HTTP_200_OK:
@@ -857,7 +864,8 @@ async def request_replacement_venue(
     any request (S-36), so nothing is typed in again. The original keeps its
     flag until Venue Staff approve this."""
     user, original, event = await _affected_booking(
-        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED
+        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED,
+        rejected_too=True,
     )
     event_bookings = await _list(bookings, "/bookings", {"event_id": str(original["event_id"])})
     waiting = replacement.active_replacement(original, event_bookings)

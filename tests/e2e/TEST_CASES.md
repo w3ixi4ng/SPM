@@ -865,7 +865,7 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   state and stored `preparation`, `approved`, the authenticated Safety Officer
   id and a server timestamp.
 - **Status:** Pass
-- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_pending_event[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
 

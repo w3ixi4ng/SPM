@@ -10,6 +10,7 @@ OVERSIGHT_ACTIVE = [
     "under_review",
     "returned",
     "planning",
+    "pending_safety_check",
     "confirmed",
 ]
 

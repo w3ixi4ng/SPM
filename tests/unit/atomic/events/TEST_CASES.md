@@ -1720,7 +1720,7 @@ cases confirmed by the developer on 2026-10-10. Executed locally on
 - **Actual:** The queue used both storage predicates and oldest-update order;
   missing returned `404`, while wrong state/current decision returned `409`.
 - **Status:** Pass
-- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_confirmed_events`; `test_s86.py::test_safety_detail_distinguishes_missing_from_ineligible`
+- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_pending_events`; `test_s86.py::test_safety_detail_distinguishes_missing_from_ineligible`
 
 ## TC-EVENTS-120 — safety outcomes are distinct and audited
 

@@ -32,7 +32,7 @@ requires_env = pytest.mark.skipif(
         os.environ.get(name)
         for name in ("SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY")
     ),
-    reason="needs .env.test with the S-86 events SQL applied and the stack running",
+    reason="needs .env.test with the S-86 and S-17 SQL applied and the stack running",
 )
 
 
@@ -63,6 +63,19 @@ def make_user(admin, role):
     return {"id": user_id, "email": email, "password": PASSWORD}
 
 
+def signed_off_fields(support_id):
+    """S-17: Technical Support approved the equipment and marked it ready --
+    what an event needs before it can be (re)submitted for its safety check."""
+    return {
+        "technical_signoff_decision": "approved",
+        "technical_signoff_by": support_id,
+        "technical_signoff_at": "2026-10-02T01:00:00Z",
+        "equipment_preparation_status": "ready",
+        "equipment_preparation_updated_by": support_id,
+        "equipment_preparation_updated_at": "2026-10-02T01:00:00Z",
+    }
+
+
 def cookie_for(auth_client, user):
     signed_in = auth_client.auth.sign_in_with_password(
         {"email": user["email"], "password": user["password"]}
@@ -70,8 +83,7 @@ def cookie_for(auth_client, user):
     return {"Cookie": f"sb_access_token={signed_in.session.access_token}"}
 
 
-@pytest.fixture
-def safety_world(admin):
+def _world(admin, *, event_status, booking_status, signed_off):
     organiser = make_user(admin, "event_organiser")
     coordinator = make_user(admin, "event_coordinator")
     support = make_user(admin, "technical_support")
@@ -107,7 +119,7 @@ def safety_world(admin):
             {
                 "organiser_id": organiser["id"],
                 "assigned_coordinator_id": coordinator["id"],
-                "status": "confirmed",
+                "status": event_status,
                 "name": "spm-test Operational safety review",
                 "purpose": "Prove S-86 orchestration",
                 "start_date": "2026-11-18",
@@ -126,6 +138,7 @@ def safety_world(admin):
                 "technical_support_details": "Place speakers away from exit routes",
                 "assigned_technical_support_id": support["id"],
                 "technical_support_assigned_at": "2026-10-01T01:00:00Z",
+                **(signed_off_fields(support["id"]) if signed_off else {}),
             }
         ).execute().data[0]["id"]
         admin.schema("equipment").table("requirements").insert(
@@ -143,7 +156,7 @@ def safety_world(admin):
                 "coordinator_id": coordinator["id"],
                 "coordinator_name": "spm-test Coordinator",
                 "coordinator_email": coordinator["email"],
-                "status": "confirmed",
+                "status": booking_status,
                 "booking_date": "2026-11-18",
                 "start_time": "09:00",
                 "end_time": "12:00",
@@ -157,8 +170,10 @@ def safety_world(admin):
                 "notes": "Use the north entrance",
                 "venue_name": "spm-test Safety Hall",
                 "decision_reason": None,
-                "decided_by": venue_staff["id"],
-                "decided_at": "2026-10-02T00:00:00Z",
+                **(
+                    {"decided_by": venue_staff["id"], "decided_at": "2026-10-02T00:00:00Z"}
+                    if booking_status == "confirmed" else {}
+                ),
             }
         ).execute()
         yield {
@@ -167,6 +182,7 @@ def safety_world(admin):
             "organiser": organiser,
             "coordinator": coordinator,
             "support": support,
+            "venue_staff": venue_staff,
         }
     finally:
         if event_id:
@@ -179,3 +195,18 @@ def safety_world(admin):
             admin.schema("venues").table("venues").delete().eq("id", venue_id).execute()
         for user in users:
             admin.auth.admin.delete_user(user["id"])
+
+
+@pytest.fixture
+def safety_world(admin):
+    """S-86/S-87: an event already waiting for its safety check."""
+    yield from _world(
+        admin, event_status="pending_safety_check", booking_status="confirmed", signed_off=True,
+    )
+
+
+@pytest.fixture
+def planning_world(admin):
+    """S-17: a planning event whose booking is still pending and whose
+    equipment Technical Support has not signed off."""
+    yield from _world(admin, event_status="planning", booking_status="pending", signed_off=False)

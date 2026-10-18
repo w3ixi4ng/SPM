@@ -436,7 +436,7 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
   awaiting Technical Support.
 - **Pre-conditions:** `E1` has an approved sign-off; separately a declined one.
 - **Steps:** As `C1`: (a) `PUT /equipment-requirements/E1/P1` with
-  `{"quantity": 5}`; (b) `DELETE /equipment-requirements/E1/P1`.
+  `{"required_quantity": 5}`; (b) `DELETE /equipment-requirements/E1/P1`.
 - **Test data:** As above.
 - **Expected:** Each → its usual success (`200` / `204`). Events
   `POST /internal/events/E1/technical-signoff/clear` is called **before** the
@@ -449,7 +449,7 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 
 - **Scenario:** A requirement is never changed under a stale approval.
 - **Pre-conditions:** Approved sign-off; Events clear returns `500`.
-- **Steps:** `PUT /equipment-requirements/E1/P1` with `{"quantity": 5}` as `C1`.
+- **Steps:** `PUT /equipment-requirements/E1/P1` with `{"required_quantity": 5}` as `C1`.
 - **Test data:** As above.
 - **Expected:** `502`; Equipment write not called.
 - **Actual:**

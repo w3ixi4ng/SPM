@@ -1,4 +1,5 @@
-"""Replacing a booking an unavailable period affects (S-78).
+"""Replacing a booking an unavailable period affects (S-78), or one Venue
+Staff rejected (S-17).
 
 The replacement is for the affected booking's own date and times, and the
 event's current requirements -- the Coordinator only picks the venue. A
@@ -20,8 +21,12 @@ import suitability
 import unavailability
 
 # An event whose venue bookings may still change. A confirmed event is the
-# one most likely to lose a confirmed venue.
-OPEN_EVENT_STATUSES = ("planning", "confirmed", "preparation", "safety_changes_requested")
+# one most likely to lose a confirmed venue. S-17: an event waiting for its
+# Operational Safety Check can lose one too.
+OPEN_EVENT_STATUSES = (
+    "planning", "pending_safety_check", "confirmed", "preparation",
+    "safety_changes_requested",
+)
 ACTIVE = ("pending", "held")
 
 

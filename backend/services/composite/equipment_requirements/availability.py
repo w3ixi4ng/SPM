@@ -5,8 +5,9 @@ their requirements, exactly as the services return them, so the counting is
 testable without HTTP and the route stays thin.
 
 - Reserved: requirements on the overlapping events. The events service only
-  returns planning and confirmed events, so rejected, returned, draft and
-  submitted events already hold nothing by the time they get here.
+  returns planning, pending safety check and confirmed events, so rejected,
+  returned, draft and submitted events already hold nothing by the time they
+  get here.
 - Unavailable: the pool-wide operational status. A pool that is
   "unavailable" or "maintenance" has none free for any window.
 - Retired items are not part of the check at all.
@@ -80,3 +81,38 @@ def items(
         for item in catalogue
         if item.get("lifecycle_status") == "active" and _matches(item, type_search)
     ]
+
+
+def shortages(event: dict, catalogue: list[dict], events: list[dict], requirements: list[dict]) -> list[dict]:
+    """S-17: the event's own requirements that cannot be met in its window --
+    what is left once every other overlapping event has taken its share."""
+    counted = {
+        row["id"]: row
+        for row in items(catalogue, events, requirements, type_search=None, quantity=None)
+    }
+    short = []
+    for requirement in requirements:
+        if requirement["event_id"] != event["id"]:
+            continue
+        item = counted.get(requirement["equipment_item_id"])
+        if item is None:
+            # Retired since it was recorded: nothing of it can be provided.
+            available = 0
+            name = (requirement.get("equipment") or {}).get("type", "Unknown equipment")
+        else:
+            others = sum(
+                reservation["required_quantity"]
+                for reservation in item["reservations"]
+                if reservation["event_id"] != event["id"]
+            )
+            usable = item["operational_status"] == "available"
+            available = max(0, item["total"] - others) if usable else 0
+            name = item["type"]
+        if requirement["required_quantity"] > available:
+            short.append({
+                "equipment_item_id": requirement["equipment_item_id"],
+                "name": name,
+                "required": requirement["required_quantity"],
+                "available": available,
+            })
+    return short

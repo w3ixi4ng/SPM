@@ -116,7 +116,7 @@ Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
   history, identified errors passed through, and transport failure returned
   `502` without a retry.
 - **Status:** Pass
-- **Evidence:** `test_s87.py::test_resubmit_forwards_verified_current_coordinator_and_returns_confirmed`; `test_s87.py::test_return_and_resubmit_preserve_identified_atomic_errors`; `test_s87.py::test_upstream_failure_is_controlled_and_does_not_retry_a_write`
+- **Evidence:** `test_s87.py::test_resubmit_forwards_verified_current_coordinator_and_returns_pending`; `test_s87.py::test_return_and_resubmit_preserve_identified_atomic_errors`; `test_s87.py::test_upstream_failure_is_controlled_and_does_not_retry_a_write`
 
 ## S-17 — submit an event for the Operational Safety Check
 
@@ -238,6 +238,25 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Actual:**
 - **Status:** Not Executed
 - **Evidence:** `test_s17.py::test_rejected_booking_cleared_by_confirmed_replacement`
+
+## TC-SAFETYCHECKS-026 — a rejected replacement request is not counted twice
+
+> Added during implementation (2026-10-19), pending the developer's
+> confirmation: without it, a replacement request Venue Staff reject would
+> block submission for good, since a replacement request cannot itself be
+> replaced.
+
+- **Scenario:** Only the booking a rejected replacement was for stays outstanding.
+- **Pre-conditions:** Technical side complete; `B1` `confirmed`; `B2`
+  `rejected`; `B3` `rejected` with `replaces_booking_id: B2`.
+- **Steps:** 1. Submit as `C1`. 2. Set `B2` to `replaced` (a later
+  replacement was confirmed), `B3` unchanged; submit again.
+- **Test data:** As above.
+- **Expected:** 1 → `409`, outstanding is exactly `venue_rejected` for `B2`.
+  2 → `200`, `pending_safety_check`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s17.py::test_rejected_replacement_request_does_not_count_again`
 
 ## TC-SAFETYCHECKS-016 — an unresolved unavailability flag blocks; a resolved one doesn't
 

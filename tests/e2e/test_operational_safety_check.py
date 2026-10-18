@@ -10,7 +10,7 @@ from .conftest import requires_env
 pytestmark = requires_env
 
 
-def test_safety_officer_approves_an_enriched_confirmed_event(
+def test_safety_officer_approves_an_enriched_pending_event(
     admin, page, make_user, sign_in
 ):
     organiser = make_user("event_organiser")
@@ -48,7 +48,7 @@ def test_safety_officer_approves_an_enriched_confirmed_event(
         {
             "organiser_id": organiser["id"],
             "assigned_coordinator_id": coordinator["id"],
-            "status": "confirmed",
+            "status": "pending_safety_check",
             "name": event_name,
             "purpose": "Exercise the S-86 browser workflow",
             "start_date": "2026-11-18",
@@ -67,6 +67,13 @@ def test_safety_officer_approves_an_enriched_confirmed_event(
             "technical_support_details": "Place speakers away from exit routes",
             "assigned_technical_support_id": support["id"],
             "technical_support_assigned_at": "2026-10-01T01:00:00Z",
+            # S-17: signed off and ready, as any event in the queue is.
+            "technical_signoff_decision": "approved",
+            "technical_signoff_by": support["id"],
+            "technical_signoff_at": "2026-10-02T01:00:00Z",
+            "equipment_preparation_status": "ready",
+            "equipment_preparation_updated_by": support["id"],
+            "equipment_preparation_updated_at": "2026-10-02T01:00:00Z",
         }
     ).execute().data[0]
     admin.schema("equipment").table("requirements").insert(
@@ -125,7 +132,7 @@ def test_safety_officer_approves_an_enriched_confirmed_event(
         "status,safety_decision,safety_officer_id"
     ).eq("id", event["id"]).single().execute().data
     assert stored == {
-        "status": "preparation",
+        "status": "confirmed",
         "safety_decision": "approved",
         "safety_officer_id": officer["id"],
     }
@@ -169,7 +176,7 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
         {
             "organiser_id": organiser["id"],
             "assigned_coordinator_id": coordinator["id"],
-            "status": "confirmed",
+            "status": "pending_safety_check",
             "name": event_name,
             "purpose": "Exercise the S-87 browser workflow",
             "start_date": "2026-11-18",
@@ -188,6 +195,13 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
             "technical_support_details": "Place speakers beside the east exit",
             "assigned_technical_support_id": support["id"],
             "technical_support_assigned_at": "2026-10-01T01:00:00Z",
+            # S-17: signed off and ready, as any event in the queue is.
+            "technical_signoff_decision": "approved",
+            "technical_signoff_by": support["id"],
+            "technical_signoff_at": "2026-10-02T01:00:00Z",
+            "equipment_preparation_status": "ready",
+            "equipment_preparation_updated_by": support["id"],
+            "equipment_preparation_updated_at": "2026-10-02T01:00:00Z",
         }
     ).execute().data[0]
     admin.schema("equipment").table("requirements").insert(
@@ -273,13 +287,13 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
     page.get_by_role("radio", name="Approve", exact=True).check()
     page.get_by_role("button", name="Record safety decision").click()
     expect(page.get_by_role("status")).to_contain_text(
-        "Event status: preparation", timeout=20000
+        "Event status: confirmed", timeout=20000
     )
 
     stored = admin.schema("events").table("events").select(
         "status,safety_decision,safety_review_history,technical_support_details"
     ).eq("id", event["id"]).single().execute().data
-    assert stored["status"] == "preparation"
+    assert stored["status"] == "confirmed"
     assert stored["safety_decision"] == "approved"
     assert [review["decision"] for review in stored["safety_review_history"]] == [
         "changes_requested",

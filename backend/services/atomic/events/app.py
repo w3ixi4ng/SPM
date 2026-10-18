@@ -37,6 +37,8 @@ from schemas import (
     InternalCoordinatorReassignmentResult,
     InternalSafetyDecision,
     InternalSafetyResubmit,
+    InternalSafetySubmission,
+    InternalTechnicalSignoff,
     OverlappingEvent,
     OverlappingEventsRequest,
     TechnicalSupportLoad,
@@ -50,15 +52,24 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "events"
 TABLE = "events"
-ACTIVE_ASSIGNMENT_STATUSES = ["submitted", "planning", "confirmed", "returned"]
+# S-17: pending_safety_check sits between planning and confirmed, so it is
+# open wherever confirmed is.
+ACTIVE_ASSIGNMENT_STATUSES = [
+    "submitted", "planning", "pending_safety_check", "confirmed", "returned",
+]
 OVERSIGHT_ACTIVE_STATUSES = [
     "submitted",
     "under_review",
     "returned",
     "planning",
+    "pending_safety_check",
     "confirmed",
 ]
-EQUIPMENT_PREPARATION_EVENT_STATUSES = ["planning", "confirmed", "preparation"]
+EQUIPMENT_PREPARATION_EVENT_STATUSES = [
+    "planning", "pending_safety_check", "confirmed", "preparation",
+]
+# Events whose equipment and Technical Support are committed (S-43, S-44).
+COMMITTED_EVENT_STATUSES = ["planning", "pending_safety_check", "confirmed"]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -393,15 +404,15 @@ def list_coordinator_overview_events(db: Client = Depends(get_db)):
 def list_safety_review_events(db: Client = Depends(get_db)):
     """S-86 queue source.
 
-    `confirmed` is this project's lifecycle interpretation that the venue and
-    technical arrangements are ready for Operational Safety Check. The
-    atomic owner filters out any row whose current safety decision exists.
+    S-17: the Coordinator's submission moves a fully arranged event to
+    `pending_safety_check`. The atomic owner filters out any row whose current
+    safety decision exists.
     """
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
         .select("*")
-        .eq("status", "confirmed")
+        .eq("status", "pending_safety_check")
         .is_("safety_decision", "null")
         .order("updated_at", desc=False)
     )
@@ -415,7 +426,10 @@ def _safety_review_event(event_id: UUID, db: Client) -> dict:
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
     event = result.data[0]
-    if event.get("status") != "confirmed" or event.get("safety_decision") is not None:
+    if (
+        event.get("status") != "pending_safety_check"
+        or event.get("safety_decision") is not None
+    ):
         raise HTTPException(
             status_code=409,
             detail="This event is not awaiting an Operational Safety Check",
@@ -429,7 +443,8 @@ def get_safety_review_event(event_id: UUID, db: Client = Depends(get_db)):
 
 
 _STATUS_AFTER_SAFETY_DECISION = {
-    SafetyDecisionValue.APPROVED: "preparation",
+    # S-17: Confirmed means the Safety Officer approved it.
+    SafetyDecisionValue.APPROVED: "confirmed",
     SafetyDecisionValue.REJECTED: "safety_rejected",
     # S-87: the decision remains current feedback and is also appended to the
     # immutable history, while the event itself immediately returns to the
@@ -478,7 +493,7 @@ def record_safety_decision(
         .table(TABLE)
         .update(values)
         .eq("id", str(event_id))
-        .eq("status", "confirmed")
+        .eq("status", "pending_safety_check")
         .is_("safety_decision", "null")
     )
     result = _execute(operation)
@@ -517,16 +532,16 @@ def resubmit_safety_returned_event(
     payload: InternalSafetyResubmit,
     db: Client = Depends(get_db),
 ):
-    """Narrow S-87 planning -> confirmed transition, never general S-17.
+    """S-87 planning -> pending_safety_check after a change request.
 
-    The history is deliberately absent from `values`: clearing the current
+    The safety_checks composite runs the S-17 readiness check first. The history is deliberately absent from `values`: clearing the current
     blocking decision cannot overwrite or lose any previous review record.
     The conditional predicates make retries and ownership changes safe.
     """
 
     _safety_returned_event(event_id, payload.coordinator_id, db)
     values = {
-        "status": "confirmed",
+        "status": "pending_safety_check",
         "safety_decision": None,
         "safety_decision_reason": None,
         "safety_officer_id": None,
@@ -547,6 +562,105 @@ def resubmit_safety_returned_event(
             status_code=409,
             detail="The event changed before it could be resubmitted for safety review",
         )
+    return result.data[0]
+
+
+_NOT_IN_PLANNING = "This event is not in planning"
+
+
+@app.post("/internal/events/{event_id}/safety-submission", response_model=EventRead)
+def submit_for_safety_check(
+    event_id: UUID,
+    payload: InternalSafetySubmission,
+    db: Client = Depends(get_db),
+):
+    """S-17 planning -> pending_safety_check.
+
+    The safety_checks composite checks every arrangement first; this owns only
+    the transition. An event the Safety Officer sent back goes through
+    safety-resubmit instead, which also clears the current feedback.
+    """
+    event = _get_assigned_event(event_id, str(payload.coordinator_id), db)
+    if event.get("status") != "planning":
+        raise HTTPException(status_code=409, detail=_NOT_IN_PLANNING)
+    if event.get("safety_decision") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This event was returned by the Safety Officer. Resubmit it from the safety feedback.",
+        )
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({"status": "pending_safety_check"})
+        .eq("id", str(event_id))
+        .eq("status", "planning")
+        .eq("assigned_coordinator_id", str(payload.coordinator_id))
+        .is_("safety_decision", "null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_NOT_IN_PLANNING)
+    return result.data[0]
+
+
+_SIGNOFF_ONLY_IN_PLANNING = (
+    "Technical Support sign-off can only change while the event is in planning"
+)
+_SIGNOFF_CLEARED = {
+    "technical_signoff_decision": None,
+    "technical_signoff_reason": None,
+    "technical_signoff_override_comment": None,
+    "technical_signoff_by": None,
+    "technical_signoff_at": None,
+}
+
+
+@app.put("/internal/events/{event_id}/technical-signoff", response_model=EventRead)
+def record_technical_signoff(
+    event_id: UUID,
+    payload: InternalTechnicalSignoff,
+    db: Client = Depends(get_db),
+):
+    """S-17: the assigned Technical Support approves or declines. The
+    equipment_requirements composite checks S-44 shortages first."""
+    staff_id = str(payload.technical_support_id)
+    event = _get_support_assigned_event(event_id, staff_id, db)
+    if event.get("status") != "planning":
+        raise HTTPException(status_code=409, detail=_SIGNOFF_ONLY_IN_PLANNING)
+    values = {
+        "technical_signoff_decision": payload.decision.value,
+        "technical_signoff_reason": payload.reason,
+        "technical_signoff_override_comment": payload.override_comment,
+        "technical_signoff_by": staff_id,
+        "technical_signoff_at": _decided_now(),
+    }
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(values)
+        .eq("id", str(event_id))
+        .eq("assigned_technical_support_id", staff_id)
+        .eq("status", "planning")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_SIGNOFF_ONLY_IN_PLANNING)
+    return result.data[0]
+
+
+@app.post("/internal/events/{event_id}/technical-signoff/clear", response_model=EventRead)
+def clear_technical_signoff(event_id: UUID, db: Client = Depends(get_db)):
+    """S-17: a Coordinator change to the equipment requirements sends the
+    event back to awaiting Technical Support. Clearing none is not an error."""
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(_SIGNOFF_CLEARED)
+        .eq("id", str(event_id))
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
     return result.data[0]
 
 
@@ -664,8 +778,8 @@ def submit_draft(
 # cancel. Requesting records the request on the event and never changes its
 # status -- a later review does that.
 _CANCELLABLE_STATUSES = (
-    "submitted", "under_review", "planning", "confirmed", "preparation",
-    "safety_changes_requested",
+    "submitted", "under_review", "planning", "pending_safety_check",
+    "confirmed", "preparation", "safety_changes_requested",
 )
 _NOT_CANCELLABLE = "This event can't be cancelled from its current status."
 _ALREADY_REQUESTED = "A cancellation request has already been sent for this event."
@@ -838,13 +952,14 @@ def coordinator_load(payload: CoordinatorLoadRequest, db: Client = Depends(get_d
 @app.post("/events/overlapping", response_model=list[OverlappingEvent])
 def overlapping_events(payload: OverlappingEventsRequest, db: Client = Depends(get_db)):
     """S-44: the live events whose time overlaps a window -- the ones whose
-    equipment requirements reserve equipment then. Planning and confirmed
-    events are committed; draft, submitted, returned and rejected are not."""
+    equipment requirements reserve equipment then. Planning, pending safety
+    check and confirmed events are committed; draft, submitted, returned and
+    rejected are not."""
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
         .select("id,name,status,start_date,start_time,end_date,end_time")
-        .in_("status", ["planning", "confirmed"])
+        .in_("status", COMMITTED_EVENT_STATUSES)
         # Coarse date filter in the query; the exact time overlap below.
         .lte("start_date", payload.end_date.isoformat())
         .gte("end_date", payload.start_date.isoformat())
@@ -886,7 +1001,7 @@ def technical_support_load(
             "id,assigned_technical_support_id,start_date,start_time,end_date,end_time"
         )
         .in_("assigned_technical_support_id", ids)
-        .in_("status", ["planning", "confirmed"])
+        .in_("status", COMMITTED_EVENT_STATUSES)
     )
     rows = _execute(operation).data
     by_staff: dict[str, list[dict]] = {staff_id: [] for staff_id in ids}

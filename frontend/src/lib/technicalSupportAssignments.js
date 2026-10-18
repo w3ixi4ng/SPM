@@ -52,7 +52,7 @@ export function equipmentPreparationErrorMessage(error) {
 
 export function assignedEventWork(events, requirements) {
   const activeEvents = events.filter((event) => (
-    event.status === 'planning' || event.status === 'confirmed' || event.status === 'preparation'
+    ['planning', 'pending_safety_check', 'confirmed', 'preparation'].includes(event.status)
   ))
   const byEvent = new Map(activeEvents.map((event) => [event.id, []]))
 
