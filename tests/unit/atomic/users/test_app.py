@@ -433,6 +433,59 @@ def test_coordinator_listing_is_empty_when_no_one_holds_the_role(client, db):
     db.schema.return_value.table.return_value.select.assert_not_called()
 
 
+# --- TC-USERS-032 ---------------------------------------------------------
+def test_coordinator_listing_keeps_trusted_auth_users_without_profiles(client, db):
+    profiled = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    profileless = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    db.auth.admin.list_users.return_value = [
+        auth_admin_user(profiled, "event_coordinator", "auth-alex@example.com"),
+        auth_admin_user(profileless, "event_coordinator", "idle@example.com"),
+        auth_admin_user("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "event_organiser"),
+        auth_admin_user("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "technical_support"),
+        auth_admin_user("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "safety_officer"),
+        auth_admin_user("ffffffff-ffff-4fff-8fff-ffffffffffff", "event_coordinator_lead"),
+        auth_admin_user(
+            "99999999-9999-4999-8999-999999999999",
+            None,
+            "impostor@example.com",
+            {"role": "event_coordinator"},
+        ),
+    ]
+    on_in(db, [{"id": profiled, "name": "Alex", "email": "alex@example.com"}])
+
+    response = client.get("/internal/users/coordinators")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": profiled, "name": "Alex", "email": "alex@example.com"},
+        {"id": profileless, "name": "idle@example.com", "email": "idle@example.com"},
+    ]
+    selected_ids = db.schema.return_value.table.return_value.select.return_value.in_.call_args.args[1]
+    assert set(selected_ids) == {profiled, profileless}
+
+
+def test_coordinator_listing_includes_profileless_auth_user_on_later_page(client, db):
+    profiled = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    profileless = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    first_page = [auth_admin_user(profiled, "event_coordinator", "alex@example.com")]
+    first_page.extend(
+        auth_admin_user(f"irrelevant-{number}", "event_organiser")
+        for number in range(199)
+    )
+    db.auth.admin.list_users.side_effect = [
+        first_page,
+        [auth_admin_user(profileless, "event_coordinator", "idle@example.com")],
+    ]
+    on_in(db, [{"id": profiled, "name": "Alex", "email": "alex@example.com"}])
+
+    response = client.get("/internal/users/coordinators")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [profiled, profileless]
+    assert response.json()[1]["name"] == "idle@example.com"
+    assert db.auth.admin.list_users.call_count == 2
+
+
 # --- TC-USERS-029 ---------------------------------------------------------
 def test_technical_support_listing_uses_trusted_roles_across_pages(client, db):
     support_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

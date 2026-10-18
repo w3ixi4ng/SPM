@@ -22,6 +22,7 @@ from schemas import (
     AlternativeResolution,
     BlockCreate,
     BlockRead,
+    BookingChange,
     BookingCreate,
     BookingDecision,
     BookingRead,
@@ -413,6 +414,80 @@ def release_hold(
     if result.data:
         return result.data[0]
     raise HTTPException(status_code=409, detail="Only a tentative hold can be released")
+
+
+# S-80: what a Coordinator may change or cancel. A rejected request is a
+# closed decision; it is left as it is.
+CHANGEABLE_STATUSES = ["pending", "held", "confirmed"]
+# Everything a hold or a decision recorded. A changed booking is a new
+# request for Venue Staff, so none of it applies any more.
+_REVIEW_CLEARED = {
+    "held_by": None, "held_at": None, "hold_released_at": None, "hold_release_reason": None,
+    "decided_by": None, "decided_at": None, "decision_reason": None, "decision_alternative": None,
+    # S-78: a resolved unavailability flag was about the old time and venue.
+    "alternative_resolved_at": None, "alternative_resolved_by": None, "alternative_resolution_note": None,
+}
+
+
+@app.patch("/bookings/{booking_id}", response_model=BookingRead)
+def change_booking(
+    booking_id: UUID,
+    payload: BookingChange,
+    gap: Gap = Depends(venue_gap),
+    _coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-80: move one booking. It goes back to pending, so its old slot is
+    free at once and Venue Staff review it again. Checked like a new request,
+    except that it never clashes with itself. The composite has already
+    checked the Coordinator is assigned to the event."""
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] not in CHANGEABLE_STATUSES:
+        raise HTTPException(status_code=409, detail="Only a pending, held or confirmed booking can be changed")
+
+    values = payload.model_dump(mode="json")
+    candidate = {**values, "id": str(booking_id)}
+    conflict = _live_overlap(db, candidate, gap)
+    if conflict:
+        _raise_overlap(conflict, gap)
+    block = _block_over(db, candidate, gap)
+    if block:
+        _raise_blocked(block)
+
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .update({**values, "status": "pending", **_REVIEW_CLEARED})
+        .eq("id", str(booking_id))
+        .in_("status", CHANGEABLE_STATUSES)
+    )
+    if not result.data:
+        raise HTTPException(status_code=409, detail="Only a pending, held or confirmed booking can be changed")
+    return result.data[0]
+
+
+@app.delete("/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def cancel_booking(
+    booking_id: UUID,
+    _coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-80: cancel one booking. It is deleted, so its time shows as
+    available; the event's other bookings are not touched."""
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] not in CHANGEABLE_STATUSES:
+        raise HTTPException(status_code=409, detail="Only a pending, held or confirmed booking can be cancelled")
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).delete()
+        .eq("id", str(booking_id))
+        .in_("status", CHANGEABLE_STATUSES)
+    )
+    if not result.data:
+        raise HTTPException(status_code=409, detail="Only a pending, held or confirmed booking can be cancelled")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _replacement_problem(db: Client, values: dict):

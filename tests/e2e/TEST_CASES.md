@@ -17,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-13, branch `S-87/return-event-to-planning-after-safety-changes-requested`, commit `72886bb` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, merge tree of `833c9b2` and `sprint3` commit `d237cd0` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Combined S-77/S-87 browser regression: 5 passed |
+| Result | Targeted S-83/S-84/S-85 journeys and new integrity case: 4 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -820,7 +820,7 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
   1 passed.
 
-## TC-E2E-230 — Lead oversees every Coordinator and sees reassignment move work
+## TC-E2E-238 — Lead oversees every Coordinator and sees reassignment move work
 
 - **Scenario:** A real browser proves the S-85 grouped oversight view, idle
   Coordinator visibility, event summary, and S-84 refresh/update behaviour.
@@ -999,7 +999,7 @@ by the unit and integration cases. This journey proves only what a browser
 can: the way in from the flagged booking, the replacement screen, and the
 original's state after Venue Staff approve.
 
-## TC-E2E-235 — a Coordinator replaces a flagged booking without re-entering the event, and approval clears the flag
+## TC-E2E-242 — a Coordinator replaces a flagged booking without re-entering the event, and approval clears the flag
 
 - **Scenario:** In a real browser through Kong, from the flagged booking to
   a confirmed replacement (AC1–AC4).
@@ -1058,12 +1058,61 @@ original's state after Venue Staff approve.
 - **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
-  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
-  S-86 plus S-84/S-85 regressions, 3 passed.
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+## TC-E2E-236 — Coordinator changes one venue booking and cancels another; the third is untouched
+
+- **Scenario:** The change screen and the cancel panel work through Kong,
+  and the event's other bookings stay as they were (S-80 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; Chromium. K assigned to planning E with two `confirmed` bookings:
+  Hall 09:00–12:00 and Studio 13:00–15:00, both on `2026-11-12`.
+- **Steps:**
+  1. K opens E. Click **Change** on the Studio booking; the change screen
+     opens with Studio, 12 Nov, 13:00–15:00 filled in.
+  2. Set 15:00–17:00 and click **Save changes**.
+  3. Click **Cancel** on the Hall booking; the panel names it. Click
+     **Keep booking**.
+  4. Click **Cancel** on the Hall booking again, then **Cancel booking**.
+  5. Reload.
+- **Expected:**
+  - After 2: back on E with "Venue booking changed. It's pending until
+    Venue Staff review it again."; the Studio row reads 15:00–17:00
+    "Pending"; the Hall row still reads 09:00–12:00 "Confirmed".
+  - After 3: nothing changed.
+  - After 4 and 5: "Venue booking cancelled. Its time is free for other
+    events." (after 4); only the Studio row remains, 15:00–17:00 Pending.
+  Cleanup deletes every row created.
+- **Actual:** Chromium: Change opened the screen pre-filled 13:00; saving 15:00–17:00 returned to E with the changed notice, the Studio row Pending 15:00–17:00 and the Hall row still Confirmed 09:00–12:00; Keep booking changed nothing; Cancel booking showed the cancelled notice; after a reload only the Studio row remained.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_change_cancel_booking.py::test_a_coordinator_changes_one_booking_and_cancels_another[chromium]` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. With the S-77, S-78, S-30, S-33 and S-79 venue journeys: 8 passed, 1 failed (S-78's replacement journey: its venue search makes two sequential reads per venue, about 80 for the 41 venues on the test project, and outlasts the 20 s wait; S-80 changes nothing on that path). A first run had failed on a DNS outage and was rerun.
+
+## TC-E2E-237 — Lead sees profile-less Coordinators but not invalid owners
+
+- **Scenario:** The S-85 browser view distinguishes eligible Coordinators from active events with invalid owners, while preserving S-83 and S-84 controls.
+- **Pre-conditions:** Fresh `.env.test` stack and disposable fixtures: a profiled Coordinator with one event, a profile-less trusted Coordinator with zero events, and an active event whose Auth owner has been deleted. All fixture changes are cleaned up.
+- **Steps:** Sign in as Lead; inspect the oversight groups and separate integrity warning; use S-84 to reassign the valid event to the profile-less Coordinator; reload; inspect the S-83 assignment queue.
+- **Test data:** Profiled `Alex <alex@example.com>`; profile-less Auth identity `blair@example.com`; deleted owner D; one event for Alex and one orphaned event for D.
+- **Expected:** Blair appears as a zero-assignment Coordinator using Auth identity display. D never appears as a Coordinator group; its event is reported only in the integrity warning. Reassignment moves the valid event to Blair and updates counts both immediately and after reload. The S-83 queue remains available; the orphan's assignment is not changed.
+- **Actual:** Chromium showed the profile-less Coordinator under its Auth email with count 0 and the deleted owner's event only in the integrity warning. The email-labelled S-84 choice moved the valid event and updated counts before and after reload; the S-83 queue remained visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_sees_profileless_coordinator_and_invalid_assignment_separately[chromium]`; freshly recreated `.env.test` stack, 2026-10-18, after merging `sprint3`; four targeted browser journeys passed.
+
+## Merged-branch ID reconciliation
+
+The earliest allocation of each test ID remains canonical. Later cases from
+parallel story branches were renumbered when those branches met: S-85
+overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
+`235` -> `240`, S-24 readiness `233` -> `241`, and S-78 replacement `235` ->
+`242`. Earlier branch references to those old IDs identify the same cases.
 
 ## S-26 — Update Equipment Preparation Status
 
-### TC-E2E-232 — assigned Technical Support updates preparation and the Coordinator sees it
+### TC-E2E-239 — assigned Technical Support updates preparation and the Coordinator sees it
 
 - **Scenario:** A browser proves the protected S-26 write, persistence, and read-only Coordinator visibility.
 - **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; planning event assigned to a Coordinator and Technical Support A.
@@ -1076,7 +1125,7 @@ original's state after Venue Staff approve.
 
 ## S-24 — Track Event Readiness
 
-### TC-E2E-233 — Coordinator readiness follows current venue, equipment, and preparation data
+### TC-E2E-241 — Coordinator readiness follows current venue, equipment, and preparation data
 
 - **Scenario:** The assigned Coordinator sees all five readiness areas on the event view.
 - **Pre-conditions:** Fresh `.env.test` stack; an assigned planning event with a confirmed venue, recorded equipment requirement, and preparation Ready.
@@ -1086,7 +1135,7 @@ original's state after Venue Staff approve.
 - **Status:** Pass
 - **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
 
-## TC-E2E-235 — a tentative hold expires and releases its slot
+## TC-E2E-240 — a tentative hold expires and releases its slot
 
 - **Scenario:** Venue Staff place a visibly tentative hold with a required
   expiry; its Coordinator is informed before it expires and the same

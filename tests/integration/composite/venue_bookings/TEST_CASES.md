@@ -413,3 +413,34 @@ For the criteria mapping and the agreed decisions, see the S-78 section of
 - **Actual:** Through Kong: resolution `200`; K still `confirmed`, unflagged, note "Moved online".
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+No new SQL: S-80 needs only the schemas already in `backend/sql/`. The criteria mapping and agreed decisions are
+in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-VENUEBOOKINGS-114 — one booking changes and another is cancelled, and the rest stay, through Kong
+
+- **Scenario:** Real services agree that one booking moves or goes without
+  touching the others (S-80 AC1, AC2).
+- **Pre-conditions:** A fresh `.env.test` stack. K assigned to planning E
+  with A `confirmed`, B `held`, C `pending` (shared test data), and another
+  planning event F assigned to K.
+- **Steps:** As K, through `/api/venue-bookings`:
+  1. Change B to Studio B 16:00–17:00.
+  2. Request Studio B 13:00–15:00 for F (B's old slot).
+  3. Cancel A.
+  4. List E's bookings.
+- **Expected:**
+  1. `200`; B `pending` at 16:00–17:00 with no hold or decision fields.
+  2. `201` — the old slot is free.
+  3. `204`; A is gone from `bookings.bookings`.
+  4. Exactly B (pending, 16:00–17:00) and C (unchanged, `pending`
+     15:00–16:00).
+  Cleanup deletes every row created.
+- **Actual:** Through Kong: B changed to 16:00–17:00 and stored `pending` with no hold; another event then took B's old 13:00–15:00 (`201`); cancelling A gave `204` and removed it; E listed exactly B and C, C unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_change_cancel.py::test_one_booking_changes_another_is_cancelled_and_the_rest_stay` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. `pytest tests/integration/composite/venue_bookings tests/integration/atomic/bookings`: 29 passed.

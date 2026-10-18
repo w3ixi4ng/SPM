@@ -111,6 +111,98 @@ def test_overview_groups_events_and_keeps_zero_assignment_coordinators(
     assert groups[2]["events"] == []
 
 
+@pytest.mark.parametrize("event_status", ACTIVE_STATUSES)
+def test_overview_reports_invalid_owners_without_creating_groups(
+    client, users, events, notifications, event_status
+):
+    deleted_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    wrong_role_id = "99999999-9999-4999-8999-999999999999"
+    users.get.side_effect = _users_get([coordinator(COORDINATOR_A, "Alex Coordinator")])
+    rows = [
+        _event(COORDINATOR_A, status=event_status, id="11111111-1111-4111-8111-111111111111", name="A's event"),
+        _event(deleted_id, status=event_status, id="22222222-2222-4222-8222-222222222222", name="Deleted owner"),
+        _event(wrong_role_id, status=event_status, id="33333333-3333-4333-8333-333333333333", name="Wrong role"),
+    ]
+    events.get.return_value = fake_response(200, rows)
+    users.post.return_value = fake_response(
+        200, [{"id": ORGANISER_ID, "name": "Ada Organiser", "email": "ada@example.com"}],
+    )
+
+    response = client.get("/event-requests/coordinator-overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [group["coordinator"]["id"] for group in body["coordinators"]] == [COORDINATOR_A]
+    assert body["coordinators"][0]["active_assignment_count"] == 1
+    assert [event["name"] for event in body["coordinators"][0]["events"]] == ["A's event"]
+    assert body["invalid_assignments"] == [
+        {"event_id": rows[1]["id"], "name": "Deleted owner", "status": event_status, "assigned_coordinator_id": deleted_id},
+        {"event_id": rows[2]["id"], "name": "Wrong role", "status": event_status, "assigned_coordinator_id": wrong_role_id},
+    ]
+    users.post.assert_awaited_once_with("/internal/users/profiles", json={"ids": [ORGANISER_ID]})
+    events.post.assert_not_awaited()
+    notifications.post.assert_not_awaited()
+
+
+def test_overview_groups_profileless_trusted_coordinators_and_keeps_idle(
+    client, users, events, notifications
+):
+    pool = [
+        coordinator(COORDINATOR_A, "Alex Coordinator"),
+        {"id": COORDINATOR_B, "name": "blair@example.com", "email": "blair@example.com"},
+        {"id": COORDINATOR_C, "name": "casey@example.com", "email": "casey@example.com"},
+    ]
+    users.get.side_effect = _users_get(pool)
+    rows = [
+        _event(COORDINATOR_A, id="11111111-1111-4111-8111-111111111111", name="A"),
+        _event(COORDINATOR_B, id="22222222-2222-4222-8222-222222222222", name="B1"),
+        _event(COORDINATOR_B, id="33333333-3333-4333-8333-333333333333", name="B2"),
+    ]
+    events.get.return_value = fake_response(200, rows)
+    users.post.return_value = fake_response(
+        200, [{"id": ORGANISER_ID, "name": "Ada Organiser", "email": "ada@example.com"}],
+    )
+
+    response = client.get("/event-requests/coordinator-overview")
+
+    assert response.status_code == 200
+    groups = {group["coordinator"]["id"]: group for group in response.json()["coordinators"]}
+    assert set(groups) == {COORDINATOR_A, COORDINATOR_B, COORDINATOR_C}
+    assert {key: group["active_assignment_count"] for key, group in groups.items()} == {
+        COORDINATOR_A: 1, COORDINATOR_B: 2, COORDINATOR_C: 0,
+    }
+    assert groups[COORDINATOR_B]["coordinator"]["name"] == "blair@example.com"
+    assert [event["name"] for event in groups[COORDINATOR_B]["events"]] == ["B1", "B2"]
+    assert groups[COORDINATOR_C]["events"] == []
+    assert response.json()["invalid_assignments"] == []
+
+    events.post.return_value = fake_response(200, {
+        **rows[0],
+        "assigned_coordinator_id": COORDINATOR_C,
+        "previous_coordinator_id": COORDINATOR_A,
+        "coordinator_assignment_version": 1,
+        "reassignment_created": True,
+    })
+    notifications.post.return_value = fake_response(201, [{"id": 1}])
+    moved = client.post(f"/event-requests/{rows[0]['id']}/reassignment", json={
+        "coordinator_id": COORDINATOR_C,
+        "expected_coordinator_id": COORDINATOR_A,
+        "expected_assignment_version": 0,
+    })
+    assert moved.status_code == 200
+    events.get.return_value = fake_response(200, [
+        {**rows[0], "assigned_coordinator_id": COORDINATOR_C, "coordinator_assignment_version": 1},
+        *rows[1:],
+    ])
+    refreshed = client.get("/event-requests/coordinator-overview")
+    assert refreshed.status_code == 200
+    updated = {group["coordinator"]["id"]: group for group in refreshed.json()["coordinators"]}
+    assert {key: group["active_assignment_count"] for key, group in updated.items()} == {
+        COORDINATOR_A: 0, COORDINATOR_B: 2, COORDINATOR_C: 1,
+    }
+    assert [event["id"] for event in updated[COORDINATOR_C]["events"]] == [rows[0]["id"]]
+
+
 def test_overview_enriches_event_summaries_with_profiles(client, users, events):
     pool = [coordinator(COORDINATOR_A, "Alex Coordinator")]
     users.get.side_effect = _users_get(pool)
@@ -163,6 +255,7 @@ def test_overview_handles_empty_events_and_empty_pool(client, users, events, poo
     assert len(groups) == len(pool)
     assert all(group["active_assignment_count"] == 0 for group in groups)
     assert all(group["events"] == [] for group in groups)
+    assert response.json()["invalid_assignments"] == []
     users.post.assert_not_awaited()
 
 

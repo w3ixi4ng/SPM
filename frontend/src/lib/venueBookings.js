@@ -471,3 +471,61 @@ export function replacementErrorMessages(error) {
   }
   return ["We couldn't reach the booking service. Try again in a moment."]
 }
+
+// S-80: one booking of an event, changed or cancelled by its Coordinator.
+// The venue_bookings composite is authoritative; this decides what the page
+// offers and says.
+const CHANGEABLE = new Set(['pending', 'held', 'confirmed'])
+
+export function canChangeVenueBooking(booking, eventStatus) {
+  return canRequestVenue(eventStatus) && CHANGEABLE.has(booking?.status)
+}
+
+export function bookingToChangeForm(booking) {
+  return {
+    eventId: booking.event_id,
+    venueId: booking.venue_id,
+    bookingDate: booking.booking_date,
+    startTime: shortTime(booking.start_time),
+    endTime: shortTime(booking.end_time),
+    notes: booking.notes ?? '',
+  }
+}
+
+export function cancelVenueBookingPrompt(booking) {
+  return (
+    `Cancel ${booking.venue_name} on ${bookingDateLabel(booking.booking_date)}, `
+    + `${shortTime(booking.start_time)}–${shortTime(booking.end_time)}? `
+    + 'Its time is freed for other events. Your other venue bookings stay as they are.'
+  )
+}
+
+export const VENUE_BOOKING_CHANGED = "Venue booking changed. It's pending until Venue Staff review it again."
+export const VENUE_BOOKING_CANCELLED = 'Venue booking cancelled. Its time is free for other events.'
+
+export function changeVenueBooking(id, form) {
+  const { event_id: _eventId, ...change } = venueBookingFormToPayload(form)
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes: null, ...change }),
+  })
+}
+
+export function cancelVenueBooking(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+const UNCHANGED = 'The booking has not changed.'
+
+// A 409 carries the service's own reason (a clash, a block, the event out of
+// planning); every other failure says the booking is as it was.
+export function venueBookingChangeErrorMessage(error) {
+  if (error.status === 409 && error.message) return error.message
+  if (error.status === 422) return `Check the venue, date and times. ${UNCHANGED}`
+  if (error.status === 404) return `This booking or its event wasn't found. ${UNCHANGED}`
+  if (error.status === 401) return `Your session has expired. Sign in again and retry. ${UNCHANGED}`
+  if (error.status === 403) return `Your role can't change venue bookings. ${UNCHANGED}`
+  if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${UNCHANGED}`
+  return `The booking service is unavailable. Try again in a moment. ${UNCHANGED}`
+}

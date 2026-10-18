@@ -30,6 +30,11 @@ import {
   shortTime,
   validateResolutionNote,
   venueRequestLinkLabel,
+  cancelVenueBooking,
+  cancelVenueBookingPrompt,
+  canChangeVenueBooking,
+  VENUE_BOOKING_CANCELLED,
+  venueBookingChangeErrorMessage,
 } from '../lib/venueBookings.js'
 import {
   canRequestTechnicalSupport,
@@ -339,11 +344,107 @@ function ResolvePanel({ booking, onClose, onResolved }) {
 
 // What this Coordinator has already asked for, so a reload never leaves them
 // guessing whether a request went out.
-function VenueRequests({ eventId, canRequest, notice }) {
+// S-80: confirm before one booking is cancelled. The house slide-over.
+function CancelBookingPanel({ booking, onClose, onCancelled }) {
+  const [error, setError] = useState(null)
+  const [sending, setSending] = useState(false)
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    const panel = panelRef.current
+    panel?.querySelector('button:not([aria-label="Close"])')?.focus()
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function cancel() {
+    setSending(true)
+    setError(null)
+    try {
+      await cancelVenueBooking(booking.id)
+      onCancelled()
+    } catch (failure) {
+      setError(venueBookingChangeErrorMessage(failure))
+      setSending(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancel-booking-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7 font-ui"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="cancel-booking-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            Cancel venue booking
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
+          {cancelVenueBookingPrompt(booking)}
+        </p>
+        {error && <p role="alert" className="text-sm mb-4" style={{ color: C.rose }}>{error}</p>}
+        <div className="grid gap-3">
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {sending ? 'Cancelling…' : 'Cancel booking'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm border transition-colors duration-200"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Keep booking
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
   const [resolving, setResolving] = useState(null)
   const [resolvedNotice, setResolvedNotice] = useState(null)
   const triggerRef = useRef(null)
+  // S-80: the booking being cancelled, and what the last cancel did.
+  const [cancelling, setCancelling] = useState(null)
+  const [cancelNotice, setCancelNotice] = useState(null)
+  const cancelTriggerRef = useRef(null)
 
   const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
     (bookings) => setState({ status: 'ready', bookings }),
@@ -366,6 +467,7 @@ function VenueRequests({ eventId, canRequest, notice }) {
 
   async function handleResolved() {
     setResolvedNotice(`${resolving.venue_name} booking marked resolved.`)
+    setCancelNotice(null)
     setResolving(null)
     await load()
   }
@@ -410,10 +512,37 @@ function VenueRequests({ eventId, canRequest, notice }) {
                     {bookingDateLabel(booking.booking_date)} · {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
                   </p>
                 </div>
-                <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0" style={{ color }}>
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-                  {label}
-                </span>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="inline-flex items-center gap-1.5 font-ui text-xs" style={{ color }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                    {label}
+                  </span>
+                  {canChangeVenueBooking(booking, eventStatus) && (
+                    // S-80: this booking only; the others are untouched.
+                    <>
+                      <Link
+                        to={`/coordinator/events/${eventId}/venue-bookings/${booking.id}/change`}
+                        aria-label={`Change ${booking.venue_name} booking`}
+                        className="font-ui text-sm underline transition-colors duration-200"
+                        style={{ color: C.teal }}
+                      >
+                        Change
+                      </Link>
+                      <button
+                        type="button"
+                        aria-label={`Cancel ${booking.venue_name} booking`}
+                        onClick={(e) => {
+                          cancelTriggerRef.current = e.currentTarget
+                          setCancelling(booking)
+                        }}
+                        className="font-ui text-sm underline transition-colors duration-200"
+                        style={{ color: C.ink }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
                 {booking.status !== 'pending' && (
                   <div className="w-full font-ui text-sm space-y-1" style={{ color: C.ink }}>
                     {booking.decision_reason && <p className="whitespace-pre-wrap">Reason: {booking.decision_reason}</p>}
@@ -482,10 +611,25 @@ function VenueRequests({ eventId, canRequest, notice }) {
           </Link>
         )}
         <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-          {resolvedNotice ?? notice}
+          {cancelNotice ?? resolvedNotice ?? notice}
         </p>
       </div>
       {resolving && <ResolvePanel booking={resolving} onClose={closeResolve} onResolved={handleResolved} />}
+      {cancelling && (
+        <CancelBookingPanel
+          booking={cancelling}
+          onClose={() => {
+            setCancelling(null)
+            cancelTriggerRef.current?.focus()
+          }}
+          onCancelled={async () => {
+            setCancelling(null)
+            setCancelNotice(VENUE_BOOKING_CANCELLED)
+            setResolvedNotice(null)
+            await load()
+          }}
+        />
+      )}
     </section>
   )
 }
@@ -806,7 +950,12 @@ export default function EventCoordinatorEventDetail() {
               style={{ borderColor: C.line }}
             >
               {isCoordinator && (
-                <VenueRequests eventId={state.event.id} canRequest={showVenueRequest} notice={notice} />
+                <VenueRequests
+                  eventId={state.event.id}
+                  eventStatus={state.event.status}
+                  canRequest={showVenueRequest}
+                  notice={notice}
+                />
               )}
 
               <section
@@ -842,7 +991,17 @@ export default function EventCoordinatorEventDetail() {
             </div>
           </>
         )}
-      </div>
+            </div>
+      <style>{`
+        @keyframes panelIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .csp-panel-in { animation: panelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        @media (prefers-reduced-motion: reduce) {
+          .csp-panel-in { animation: none; }
+        }
+      `}</style>
     </div>
   )
 }

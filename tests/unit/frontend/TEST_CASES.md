@@ -1646,7 +1646,7 @@ Story: S-85 View Coordinator Assignments and Active Events. Acceptance
 criteria and test cases confirmed by the developer on 2026-10-09. Executed
 in the full Node unit run on 2026-10-09.
 
-### TC-FRONTEND-096 — overview helper preserves the read-only API contract
+### TC-FRONTEND-125 — overview helper preserves the read-only API contract
 
 - **Expected:** The browser performs one credentialled `GET` to
   `/event-requests/coordinator-overview`. It sends no body and exposes no S-85
@@ -1657,7 +1657,7 @@ in the full Node unit run on 2026-10-09.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.mjs::overview helper uses the credentialled read-only route`
 
-### TC-FRONTEND-097 — populated overview groups events and shows counts
+### TC-FRONTEND-126 — populated overview groups events and shows counts
 
 - **Expected:** The Lead dashboard renders every Coordinator group, including
   count zero, and shows each event's name, status, organiser, complete
@@ -1942,7 +1942,7 @@ criteria mapping and the agreed decisions are in
 Test data: A is Studio B, `confirmed`, `2026-11-13` `10:00`–`12:00`,
 flagged. R1 is Hall C, `replaces_booking_id` A.
 
-## TC-FRONTEND-112 — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither
+## TC-FRONTEND-129 — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither
 
 - **Scenario:** The way in starts from the affected booking (AC1).
 - **Steps:** Call `replacementState(booking, bookings)` for each row:
@@ -1958,7 +1958,7 @@ flagged. R1 is Hall C, `replaces_booking_id` A.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither`
 
-## TC-FRONTEND-113 — the resolution note must be written, and not too long
+## TC-FRONTEND-130 — the resolution note must be written, and not too long
 
 - **Steps:** Call `validateResolutionNote(note)`.
 - **Expected:**
@@ -1969,7 +1969,7 @@ flagged. R1 is Hall C, `replaces_booking_id` A.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the resolution note must be written, and not too long`
 
-## TC-FRONTEND-114 — the replacement request sends only the venue and notes
+## TC-FRONTEND-131 — the replacement request sends only the venue and notes
 
 - **Scenario:** Nothing about the event is sent from the browser (AC3).
 - **Steps:** Call `requestReplacementVenue("aaaaaaaa-…", {venueId: "cccccccc-…", notes: "  "})`
@@ -2051,7 +2051,7 @@ Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test ca
 | Acceptance criterion | Cases |
 | --- | --- |
 | Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
-| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-232 |
+| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-239 |
 | Only Technical Support can change it | TC-FRONTEND-117–118 |
 
 ### TC-FRONTEND-117 — preparation permissions, labels, and update request match the Events contract
@@ -2133,3 +2133,50 @@ from the implemented-area total rather than presented as complete.
 - **Expected:** Venue Staff see an expiry control before placing a hold and an
   active hold says when it expires; after refresh an expired hold is no longer
   shown as tentatively held.
+
+## Merged-branch ID reconciliation
+
+The earliest allocation of each test ID remains canonical. Later cases from
+parallel story branches were renumbered when those branches met: S-85
+overview `096`/`097` -> `125`/`126`, S-80 change/cancel `117`/`118` ->
+`127`/`128`, and S-78 replacement `112`/`113`/`114` -> `129`/`130`/`131`.
+Earlier branch references to those old IDs identify the same cases.
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+### TC-FRONTEND-127 — which bookings offer Change and Cancel, and what the screens say
+
+- **Pre-conditions:** `frontend/src/lib/venueBookings.js` imported directly.
+- **Steps:** Call the helpers with each booking and event status.
+- **Expected:**
+  - Change and Cancel are offered for `pending`, `held` and `confirmed`
+    bookings of a `planning` event; not for `rejected`, and not for any
+    booking once the event isn't `planning`.
+  - A booking pre-fills the change form with its venue, date, `HH:MM` times
+    and notes.
+  - The cancel panel reads "Cancel Main Hall on 12 Nov 2026, 09:00–12:00?
+    Its time is freed for other events. Your other venue bookings stay as
+    they are."
+  - The notice after a change reads "Venue booking changed. It's pending
+    until Venue Staff review it again."; after a cancel, "Venue booking
+    cancelled. Its time is free for other events."
+- **Actual:** Offered for pending, held and confirmed in planning only; the form pre-filled with `HH:MM` times and notes; the prompt and both notices as specified.
+- **Status:** Pass
+- **Evidence:** `test_change_cancel_booking.mjs::which bookings offer Change and Cancel, and what the screens say`
+
+### TC-FRONTEND-128 — the change and cancel calls, and their failure messages
+
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:** Change `b 1/2` with a form; cancel `b 1/2`; map errors `409`,
+  `422`, `404`, `500`, `0` for each.
+- **Expected:** `PATCH /api/venue-bookings/b%201%2F2` with credentials and
+  `{venue_id, booking_date, start_time, end_time, notes}` (no `event_id`);
+  `DELETE /api/venue-bookings/b%201%2F2` with credentials. A `409` shows the
+  service's message; every other failure ends "The booking has not
+  changed."
+- **Actual:** Two `PATCH` and one `DELETE` to `/api/venue-bookings/b%201%2F2` with credentials; no `event_id`; blank notes sent as `null`; `409` shows the service's message, the rest end "The booking has not changed."
+- **Status:** Pass
+- **Evidence:** `test_change_cancel_booking.mjs::the change and cancel calls go through Kong`; `test_change_cancel_booking.mjs::a failed change or cancel says the booking has not changed`

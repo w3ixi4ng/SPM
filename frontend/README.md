@@ -99,8 +99,12 @@ The overview is loaded from
 `GET /api/event-requests/coordinator-overview`. Its active set is
 `submitted`, `under_review`, `returned`, `planning`, and `confirmed` with a
 non-null assignment. Loading, empty-pool, zero-assignment, and service-failure
-states are distinct. The S-83 unassigned queue and S-84 reassignment controls
-remain on the same dashboard. A successful reassignment moves the event
+states are distinct. Profile-less trusted Coordinators appear under their Auth
+email. Events assigned to owners outside the trusted pool are shown in a
+separate data-integrity warning, not under a fabricated Coordinator group;
+their assignments are left unchanged. The S-83 unassigned queue and S-84 reassignment controls
+remain on the same dashboard; their choices show Coordinator emails so
+duplicate profile names are distinguishable. A successful reassignment moves the event
 between the displayed groups and updates both counts without a reload.
 
 ## S-86 operational safety checks
