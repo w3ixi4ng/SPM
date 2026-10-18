@@ -53,3 +53,27 @@ S-77/S-87 targeted integration regression run passed all 8 cases.
   unchanged.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_changes_return_to_planning_and_complete_a_fresh_review_cycle`
+
+## TC-SAFETYCHECKS-103 — blocked, arranged, submitted, approved, Confirmed
+
+> TC-SAFETYCHECKS-101 and -102 now start from `pending_safety_check` and end
+> at `confirmed` (S-17); their path is `pending_safety_check → planning →
+> pending_safety_check → confirmed`.
+
+- **Scenario:** The whole S-17 stage across real services.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-17 SQL; Organiser,
+  assigned Coordinator, Technical Support, Venue Staff and Safety Officer
+  accounts; `E1` in `planning` with one equipment requirement and one
+  `pending` booking.
+- **Steps:** 1. Submit as the Coordinator. 2. Venue Staff confirm the
+  booking; Technical Support approves and sets preparation `ready`.
+  3. Submit again. 4. Read the S-86 queue as the Safety Officer. 5. Approve.
+  6. Read `E1` as the Organiser. 7. Delete everything created.
+- **Test data:** As above.
+- **Expected:** 1 → `409` listing `venue_awaiting`,
+  `technical_signoff_awaiting`, `equipment_preparation`; storage still
+  `planning`. 3 → `200`, stored `pending_safety_check`. 4 lists `E1`.
+  5 → stored `confirmed`. 6 → `status: "confirmed"`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s17.py::test_submission_through_to_confirmed`

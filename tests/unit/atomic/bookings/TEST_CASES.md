@@ -1130,3 +1130,32 @@ and agreed decisions are in the S-80 section of
 - **Actual:** No session `401`; four other roles `403`; no database call.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_without_a_session_nothing_changes`; `tests/unit/atomic/bookings/test_change_cancel.py::test_other_roles_cannot_change_or_cancel`
+
+## S-17 — a rejected booking can be replaced
+
+S-78 let a replacement point only at a booking that still stands. S-17 also
+lets it point at a **rejected** booking, so the Coordinator can clear a
+rejection that blocks submission for the safety check.
+
+## TC-BOOKINGS-062 — a replacement may point at a rejected booking
+
+- **Scenario:** A rejected original accepts a replacement request.
+- **Pre-conditions:** Fake holds `B2` (event `E1`, `rejected`).
+- **Steps:** `POST /bookings` for event `E1`, Studio 3, `2026-11-20
+  09:00–17:00`, `replaces_booking_id: B2`.
+- **Test data:** As above.
+- **Expected:** `201`, `status: "pending"`, `replaces_booking_id: B2`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s17.py::test_rejected_booking_accepts_replacement`
+
+## TC-BOOKINGS-063 — a replaced booking still cannot be replaced
+
+- **Scenario:** The existing S-78 rule for `replaced` is unchanged.
+- **Pre-conditions:** Fake holds `B2` with `status: "replaced"`.
+- **Steps:** As TC-BOOKINGS-062.
+- **Test data:** As above.
+- **Expected:** `409` "This booking can no longer be replaced"; no insert.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s17.py::test_replaced_booking_still_refuses_replacement`

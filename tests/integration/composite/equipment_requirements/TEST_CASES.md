@@ -91,3 +91,17 @@ Specification updated by the developer on 2026-10-05.
   cancelled event through both event and requirement routes. Cleanup ran.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_support_staff_only_reads_own_active_event_requirements`; `pytest tests/integration/composite/equipment_requirements`: 4 passed.
+
+## TC-EQUIPMENTREQUIREMENTS-105 — sign-off is stored and a change clears it
+
+- **Scenario:** Sign-off survives a round trip and a Coordinator change voids it.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-17 SQL; `E1` in
+  `planning`, Technical Support assigned, one requirement.
+- **Steps:** 1. Approve as Technical Support. 2. Read `E1`. 3. Change the
+  requirement quantity as the Coordinator. 4. Read `E1`. 5. Clean up.
+- **Test data:** Quantity 1 → 2.
+- **Expected:** 2 shows `approved` with the Technical Support id. 4 shows
+  every sign-off field null.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s17.py::test_signoff_stored_and_cleared_by_change`

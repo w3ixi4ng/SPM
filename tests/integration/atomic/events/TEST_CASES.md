@@ -158,3 +158,22 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Actual:** Not run.
 - **Status:** Approved
 - **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`
+
+## TC-EVENTS-147 — the new status and sign-off columns exist and are constrained
+
+- **Scenario:** The S-17 SQL is applied, exposed and granted.
+- **Pre-conditions:** Fresh `.env.test` stack; S-17 block of
+  `backend/sql/events.sql` applied to the test project.
+- **Steps:** 1. Create an event, drive it to `planning`, then via the admin
+  client set `status: "pending_safety_check"`. 2. Try `status:
+  "pending_safety_check", decision: null`. 3. Record a declined sign-off
+  through `PUT /internal/events/{id}/technical-signoff`, read it back.
+  4. Try writing `technical_signoff_decision: "declined"` with a null reason
+  through the admin client. 5. Delete the event.
+- **Test data:** Reason "Only one sound desk exists".
+- **Expected:** 1 succeeds. 2 is refused (`23514`). 3 reads back decision,
+  reason, Technical Support id and timestamp. 4 is refused (`23514`).
+  5 leaves no row.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s17.py::test_status_and_signoff_columns`

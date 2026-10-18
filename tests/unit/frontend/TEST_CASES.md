@@ -2180,3 +2180,84 @@ Confirmed by the developer on 2026-10-14.
 - **Actual:** Two `PATCH` and one `DELETE` to `/api/venue-bookings/b%201%2F2` with credentials; no `event_id`; blank notes sent as `null`; `409` shows the service's message, the rest end "The booking has not changed."
 - **Status:** Pass
 - **Evidence:** `test_change_cancel_booking.mjs::the change and cancel calls go through Kong`; `test_change_cancel_booking.mjs::a failed change or cancel says the booking has not changed`
+
+## S-17 — submit for the Operational Safety Check
+
+Pure functions in `frontend/src/lib/` only (no browser, no `npm ci`). The
+page wiring is proven by TC-E2E-243.
+
+## TC-FRONTEND-132 — the new stage has a label for every role
+
+- **Scenario:** Pending Safety Check reads as its own stage.
+- **Pre-conditions:** None.
+- **Steps:** Look up the status display for `pending_safety_check`,
+  `confirmed` and `preparation` in `lib/eventRequests.js`.
+- **Test data:** The three statuses.
+- **Expected:** `pending_safety_check` → label "Pending Safety Check", colour
+  `amber` (`#B5842B`); `confirmed` → "Confirmed", `green` — unchanged;
+  `preparation` keeps its existing entry. `pending_safety_check` is in the
+  Organiser's list of statuses shown on their dashboard.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_safety_submission.mjs` — "labels the new stage"
+
+## TC-FRONTEND-133 — readiness comes from the server's outstanding list
+
+- **Scenario:** The page shows exactly what the submission check will refuse.
+- **Pre-conditions:** None.
+- **Steps:** Build the readiness view from (a) `{"ready": true,
+  "outstanding": []}`; (b) the six-item response of TC-SAFETYCHECKS-020.
+- **Test data:** As above.
+- **Expected:** (a) `canSubmit: true`, no items. (b) `canSubmit: false`, six
+  rows whose text equals each `label` in the same order, each with an
+  "Outstanding" status label (not colour alone).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_safety_submission.mjs` — "builds readiness from the server"
+
+## TC-FRONTEND-134 — submit result handling
+
+- **Scenario:** The Coordinator sees what happened either way.
+- **Pre-conditions:** `fetch` stubbed.
+- **Steps:** Call `submitForSafetyCheck("E1")` with the server answering
+  (a) `200` `{"status": "pending_safety_check"}`; (b) `409` with two
+  outstanding items; (c) `409` "This event is not in planning"; (d) `502`.
+- **Test data:** As above.
+- **Expected:** `POST /api/safety-checks/coordinator/events/E1/submit`, no
+  body. (a) resolves to the updated event. (b) rejects with
+  `outstanding` = the two items. (c) and (d) reject with a message saying what
+  happened and what to do next.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_safety_submission.mjs` — "handles each submit outcome"
+
+## TC-FRONTEND-135 — Technical Support sign-off payloads
+
+- **Scenario:** The sign-off form sends only what the server accepts.
+- **Pre-conditions:** `fetch` stubbed.
+- **Steps:** Build payloads for approve; approve over a shortage with comment
+  "Borrowing 2 projectors from Library"; decline with "Only one sound desk
+  exists"; decline with "   ".
+- **Test data:** As above.
+- **Expected:** `{"decision": "approved"}`; `{"decision": "approved",
+  "override_comment": "Borrowing 2 projectors from Library"}`;
+  `{"decision": "declined", "reason": "Only one sound desk exists"}`; the
+  blank decline is refused client-side with "Enter a reason for declining".
+  A `409` shortage response yields the `short` list for display.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_safety_submission.mjs` — "builds sign-off payloads"
+
+## TC-FRONTEND-136 — the Coordinator sees the sign-off outcome
+
+- **Scenario:** Decline reasons and override comments reach the Coordinator.
+- **Pre-conditions:** None.
+- **Steps:** Describe the sign-off for an event with (a) none; (b) approved;
+  (c) approved with override comment; (d) declined with reason.
+- **Test data:** Values from TC-FRONTEND-135.
+- **Expected:** (a) "Awaiting Technical Support"; (b) "Approved by
+  Technical Support"; (c) as (b) plus the comment text; (d) "Declined by
+  Technical Support" plus the reason text.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_safety_submission.mjs` — "describes the sign-off"
