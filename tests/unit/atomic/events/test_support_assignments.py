@@ -44,7 +44,7 @@ def test_technical_support_lists_only_its_active_assigned_events(client, db, aut
     select = db.schema.return_value.table.return_value.select.return_value
     select.eq.assert_called_once_with("assigned_technical_support_id", SUPPORT_A)
     select.eq.return_value.in_.assert_called_once_with(
-        "status", ["planning", "confirmed"]
+        "status", ["planning", "confirmed", "preparation"]
     )
     select.eq.return_value.in_.return_value.order.assert_called_once_with(
         "updated_at", desc=True
@@ -69,7 +69,7 @@ def test_support_worker_reads_one_active_event_assigned_to_them(client, db, auth
         "assigned_technical_support_id", SUPPORT_A
     )
     first_eq.return_value.eq.return_value.in_.assert_called_once_with(
-        "status", ["planning", "confirmed"]
+        "status", ["planning", "confirmed", "preparation"]
     )
 
 

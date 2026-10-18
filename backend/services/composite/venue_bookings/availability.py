@@ -15,13 +15,16 @@ STATES = {"held": "held", "confirmed": "confirmed"}
 
 
 def _booking_entry(booking: dict) -> dict:
-    return {
+    entry = {
         "state": STATES[booking["status"]],
         "start_date": booking["booking_date"],
         "end_date": booking["booking_date"],
         "start_time": booking["start_time"],
         "end_time": booking["end_time"],
     }
+    if booking["status"] == "held" and booking.get("hold_expires_at"):
+        entry["expires_at"] = booking.get("hold_expires_at")
+    return entry
 
 
 def _block_entry(block: dict, staff: bool) -> dict:

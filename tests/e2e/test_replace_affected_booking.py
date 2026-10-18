@@ -1,4 +1,4 @@
-"""TC-E2E-235 (S-78): a Coordinator replaces a booking an unavailable period
+"""TC-E2E-242 (S-78): a Coordinator replaces a booking an unavailable period
 affects, without re-entering the event, and approval clears the flag.
 
 The search rules, the one-at-a-time rule and resolving are TC-VENUEBOOKINGS-079

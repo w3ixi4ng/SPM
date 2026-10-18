@@ -301,6 +301,7 @@ def test_other_known_roles_have_only_their_read_permissions():
     assert ROLE_PERMISSIONS["technical_support"] == {
         "dashboard:view",
         "events:view_support_assigned",
+        "events:update_equipment_preparation",
     }
     assert ROLE_PERMISSIONS["attendee"] == {"dashboard:view"}
 

@@ -1972,3 +1972,48 @@ run: 981 passed, 17 skipped.
   write attempt.
 - **Status:** Pass
 - **Evidence:** `test_s87.py::test_repeated_or_concurrent_resubmit_is_409_without_fallback_write`
+## S-26 — Update Equipment Preparation Status
+
+Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test
+cases confirmed by the developer on 2026-10-11. These cases are the canonical
+backend trace for the story and have not yet been executed.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| Technical Support can set Not Started, In Progress, and Ready | TC-EVENTS-123 |
+| The current status is available to the event readiness view | TC-EVENTS-123, TC-EVENTS-126 |
+| Only assigned Technical Support can change the status | TC-EVENTS-124 |
+| Confirmed rules: backwards transitions, eligible event states, audit, and safe races/failures | TC-EVENTS-123–125 |
+
+### TC-EVENTS-123 — assigned Technical Support records every preparation state with an audit trail
+
+- **Scenario:** The assigned Technical Support worker maintains one equipment preparation status for the event.
+- **Pre-conditions:** An event assigned to Technical Support A is in each eligible lifecycle state: `planning`, `confirmed`, or `preparation`.
+- **Steps:** Read a newly eligible event; update it to `in_progress`, then `ready`, then back to `not_started`; read it again.
+- **Test data:** Event `33333333-3333-4333-8333-333333333333`; Technical Support A `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; the three status values.
+- **Expected:** A new event reads as `not_started`. Every transition succeeds, including moving backwards; the response and later event read expose the current status, authenticated updater id, and a server-generated update time.
+- **Actual:** All three values persisted in every eligible lifecycle state; each response contained the authenticated updater and server timestamp.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards`
+
+### TC-EVENTS-124 — preparation updates are restricted to the assigned Technical Support worker
+
+- **Scenario:** Event assignment and trusted role jointly control the write.
+- **Pre-conditions:** The eligible event is assigned to Technical Support A.
+- **Steps:** Attempt the update as A, Technical Support B, its assigned Event Coordinator, Event Organiser, Venue Staff, Attendee, an unknown role, and without a session.
+- **Test data:** Status `ready`; support ids A and B; all trusted project roles.
+- **Expected:** A succeeds. B sees `404` so another worker's assignment is not disclosed. Other authenticated roles receive `403`; no session receives `401`; no denied request writes storage. The Coordinator can still read the resulting status through their existing assigned-event view.
+- **Actual:** Assigned Technical Support was authorised; unassigned support was hidden with `404`; every other tested role was denied before storage.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_only_assigned_support_can_update_preparation`
+
+### TC-EVENTS-125 — invalid, stale, concurrent, and failed preparation updates never report success
+
+- **Scenario:** A response cannot claim a preparation change that storage did not make.
+- **Pre-conditions:** Invalid payloads; an event that is missing, reassigned, cancelled, or changed concurrently; and a storage exception.
+- **Steps:** Submit an unknown status, extra audit fields, and each stale or failing update.
+- **Test data:** `done`; client-supplied updater/time; reassigned/cancelled event; empty conditional-update result; simulated Supabase failure.
+- **Expected:** Invalid payloads return `422` before storage. Missing or hidden assignments return `404`; ineligible or concurrently changed events return `409`. The conditional write matches event id, assigned worker, and eligible lifecycle status. Storage failure returns safe `500`; no case fabricates a changed response.
+- **Actual:** Invalid bodies failed before storage, an empty conditional update returned `409`, and a simulated storage exception returned only the safe service error.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_invalid_and_stale_updates_never_report_success`

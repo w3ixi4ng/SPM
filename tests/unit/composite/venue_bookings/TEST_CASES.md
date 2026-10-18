@@ -1511,6 +1511,25 @@ Their tests were updated and re-run with S-77, and pass.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_unavailable_periods.py::test_a_failed_period_lookup_is_an_error_never_a_missing_flag`
 
+## S-81 — tentative hold expiry orchestration
+
+### TC-VENUEBOOKINGS-093 — Venue Staff must send an expiry with a hold
+
+- **Expected:** A timezone-aware future `expires_at` is forwarded unchanged to
+  bookings. Missing, naive, or expired values return `422`; non-staff remain
+  `401`/`403` and no downstream write occurs.
+
+### TC-VENUEBOOKINGS-094 — the assigned Coordinator is warned of expiry once
+
+- **Expected:** Placing the hold sends one `venue_hold_expiry` notification to
+  the booking's Coordinator, naming when it will expire, with a stable
+  deduplication key. Retrying produces no duplicate notification.
+
+### TC-VENUEBOOKINGS-095 — availability distinguishes and then removes a hold
+
+- **Expected:** Before expiry the calendar entry is `held` and includes the
+  expiry. Immediately afterwards it is absent and the slot can be requested.
+
 ## S-78 — request replacement venue for affected booking
 
 **Story:** S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed.
@@ -1519,9 +1538,9 @@ Their tests were updated and re-run with S-77, and pass.
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| AC1: From the affected booking, the Coordinator can search for suitable, available venues using the event's existing requirements and date/time | 079–081; TC-FRONTEND-112, 116 |
+| AC1: From the affected booking, the Coordinator can search for suitable, available venues using the event's existing requirements and date/time | 079–081; TC-FRONTEND-129, 116 |
 | AC2: The Coordinator can submit a replacement booking request linked to the affected booking and the same event | 082–086; TC-BOOKINGS-051 |
-| AC3: The event's original information is preserved and does not need to be re-entered | 082, 083; TC-FRONTEND-114 |
+| AC3: The event's original information is preserved and does not need to be re-entered | 082, 083; TC-FRONTEND-131 |
 | AC4: The affected booking stays flagged until a replacement is approved or the Coordinator resolves it | 087–092; TC-BOOKINGS-052–056 |
 
 The conditions agreed with the developer behind the criteria (2026-10-13):
@@ -1847,7 +1866,7 @@ Confirmed by the developer on 2026-10-14.
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| AC1: A Coordinator can change or cancel a single venue booking of an event | BOOKINGS-057, 058, 060, VENUEBOOKINGS-093, 094, 096, 114, FRONTEND-117, 118, E2E-236 |
+| AC1: A Coordinator can change or cancel a single venue booking of an event | BOOKINGS-057, 058, 060, VENUEBOOKINGS-093, 094, 096, 114, FRONTEND-127, 128, E2E-236 |
 | AC2: The event's other venue bookings are not changed or removed | BOOKINGS-057, 060, VENUEBOOKINGS-093, 096, 114, E2E-236 |
 | AC3: The change or cancellation is recorded in the event history | **Dropped by the developer on 2026-10-14** (the AC is being reworded); no history is recorded |
 

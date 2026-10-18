@@ -14,7 +14,7 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `bookings` — `GET /bookings?venue_id&from&to`, `GET /blocks?venue_id&from&to`, `POST /blocks`, `DELETE /blocks/{id}` | S-30: the availability calendar and venue blocks |
 | `bookings` — `GET /bookings?status=live&from&venue_id`, `GET /blocks/{id}` | S-77: the bookings an unavailable period affects |
 | `events` — `GET /internal/events/assigned-active` | S-77: each affected event's current Coordinator |
-| `notifications` — `POST /internal/notifications` | S-77: tell those Coordinators that alternative arrangements are required |
+| `notifications` — `POST /internal/notifications` | Tell Coordinators about unavailable periods and tentative-hold expiry |
 | `venues` — `GET /venues`; `bookings` — `GET /bookings/{id}`, `POST /bookings/{id}/alternative-resolution` | S-78: replacement venues and resolutions |
 
 Reached through Kong at `/api/venue-bookings`.
@@ -35,7 +35,7 @@ all read attempts fail, the existing safe `502` response is returned.
 | `POST` | `/venue-bookings/{id}/decision` | `venue_staff` | Record a final approval or rejection; forward session to the atomic service. |
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
-| `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold on a pending request. |
+| `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold with required future, timezone-aware `expires_at`; the assigned Coordinator is told when it will expire. |
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
 | `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround. |

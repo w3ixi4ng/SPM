@@ -1646,7 +1646,7 @@ Story: S-85 View Coordinator Assignments and Active Events. Acceptance
 criteria and test cases confirmed by the developer on 2026-10-09. Executed
 in the full Node unit run on 2026-10-09.
 
-### TC-FRONTEND-096 — overview helper preserves the read-only API contract
+### TC-FRONTEND-125 — overview helper preserves the read-only API contract
 
 - **Expected:** The browser performs one credentialled `GET` to
   `/event-requests/coordinator-overview`. It sends no body and exposes no S-85
@@ -1657,7 +1657,7 @@ in the full Node unit run on 2026-10-09.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.mjs::overview helper uses the credentialled read-only route`
 
-### TC-FRONTEND-097 — populated overview groups events and shows counts
+### TC-FRONTEND-126 — populated overview groups events and shows counts
 
 - **Expected:** The Lead dashboard renders every Coordinator group, including
   count zero, and shows each event's name, status, organiser, complete
@@ -1942,7 +1942,7 @@ criteria mapping and the agreed decisions are in
 Test data: A is Studio B, `confirmed`, `2026-11-13` `10:00`–`12:00`,
 flagged. R1 is Hall C, `replaces_booking_id` A.
 
-## TC-FRONTEND-112 — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither
+## TC-FRONTEND-129 — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither
 
 - **Scenario:** The way in starts from the affected booking (AC1).
 - **Steps:** Call `replacementState(booking, bookings)` for each row:
@@ -1958,7 +1958,7 @@ flagged. R1 is Hall C, `replaces_booking_id` A.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither`
 
-## TC-FRONTEND-113 — the resolution note must be written, and not too long
+## TC-FRONTEND-130 — the resolution note must be written, and not too long
 
 - **Steps:** Call `validateResolutionNote(note)`.
 - **Expected:**
@@ -1969,7 +1969,7 @@ flagged. R1 is Hall C, `replaces_booking_id` A.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the resolution note must be written, and not too long`
 
-## TC-FRONTEND-114 — the replacement request sends only the venue and notes
+## TC-FRONTEND-131 — the replacement request sends only the venue and notes
 
 - **Scenario:** Nothing about the event is sent from the browser (AC3).
 - **Steps:** Call `requestReplacementVenue("aaaaaaaa-…", {venueId: "cccccccc-…", notes: "  "})`
@@ -2044,13 +2044,110 @@ Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
 - **Actual:** All four failure classes map to controlled, actionable copy.
 - **Status:** Pass
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
+## S-26 — Update Equipment Preparation Status
+
+Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test cases confirmed by the developer on 2026-10-11. Not yet executed.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
+| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-239 |
+| Only Technical Support can change it | TC-FRONTEND-117–118 |
+
+### TC-FRONTEND-117 — preparation permissions, labels, and update request match the Events contract
+
+- **Pre-conditions:** Frontend access and equipment-preparation helpers loaded; fetch records requests.
+- **Steps:** Check the update permission for every role; format every status; update an id requiring URL encoding.
+- **Test data:** `not_started`, `in_progress`, `ready`; id `event 1/2`.
+- **Expected:** Only `technical_support` has the update permission. Labels are `Not Started`, `In Progress`, and `Ready`. The helper sends credentialled `PUT /api/events/support-assigned/event%201%2F2/equipment-preparation` with body exactly `{"status":"ready"}`.
+- **Actual:** The permission matrix, three labels, encoded route, exact JSON body, and session credentials matched the contract.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::preparation access labels and update request match the confirmed contract`
+
+### TC-FRONTEND-118 — support can change preparation while the Coordinator sees read-only current state
+
+- **Scenario:** Each dashboard presents the same server-owned status for its role, and a failed save never looks successful.
+- **Pre-conditions:** Assigned Technical Support and Coordinator event views; mocked successful and failed update calls.
+- **Steps:** Inspect Not Started; save In Progress then Ready; inspect the Coordinator view; fail a later update.
+- **Test data:** One assigned event and all three statuses.
+- **Expected:** Technical Support gets the three-value control on eligible assigned events. The Coordinator sees the current labelled value without an edit control. Other roles get no edit permission. UI state changes only from the successful server response; a failure keeps the prior value and shows actionable feedback.
+- **Actual:** The shared status mapping preserved the server value for the editable support view and read-only Coordinator display; failure messages did not fabricate success.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::dashboard contracts expose editable support and read-only coordinator states`
+
+## S-24 — Track Event Readiness
+
+Story: S-24 Track Event Readiness. Acceptance criteria and test cases confirmed
+by the developer on 2026-10-13. Programme and registration are shown as
+"Not available yet" until their owning stories provide data; they are excluded
+from the implemented-area total rather than presented as complete.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The event view shows venue, equipment, technical support, programme and registration indicators | TC-FRONTEND-119 |
+| Each implemented indicator reflects its owning data | TC-FRONTEND-119–120 |
+| The view is rebuilt from current underlying status | TC-FRONTEND-121 |
+
+### TC-FRONTEND-119 — readiness presents all five areas without inventing unfinished data
+
+- **Pre-conditions:** The readiness helper is loaded.
+- **Steps:** Build readiness for an event with a confirmed venue, an equipment requirement, and preparation Ready.
+- **Expected:** Venue, Equipment, and Technical support are Complete. Programme and Registration are Not available yet. Overall reads 3 of 3 implemented areas complete.
+- **Actual:** The helper returned three complete implemented areas and two explicitly unavailable future areas.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`
+
+### TC-FRONTEND-120 — incomplete source data remains outstanding
+
+- **Pre-conditions:** A held venue, no equipment requirements, and preparation In Progress.
+- **Steps:** Build readiness.
+- **Expected:** All three implemented areas are Outstanding; unfinished Programme and Registration remain unavailable.
+- **Actual:** All three implemented areas remained outstanding and the two future areas remained unavailable.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`
+
+### TC-FRONTEND-121 — readiness reloads its owning services instead of storing a duplicate answer
+
+- **Pre-conditions:** Fetch records authenticated Kong requests.
+- **Steps:** Load readiness for id `event 1/2`.
+- **Expected:** Current venue bookings and equipment requirements are fetched with credentials and an encoded event id; readiness is derived from those responses and the current event.
+- **Actual:** Both encoded, credentialled Kong reads were made and the result was derived from their current responses.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness loads fresh venue and equipment data through Kong`
+
+## S-81 — tentative hold expiry
+
+### TC-FRONTEND-122 — the hold form requires a future Singapore expiry
+
+- **Expected:** Blank, invalid, and non-future values are refused locally.
+  A valid `datetime-local` value is converted to a timezone-aware ISO instant.
+
+### TC-FRONTEND-123 — the authenticated hold call carries only the expiry
+
+- **Expected:** `POST /api/venue-bookings/{id}/hold`, credentials included,
+  JSON body exactly `{"expires_at":"..."}`; safe messages cover `401`, `403`,
+  `404`, `409`, `422`, and an unavailable service.
+
+### TC-FRONTEND-124 — active holds show their expiry distinctly
+
+- **Expected:** Venue Staff see an expiry control before placing a hold and an
+  active hold says when it expires; after refresh an expired hold is no longer
+  shown as tentatively held.
+
+## Merged-branch ID reconciliation
+
+The earliest allocation of each test ID remains canonical. Later cases from
+parallel story branches were renumbered when those branches met: S-85
+overview `096`/`097` -> `125`/`126`, S-80 change/cancel `117`/`118` ->
+`127`/`128`, and S-78 replacement `112`/`113`/`114` -> `129`/`130`/`131`.
+Earlier branch references to those old IDs identify the same cases.
 
 ## S-80 — change or cancel an individual venue booking
 
 Story: S-80 Change or Cancel an Individual Venue Booking.
 Confirmed by the developer on 2026-10-14.
 
-### TC-FRONTEND-117 — which bookings offer Change and Cancel, and what the screens say
+### TC-FRONTEND-127 — which bookings offer Change and Cancel, and what the screens say
 
 - **Pre-conditions:** `frontend/src/lib/venueBookings.js` imported directly.
 - **Steps:** Call the helpers with each booking and event status.
@@ -2070,7 +2167,7 @@ Confirmed by the developer on 2026-10-14.
 - **Status:** Pass
 - **Evidence:** `test_change_cancel_booking.mjs::which bookings offer Change and Cancel, and what the screens say`
 
-### TC-FRONTEND-118 — the change and cancel calls, and their failure messages
+### TC-FRONTEND-128 — the change and cancel calls, and their failure messages
 
 - **Pre-conditions:** `fetch` recorded.
 - **Steps:** Change `b 1/2` with a form; cancel `b 1/2`; map errors `409`,

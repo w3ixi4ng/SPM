@@ -15,7 +15,7 @@ import {
   validateResolutionNote,
 } from '../../../frontend/src/lib/venueBookings.js'
 
-// S-78: replacing a booking an unavailable period affects, TC-FRONTEND-112..116.
+// S-78: replacing a booking an unavailable period affects, TC-FRONTEND-129, 130, 131, 115, and 116.
 
 const A_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const R1_ID = '11111111-1111-4111-8111-111111111111'
@@ -45,7 +45,7 @@ async function recordingFetch(answers, run) {
   return calls
 }
 
-// --- TC-FRONTEND-112 -------------------------------------------------------
+// --- TC-FRONTEND-129 -------------------------------------------------------
 test('a flagged booking offers a replacement and a resolution, and an unflagged one offers neither', () => {
   assert.deepEqual(replacementState(A, [A]), { actions: ['replace', 'resolve'], label: null })
   for (const status of ['pending', 'held']) {
@@ -74,7 +74,7 @@ test("Venue Staff's request page names the booking a replacement replaces", () =
   assert.equal(replacementOriginLabel({ ...A, replaces: null }), null)
 })
 
-// --- TC-FRONTEND-113 -------------------------------------------------------
+// --- TC-FRONTEND-130 -------------------------------------------------------
 test('the resolution note must be written, and not too long', () => {
   assert.equal(validateResolutionNote(''), "Say what you've arranged instead.")
   assert.equal(validateResolutionNote('   '), "Say what you've arranged instead.")
@@ -84,7 +84,7 @@ test('the resolution note must be written, and not too long', () => {
   assert.deepEqual(resolutionPayload('  Moved online  '), { note: 'Moved online' })
 })
 
-// --- TC-FRONTEND-114 -------------------------------------------------------
+// --- TC-FRONTEND-131 -------------------------------------------------------
 test('the replacement request sends only the venue and notes', async () => {
   const calls = await recordingFetch([[201, R1], [200, A], [200, { booking: A, venues: [] }]], async () => {
     await requestReplacementVenue(A_ID, { venueId: HALL_C, notes: '  ' })

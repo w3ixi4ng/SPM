@@ -25,7 +25,7 @@ const HALL = {
   status: 'confirmed',
 }
 
-// --- TC-FRONTEND-117 -------------------------------------------------------
+// --- TC-FRONTEND-127 -------------------------------------------------------
 test('which bookings offer Change and Cancel, and what the screens say', () => {
   for (const status of ['pending', 'held', 'confirmed']) {
     assert.equal(canChangeVenueBooking({ status }, 'planning'), true, status)
@@ -52,7 +52,7 @@ test('which bookings offer Change and Cancel, and what the screens say', () => {
   assert.equal(VENUE_BOOKING_CANCELLED, 'Venue booking cancelled. Its time is free for other events.')
 })
 
-// --- TC-FRONTEND-118 -------------------------------------------------------
+// --- TC-FRONTEND-128 -------------------------------------------------------
 test('the change and cancel calls go through Kong', async () => {
   const calls = []
   const originalFetch = globalThis.fetch

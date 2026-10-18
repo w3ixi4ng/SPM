@@ -15,9 +15,12 @@ import {
   retireEquipment,
 } from '../lib/equipment.js'
 import {
+  EQUIPMENT_PREPARATION_OPTIONS,
   assignedEventWork,
+  equipmentPreparationErrorMessage,
   listTechnicalSupportEvents,
   technicalSupportWorkErrorMessage,
+  updateEquipmentPreparation,
 } from '../lib/technicalSupportAssignments.js'
 
 const C = {
@@ -53,6 +56,7 @@ export default function TechnicalSupportDashboard({ role }) {
   const [assignments, setAssignments] = useState({ status: 'loading', events: [], error: null })
   const [notice, setNotice] = useState(location.state?.notice ?? null)
   const [retirement, setRetirement] = useState({ itemId: null, error: null })
+  const [preparation, setPreparation] = useState({ eventId: null, error: null })
 
   const loadCatalogue = useCallback(async () => {
     try {
@@ -135,6 +139,25 @@ export default function TechnicalSupportDashboard({ role }) {
       setRetirement({ itemId: null, error: null })
     } catch (error) {
       setRetirement({ itemId: null, error: equipmentRetirementErrorMessage(error) })
+    }
+  }
+
+  async function handlePreparationChange(eventId, status) {
+    setPreparation({ eventId, error: null })
+    try {
+      const updated = await updateEquipmentPreparation(eventId, status)
+      setAssignments((current) => ({
+        ...current,
+        events: current.events.map((event) => (
+          event.id === eventId
+            ? { ...event, ...updated, equipment_requirements: event.equipment_requirements }
+            : event
+        )),
+      }))
+      setNotice(`Equipment preparation is now ${EQUIPMENT_PREPARATION_OPTIONS.find((option) => option.value === status)?.label}.`)
+      setPreparation({ eventId: null, error: null })
+    } catch (error) {
+      setPreparation({ eventId, error: equipmentPreparationErrorMessage(error) })
     }
   }
 
@@ -313,6 +336,26 @@ export default function TechnicalSupportDashboard({ role }) {
                         <span style={{ color: C.inkFaint }}>Support notes: </span>
                         {event.technical_support_details}
                       </p>
+                    )}
+                    <div className="mt-4">
+                      <label htmlFor={`equipment-preparation-${event.id}`} className="block font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>
+                        Equipment preparation
+                      </label>
+                      <select
+                        id={`equipment-preparation-${event.id}`}
+                        value={event.equipment_preparation_status ?? 'not_started'}
+                        disabled={preparation.eventId === event.id}
+                        onChange={(changeEvent) => { void handlePreparationChange(event.id, changeEvent.target.value) }}
+                        className="border rounded-sm px-3 py-2 font-ui text-sm disabled:opacity-50"
+                        style={{ borderColor: C.line, color: C.ink, backgroundColor: C.paper }}
+                      >
+                        {EQUIPMENT_PREPARATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {preparation.eventId === event.id && preparation.error && (
+                      <p role="alert" className="font-ui text-sm mt-3" style={{ color: '#B25547' }}>{preparation.error}</p>
                     )}
                     <div className="mt-4">
                       <p className="font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>

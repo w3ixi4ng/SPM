@@ -17,9 +17,10 @@ queries another service's tables.
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
-| `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning` and `confirmed` events. |
+| `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `confirmed`, and `preparation` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
+| `PUT` | `/events/support-assigned/{event_id}/equipment-preparation` | `events:update_equipment_preparation` | Set the assigned event's equipment preparation status and server-owned audit fields. |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -61,18 +62,37 @@ Technical Support workflows have the following event permissions:
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
 | `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
-| `technical_support` | `dashboard:view`, `events:view_support_assigned` |
+| `technical_support` | `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation` |
 | `attendee` | `dashboard:view` |
 
 `events:view_assigned` is read-only. `events:decide` (S-14) is the one write
 a coordinator can make: approve, reject, or return a request assigned to
 them — never edit its fields directly.
 
-`events:view_support_assigned` is also read-only. Both Technical Support
-routes derive the staff id from the verified session, never a query or path
-parameter. They include only live assignments (`planning` and `confirmed`).
+Both Technical Support read routes derive the staff id from the verified
+session, never a query or path parameter. They include only live assignments
+(`planning`, `confirmed`, and `preparation`). The S-26 update route applies the
+same assignment and lifecycle predicates again on its write, so a reassignment
+or lifecycle change racing the request cannot update stale work.
 An event assigned to another staff member, or an inactive assignment, returns
 `404` from the item route so it cannot be distinguished from a missing event.
+
+### Equipment preparation (S-26)
+
+`PUT /events/support-assigned/{event_id}/equipment-preparation` accepts exactly:
+
+```json
+{"status": "in_progress"}
+```
+
+`status` is one of `not_started`, `in_progress`, or `ready`. It may move in
+either direction while the event is in `planning`, `confirmed`, or
+`preparation`. The service records the authenticated Technical Support id and
+server time; clients cannot supply either audit field. Success returns the
+complete event. `401` means no valid session, `403` means the trusted role is
+not Technical Support, `404` hides missing or differently assigned work,
+`409` means assignment or lifecycle changed concurrently, `422` means an
+invalid body, and `500` means storage did not save the change.
 
 The remaining internal and attendee roles intentionally receive no
 speculative event permissions. Their permissions can expand when a

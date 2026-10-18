@@ -1,4 +1,4 @@
-"""TC-E2E-230 -- Lead oversight grouping and reassignment refresh."""
+"""TC-E2E-238 and TC-E2E-237 -- Lead oversight, integrity, and reassignment."""
 
 import re
 import uuid
