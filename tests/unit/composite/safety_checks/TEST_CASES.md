@@ -241,10 +241,11 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 
 ## TC-SAFETYCHECKS-026 — a rejected replacement request is not counted twice
 
-> Added during implementation (2026-10-19), pending the developer's
-> confirmation: without it, a replacement request Venue Staff reject would
-> block submission for good, since a replacement request cannot itself be
-> replaced.
+> Added during implementation and confirmed by the developer (2026-10-19):
+> without it, a replacement request Venue Staff reject would block
+> submission for good, since a replacement request cannot itself be
+> replaced. The original rejection still blocks until a replacement for it
+> is confirmed.
 
 - **Scenario:** Only the booking a rejected replacement was for stays outstanding.
 - **Pre-conditions:** Technical side complete; `B1` `confirmed`; `B2`
