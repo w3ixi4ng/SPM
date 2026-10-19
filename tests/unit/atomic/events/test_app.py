@@ -326,6 +326,7 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
     assert ROLE_PERMISSIONS["event_coordinator"] == {
         "dashboard:view",
         "events:view_assigned",
+        "events:update_assigned",
         "events:decide",
     }
 

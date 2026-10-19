@@ -29,8 +29,8 @@ test('requirement API uses the composite route and numeric quantity', async () =
   try {
     await listEquipmentRequirements('event id')
     await listEquipmentRequirements()
-    await saveEquipmentRequirement('event-1', 'item-1', '3')
-    await removeEquipmentRequirement('event-1', 'item-1')
+    await saveEquipmentRequirement('event-1', 'item-1', '3', true)
+    await removeEquipmentRequirement('event-1', 'item-1', true)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -39,7 +39,8 @@ test('requirement API uses the composite route and numeric quantity', async () =
   assert.equal(calls[1].url, '/api/equipment-requirements')
   assert.equal(calls[2].url, '/api/equipment-requirements/event-1/item-1')
   assert.equal(calls[2].options.method, 'PUT')
-  assert.deepEqual(JSON.parse(calls[2].options.body), { required_quantity: 3 })
+  assert.deepEqual(JSON.parse(calls[2].options.body), { required_quantity: 3, impact_accepted: true })
+  assert.equal(calls[3].url, '/api/equipment-requirements/event-1/item-1?impact_accepted=true')
   assert.equal(calls[3].options.method, 'DELETE')
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
 })

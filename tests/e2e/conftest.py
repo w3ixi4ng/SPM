@@ -117,6 +117,9 @@ def make_user(admin):
         admin.schema("bookings").table("blocks").delete().eq(
             "created_by", user_id
         ).execute()
+        admin.schema("equipment").table("requirement_changes").delete().eq(
+            "changed_by", user_id
+        ).execute()
         admin.schema("equipment").table("requirements").delete().eq(
             "recorded_by_coordinator_id", user_id
         ).execute()

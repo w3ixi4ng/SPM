@@ -117,6 +117,7 @@ class Services:
         self.events.get = AsyncMock(side_effect=self._event_response)
         self.equipment = MagicMock()
         self.equipment.put = AsyncMock(side_effect=lambda *args, **kwargs: self.saved)
+        self.equipment.post = AsyncMock(side_effect=lambda *args, **kwargs: self.deleted)
         self.equipment.get = AsyncMock(side_effect=lambda *args, **kwargs: self.listed)
         self.equipment.delete = AsyncMock(side_effect=lambda *args, **kwargs: self.deleted)
 

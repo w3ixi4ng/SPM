@@ -351,3 +351,33 @@ Specification updated by the developer on 2026-10-05.
   the Equipment client was called.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_support_can_list_one_assigned_event`; `test_app.py::test_support_cannot_select_unassigned_or_inactive_event`
+
+---
+
+## S-18 — significant equipment-requirement edits
+
+Story: S-18 Update Event Information. Specification confirmed by the
+developer on 2026-10-19. Equipment owns requirement rows and their edit audit;
+S-82 can later combine this history with Events-owned history.
+
+## TC-EQUIPMENTREQUIREMENTS-023 — equipment requirement changes require accepted impact review and audit
+
+- **Scenario:** Adding, changing, or removing required equipment is a
+  significant event change and cannot bypass impact review.
+- **Pre-conditions:** Coordinator A is assigned to planning event E. E has one
+  requirement for two microphones.
+- **Steps:** Add a projector, change microphones from 2 to 4, and remove the
+  projector; first omit impact acceptance and then accept it. Repeat as an
+  unassigned Coordinator and after E changes concurrently.
+- **Expected:** Every real mutation first returns a server-derived impact
+  summary without changing Equipment. Accepted mutations save immediately and
+  append a service-owned audit entry containing item/quantity before and
+  after, A's authenticated UUID, and server time. A same-quantity no-op creates
+  no history. Unassigned access is `404`; stale state is `409`; dependency or
+  storage failure never leaves a requirement change without its audit entry.
+  Browser-supplied significance, actor, time, or history is rejected.
+- **Actual:** Missing acceptance was rejected before mutation; accepted writes
+  used only the atomic audited routes with the authenticated Coordinator id.
+  Atomic tests proved each mutation is delegated to one database function.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_requirement_changes_require_accepted_impact`; `tests/unit/atomic/equipment/test_s18.py`; focused Python run, 377 passed, 2026-10-19.

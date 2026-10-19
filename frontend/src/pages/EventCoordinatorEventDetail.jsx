@@ -14,6 +14,9 @@ import {
   eventResponseToForm,
   eventStatusMeta,
   getAssignedEventRequest,
+  previewAssignedEventInformation,
+  submitAssignedEventForSafetyReview,
+  updateAssignedEventInformation,
 } from '../lib/eventRequests.js'
 import {
   alternativeArrangementsNotice,
@@ -76,6 +79,146 @@ function Field({ label, value }) {
         {value || '—'}
       </p>
     </div>
+  )
+}
+
+const EDITABLE_STATUSES = new Set(['planning', 'confirmed', 'preparation'])
+const FIELD_LABELS = {
+  start_date: 'start date', start_time: 'start time', end_date: 'end date', end_time: 'end time',
+  expected_attendance: 'expected attendance', venue: 'venue preference',
+  special_requirements: 'other requirements', room_layout: 'room layout',
+  required_facilities: 'required facilities', required_accessibility: 'accessibility requirements',
+}
+
+function EventInformationEditor({ event, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState(() => eventResponseToForm(event))
+  const [impact, setImpact] = useState(null)
+  const [state, setState] = useState({ status: 'idle', error: null, notice: null })
+
+  useEffect(() => {
+    setForm(eventResponseToForm(event))
+    setImpact(null)
+    setEditing(false)
+  }, [event.id, event.edit_version])
+
+  const set = (field) => (e) => setForm((current) => ({ ...current, [field]: e.target.value }))
+  const setList = (field) => (e) => setForm((current) => ({
+    ...current,
+    [field]: e.target.value.split(',').map((value) => value.trim()).filter(Boolean),
+  }))
+
+  async function save(acceptImpact = false) {
+    setState({ status: 'saving', error: null, notice: null })
+    try {
+      const updated = await updateAssignedEventInformation(event.id, form, event, acceptImpact)
+      setImpact(null)
+      setState({ status: 'idle', error: null, notice: 'Event information saved.' })
+      onSaved(updated)
+    } catch (error) {
+      setState({ status: 'idle', error: eventErrorMessage(error), notice: null })
+    }
+  }
+
+  async function review(event_) {
+    event_.preventDefault()
+    setState({ status: 'checking', error: null, notice: null })
+    try {
+      const result = await previewAssignedEventInformation(event.id, form, event)
+      if (result.changed_fields.length === 0) {
+        setState({ status: 'idle', error: null, notice: 'There are no changes to save.' })
+      } else if (result.requires_impact_acceptance) {
+        setImpact(result)
+        setState({ status: 'idle', error: null, notice: null })
+      } else {
+        await save(false)
+      }
+    } catch (error) {
+      setState({ status: 'idle', error: eventErrorMessage(error), notice: null })
+    }
+  }
+
+  async function submitSafety() {
+    setState({ status: 'saving', error: null, notice: null })
+    try {
+      const updated = await submitAssignedEventForSafetyReview(event.id, event)
+      setState({ status: 'idle', error: null, notice: 'Revised event submitted for a fresh Operational Safety Check.' })
+      onSaved(updated)
+    } catch (error) {
+      setState({ status: 'idle', error: eventErrorMessage(error), notice: null })
+    }
+  }
+
+  if (!EDITABLE_STATUSES.has(event.status)) return null
+  if (!editing) return (
+    <div className="mt-6 flex flex-wrap items-center gap-3">
+      <button type="button" onClick={() => setEditing(true)} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.teal, color: C.teal }}>
+        Edit event information
+      </button>
+      {event.safety_recheck_required && (
+        <button type="button" onClick={submitSafety} disabled={state.status !== 'idle'} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.teal }}>
+          Submit for fresh safety check
+        </button>
+      )}
+      {state.notice && <p role="status" className="font-ui text-sm" style={{ color: C.green }}>{state.notice}</p>}
+      {state.error && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
+    </div>
+  )
+
+  const inputClass = 'w-full border rounded-sm px-3 py-2 font-ui text-sm bg-white'
+  return (
+    <form onSubmit={review} className="mt-8 border-t pt-6" style={{ borderColor: C.line }}>
+      <h2 className="font-display text-xl mb-1" style={{ color: C.ink }}>Edit event information</h2>
+      <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>Material changes are reviewed before they are saved.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {[
+          ['name', 'Event name', 'text'], ['purpose', 'Description', 'text'],
+          ['contactName', 'Contact name', 'text'], ['contactEmail', 'Contact email', 'email'],
+          ['contactPhone', 'Contact phone', 'tel'], ['attendance', 'Expected attendance', 'number'],
+          ['startDate', 'Start date', 'date'], ['startTime', 'Start time', 'time'],
+          ['endDate', 'End date', 'date'], ['endTime', 'End time', 'time'],
+          ['venue', 'Venue preference', 'text'], ['roomLayout', 'Room layout code', 'text'],
+        ].map(([field, label, type]) => (
+          <label key={field} className="font-ui text-sm" style={{ color: C.ink }}>
+            {label}
+            <input className={inputClass} style={{ borderColor: C.line }} type={type} min={type === 'number' ? '1' : undefined} value={form[field]} onChange={set(field)} />
+          </label>
+        ))}
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Required facilities (comma-separated codes)
+          <input className={inputClass} style={{ borderColor: C.line }} value={form.requiredFacilities.join(', ')} onChange={setList('requiredFacilities')} />
+        </label>
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Accessibility requirements (comma-separated codes)
+          <input className={inputClass} style={{ borderColor: C.line }} value={form.requiredAccessibility.join(', ')} onChange={setList('requiredAccessibility')} />
+        </label>
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Other requirements
+          <textarea className={inputClass} style={{ borderColor: C.line }} value={form.specialRequirements} onChange={set('specialRequirements')} />
+        </label>
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Internal notes (Coordinator only)
+          <textarea className={inputClass} style={{ borderColor: C.line }} value={form.internalNotes} onChange={set('internalNotes')} />
+        </label>
+      </div>
+      {impact && (
+        <div role="alertdialog" aria-labelledby="impact-heading" className="mt-6 border rounded-sm p-5" style={{ borderColor: C.amber, backgroundColor: `${C.amber}0D` }}>
+          <h3 id="impact-heading" className="font-display text-lg" style={{ color: C.ink }}>Review significant changes</h3>
+          <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>These changes may affect existing arrangements: {impact.significant_fields.map((field) => FIELD_LABELS[field] || field).join(', ')}.</p>
+          {['confirmed', 'preparation'].includes(event.status) && <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>Accepting returns the event to Planning and requires a fresh Operational Safety Check. Existing venue and equipment sign-offs remain in place.</p>}
+          <div className="flex gap-3 mt-4">
+            <button type="button" onClick={() => setImpact(null)} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Go back</button>
+            <button type="button" onClick={() => save(true)} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.amber }}>Accept and save</button>
+          </div>
+        </div>
+      )}
+      {state.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{state.error}</p>}
+      {state.notice && <p role="status" className="font-ui text-sm mt-4" style={{ color: C.green }}>{state.notice}</p>}
+      <div className="flex gap-3 mt-6">
+        <button type="button" onClick={() => { setEditing(false); setImpact(null); setForm(eventResponseToForm(event)) }} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Cancel</button>
+        <button type="submit" disabled={state.status !== 'idle'} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.teal }}>{state.status === 'idle' ? 'Review changes' : 'Checking…'}</button>
+      </div>
+    </form>
   )
 }
 
@@ -848,6 +991,7 @@ export default function EventCoordinatorEventDetail() {
 
   const form = state.event ? eventResponseToForm(state.event) : null
   const isCoordinator = hasPermission(user?.role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS)
+  const canEditEvent = hasPermission(user?.role, PERMISSIONS.UPDATE_ASSIGNED_EVENT)
   const canAssignTechnicalSupport = hasPermission(user?.role, PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT)
   const showVenueRequest = Boolean(state.event) && canRequestVenue(state.event.status)
 
@@ -924,7 +1068,17 @@ export default function EventCoordinatorEventDetail() {
                 />
                 <Field label="Expected attendance" value={form.attendance} />
                 <Field label="Other requirements" value={form.specialRequirements} />
+                <Field label="Contact name" value={form.contactName} />
+                <Field label="Contact email" value={form.contactEmail} />
+                <Field label="Contact phone" value={form.contactPhone} />
+                <Field label="Internal notes" value={form.internalNotes} />
               </div>
+              {canEditEvent && (
+                <EventInformationEditor
+                  event={state.event}
+                  onSaved={(updated) => setState({ status: 'ready', event: updated, error: null })}
+                />
+              )}
             </section>
 
             {state.event.status === 'planning' && state.event.safety_decision === 'changes_requested' && (

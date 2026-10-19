@@ -109,6 +109,16 @@ create table if not exists events.events (
   -- are resubmitted; this history is never cleared or replaced.
   safety_review_history      jsonb not null default '[]'::jsonb,
 
+  -- S-18: Coordinator-maintained planning information. Internal notes and
+  -- edit history are returned only by assignment-scoped coordinator routes.
+  contact_name               text,
+  contact_email              text,
+  contact_phone              text,
+  internal_notes             text,
+  edit_version               integer not null default 0,
+  edit_history               jsonb not null default '[]'::jsonb,
+  safety_recheck_required    boolean not null default false,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -134,6 +144,17 @@ create table if not exists events.events (
 
   constraint events_purpose_not_blank
     check (purpose is null or btrim(purpose) <> ''),
+
+  constraint events_contact_fields_not_blank
+    check (
+      (contact_name is null or btrim(contact_name) <> '')
+      and (contact_email is null or btrim(contact_email) <> '')
+      and (contact_phone is null or btrim(contact_phone) <> '')
+      and (internal_notes is null or btrim(internal_notes) <> '')
+    ),
+
+  constraint events_edit_version_nonnegative check (edit_version >= 0),
+  constraint events_edit_history_array check (jsonb_typeof(edit_history) = 'array'),
 
   constraint events_venue_not_blank
     check (venue is null or btrim(venue) <> ''),
@@ -774,4 +795,77 @@ alter table events.events add constraint events_equipment_preparation_audit_vali
     or (equipment_preparation_updated_by is not null and equipment_preparation_updated_at is not null)
   );
 
+-- BEGIN S-18 DATA-PRESERVING MIGRATION
+-- Existing installations: run through END S-18 in BOTH dev and test.
+begin;
+-- Remove the legacy form before any ADD COLUMN with a default can rewrite an
+-- old row and make PostgreSQL evaluate that outdated constraint.
+alter table events.events drop constraint if exists events_safety_state_consistent;
+
+-- S-18 migration for an existing Events table. Safe to run repeatedly and
+-- data-preserving. The row version makes update-plus-history optimistic and
+-- atomic in one conditional statement.
+alter table events.events
+  add column if not exists contact_name text,
+  add column if not exists contact_email text,
+  add column if not exists contact_phone text,
+  add column if not exists internal_notes text,
+  add column if not exists edit_version integer not null default 0,
+  add column if not exists edit_history jsonb not null default '[]'::jsonb,
+  add column if not exists safety_recheck_required boolean not null default false;
+
+alter table events.events drop constraint if exists events_contact_fields_not_blank;
+alter table events.events add constraint events_contact_fields_not_blank
+  check (
+    (contact_name is null or btrim(contact_name) <> '')
+    and (contact_email is null or btrim(contact_email) <> '')
+    and (contact_phone is null or btrim(contact_phone) <> '')
+    and (internal_notes is null or btrim(internal_notes) <> '')
+  );
+alter table events.events drop constraint if exists events_edit_version_nonnegative;
+alter table events.events add constraint events_edit_version_nonnegative
+  check (edit_version >= 0);
+alter table events.events drop constraint if exists events_edit_history_array;
+alter table events.events add constraint events_edit_history_array
+  check (jsonb_typeof(edit_history) = 'array');
+
+-- S-18 submits a materially revised event as confirmed while it awaits a new
+-- safety decision. Reinstall the canonical safety constraint so projects
+-- created before that state was introduced accept the transition too.
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'preparation'
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'planning'
+    )
+  ) not valid;
+
 notify pgrst, 'reload schema';
+commit;
+-- END S-18 DATA-PRESERVING MIGRATION

@@ -24,6 +24,7 @@ from schemas import (
     EquipmentRequirementDetail,
     EquipmentRequirementRead,
     EquipmentRequirementWrite,
+    EquipmentRequirementRemove,
     EquipmentUpdate,
 )
 from security import clear_session_cookies
@@ -255,6 +256,60 @@ def upsert_equipment_requirement(
             detail="Could not save equipment requirement",
         )
     return result.data[0]
+
+
+@app.put(
+    "/internal/equipment-requirements/{event_id}/{equipment_item_id}/audited",
+    response_model=EquipmentRequirementRead,
+)
+def upsert_equipment_requirement_audited(
+    event_id: UUID,
+    equipment_item_id: UUID,
+    payload: EquipmentRequirementWrite,
+    db: Client = Depends(get_db),
+):
+    """S-18 atomic requirement change plus its immutable audit entry."""
+    usable = _execute(
+        db.schema(SCHEMA).table(TABLE).select("id")
+        .eq("id", str(equipment_item_id))
+        .eq("operational_status", "available")
+        .eq("lifecycle_status", "active")
+    )
+    if not usable.data:
+        raise HTTPException(status_code=409, detail="Equipment item is not available for new requirements")
+    result = _execute(
+        db.schema(SCHEMA).rpc("save_requirement_with_history", {
+            "p_event_id": str(event_id),
+            "p_equipment_item_id": str(equipment_item_id),
+            "p_required_quantity": payload.required_quantity,
+            "p_changed_by": str(payload.recorded_by_coordinator_id),
+        })
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Could not save equipment requirement")
+    return result.data[0]
+
+
+@app.post(
+    "/internal/equipment-requirements/{event_id}/{equipment_item_id}/remove-audited",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_equipment_requirement_audited(
+    event_id: UUID,
+    equipment_item_id: UUID,
+    payload: EquipmentRequirementRemove,
+    db: Client = Depends(get_db),
+):
+    result = _execute(
+        db.schema(SCHEMA).rpc("delete_requirement_with_history", {
+            "p_event_id": str(event_id),
+            "p_equipment_item_id": str(equipment_item_id),
+            "p_changed_by": str(payload.recorded_by_coordinator_id),
+        })
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Equipment requirement not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get(

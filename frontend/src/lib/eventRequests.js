@@ -73,6 +73,33 @@ export function eventResponseToForm(event) {
     roomLayout: event.room_layout ?? '',
     requiredFacilities: event.required_facilities ?? [],
     requiredAccessibility: event.required_accessibility ?? [],
+    contactName: event.contact_name ?? '',
+    contactEmail: event.contact_email ?? '',
+    contactPhone: event.contact_phone ?? '',
+    internalNotes: event.internal_notes ?? '',
+  }
+}
+
+export function eventInformationPayload(form, event, { impactAccepted = false } = {}) {
+  return {
+    expected_version: event.edit_version ?? 0,
+    impact_accepted: impactAccepted,
+    name: form.name?.trim() || null,
+    purpose: form.purpose?.trim() || null,
+    contact_name: form.contactName?.trim() || null,
+    contact_email: form.contactEmail?.trim() || null,
+    contact_phone: form.contactPhone?.trim() || null,
+    internal_notes: form.internalNotes?.trim() || null,
+    start_date: form.startDate || null,
+    start_time: form.startTime || null,
+    end_date: form.endDate || null,
+    end_time: form.endTime || null,
+    expected_attendance: form.attendance === '' ? null : Number(form.attendance),
+    venue: form.venue?.trim() || null,
+    special_requirements: form.specialRequirements?.trim() || null,
+    room_layout: form.roomLayout || null,
+    required_facilities: [...(form.requiredFacilities ?? [])],
+    required_accessibility: [...(form.requiredAccessibility ?? [])],
   }
 }
 
@@ -229,6 +256,30 @@ export function listAssignedEventRequests() {
 
 export function getAssignedEventRequest(id) {
   return requestJSON(`/events/assigned/${encodeURIComponent(id)}`)
+}
+
+export function previewAssignedEventInformation(id, form, event) {
+  return requestJSON(`/events/assigned/${encodeURIComponent(id)}/edit-impact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(eventInformationPayload(form, event)),
+  })
+}
+
+export function updateAssignedEventInformation(id, form, event, impactAccepted = false) {
+  return requestJSON(`/events/assigned/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(eventInformationPayload(form, event, { impactAccepted })),
+  })
+}
+
+export function submitAssignedEventForSafetyReview(id, event) {
+  return requestJSON(`/events/assigned/${encodeURIComponent(id)}/submit-safety-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_version: event.edit_version ?? 0 }),
+  })
 }
 
 export function createEventDraft(form) {
