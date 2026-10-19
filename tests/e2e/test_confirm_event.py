@@ -106,6 +106,7 @@ def test_submit_for_safety_check_to_confirmed(admin, page, make_user, sign_in):
     expect(page.get_by_role("button", name=re.compile("override|anyway", re.I))).to_have_count(0)
     stored = admin.schema("events").table("events").select("status").eq("id", event["id"]).single().execute().data
     assert stored["status"] == "planning"
+    page.get_by_role("link", name="Back to workspace").click()
     sign_out(page)
 
     # 2. Venue Staff's approval is S-33's journey; here it is a fact.
@@ -134,6 +135,7 @@ def test_submit_for_safety_check_to_confirmed(admin, page, make_user, sign_in):
     expect(page.get_by_role("status").filter(has_text="Submitted for the Operational Safety Check")).to_be_visible(
         timeout=20000
     )
+    page.get_by_role("link", name="Back to workspace").click()
     sign_out(page)
 
     # 4. The Organiser sees the real stage.

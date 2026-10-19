@@ -25,6 +25,7 @@ def test_submission_through_to_confirmed(admin, auth_client, planning_world):
     blocked = httpx.post(submit_url, headers=coordinator, timeout=20.0)
     assert blocked.status_code == 409, blocked.text
     assert [item["code"] for item in blocked.json()["outstanding"]] == [
+        "venue_missing",
         "venue_awaiting",
         "technical_signoff_awaiting",
         "equipment_preparation",

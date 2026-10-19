@@ -70,10 +70,11 @@ S-77/S-87 targeted integration regression run passed all 8 cases.
   3. Submit again. 4. Read the S-86 queue as the Safety Officer. 5. Approve.
   6. Read `E1` as the Organiser. 7. Delete everything created.
 - **Test data:** As above.
-- **Expected:** 1 → `409` listing `venue_awaiting`,
-  `technical_signoff_awaiting`, `equipment_preparation`; storage still
+- **Expected:** 1 → `409` listing `venue_missing`, `venue_awaiting`,
+  `technical_signoff_awaiting`, `equipment_preparation` (the booking is only
+  pending, so no venue is confirmed yet -- TC-SAFETYCHECKS-012); storage still
   `planning`. 3 → `200`, stored `pending_safety_check`. 4 lists `E1`.
   5 → stored `confirmed`. 6 → `status: "confirmed"`.
-- **Actual:** Not run: the S-17 SQL (events.sql, and the S-78 block of bookings.sql) is not yet applied to the test Supabase project.
-- **Status:** Blocked
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
 - **Evidence:** `test_s17.py::test_submission_through_to_confirmed`

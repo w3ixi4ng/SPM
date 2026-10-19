@@ -1,5 +1,7 @@
 """TC-EVENTS-108 (S-44): POST /events/overlapping against the real table."""
 
+import uuid
+
 import httpx
 
 from .conftest import BASE_URL, requires_env
@@ -12,6 +14,10 @@ DAY = "2031-03-04"
 
 def seed(admin, session, status, start, end):
     decided = {"decision": "rejected", "decision_reason": "spm-test"} if status == "rejected" else {"decision": "approved"}
+    if status == "confirmed":
+        # S-17: Confirmed is reached only through the Safety Officer's approval.
+        decided.update(safety_decision="approved", safety_officer_id=str(uuid.uuid4()),
+                       safety_decided_at="2026-10-02T00:00:00Z")
     row = admin.schema("events").table("events").insert({
         "organiser_id": session["user_id"],
         "assigned_coordinator_id": session["user_id"],

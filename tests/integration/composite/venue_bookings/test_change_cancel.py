@@ -23,7 +23,9 @@ def seed(admin, world, status, start, end):
     if status == "confirmed":
         row.update(decided_by=world["staff"]["id"], decided_at="2026-10-01T00:00:00+00:00")
     if status == "held":
-        row.update(held_by=world["staff"]["id"], held_at="2026-10-01T00:00:00+00:00")
+        # S-81: every hold has an expiry; a future one, so it is not released mid-test.
+        row.update(held_by=world["staff"]["id"], held_at="2026-10-01T00:00:00+00:00",
+                   hold_expires_at="2030-01-01T00:00:00+00:00")
     return admin.schema("bookings").table("bookings").insert(row).execute().data[0]
 
 
