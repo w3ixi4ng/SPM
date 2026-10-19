@@ -12,8 +12,8 @@ atomic service. It owns no database.
 | --- | --- | --- | --- |
 | `GET` | `/health` | Public | Process health check. |
 | `GET` | `/equipment-requirements?event_id=<uuid>` | Coordinator, Technical Support | List requirements. Coordinators must supply their assigned planning event. Technical Support may supply one of their active assigned events, or omit it to list requirements across all of their active assigned events. |
-| `PUT` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Create or replace a quantity while the currently assigned event is in planning. Clears the S-17 sign-off first. |
-| `DELETE` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Remove a requirement while the currently assigned event is in planning. Clears the S-17 sign-off first. |
+| `PUT` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Create or replace a quantity after accepting its impact while the assigned event is in planning. Clears the S-17 sign-off first. |
+| `DELETE` | `/equipment-requirements/{event_id}/{equipment_item_id}?impact_accepted=true` | Coordinator | Remove a requirement after accepting its impact while the assigned event is in planning. Clears the S-17 sign-off first. |
 | `POST` | `/equipment-requirements/{event_id}/sign-off` | Technical Support | S-17: approve or decline the event's equipment arrangements. See [Sign-off](#sign-off-s-17). |
 | `GET` | `/equipment-requirements/availability` | Technical Support | S-44: how many of each active item are free for a window. See [Availability check](#availability-check-s-44). |
 
@@ -24,6 +24,7 @@ atomic service. It owns no database.
 | Field | Type | Required | Rule |
 | --- | --- | --- | --- |
 | `required_quantity` | integer | Yes | Positive whole number. |
+| `impact_accepted` | boolean | Yes for a write | Must be `true`; confirms the Coordinator reviewed the significant equipment impact. |
 
 The service derives `recorded_by_coordinator_id` from the verified session.
 That field is audit information only: every authorization decision asks the
@@ -64,7 +65,8 @@ Successful writes and reads return an equipment requirement:
 `GET` returns `200` with an array; no matching requirements returns `[]`.
 `DELETE` returns `204`. Errors use `401` for no session, `403` for the wrong
 role, `404` for a missing/unassigned event or item, `409` outside planning,
-`422` for invalid input, and `502` when a dependency is unavailable.
+`422` for invalid input, and `502` when a dependency is unavailable. A write
+without accepted impact returns `409` before the equipment service is called.
 
 ## Running
 

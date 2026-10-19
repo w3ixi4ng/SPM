@@ -17,6 +17,8 @@ queries another service's tables.
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
+| `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
+| `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `pending_safety_check`, `confirmed`, and `preparation` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
@@ -63,7 +65,7 @@ Technical Support workflows have the following event permissions:
 | Role | Permissions |
 | --- | --- |
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
-| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:decide` |
+| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation` |
 | `attendee` | `dashboard:view` |
@@ -100,6 +102,25 @@ invalid body, and `500` means storage did not save the change.
 The remaining internal and attendee roles intentionally receive no
 speculative event permissions. Their permissions can expand when a
 corresponding project story defines a workflow.
+
+### Coordinator event information (S-18)
+
+The three assigned-event write routes accept only events in `planning`,
+`confirmed`, or `preparation`, and hide another Coordinator's event as `404`.
+The preview route calculates changed and significant fields from stored data
+without writing. The PATCH requires the current `expected_version`; a
+significant change also requires `impact_accepted=true`. A stale version or
+missing acceptance returns `409`.
+
+Routine purpose, contact, and internal-note edits keep the lifecycle state.
+Accepted schedule, attendance, or venue-requirement changes on a confirmed or
+preparation event return it to planning and clear only its current safety
+decision. Existing venue and equipment work, Technical Support assignment,
+equipment preparation, and prior safety history remain. Every successful edit
+increments `edit_version` and appends changed fields, before/after values, the
+authenticated Coordinator id, and server time to `edit_history`. The submit
+route then returns a revised planning event to `confirmed`, awaiting a new
+Operational Safety Check.
 
 The service derives `organiser_id` from the verified Supabase user. A request
 cannot set `id`, `organiser_id`, `status`, `created_at`, or `updated_at`.

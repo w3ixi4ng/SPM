@@ -23,7 +23,9 @@ def test_signoff_stored_and_cleared_by_change(admin, auth_client, world):
             "id", event_id
         ).single().execute().data
 
-    saved = httpx.put(requirement, headers=coordinator, json={"required_quantity": 1}, timeout=20)
+    saved = httpx.put(requirement, headers=coordinator, json={
+        "required_quantity": 1, "impact_accepted": True,
+    }, timeout=20)
     assert saved.status_code == 200, saved.text
 
     approved = httpx.post(
@@ -34,6 +36,8 @@ def test_signoff_stored_and_cleared_by_change(admin, auth_client, world):
     assert signoff()["technical_signoff_decision"] == "approved"
     assert signoff()["technical_signoff_by"] == world["support"]["id"]
 
-    changed = httpx.put(requirement, headers=coordinator, json={"required_quantity": 2}, timeout=20)
+    changed = httpx.put(requirement, headers=coordinator, json={
+        "required_quantity": 2, "impact_accepted": True,
+    }, timeout=20)
     assert changed.status_code == 200, changed.text
     assert all(value is None for value in signoff().values())

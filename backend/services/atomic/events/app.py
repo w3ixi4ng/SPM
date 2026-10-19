@@ -23,6 +23,9 @@ from schemas import (
     ROOM_LAYOUTS,
     EventDraftCreate,
     EventDraftUpdate,
+    CoordinatorEventRead,
+    EventInformationImpact,
+    EventInformationUpdate,
     EventOptions,
     EquipmentPreparationUpdate,
     EventRead,
@@ -68,6 +71,16 @@ OVERSIGHT_ACTIVE_STATUSES = [
 EQUIPMENT_PREPARATION_EVENT_STATUSES = [
     "planning", "pending_safety_check", "confirmed", "preparation",
 ]
+COORDINATOR_EDITABLE_STATUSES = ["planning", "confirmed", "preparation"]
+SIGNIFICANT_EVENT_FIELDS = frozenset({
+    "start_date", "start_time", "end_date", "end_time",
+    "expected_attendance", "venue", "special_requirements", "room_layout",
+    "required_facilities", "required_accessibility",
+})
+EVENT_INFORMATION_FIELDS = frozenset({
+    "name", "purpose", "contact_name", "contact_email", "contact_phone",
+    "internal_notes", *SIGNIFICANT_EVENT_FIELDS,
+})
 # Events whose equipment and Technical Support are committed (S-43, S-44).
 COMMITTED_EVENT_STATUSES = ["planning", "pending_safety_check", "confirmed"]
 
@@ -253,7 +266,7 @@ def event_options(user=Depends(require_permission("events:create"))):
 # Registered before /events/{event_id}: "assigned" would otherwise match that
 # route's {event_id} path parameter and fail as an invalid UUID instead of
 # reaching this one. Route order is match order.
-@app.get("/events/assigned", response_model=list[EventRead])
+@app.get("/events/assigned", response_model=list[CoordinatorEventRead])
 def list_assigned_events(
     user=Depends(require_permission("events:view_assigned")),
     db: Client = Depends(get_db),
@@ -268,13 +281,138 @@ def list_assigned_events(
     return _execute(operation).data
 
 
-@app.get("/events/assigned/{event_id}", response_model=EventRead)
+@app.get("/events/assigned/{event_id}", response_model=CoordinatorEventRead)
 def get_assigned_event(
     event_id: UUID,
     user=Depends(require_permission("events:view_assigned")),
     db: Client = Depends(get_db),
 ):
     return _get_assigned_event(event_id, str(user.id), db)
+
+
+def _event_information_changes(existing: dict, payload: EventInformationUpdate) -> dict:
+    supplied = payload.model_fields_set & EVENT_INFORMATION_FIELDS
+    values = payload.model_dump(mode="json")
+    changes = {}
+    for field in supplied:
+        before = existing.get(field)
+        after = values[field]
+        # Requirement lists are sets in the business contract: reordering or
+        # repeating a value is not a material edit.
+        if field in {"required_facilities", "required_accessibility"}:
+            before_compare = sorted(set(before or []))
+            after_compare = sorted(set(after or []))
+        else:
+            before_compare = before
+            after_compare = after
+        if before_compare != after_compare:
+            changes[field] = {"before": before, "after": after}
+    return changes
+
+
+def _validate_event_information(existing: dict, changes: dict) -> None:
+    candidate = {field: existing.get(field) for field in EventSubmittedCreate.model_fields}
+    candidate.update({field: change["after"] for field, change in changes.items() if field in candidate})
+    try:
+        EventSubmittedCreate.model_validate(candidate)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+
+def _editable_assigned_event(event_id: UUID, coordinator_id: str, db: Client) -> dict:
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if existing.get("status") not in COORDINATOR_EDITABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="This event can no longer be edited from its current status",
+        )
+    return existing
+
+
+@app.post(
+    "/events/assigned/{event_id}/edit-impact",
+    response_model=EventInformationImpact,
+)
+def preview_event_information_update(
+    event_id: UUID,
+    payload: EventInformationUpdate,
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    existing = _editable_assigned_event(event_id, str(user.id), db)
+    current_version = int(existing.get("edit_version") or 0)
+    if payload.expected_version != current_version:
+        raise HTTPException(status_code=409, detail="The event changed. Reload before editing again")
+    changes = _event_information_changes(existing, payload)
+    _validate_event_information(existing, changes)
+    significant = sorted(set(changes) & SIGNIFICANT_EVENT_FIELDS)
+    return {
+        "event_id": event_id,
+        "expected_version": current_version,
+        "changed_fields": sorted(changes),
+        "significant_fields": significant,
+        "requires_impact_acceptance": bool(significant),
+    }
+
+
+@app.patch(
+    "/events/assigned/{event_id}",
+    response_model=CoordinatorEventRead,
+)
+def update_assigned_event_information(
+    event_id: UUID,
+    payload: EventInformationUpdate,
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(user.id)
+    existing = _editable_assigned_event(event_id, coordinator_id, db)
+    current_version = int(existing.get("edit_version") or 0)
+    if payload.expected_version != current_version:
+        raise HTTPException(status_code=409, detail="The event changed. Reload before editing again")
+
+    changed = _event_information_changes(existing, payload)
+    _validate_event_information(existing, changed)
+    if not changed:
+        return existing
+    significant = sorted(set(changed) & SIGNIFICANT_EVENT_FIELDS)
+    if significant and not payload.impact_accepted:
+        raise HTTPException(
+            status_code=409,
+            detail="Review and accept the significant event changes before saving",
+        )
+
+    changed_at = datetime.now(timezone.utc).isoformat()
+    history = list(existing.get("edit_history") or [])
+    history.append({
+        "change_number": len(history) + 1,
+        "changed_by": coordinator_id,
+        "changed_at": changed_at,
+        "changes": changed,
+    })
+    values = {field: change["after"] for field, change in changed.items()}
+    values.update({"edit_version": current_version + 1, "edit_history": history})
+    if significant and existing["status"] in {"confirmed", "preparation"}:
+        values.update({
+            "status": "planning",
+            "safety_recheck_required": True,
+            "safety_decision": None,
+            "safety_decision_reason": None,
+            "safety_officer_id": None,
+            "safety_decided_at": None,
+        })
+
+    operation = (
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .in_("status", COORDINATOR_EDITABLE_STATUSES)
+        .eq("edit_version", current_version)
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail="The event changed. Reload before editing again")
+    return result.data[0]
 
 
 # Registered before /events/{event_id}, as for the Coordinator assignment
@@ -591,7 +729,10 @@ def submit_for_safety_check(
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
-        .update({"status": "pending_safety_check"})
+        .update({
+            "status": "pending_safety_check",
+            "safety_recheck_required": False,
+        })
         .eq("id", str(event_id))
         .eq("status", "planning")
         .eq("assigned_coordinator_id", str(payload.coordinator_id))

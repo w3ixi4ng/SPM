@@ -1154,6 +1154,46 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_tentative_hold_expiry.py::test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot`; `.env.test` stack recreated immediately before, 2026-10-13; full suite reached 35 passed with only this new assertion pending, then the corrected S-81 journey passed on its complete focused rerun (all 36 journeys passed).
 
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Specification confirmed by the
+developer on 2026-10-19. S-18 records history for future S-82 display; the
+S-82 history screen itself is outside this journey because that story is not
+yet present.
+
+## TC-E2E-244 — Coordinator saves routine and significant edits without losing arrangements
+
+- **Scenario:** A browser proves the complete assigned-Coordinator editing and
+  re-review journey through Kong.
+- **Pre-conditions:** Fresh `.env.test` stack with S-18 SQL; Coordinator A;
+  A's preparation event E with contact information, confirmed venue booking,
+  equipment requirement, equipment preparation Ready, Technical Support
+  assignment, and one completed safety-review history entry.
+- **Steps:**
+  1. Sign in as A, open E, edit the contact phone and internal note, save and
+     reload.
+  2. Change attendance and end time. Review the impact summary and cancel.
+  3. Repeat the significant edit and accept it.
+  4. Confirm existing arrangements remain visible, then submit E for a fresh
+     Operational Safety Check and reload.
+- **Expected:** Step 1 persists immediately without changing Preparation or
+  asking for re-review. Step 2 changes nothing. Step 3 shows the new values and
+  Planning with a clear fresh-safety-check message. The confirmed booking,
+  requirement, Ready state, assignment, and prior safety history remain.
+  Step 4 passes S-17 readiness and leaves E Pending Safety Check. Only a
+  Safety Officer can later confirm it. Direct storage
+  contains ordered audit entries naming only the fields changed, A's UUID and
+  server times. Cleanup removes all fixtures.
+- **Actual:** The browser saved routine contact/notes, cancelled an impact
+  review without changing storage, accepted attendance/time changes, retained
+  the confirmed venue and equipment requirement, and submitted the revised
+  event for a fresh safety decision. Direct storage contained two ordered
+  Coordinator audit entries and preserved preparation, assignment, and prior
+  safety history.
+- **Status:** Pass
+- **Evidence:** `test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle`; focused Chromium run through Kong against a freshly recreated `.env.test` stack, 2026-10-19.
 ## TC-E2E-243 — Coordinator submits for the safety check; the Organiser sees Confirmed
 
 - **Scenario:** The journey only a browser can prove: the outstanding list,

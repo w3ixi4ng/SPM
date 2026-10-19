@@ -160,22 +160,26 @@ def test_signoff_limited_to_assigned_support(client, services):
 
 
 # --- TC-EQUIPMENTREQUIREMENTS-028 -----------------------------------------
-@pytest.mark.parametrize("method", ["put", "delete"])
-def test_requirement_change_clears_signoff(client, services, method):
+@pytest.mark.parametrize("action", ["put", "delete"])
+def test_requirement_change_clears_signoff(client, services, action):
     order = []
     services.events.post = AsyncMock(
         side_effect=lambda *a, **k: order.append("clear") or services.cleared
     )
-    write = getattr(services.equipment, method)
+    # The browser DELETE is implemented by the audited atomic POST route.
+    write = services.equipment.put if action == "put" else services.equipment.post
     previous = write.side_effect
     write.side_effect = lambda *a, **k: order.append("write") or previous(*a, **k)
 
     path = f"/equipment-requirements/{EVENT_ID}/{ITEM_ID}"
-    if method == "put":
-        response = client.put(path, json={"required_quantity": 5})
+    if action == "put":
+        response = client.put(path, json={
+            "required_quantity": 5,
+            "impact_accepted": True,
+        })
         assert response.status_code == 200, response.text
     else:
-        response = client.delete(path)
+        response = client.delete(path, params={"impact_accepted": True})
         assert response.status_code == 204, response.text
 
     assert order == ["clear", "write"]
@@ -196,7 +200,8 @@ def test_failed_clear_blocks_requirement_change(client, services, failure):
         services.events.post = AsyncMock(return_value=failure)
 
     response = client.put(
-        f"/equipment-requirements/{EVENT_ID}/{ITEM_ID}", json={"required_quantity": 5}
+        f"/equipment-requirements/{EVENT_ID}/{ITEM_ID}",
+        json={"required_quantity": 5, "impact_accepted": True},
     )
 
     assert response.status_code == 502

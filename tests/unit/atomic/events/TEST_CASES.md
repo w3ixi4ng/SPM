@@ -1980,6 +1980,131 @@ run: 981 passed, 17 skipped.
   write attempt.
 - **Status:** Pass
 - **Evidence:** `test_s87.py::test_repeated_or_concurrent_resubmit_is_409_without_fallback_write`
+
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Acceptance criteria supplied and design
+decisions confirmed by the developer on 2026-10-19.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The assigned Coordinator can edit an event during planning | TC-EVENTS-148, TC-EVENTS-152 |
+| Routine contact, description and internal-note edits do not trigger re-review | TC-EVENTS-148 |
+| Date/time, attendance, venue-requirement and equipment-requirement changes require impact review | TC-EVENTS-149; equipment requirements are covered by TC-EQUIPMENTREQUIREMENTS-030 |
+| Accepted significant changes to Confirmed/Preparation return to Planning and require a fresh safety check | TC-EVENTS-150 |
+| Existing venue and equipment arrangements are preserved | TC-EVENTS-150, TC-EVENTS-151 |
+| Saves are immediately reflected in the event record | TC-EVENTS-148, TC-EVENTS-150 |
+| Every edit records what, who and when for future S-82 display | TC-EVENTS-148, TC-EVENTS-151 |
+
+## TC-EVENTS-148 — routine edits save immediately without lifecycle review
+
+- **Scenario:** The assigned Coordinator updates routine planning information.
+- **Pre-conditions:** Coordinator A is assigned to event E in each of
+  `planning`, `confirmed`, and `preparation`. E has an existing purpose,
+  contact name/email/phone and internal note.
+- **Steps:** Patch each routine field as A, then read E through the assigned
+  event route.
+- **Test data:** Purpose `Updated delegate briefing`; contact `Sam Lee`,
+  `sam.lee@example.com`, `+65 6123 4567`; internal note
+  `Call organiser on arrival`.
+- **Expected:** The trimmed values are returned immediately and survive the
+  later read. Status and current safety fields are unchanged; no impact-review
+  confirmation is requested. One append-only history entry records only the
+  fields whose normalized values changed, their before/after values, A's
+  authenticated UUID and a server timestamp. Browser-supplied actor/time or
+  history fields are rejected.
+- **Actual:** Normalized routine values were saved in one versioned update;
+  lifecycle and current safety fields were absent from the update, and the
+  appended history named only the changed routine fields and trusted actor.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_routine_edits_save_immediately_without_lifecycle_review`
+
+## TC-EVENTS-149 — significant changes are classified by the server and require acceptance
+
+- **Scenario:** A significant edit cannot bypass impact review by changing the
+  browser request.
+- **Pre-conditions:** Coordinator A is assigned to planning event E.
+- **Steps:** Separately change start/end date or time, the effective duration,
+  expected attendance, venue preference, room layout, required facilities,
+  and required accessibility; repeat with normalized values equal to storage;
+  attempt the save without and then with explicit impact acceptance.
+- **Test data:** Attendance `120` to `150`; `theatre` to `banquet`; add
+  `stage`; reorder an otherwise identical facility list; client-supplied
+  `significant: false`.
+- **Expected:** The service calculates significance from stored and proposed
+  normalized values. Each real significant change first returns an impact
+  summary and leaves E unchanged until accepted. Reordered/deduplicated equal
+  lists and equal trimmed values are no-ops. Client classification is
+  forbidden. An accepted planning edit saves once, remains `planning`, and
+  records its exact audit entry.
+- **Actual:** The server preview identified attendance and facility changes;
+  a save without acceptance returned `409` before any update.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_significant_changes_are_server_classified_and_require_acceptance`
+
+## TC-EVENTS-150 — accepted significant edits restart the lifecycle and safety check
+
+- **Scenario:** A material change after confirmation must pass through
+  planning and a new Operational Safety Check.
+- **Pre-conditions:** Coordinator A owns one `confirmed` and one `preparation`
+  event. Each has current safety fields and at least one prior
+  `safety_review_history` entry.
+- **Steps:** Accept an attendance/date change; read the event; submit the
+  revised planning event for its new safety check.
+- **Expected:** The accepted edit atomically saves the values, changes status
+  to `planning`, clears only the current safety decision/reason/officer/time,
+  and preserves prior safety history. The later lifecycle action conditionally
+  uses the S-17 readiness check and moves this revised event from `planning`
+  to `pending_safety_check`. Only the Safety Officer can later make it
+  `confirmed`. The response at each step reflects the stored state immediately.
+- **Actual:** Acceptance produced Planning, cleared only current safety state,
+  retained safety history and existing sign-offs. S-17 separately proves that
+  a ready planning event moves to Pending Safety Check without a bypass.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_accepted_significant_edit_restarts_lifecycle_without_resetting_signoffs`; `test_s17.py::test_planning_event_moves_to_pending_safety_check`
+
+## TC-EVENTS-151 — significant edits preserve existing arrangements and append immutable history
+
+- **Scenario:** Re-review does not silently discard work already completed by
+  Venue Staff or Technical Support.
+- **Pre-conditions:** A confirmed/preparation event has equipment preparation
+  `ready`, a Technical Support assignment, safety-review history, and external
+  venue-booking/equipment-requirement references.
+- **Steps:** Accept a significant event edit and inspect the conditional update
+  payload, returned record, and edit history; attempt to overwrite or delete
+  an earlier history entry.
+- **Expected:** The event update does not reset equipment preparation or
+  assignments and does not issue writes to booking/equipment storage. Previous
+  safety and edit history remains byte-for-byte unchanged and a new numbered
+  edit entry is appended. History mutation through the edit payload is `422`.
+- **Actual:** The conditional Events update omitted equipment preparation and
+  safety history; schemas forbid browser-supplied audit and arrangement fields.
+  Database-backed browser verification retained the booking and requirement.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_accepted_significant_edit_restarts_lifecycle_without_resetting_signoffs`; `tests/e2e/test_update_event_information.py`
+
+## TC-EVENTS-152 — assignment, state, validation, concurrency and storage failures fail closed
+
+- **Scenario:** An edit reports success only when the assigned Coordinator's
+  complete change and audit record were stored together.
+- **Pre-conditions:** Events assigned to Coordinator A in editable and closed
+  states; Coordinator B; invalid payloads; a stale version; simulated storage
+  failure.
+- **Steps:** Edit as A, B, every other role and without a session; edit a
+  cancelled/rejected event; submit invalid contact/time values, a no-op, and a
+  stale concurrent write; make the atomic event-plus-history operation fail.
+- **Expected:** A may edit `planning`, `confirmed`, and `preparation`. B sees
+  `404`; other roles `403`; no session `401`; closed states and stale writes
+  `409`; invalid bodies `422`; a no-op creates no history; storage failure is a
+  safe `500`. No failure leaves changed event data without its audit entry or
+  an audit entry without its event change.
+- **Actual:** Wrong assignment was hidden, closed lifecycle and stale version
+  returned `409`, invalid/extra fields were rejected by the strict schema, and
+  the version predicate kept the data-plus-history update conditional.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_event_edits_fail_closed_and_are_atomic`; focused Python run, 377 passed, 2026-10-19.
 ## S-26 — Update Equipment Preparation Status
 
 Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test

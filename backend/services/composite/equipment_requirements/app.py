@@ -165,12 +165,17 @@ async def save_requirement(
         raise HTTPException(status_code=403, detail="Permission denied")
     event = await _assigned_event(event_id, request, events)
     _require_planning(event)
+    if not payload.impact_accepted:
+        raise HTTPException(
+            status_code=409,
+            detail="Review and accept the equipment impact before saving",
+        )
     await _clear_signoff(event_id, events)
     return await _equipment_response(
         equipment.put(
-            f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}",
+            f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}/audited",
             json={
-                **payload.model_dump(mode="json"),
+                "required_quantity": payload.required_quantity,
                 "recorded_by_coordinator_id": user["id"],
             },
         ),
@@ -188,15 +193,24 @@ async def remove_requirement(
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
     equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    impact_accepted: bool = Query(default=False),
 ):
     user = await _current_user(request, users)
     if user["role"] != COORDINATOR_ROLE:
         raise HTTPException(status_code=403, detail="Permission denied")
     event = await _assigned_event(event_id, request, events)
     _require_planning(event)
+    if not impact_accepted:
+        raise HTTPException(
+            status_code=409,
+            detail="Review and accept the equipment impact before removing it",
+        )
     await _clear_signoff(event_id, events)
     return await _equipment_response(
-        equipment.delete(f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}"),
+        equipment.post(
+            f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}/remove-audited",
+            json={"recorded_by_coordinator_id": user["id"]},
+        ),
     )
 
 

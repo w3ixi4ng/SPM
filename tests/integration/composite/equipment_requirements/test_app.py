@@ -14,11 +14,11 @@ def test_coordinator_records_edits_and_deletes_requirement_visible_to_support(ad
     support = cookie_for(auth_client, world["support"])
     path = f"{GATEWAY_BASE_URL}/equipment-requirements/{world['event_id']}/{world['equipment_id']}"
 
-    created = httpx.put(path, headers=coordinator, json={"required_quantity": 2}, timeout=15.0)
+    created = httpx.put(path, headers=coordinator, json={"required_quantity": 2, "impact_accepted": True}, timeout=15.0)
     assert created.status_code == 200, created.text
     assert created.json()["required_quantity"] == 2
 
-    edited = httpx.put(path, headers=coordinator, json={"required_quantity": 4}, timeout=15.0)
+    edited = httpx.put(path, headers=coordinator, json={"required_quantity": 4, "impact_accepted": True}, timeout=15.0)
     assert edited.status_code == 200, edited.text
     assert edited.json()["required_quantity"] == 4
 
@@ -29,10 +29,18 @@ def test_coordinator_records_edits_and_deletes_requirement_visible_to_support(ad
     assert matching[0]["equipment"]["id"] == world["equipment_id"]
     assert matching[0]["required_quantity"] == 4
 
-    removed = httpx.delete(path, headers=coordinator, timeout=15.0)
+    removed = httpx.delete(f"{path}?impact_accepted=true", headers=coordinator, timeout=15.0)
     assert removed.status_code == 204, removed.text
     rows = admin.schema("equipment").table("requirements").select("id").eq("event_id", world["event_id"]).execute()
     assert rows.data == []
+    history = admin.schema("equipment").table("requirement_changes").select(
+        "action,before_quantity,after_quantity,changed_by"
+    ).eq("event_id", world["event_id"]).order("changed_at").execute().data
+    assert [entry["action"] for entry in history] == ["created", "updated", "removed"]
+    assert history[0]["after_quantity"] == 2
+    assert history[1]["before_quantity"] == 2 and history[1]["after_quantity"] == 4
+    assert history[2]["before_quantity"] == 4 and history[2]["after_quantity"] is None
+    assert all(entry["changed_by"] == world["coordinator"]["id"] for entry in history)
 
 
 # --- TC-EQUIPMENTREQUIREMENTS-102 -----------------------------------------
@@ -41,7 +49,7 @@ def test_reassignment_uses_current_assignment_not_recorded_by_audit(admin, auth_
     new_headers = cookie_for(auth_client, world["new_coordinator"])
     path = f"{GATEWAY_BASE_URL}/equipment-requirements/{world['event_id']}/{world['equipment_id']}"
 
-    first = httpx.put(path, headers=old_headers, json={"required_quantity": 2}, timeout=15.0)
+    first = httpx.put(path, headers=old_headers, json={"required_quantity": 2, "impact_accepted": True}, timeout=15.0)
     assert first.status_code == 200, first.text
     assert first.json()["recorded_by_coordinator_id"] == world["coordinator"]["id"]
 
@@ -49,10 +57,10 @@ def test_reassignment_uses_current_assignment_not_recorded_by_audit(admin, auth_
         "assigned_coordinator_id": world["new_coordinator"]["id"]
     }).eq("id", world["event_id"]).execute()
 
-    refused = httpx.put(path, headers=old_headers, json={"required_quantity": 3}, timeout=15.0)
+    refused = httpx.put(path, headers=old_headers, json={"required_quantity": 3, "impact_accepted": True}, timeout=15.0)
     assert refused.status_code == 404, refused.text
 
-    accepted = httpx.put(path, headers=new_headers, json={"required_quantity": 5}, timeout=15.0)
+    accepted = httpx.put(path, headers=new_headers, json={"required_quantity": 5, "impact_accepted": True}, timeout=15.0)
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["required_quantity"] == 5
     assert accepted.json()["recorded_by_coordinator_id"] == world["new_coordinator"]["id"]

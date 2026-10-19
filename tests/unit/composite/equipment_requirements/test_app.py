@@ -23,6 +23,7 @@ def paths():
 
 def assert_no_mutation(services):
     services.equipment.put.assert_not_called()
+    services.equipment.post.assert_not_called()
     services.equipment.delete.assert_not_called()
 
 
@@ -37,7 +38,7 @@ def test_health_needs_no_downstream_service(client, services):
 
 # --- TC-EQUIPMENTREQUIREMENTS-002 / 003 ---------------------------------
 def test_assigned_coordinator_saves_a_planning_requirement_with_verified_audit(client, services):
-    response = client.put(paths(), json={"required_quantity": 6})
+    response = client.put(paths(), json={"required_quantity": 6, "impact_accepted": True})
 
     assert response.status_code == 200
     services.events.get.assert_awaited_once_with(
@@ -45,17 +46,25 @@ def test_assigned_coordinator_saves_a_planning_requirement_with_verified_audit(c
     )
     services.equipment.put.assert_awaited_once()
     call = services.equipment.put.call_args
-    assert call.args[0].endswith(f"/{EVENT_ID}/{ITEM_ID}")
+    assert call.args[0].endswith(f"/{EVENT_ID}/{ITEM_ID}/audited")
     assert call.kwargs["json"] == {
         "required_quantity": 6,
         "recorded_by_coordinator_id": COORDINATOR_ID,
     }
 
 
+def test_planning_requirement_change_requires_impact_acceptance(client, services):
+    response = client.put(paths(), json={"required_quantity": 6})
+
+    assert response.status_code == 409
+    assert "accept" in response.json()["detail"].lower()
+    assert_no_mutation(services)
+
+
 def test_edit_returns_the_same_relationship_with_new_quantity(client, services):
     services.saved = fake_response(200, requirement(quantity=9))
 
-    response = client.put(paths(), json={"required_quantity": 9})
+    response = client.put(paths(), json={"required_quantity": 9, "impact_accepted": True})
 
     assert response.status_code == 200
     assert response.json()["id"] == requirement()["id"]
@@ -108,7 +117,7 @@ def test_reassignment_uses_current_event_assignment_not_recorded_by(client, serv
     services.saved = fake_response(
         200, requirement(quantity=9, recorded_by=NEW_COORDINATOR_ID)
     )
-    accepted = client.put(paths(), json={"required_quantity": 9})
+    accepted = client.put(paths(), json={"required_quantity": 9, "impact_accepted": True})
 
     assert accepted.status_code == 200
     assert services.equipment.put.call_args.kwargs["json"][
@@ -200,7 +209,7 @@ def test_other_roles_cannot_read(client, services, role):
 # --- TC-EQUIPMENTREQUIREMENTS-011 ---------------------------------------
 def test_wrong_coordinator_gets_404(client, services):
     services.assigned_event = fake_response(404, {"detail": "Event not found"})
-    response = client.put(paths(), json={"required_quantity": 6})
+    response = client.put(paths(), json={"required_quantity": 6, "impact_accepted": True})
     assert response.status_code == 404
     assert_no_mutation(services)
 
@@ -263,7 +272,7 @@ def test_downstream_connection_failures_are_named_502(client, services, service)
     method = target.get if service != "equipment" else target.put
     method.side_effect = httpx.ConnectError("internal address")
 
-    response = client.put(paths(), json={"required_quantity": 6})
+    response = client.put(paths(), json={"required_quantity": 6, "impact_accepted": True})
 
     assert response.status_code == 502
     assert response.json() == {"detail": f"{service.title()} service unavailable"}

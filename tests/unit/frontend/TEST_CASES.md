@@ -2181,6 +2181,78 @@ Confirmed by the developer on 2026-10-14.
 - **Status:** Pass
 - **Evidence:** `test_change_cancel_booking.mjs::the change and cancel calls go through Kong`; `test_change_cancel_booking.mjs::a failed change or cancel says the booking has not changed`
 
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Acceptance criteria and design choices
+confirmed by the developer on 2026-10-19.
+
+### TC-FRONTEND-137 — Coordinator edit mapping separates routine and significant changes
+
+- **Pre-conditions:** The S-18 frontend helpers are imported directly.
+- **Steps:** Populate the editor from an assigned event; change purpose,
+  contact and internal notes; then change each date/time, attendance and venue
+  requirement field; repeat with whitespace/list-order-only differences.
+- **Expected:** Stored values populate their controls. The routine payload
+  contains only editable routine fields. Real significant differences produce
+  an impact summary naming each changed field; normalized no-ops do not. Audit,
+  lifecycle, assignment, sign-off, and safety fields never enter browser
+  payloads.
+- **Actual:** Assigned-event responses populated every editable control and
+  the outgoing payload contained only the approved S-18 fields, normalized
+  requirement lists, the version, and explicit acceptance.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `S-18 coordinator mapping includes editable fields and omits server-owned state`
+
+### TC-FRONTEND-138 — significant edits require a review choice before saving
+
+- **Pre-conditions:** An assigned planning, confirmed, or preparation event is
+  open in the Coordinator detail view.
+- **Steps:** Make a routine edit; make a significant edit; cancel its impact
+  review; reopen and accept it.
+- **Expected:** Routine edits save directly. Significant edits show the
+  server-confirmed list of impacts and clear choices to go back or accept.
+  Cancelling sends no save and leaves the displayed record unchanged.
+  Acceptance sends the returned review token/version rather than trusting a
+  browser-generated significance flag.
+- **Actual:** The API helpers used preview before save; the Chromium journey
+  showed the server impact list, proved Go back made no storage change, and
+  required Accept and save for the mutation.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `S-18 event information calls use encoded authenticated Kong routes`; `tests/e2e/test_update_event_information.py`
+
+### TC-FRONTEND-139 — a successful save refreshes lifecycle state without hiding arrangements
+
+- **Pre-conditions:** A confirmed/preparation event has venue bookings,
+  equipment requirements, equipment preparation, and prior safety history.
+- **Steps:** Accept a significant edit; render the returned event; submit the
+  revised planning event for a fresh Operational Safety Check.
+- **Expected:** The screen immediately shows the saved values and `Planning`,
+  explains that a new safety check is required, and continues to show existing
+  venue/equipment arrangements for the Coordinator to assess. Submitting for
+  safety review uses S-17's readiness check and changes the displayed state to
+  Pending Safety Check.
+- **Actual:** The browser refreshed to Planning after acceptance, retained
+  venue/equipment information, exposed S-17's fresh-safety action, and
+  refreshed to Pending Safety Check after submission.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle`
+
+### TC-FRONTEND-140 — edit controls and failures are safe and role-appropriate
+
+- **Steps:** Check presentation permissions for every role; map `401`, `403`,
+  `404`, `409`, `422`, network and `500` failures from preview and save calls.
+- **Expected:** Only Event Coordinators receive the edit permission and only
+  an eligible assigned event renders controls. Every failed save states that
+  event information was not changed; stale `409` asks the user to reload;
+  validation maps to the matching control. Requests use encoded Kong paths,
+  session credentials and safe JSON only.
+- **Actual:** Coordinator permission and encoded, credentialed preview/save/
+  routes matched the policy and request contract; backend role,
+  assignment, lifecycle, validation, and stale-write tests failed closed.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs`; `test_event_requests.mjs` — `S-18 event information calls use encoded authenticated Kong routes`; `tests/unit/atomic/events/test_s18.py`
 ## S-17 — submit for the Operational Safety Check
 
 Pure functions in `frontend/src/lib/` only (no browser, no `npm ci`). The

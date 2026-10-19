@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
@@ -314,6 +314,85 @@ class EventRead(BaseModel):
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class EventChangeRecord(BaseModel):
+    """One immutable Coordinator edit, retained for the future S-82 view."""
+
+    change_number: int = Field(ge=1)
+    changed_by: UUID
+    changed_at: datetime
+    changes: dict[str, dict[str, Any]]
+
+
+class CoordinatorEventRead(EventRead):
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    internal_notes: str | None = None
+    edit_version: int = Field(default=0, ge=0)
+    edit_history: list[EventChangeRecord] = Field(default_factory=list)
+    safety_recheck_required: bool = False
+
+
+class EventInformationUpdate(BaseModel):
+    """Coordinator-owned S-18 fields.
+
+    The service compares these values with storage. The browser cannot choose
+    whether a change is significant and cannot supply audit/lifecycle fields.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    impact_accepted: bool = False
+    name: str | None = None
+    purpose: str | None = None
+    contact_name: str | None = Field(default=None, max_length=200)
+    contact_email: str | None = Field(default=None, max_length=320)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    internal_notes: str | None = Field(default=None, max_length=4000)
+    start_date: date | None = None
+    start_time: time | None = None
+    end_date: date | None = None
+    end_time: time | None = None
+    expected_attendance: PositiveInt | None = None
+    venue: str | None = None
+    special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] | None = None
+    required_accessibility: list[AccessibilityFeature] | None = None
+
+    @field_validator(
+        "name", "purpose", "contact_name", "contact_email", "contact_phone",
+        "internal_notes", "venue", "special_requirements", "room_layout", mode="before",
+    )
+    @classmethod
+    def normalise_edit_text(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @field_validator("contact_email")
+    @classmethod
+    def contact_email_is_plausible(cls, value):
+        if value is not None and ("@" not in value or value.startswith("@") or value.endswith("@")):
+            raise ValueError("contact_email must be a valid email address")
+        return value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def unique_edit_lists(cls, value):
+        return None if value is None else _unique_in_order(value)
+
+
+class EventInformationImpact(BaseModel):
+    event_id: UUID
+    expected_version: int = Field(ge=0)
+    changed_fields: list[str]
+    significant_fields: list[str]
+    requires_impact_acceptance: bool
 
 
 class CancellationRequestCreate(BaseModel):

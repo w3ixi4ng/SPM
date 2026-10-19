@@ -20,6 +20,8 @@ physical unit. It also owns the event-to-item relationship in
 | `GET` | `/internal/equipment-requirements` | Equipment requirements composite | List requirements, optionally filtered by `event_id`, or (S-44) by several events with repeated `event_ids`, e.g. `?event_ids=<a>&event_ids=<b>`. A malformed id is `422`. |
 | `PUT` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Upsert a positive required quantity and audit user. |
 | `DELETE` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Delete one event/item relationship. |
+| `PUT` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}/audited` | Equipment requirements composite | Atomically upsert a requirement and append its S-18 history. |
+| `POST` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}/remove-audited` | Equipment requirements composite | Atomically remove a requirement and append its S-18 history. |
 
 ## Request
 
@@ -64,6 +66,12 @@ The internal `PUT` body contains `required_quantity` (positive integer) and
 to this atomic service: assignment and event status are checked by the
 composite before it calls this route. These internal routes are not exposed
 through Kong.
+
+The S-18 audited routes use database functions so the requirement write and
+its immutable `equipment.requirement_changes` entry succeed or fail together.
+No-op saves create no duplicate history. Each change records its action,
+before and after quantities, authenticated Coordinator, and server time for
+future S-82 aggregation.
 
 ## Response
 

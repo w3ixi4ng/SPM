@@ -105,7 +105,10 @@ def test_planning_event_moves_to_pending_safety_check(client, db):
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "pending_safety_check"
     update = table(db).update
-    update.assert_called_once_with({"status": "pending_safety_check"})
+    update.assert_called_once_with({
+        "status": "pending_safety_check",
+        "safety_recheck_required": False,
+    })
     first = update.return_value.eq
     first.assert_called_once_with("id", EVENT_ID)
     first.return_value.eq.assert_called_once_with("status", "planning")

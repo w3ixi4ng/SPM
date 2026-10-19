@@ -9,6 +9,7 @@ class RequirementQuantity(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     required_quantity: PositiveInt
+    impact_accepted: bool = False
 
 
 class SignoffDecision(str, Enum):

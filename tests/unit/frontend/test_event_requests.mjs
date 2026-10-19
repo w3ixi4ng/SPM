@@ -8,16 +8,19 @@ import {
   eventErrorMessage,
   eventFieldErrorsToForm,
   eventFormToPayload,
+  eventInformationPayload,
   eventResponseToForm,
   eventStatusMeta,
   getEventOptions,
   getEventRequest,
   listEventRequests,
+  previewAssignedEventInformation,
   organiserStatusMeta,
   organiserTabs,
   resubmitErrorMessage,
   sortEventsForOrganiser,
   submitEventDraft,
+  updateAssignedEventInformation,
   updateEventDraft,
 } from '../../../frontend/src/lib/eventRequests.js'
 
@@ -104,7 +107,54 @@ test('API responses populate the existing React state shape', () => {
     roomLayout: '',
     requiredFacilities: [],
     requiredAccessibility: [],
+    contactName: '',
+    contactEmail: '',
+    contactPhone: '',
+    internalNotes: '',
   })
+})
+
+test('S-18 coordinator mapping includes editable fields and omits server-owned state', () => {
+  const event = { ...API_EVENT, edit_version: 4, edit_history: [{ change_number: 1 }] }
+  const form = {
+    ...eventResponseToForm(event),
+    contactName: '  Sam Lee ',
+    contactEmail: ' sam@example.com ',
+    contactPhone: ' +65 6123 4567 ',
+    internalNotes: ' Call on arrival ',
+  }
+  const payload = eventInformationPayload(form, event, { impactAccepted: true })
+  assert.equal(payload.expected_version, 4)
+  assert.equal(payload.impact_accepted, true)
+  assert.equal(payload.contact_name, 'Sam Lee')
+  assert.equal(payload.internal_notes, 'Call on arrival')
+  assert.equal(payload.edit_history, undefined)
+  assert.equal(payload.status, undefined)
+  assert.equal(payload.safety_decision, undefined)
+})
+
+test('S-18 event information calls use encoded authenticated Kong routes', async () => {
+  const calls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ changed_fields: [], significant_fields: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const event = { ...API_EVENT, edit_version: 2 }
+  const form = eventResponseToForm(event)
+  try {
+    await previewAssignedEventInformation('event 1/2', form, event)
+    await updateAssignedEventInformation('event 1/2', form, event, true)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
+    ['/api/events/assigned/event%201%2F2/edit-impact', 'POST'],
+    ['/api/events/assigned/event%201%2F2', 'PATCH'],
+  ])
+  assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
 })
 
 test('event list loads the authenticated organisers saved requests', async () => {
