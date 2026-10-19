@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 import availability
 from clients import get_equipment_client, get_events_client, get_users_client
-from schemas import RequirementQuantity
+from schemas import RequirementQuantity, SignoffDecision, SignoffRequest
 
 app = FastAPI(title="Equipment Requirements Service")
 logger = logging.getLogger(__name__)
@@ -127,6 +127,17 @@ def _require_planning(event: dict) -> None:
         raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
 
 
+async def _clear_signoff(event_id: UUID, events: httpx.AsyncClient) -> None:
+    """S-17: any change to the requirements voids Technical Support's
+    sign-off. Cleared before the change, so a requirement is never changed
+    under an approval that no longer applies."""
+    response = await _call(
+        "Events", events.post(f"/internal/events/{event_id}/technical-signoff/clear"),
+    )
+    if response.status_code != 200:
+        raise _unavailable("Events")
+
+
 async def _equipment_response(service_call):
     response = await _call("Equipment", service_call)
     if response.status_code in {404, 409, 422}:
@@ -154,6 +165,7 @@ async def save_requirement(
         raise HTTPException(status_code=403, detail="Permission denied")
     event = await _assigned_event(event_id, request, events)
     _require_planning(event)
+    await _clear_signoff(event_id, events)
     return await _equipment_response(
         equipment.put(
             f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}",
@@ -182,6 +194,7 @@ async def remove_requirement(
         raise HTTPException(status_code=403, detail="Permission denied")
     event = await _assigned_event(event_id, request, events)
     _require_planning(event)
+    await _clear_signoff(event_id, events)
     return await _equipment_response(
         equipment.delete(f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}"),
     )
@@ -201,6 +214,68 @@ async def _json_list(service: str, service_call) -> list[dict]:
     response = await _call(service, service_call)
     if response.status_code != 200:
         raise _unavailable(service)
+    return response.json()
+
+
+SIGNOFF_ONLY_IN_PLANNING = (
+    "Technical Support sign-off can only change while the event is in planning"
+)
+SHORT = "Some equipment is short for this event"
+
+
+async def _event_shortages(
+    event: dict,
+    request: Request,
+    events: httpx.AsyncClient,
+    equipment: httpx.AsyncClient,
+) -> list[dict]:
+    window = {
+        "start_date": str(event["start_date"]),
+        "start_time": str(event["start_time"])[:5],
+        "end_date": str(event["end_date"]),
+        "end_time": str(event["end_time"])[:5],
+    }
+    overlapping = await _json_list("Events", events.post("/events/overlapping", json=window))
+    if not any(row["id"] == event["id"] for row in overlapping):
+        overlapping = [*overlapping, event]
+    catalogue = await _json_list("Equipment", equipment.get("/equipment", cookies=request.cookies))
+    params = [("event_ids", row["id"]) for row in overlapping]
+    requirements = await _json_list("Equipment", equipment.get(INTERNAL_PATH, params=params))
+    return availability.shortages(event, catalogue, overlapping, requirements)
+
+
+@app.post("/equipment-requirements/{event_id}/sign-off")
+async def sign_off(
+    event_id: UUID,
+    payload: SignoffRequest,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+):
+    """S-17: the assigned Technical Support approves or declines the event's
+    equipment arrangements. A shortage blocks approval unless Technical
+    Support explains how it will be covered."""
+    user = await _current_user(request, users)
+    if user["role"] != TECHNICAL_SUPPORT_ROLE:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    event = await _support_assigned_event(event_id, request, events)
+    if event.get("status") != "planning":
+        raise HTTPException(status_code=409, detail=SIGNOFF_ONLY_IN_PLANNING)
+    if payload.decision is SignoffDecision.APPROVED and payload.override_comment is None:
+        short = await _event_shortages(event, request, events, equipment)
+        if short:
+            return JSONResponse(status_code=409, content={"detail": SHORT, "short": short})
+
+    body = {"technical_support_id": user["id"], **payload.model_dump(mode="json", exclude_none=True)}
+    response = await _call(
+        "Events", events.put(f"/internal/events/{event_id}/technical-signoff", json=body),
+    )
+    if response.status_code in {404, 409, 422}:
+        detail = (response.json() or {}).get("detail", "Sign-off was rejected")
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    if response.status_code != 200:
+        raise _unavailable("Events")
     return response.json()
 
 

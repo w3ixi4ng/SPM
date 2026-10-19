@@ -4,6 +4,11 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import EventReadinessPanel from '../components/EventReadinessPanel.jsx'
+import SafetySubmissionPanel from '../components/SafetySubmissionPanel.jsx'
+import {
+  buildSubmissionReadiness,
+  describeSignoff,
+} from '../lib/safetySubmission.js'
 import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
@@ -582,14 +587,16 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
                             Find a replacement venue
                           </Link>
                         )}
-                        <button
-                          type="button"
-                          onClick={(e) => openResolve(booking, e.currentTarget)}
-                          className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
-                          style={{ borderColor: C.line, color: C.ink }}
-                        >
-                          Mark resolved
-                        </button>
+                        {replacing.actions.includes('resolve') && (
+                          <button
+                            type="button"
+                            onClick={(e) => openResolve(booking, e.currentTarget)}
+                            className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                            style={{ borderColor: C.line, color: C.ink }}
+                          >
+                            Mark resolved
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -737,7 +744,7 @@ function TechnicalSupportAssignment({ eventId, eventStatus }) {
 
 function SafetyReturnPanel({ event, onResubmitted }) {
   const [state, setState] = useState({ status: 'loading', detail: null, error: null })
-  const [submit, setSubmit] = useState({ status: 'idle', error: null })
+  const [submit, setSubmit] = useState({ status: 'idle', error: null, outstanding: [] })
 
   useEffect(() => {
     let active = true
@@ -749,13 +756,21 @@ function SafetyReturnPanel({ event, onResubmitted }) {
   }, [event.id])
 
   async function resubmit() {
-    setSubmit({ status: 'saving', error: null })
+    setSubmit({ status: 'saving', error: null, outstanding: [] })
     try {
       const updated = await resubmitSafetyReview(event.id)
-      setSubmit({ status: 'success', error: null })
+      setSubmit({ status: 'success', error: null, outstanding: [] })
       onResubmitted(updated)
     } catch (error) {
-      setSubmit({ status: 'idle', error: safetyReturnErrorMessage(error) })
+      // S-17: a resubmission gets the same arrangement check as a first one.
+      const outstanding = error.body?.outstanding
+      setSubmit({
+        status: 'idle',
+        error: outstanding
+          ? 'This event still has outstanding arrangements. Complete each item below, then resubmit.'
+          : safetyReturnErrorMessage(error),
+        outstanding: outstanding ? buildSubmissionReadiness({ outstanding }).items : [],
+      })
     }
   }
 
@@ -792,11 +807,21 @@ function SafetyReturnPanel({ event, onResubmitted }) {
 
       {submit.status === 'success' ? (
         <p role="status" className="font-ui text-sm font-medium mt-5" style={{ color: C.green }}>
-          Revised arrangements submitted for a fresh safety review. The event is now confirmed.
+          Revised arrangements submitted for a fresh safety review. The event is now pending its safety check.
         </p>
       ) : (
         <>
           {submit.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{submit.error}</p>}
+          {submit.outstanding.length > 0 && (
+            <ul className="divide-y mt-3 font-ui text-sm" aria-label="Outstanding arrangements" style={{ borderColor: C.line }}>
+              {submit.outstanding.map((item) => (
+                <li key={item.key} className="py-2 flex justify-between gap-4">
+                  <span style={{ color: C.ink }}>{item.label}</span>
+                  <span style={{ color: C.amber }}>{item.statusLabel}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           <button
             type="button"
             onClick={resubmit}
@@ -932,9 +957,23 @@ export default function EventCoordinatorEventDetail() {
                 event={state.event}
                 onResubmitted={(updated) => {
                   setState({ status: 'ready', event: updated, error: null })
-                  setSafetyNotice('Revised arrangements submitted for a fresh safety review. The event is now confirmed.')
+                  setSafetyNotice('Revised arrangements submitted for a fresh safety review. The event is now pending its safety check.')
                 }}
               />
+            )}
+            {isCoordinator && state.event.status === 'planning' && !state.event.safety_decision && (
+              <SafetySubmissionPanel
+                eventId={state.event.id}
+                onSubmitted={(updated) => {
+                  setState({ status: 'ready', event: updated, error: null })
+                  setSafetyNotice('Submitted for the Operational Safety Check. The Safety Officer will confirm the event.')
+                }}
+              />
+            )}
+            {state.event.status === 'pending_safety_check' && !safetyNotice && (
+              <p role="status" className="font-ui text-sm mt-6" style={{ color: C.inkFaint }}>
+                Pending Safety Check. The Safety Officer will confirm the event or send it back with feedback.
+              </p>
             )}
             {safetyNotice && (
               <p role="status" className="font-ui text-sm font-medium mt-6" style={{ color: C.green }}>
@@ -979,6 +1018,15 @@ export default function EventCoordinatorEventDetail() {
                   <p className="font-ui text-base font-medium" style={{ color: C.ink }}>
                     {equipmentPreparationLabel(state.event.equipment_preparation_status)}
                   </p>
+                  <p className="font-ui text-xs uppercase tracking-wide mt-4 mb-1" style={{ color: C.inkFaint }}>Technical Support sign-off</p>
+                  <p className="font-ui text-base font-medium" style={{ color: C.ink }}>
+                    {describeSignoff(state.event).label}
+                  </p>
+                  {describeSignoff(state.event).note && (
+                    <p className="font-ui text-sm mt-1 whitespace-pre-wrap" style={{ color: C.inkFaint }}>
+                      {describeSignoff(state.event).note}
+                    </p>
+                  )}
                 </div>
               </section>
 

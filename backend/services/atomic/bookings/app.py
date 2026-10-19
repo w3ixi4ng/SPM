@@ -492,7 +492,8 @@ def cancel_booking(
 
 def _replacement_problem(db: Client, values: dict):
     """S-78: a replacement must point at a booking of the same event that
-    still stands. A JSONResponse to return when it doesn't, else None."""
+    still stands -- or, S-17, one Venue Staff rejected. A JSONResponse to
+    return when it doesn't, else None."""
     original = _booking(db, values["replaces_booking_id"])
     if original is None or str(original["event_id"]) != str(values["event_id"]):
         message = (
@@ -506,7 +507,7 @@ def _replacement_problem(db: Client, values: dict):
                 "errors": {"replaces_booking_id": message},
             },
         )
-    if original["status"] in ("rejected", "replaced"):
+    if original["status"] == "replaced":
         raise HTTPException(status_code=409, detail="This booking can no longer be replaced")
     return None
 

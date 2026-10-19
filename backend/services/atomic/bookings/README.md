@@ -365,13 +365,13 @@ when; this service stores it.
 
 **Replacement requests.** `POST /bookings` takes an optional
 `replaces_booking_id`. It must name a booking of the same `event_id` that
-still stands:
+still stands, or (S-17) one Venue Staff rejected:
 
 | Status | Body | When |
 | --- | --- | --- |
 | `422` | `{"detail": "Please check the details you entered", "errors": {"replaces_booking_id": "The booking being replaced doesn't exist"}}` | No such booking. |
 | `422` | `{..., "errors": {"replaces_booking_id": "A replacement must be for the same event"}}` | It belongs to another event. |
-| `409` | `{"detail": "This booking can no longer be replaced"}` | It is `rejected` or `replaced`. |
+| `409` | `{"detail": "This booking can no longer be replaced"}` | It is already `replaced`. |
 
 Everything else about the request is as for any other, including the overlap
 and period checks.
@@ -380,8 +380,8 @@ and period checks.
 confirms a request with `replaces_booking_id`, a database trigger
 (`bookings_replace_original_on_confirm`) sets the original's `status` to
 `replaced`, with `replaced_by_booking_id` and `replaced_at`, in the same
-transaction. The original is only changed if it is still `pending`, `held`
-or `confirmed`. `replaced` is not live, so the original stops reserving its
+transaction. The original is only changed if it is still `pending`, `held`,
+`confirmed` or (S-17) `rejected`. `replaced` is not live, so the original stops reserving its
 venue. Rejecting a replacement changes nothing else.
 
 ### `POST /bookings/{id}/alternative-resolution`

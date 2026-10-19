@@ -115,6 +115,12 @@ class Services:
         self.users.get = AsyncMock(side_effect=lambda *args, **kwargs: self.me)
         self.events = MagicMock()
         self.events.get = AsyncMock(side_effect=self._event_response)
+        # S-17: a requirement change clears the sign-off first; sign-off
+        # itself is a PUT. Tests that need other answers replace these.
+        self.cleared = fake_response(200, event())
+        self.signed = fake_response(200, event())
+        self.events.post = AsyncMock(side_effect=lambda *args, **kwargs: self.cleared)
+        self.events.put = AsyncMock(side_effect=lambda *args, **kwargs: self.signed)
         self.equipment = MagicMock()
         self.equipment.put = AsyncMock(side_effect=lambda *args, **kwargs: self.saved)
         self.equipment.get = AsyncMock(side_effect=lambda *args, **kwargs: self.listed)

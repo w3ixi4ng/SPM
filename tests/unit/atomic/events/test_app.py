@@ -1286,7 +1286,9 @@ def test_support_load_counts_only_planning_and_confirmed_events(client, db):
     ]
     first_in = db.schema.return_value.table.return_value.select.return_value.in_
     first_in.assert_called_once_with("assigned_technical_support_id", [SUPPORT_A, SUPPORT_B])
-    first_in.return_value.in_.assert_called_once_with("status", ["planning", "confirmed"])
+    first_in.return_value.in_.assert_called_once_with(
+        "status", ["planning", "pending_safety_check", "confirmed"]
+    )
 
 
 def _support_target_select(db):

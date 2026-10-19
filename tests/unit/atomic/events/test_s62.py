@@ -20,7 +20,10 @@ from .conftest import (
 )
 
 REASON = "Keynote speaker withdrew and no replacement is available"
-ELIGIBLE = ["submitted", "under_review", "planning", "confirmed", "preparation", "safety_changes_requested"]
+ELIGIBLE = [
+    "submitted", "under_review", "planning", "pending_safety_check", "confirmed",
+    "preparation", "safety_changes_requested",
+]
 INELIGIBLE = ["draft", "returned", "rejected", "cancelled", "safety_rejected"]
 URL = f"/events/{EVENT_ID}/cancellation-request"
 

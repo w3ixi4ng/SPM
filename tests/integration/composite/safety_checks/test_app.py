@@ -35,12 +35,12 @@ def test_safety_officer_reviews_enriched_event_and_approves(
         timeout=20.0,
     )
     assert decided.status_code == 200, decided.text
-    assert decided.json()["status"] == "preparation"
+    assert decided.json()["status"] == "confirmed"
 
     stored = admin.schema("events").table("events").select(
         "status,safety_decision,safety_decision_reason,safety_officer_id,safety_decided_at"
     ).eq("id", event_id).single().execute().data
-    assert stored["status"] == "preparation"
+    assert stored["status"] == "confirmed"
     assert stored["safety_decision"] == "approved"
     assert stored["safety_decision_reason"] is None
     assert stored["safety_officer_id"] == safety_world["officer"]["id"]
@@ -56,7 +56,7 @@ def test_safety_officer_reviews_enriched_event_and_approves(
     unchanged = admin.schema("events").table("events").select(
         "status,safety_decision"
     ).eq("id", event_id).single().execute().data
-    assert unchanged == {"status": "preparation", "safety_decision": "approved"}
+    assert unchanged == {"status": "confirmed", "safety_decision": "approved"}
 
 
 def test_changes_return_to_planning_and_complete_a_fresh_review_cycle(
@@ -101,7 +101,7 @@ def test_changes_return_to_planning_and_complete_a_fresh_review_cycle(
         timeout=20.0,
     )
     assert resubmitted.status_code == 200, resubmitted.text
-    assert resubmitted.json()["status"] == "confirmed"
+    assert resubmitted.json()["status"] == "pending_safety_check"
     assert resubmitted.json()["safety_decision"] is None
     assert len(resubmitted.json()["safety_review_history"]) == 1
 
@@ -127,7 +127,7 @@ def test_changes_return_to_planning_and_complete_a_fresh_review_cycle(
         timeout=20.0,
     )
     assert approved.status_code == 200, approved.text
-    assert approved.json()["status"] == "preparation"
+    assert approved.json()["status"] == "confirmed"
     assert [row["decision"] for row in approved.json()["safety_review_history"]] == [
         "changes_requested",
         "approved",

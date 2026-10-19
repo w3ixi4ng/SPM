@@ -1965,3 +1965,49 @@ setup and turnaround 0.
 - **Actual:** A bookings `500` on change and cancel, and events or venues unreachable, all gave `502`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_change_cancel.py::test_a_failed_write_never_reports_success`; `tests/unit/composite/venue_bookings/test_change_cancel.py::test_an_unreachable_service_never_reports_success`
+
+## S-17 — request a replacement for a rejected booking
+
+S-78's replacement flow (list suitable venues, request one) also opens for a
+booking Venue Staff rejected, so a rejection that blocks the safety-check
+submission can be cleared. Everything else about S-78 is unchanged.
+
+## TC-VENUEBOOKINGS-099 — a rejected booking can be replaced
+
+- **Scenario:** The Coordinator replaces a rejected booking without any S-77
+  flag.
+- **Pre-conditions:** `E1` `planning`, assigned to `C1`; `B2` Studio 2,
+  `2026-11-20 09:00–17:00`, `rejected`; Studio 3 suitable and free.
+- **Steps:** 1. `GET /venue-bookings/B2/replacement-venues` as `C1`.
+  2. `POST /venue-bookings/B2/replacement` with `{"venue_id": Studio 3}`.
+- **Test data:** As above.
+- **Expected:** 1 → `200`, Studio 3 listed. 2 → `201`; the Bookings insert
+  carries `replaces_booking_id: B2` and `B2`'s date and times.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_rejected_booking_can_be_replaced`; `tests/unit/frontend/test_safety_submission.mjs` — "offers a replacement for a rejected booking"
+
+## TC-VENUEBOOKINGS-115 — other bookings still need a flag
+
+- **Scenario:** Opening the flow to rejected bookings does not open it to all.
+- **Pre-conditions:** As TC-VENUEBOOKINGS-099.
+- **Steps:** Request a replacement for `B1` (`confirmed`, no flag), then for
+  `B3` (`pending`).
+- **Test data:** As above.
+- **Expected:** `409` "This booking doesn't need a replacement venue" each.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_unflagged_live_booking_still_refused`
+
+## TC-VENUEBOOKINGS-116 — one replacement at a time for a rejected booking
+
+- **Scenario:** S-78's one-waiting-request rule applies to rejected bookings.
+- **Pre-conditions:** `B2` `rejected`; replacement `B4` (Studio 3) `pending`
+  with `replaces_booking_id: B2`.
+- **Steps:** Request a replacement for `B2` at Studio 3, then at Room 5.
+- **Test data:** As above.
+- **Expected:** Studio 3 → `201` returning `B4` (a retry). Room 5 → `409` "A
+  replacement request for this booking is already with Venue Staff".
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_one_waiting_replacement_for_rejected_booking`

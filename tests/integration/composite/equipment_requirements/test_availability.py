@@ -27,6 +27,10 @@ def stock(admin):
 
     def hold(status, start, end, quantity):
         decided = {"decision": "rejected", "decision_reason": "spm-test"} if status == "rejected" else {"decision": "approved"}
+        if status == "confirmed":
+            # S-17: Confirmed is reached only through the Safety Officer's approval.
+            decided.update(safety_decision="approved", safety_officer_id=str(uuid.uuid4()),
+                           safety_decided_at="2026-10-02T00:00:00Z")
         event_id = admin.schema("events").table("events").insert({
             "organiser_id": organiser["id"], "assigned_coordinator_id": organiser["id"],
             "status": status, "name": f"spm-test S44 {status} {start}",

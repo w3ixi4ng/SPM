@@ -312,3 +312,18 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Resolution `200`; the write and `GET /bookings/{id}` both carried note "Moved online", the Coordinator as resolver and a time; status still `confirmed`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_replacement_venue.py::test_a_resolution_note_is_saved_and_read_back`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+
+## TC-BOOKINGS-115 — confirming a replacement retires the rejected original
+
+- **Scenario:** The S-78 trigger also replaces a rejected original.
+- **Pre-conditions:** Fresh `.env.test` stack; S-17 block of
+  `backend/sql/bookings.sql` applied.
+- **Steps:** 1. Create booking `B2`, reject it. 2. Create `B4` with
+  `replaces_booking_id: B2`. 3. Confirm `B4`. 4. Read `B2`. 5. Delete both.
+- **Test data:** Any free venue, `2026-11-20 09:00–17:00`.
+- **Expected:** 2 → `201`. 4 → `status: "replaced"`,
+  `replaced_by_booking_id: B4`, `replaced_at` set; its rejection reason is
+  kept.
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_confirmed_replacement_retires_rejected_original`

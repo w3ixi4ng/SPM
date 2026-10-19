@@ -845,6 +845,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
+> **S-17 (2026-10-19):** the event starts `pending_safety_check` and approval stores `confirmed`.
+
 - **Scenario:** A Safety Officer reviews the cross-service safety evidence and
   approves a confirmed event through the browser.
 - **Pre-conditions:** Fresh `.env.test` stack with S-86 Events SQL; confirmed
@@ -863,7 +865,7 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   state and stored `preparation`, `approved`, the authenticated Safety Officer
   id and a server timestamp.
 - **Status:** Pass
-- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_pending_event[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
 
@@ -1036,6 +1038,8 @@ original's state after Venue Staff approve.
 - **Evidence:** `tests/e2e/test_replace_affected_booking.py::test_a_coordinator_replaces_a_flagged_booking_and_approval_clears_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
 ## TC-E2E-235 — requested safety changes complete a fresh review cycle
 
+> **S-17 (2026-10-19):** the path is `pending_safety_check → planning → pending_safety_check → confirmed`, and resubmission needs every arrangement complete.
+
 - **Scenario:** The browser proves S-87 across both roles and the existing
   arrangement workflow.
 - **Pre-conditions:** Fresh `.env.test` stack with S-87 Events SQL; confirmed
@@ -1149,3 +1153,25 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
   after automatic expiry; storage recorded `pending/expired`.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_tentative_hold_expiry.py::test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot`; `.env.test` stack recreated immediately before, 2026-10-13; full suite reached 35 passed with only this new assertion pending, then the corrected S-81 journey passed on its complete focused rerun (all 36 journeys passed).
+
+## TC-E2E-243 — Coordinator submits for the safety check; the Organiser sees Confirmed
+
+- **Scenario:** The journey only a browser can prove: the outstanding list,
+  the gateway routes and each role's view of the new stage.
+- **Pre-conditions:** Full stack on `.env.test` with the S-17 SQL; Chromium;
+  an event in `planning` with one `pending` booking and one equipment
+  requirement, Technical Support assigned.
+- **Steps:** 1. As the Coordinator, open the event; click "Submit for safety
+  check". 2. As Venue Staff, confirm the booking; as Technical Support,
+  approve and set preparation Ready. 3. As the Coordinator, reload and submit.
+  4. As the Organiser, open the event. 5. As the Safety Officer, approve it.
+  6. As the Organiser, reload.
+- **Test data:** As above.
+- **Expected:** 1 lists "Hall A on 20 Nov 2026 is waiting for Venue Staff",
+  "Technical Support has not approved the equipment arrangements",
+  "Equipment preparation is Not Started"; no override control is on the
+  page; status still "Planning". 3 shows "Pending Safety Check". 4 shows
+  "Pending Safety Check". 6 shows "Confirmed".
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`
