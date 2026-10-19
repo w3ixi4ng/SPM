@@ -67,7 +67,7 @@ def resubmit_update(db, rows):
 
 def test_changes_requested_returns_to_planning_and_appends_immutable_history(client, db):
     current = returned_event(
-        status="confirmed",
+        status="pending_safety_check",
         safety_decision=None,
         safety_decision_reason=None,
         safety_officer_id=None,
@@ -121,6 +121,7 @@ def test_only_safety_returned_planning_event_can_be_resubmitted(client, db):
     for ineligible in (
         returned_event(safety_decision=None, safety_review_history=[]),
         returned_event(status="confirmed"),
+        returned_event(status="pending_safety_check", safety_decision=None),
         returned_event(safety_decision="approved"),
     ):
         assigned_select(db, [ineligible])
@@ -135,15 +136,15 @@ def test_only_safety_returned_planning_event_can_be_resubmitted(client, db):
 
 def test_resubmit_clears_only_current_blocker_and_preserves_history(client, db):
     current = returned_event()
-    confirmed = returned_event(
-        status="confirmed",
+    pending = returned_event(
+        status="pending_safety_check",
         safety_decision=None,
         safety_decision_reason=None,
         safety_officer_id=None,
         safety_decided_at=None,
     )
     assigned_select(db, [current])
-    resubmit_update(db, [confirmed])
+    resubmit_update(db, [pending])
 
     response = client.post(
         f"/internal/events/{EVENT_ID}/safety-resubmit",
@@ -151,12 +152,12 @@ def test_resubmit_clears_only_current_blocker_and_preserves_history(client, db):
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "confirmed"
+    assert response.json()["status"] == "pending_safety_check"
     assert response.json()["safety_decision"] is None
     assert response.json()["safety_review_history"] == current["safety_review_history"]
     values = db.schema.return_value.table.return_value.update.call_args.args[0]
     assert values == {
-        "status": "confirmed",
+        "status": "pending_safety_check",
         "safety_decision": None,
         "safety_decision_reason": None,
         "safety_officer_id": None,

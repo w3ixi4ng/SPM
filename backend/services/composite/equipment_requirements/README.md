@@ -1,6 +1,7 @@
 # Equipment requirements service
 
-Composite service for S-40 and the S-43 Technical Support visibility flow. It
+Composite service for S-40, the S-43 Technical Support visibility flow and
+S-17 Technical Support sign-off. It
 verifies the signed-in user with `users`, asks `events` for the caller's
 current assignment, then reads or stores requirements through the `equipment`
 atomic service. It owns no database.
@@ -11,8 +12,9 @@ atomic service. It owns no database.
 | --- | --- | --- | --- |
 | `GET` | `/health` | Public | Process health check. |
 | `GET` | `/equipment-requirements?event_id=<uuid>` | Coordinator, Technical Support | List requirements. Coordinators must supply their assigned planning event. Technical Support may supply one of their active assigned events, or omit it to list requirements across all of their active assigned events. |
-| `PUT` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Create or replace a quantity after accepting its impact while the assigned event is in planning. |
-| `DELETE` | `/equipment-requirements/{event_id}/{equipment_item_id}?impact_accepted=true` | Coordinator | Remove a requirement after accepting its impact while the assigned event is in planning. |
+| `PUT` | `/equipment-requirements/{event_id}/{equipment_item_id}` | Coordinator | Create or replace a quantity after accepting its impact while the assigned event is in planning. Clears the S-17 sign-off first. |
+| `DELETE` | `/equipment-requirements/{event_id}/{equipment_item_id}?impact_accepted=true` | Coordinator | Remove a requirement after accepting its impact while the assigned event is in planning. Clears the S-17 sign-off first. |
+| `POST` | `/equipment-requirements/{event_id}/sign-off` | Technical Support | S-17: approve or decline the event's equipment arrangements. See [Sign-off](#sign-off-s-17). |
 | `GET` | `/equipment-requirements/availability` | Technical Support | S-44: how many of each active item are free for a window. See [Availability check](#availability-check-s-44). |
 
 ## Request
@@ -29,7 +31,8 @@ That field is audit information only: every authorization decision asks the
 events service for the event's current assignment.
 
 For Technical Support, the service never trusts a staff id from the browser.
-It obtains the authenticated user's `planning` and `confirmed` assignments
+It obtains the authenticated user's active (`planning`, `pending_safety_check`,
+`confirmed`, `preparation`) assignments
 from `/events/support-assigned`, then passes only those event ids to the
 equipment service. If there are no active assignments it returns `[]` without
 requesting the global requirements collection. Supplying an event assigned to
@@ -85,6 +88,38 @@ docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/composite/equipment_requirements
 ```
+
+## Sign-off (S-17)
+
+`POST /equipment-requirements/{event_id}/sign-off` -- the event's assigned
+Technical Support only, while the event is in `planning`. Through Kong:
+`POST /api/equipment-requirements/{event_id}/sign-off`.
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `decision` | `"approved"` or `"declined"` | Yes | |
+| `reason` | string ≤ 500 | With `declined` | Not blank. Refused with `approved`. |
+| `override_comment` | string ≤ 500 | No | Only with `approved`. Not blank. Needed to approve over a shortage. |
+
+An approval without `override_comment` first checks S-44 availability over
+the event's own window: whatever every other overlapping event reserves is
+taken off, and any requirement still not met is a shortage. A decline needs
+no check.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `200` | The updated event, with `technical_signoff_decision`, `_reason`, `_override_comment`, `_by`, `_at` | Recorded. |
+| `401` | `{"detail": "Not authenticated"}` | No valid session. |
+| `403` | `{"detail": "Permission denied"}` | Not Technical Support. |
+| `404` | `{"detail": "Event not found or not assigned to you"}` | Not the caller's assignment. |
+| `409` | `{"detail": "Some equipment is short for this event", "short": [{"equipment_item_id": "…", "name": "Projector", "required": 4, "available": 2}]}` | Approve again with an `override_comment`. Nothing recorded. |
+| `409` | `{"detail": "Technical Support sign-off can only change while the event is in planning"}` | The event moved on. |
+| `422` | `{"detail": "Please check the details you entered", "errors": {...}}` | The field rules above. |
+| `502` | `{"detail": "<Users\|Events\|Equipment> service unavailable"}` | A dependency failed. Nothing recorded. |
+
+Any Coordinator `PUT` or `DELETE` of a requirement clears the sign-off
+(`POST /internal/events/{event_id}/technical-signoff/clear`) **before** the
+change. If clearing fails the change is not made and the answer is `502`.
 
 ## Availability check (S-44)
 

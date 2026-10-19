@@ -84,7 +84,8 @@ def test_a_link_to_a_missing_or_foreign_booking_is_refused(client, db, original,
     table(db).insert.assert_not_called()
 
 
-@pytest.mark.parametrize('settled', ['rejected', 'replaced'])
+# S-17: a rejected booking can be replaced -- see test_s17.py.
+@pytest.mark.parametrize('settled', ['replaced'])
 def test_a_link_to_a_settled_booking_is_refused(client, db, settled):
     lookups(db, [{**A, 'status': settled}])
 
@@ -149,7 +150,7 @@ def test_the_trigger_replaces_a_standing_original_when_its_replacement_is_confir
     assert 'replaced_at = now()' in body
     # Only a pending, held or confirmed original; a rejected or already
     # replaced one is left alone.
-    assert "status in ('pending', 'held', 'confirmed')" in body
+    assert "status in ('pending', 'held', 'confirmed', 'rejected')" in body
     assert re.search(
         r"after update of status on bookings\.bookings.*?when \(new\.status = 'confirmed' "
         r"and old\.status is distinct from 'confirmed'\s+and new\.replaces_booking_id is not null\)",

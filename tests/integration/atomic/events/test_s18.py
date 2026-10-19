@@ -88,12 +88,6 @@ def test_coordinator_edit_lifecycle_and_audit_round_trip(admin, auth_client):
         }, timeout=15.0)
         assert hidden.status_code == 404
 
-        submitted = httpx.post(f"{base}/submit-safety-review", headers=headers,
-            json={"expected_version": 2}, timeout=15.0)
-        assert submitted.status_code == 200, submitted.text
-        assert submitted.json()["status"] == "confirmed"
-        assert submitted.json()["safety_recheck_required"] is False
-
         stored = admin.schema("events").table("events").select(
             "purpose,contact_name,expected_attendance,status,edit_version,edit_history,safety_review_history,equipment_preparation_status"
         ).eq("id", event_id).execute().data[0]
@@ -104,6 +98,7 @@ def test_coordinator_edit_lifecycle_and_audit_round_trip(admin, auth_client):
         assert all(entry["changed_by"] == coordinator["id"] for entry in stored["edit_history"])
         assert stored["safety_review_history"] == [review]
         assert stored["equipment_preparation_status"] == "ready"
+        assert stored["status"] == "planning"
     finally:
         if event_id:
             admin.schema("events").table("events").delete().eq("id", event_id).execute()

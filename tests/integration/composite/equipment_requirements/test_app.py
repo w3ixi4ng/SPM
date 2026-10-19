@@ -113,6 +113,9 @@ def test_support_staff_only_reads_own_active_event_requirements(
             "technical_support_details": f"Prepare equipment for {label}",
             "assigned_technical_support_id": support_id,
             "technical_support_assigned_at": "2026-10-01T01:00:00Z",
+            # S-17: Confirmed is reached only through the Safety Officer's approval.
+            **({"safety_decision": "approved", "safety_officer_id": str(uuid.uuid4()),
+                "safety_decided_at": "2026-10-02T00:00:00Z"} if status == "confirmed" else {}),
         }).execute().data[0]["id"]
         event_ids.append(event_id)
         return event_id

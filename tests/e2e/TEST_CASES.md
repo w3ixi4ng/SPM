@@ -845,6 +845,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
+> **S-17 (2026-10-19):** the event starts `pending_safety_check` and approval stores `confirmed`.
+
 - **Scenario:** A Safety Officer reviews the cross-service safety evidence and
   approves a confirmed event through the browser.
 - **Pre-conditions:** Fresh `.env.test` stack with S-86 Events SQL; confirmed
@@ -863,7 +865,7 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   state and stored `preparation`, `approved`, the authenticated Safety Officer
   id and a server timestamp.
 - **Status:** Pass
-- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_pending_event[chromium]`;
   local run at commit `72886bb` on 2026-10-13 against the freshly recreated
   `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
 
@@ -1036,6 +1038,8 @@ original's state after Venue Staff approve.
 - **Evidence:** `tests/e2e/test_replace_affected_booking.py::test_a_coordinator_replaces_a_flagged_booking_and_approval_clears_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
 ## TC-E2E-235 — requested safety changes complete a fresh review cycle
 
+> **S-17 (2026-10-19):** the path is `pending_safety_check → planning → pending_safety_check → confirmed`, and resubmission needs every arrangement complete.
+
 - **Scenario:** The browser proves S-87 across both roles and the existing
   arrangement workflow.
 - **Pre-conditions:** Fresh `.env.test` stack with S-87 Events SQL; confirmed
@@ -1159,7 +1163,7 @@ developer on 2026-10-19. S-18 records history for future S-82 display; the
 S-82 history screen itself is outside this journey because that story is not
 yet present.
 
-## TC-E2E-243 — Coordinator saves routine and significant edits without losing arrangements
+## TC-E2E-244 — Coordinator saves routine and significant edits without losing arrangements
 
 - **Scenario:** A browser proves the complete assigned-Coordinator editing and
   re-review journey through Kong.
@@ -1178,7 +1182,8 @@ yet present.
   asking for re-review. Step 2 changes nothing. Step 3 shows the new values and
   Planning with a clear fresh-safety-check message. The confirmed booking,
   requirement, Ready state, assignment, and prior safety history remain.
-  Step 4 leaves E Confirmed and awaiting a new safety decision. Direct storage
+  Step 4 passes S-17 readiness and leaves E Pending Safety Check. Only a
+  Safety Officer can later confirm it. Direct storage
   contains ordered audit entries naming only the fields changed, A's UUID and
   server times. Cleanup removes all fixtures.
 - **Actual:** The browser saved routine contact/notes, cancelled an impact
@@ -1189,3 +1194,24 @@ yet present.
   safety history.
 - **Status:** Pass
 - **Evidence:** `test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle`; focused Chromium run through Kong against a freshly recreated `.env.test` stack, 2026-10-19.
+## TC-E2E-243 — Coordinator submits for the safety check; the Organiser sees Confirmed
+
+- **Scenario:** The journey only a browser can prove: the outstanding list,
+  the gateway routes and each role's view of the new stage.
+- **Pre-conditions:** Full stack on `.env.test` with the S-17 SQL; Chromium;
+  an event in `planning` with one `pending` booking and one equipment
+  requirement, Technical Support assigned.
+- **Steps:** 1. As the Coordinator, open the event; click "Submit for safety
+  check". 2. As Venue Staff, confirm the booking; as Technical Support,
+  approve and set preparation Ready. 3. As the Coordinator, reload and submit.
+  4. As the Organiser, open the event. 5. As the Safety Officer, approve it.
+  6. As the Organiser, reload.
+- **Test data:** As above.
+- **Expected:** 1 lists "Hall A on 20 Nov 2026 is waiting for Venue Staff",
+  "Technical Support has not approved the equipment arrangements",
+  "Equipment preparation is Not Started"; no override control is on the
+  page; status still "Planning". 3 shows "Pending Safety Check". 4 shows
+  "Pending Safety Check". 6 shows "Confirmed".
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`

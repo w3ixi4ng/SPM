@@ -101,14 +101,39 @@ def test_other_coordinator_cannot_manage_event_not_assigned_to_them(client, serv
     assert client.post(f"/safety-checks/coordinator/events/{EVENT_ID}/resubmit").status_code == 404
 
 
-def test_resubmit_forwards_verified_current_coordinator_and_returns_confirmed(
+def arranged(services):
+    """S-17: resubmission first checks every arrangement. One confirmed,
+    unflagged booking and no equipment requirement is a ready event."""
+    services["events"].get.return_value = response(200, returned_event())
+
+    async def bookings_get(path, params=None):
+        if path == "/bookings":
+            return response(200, [{
+                "id": "b1b1b1b1-0000-4000-8000-000000000001",
+                "event_id": EVENT_ID,
+                "venue_id": "f1f1f1f1-0000-4000-8000-000000000001",
+                "venue_name": "Hall A",
+                "status": "confirmed",
+                "booking_date": "2026-11-20",
+                "start_time": "09:00:00",
+                "end_time": "17:00:00",
+            }])
+        return response(200, [])
+
+    services["bookings"].get.side_effect = bookings_get
+    services["venues"].get.return_value = response(200, {"id": "f1", "name": "Hall A"})
+    services["equipment"].get.return_value = response(200, [])
+
+
+def test_resubmit_forwards_verified_current_coordinator_and_returns_pending(
     client, services
 ):
     services["users"].get.return_value = response(200, profile())
+    arranged(services)
     services["events"].post.return_value = response(
         200,
         returned_event(
-            status="confirmed",
+            status="pending_safety_check",
             safety_decision=None,
             safety_decision_reason=None,
             safety_officer_id=None,
@@ -119,7 +144,7 @@ def test_resubmit_forwards_verified_current_coordinator_and_returns_confirmed(
     result = client.post(f"/safety-checks/coordinator/events/{EVENT_ID}/resubmit")
 
     assert result.status_code == 200
-    assert result.json()["status"] == "confirmed"
+    assert result.json()["status"] == "pending_safety_check"
     assert result.json()["safety_review_history"][0]["decision"] == "changes_requested"
     services["events"].post.assert_awaited_once_with(
         f"/internal/events/{EVENT_ID}/safety-resubmit",
@@ -144,6 +169,7 @@ def test_return_and_resubmit_preserve_identified_atomic_errors(
 
 def test_upstream_failure_is_controlled_and_does_not_retry_a_write(client, services):
     services["users"].get.return_value = response(200, profile())
+    arranged(services)
     services["events"].post.side_effect = httpx.ConnectError("down")
 
     result = client.post(f"/safety-checks/coordinator/events/{EVENT_ID}/resubmit")

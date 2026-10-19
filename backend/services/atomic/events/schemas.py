@@ -21,6 +21,10 @@ class EventStatus(str, Enum):
     # ever the recorded *decision* (DecisionValue), which stays put while the
     # status moves on.
     PLANNING = "planning"
+    # S-17: the Coordinator submitted a fully arranged event for the
+    # Operational Safety Check (S-86). Only the Safety Officer's approval
+    # moves it on to CONFIRMED.
+    PENDING_SAFETY_CHECK = "pending_safety_check"
     CONFIRMED = "confirmed"
     PREPARATION = "preparation"
     SAFETY_REJECTED = "safety_rejected"
@@ -58,6 +62,11 @@ class EquipmentPreparationStatus(str, Enum):
     NOT_STARTED = "not_started"
     IN_PROGRESS = "in_progress"
     READY = "ready"
+
+
+class TechnicalSignoffDecision(str, Enum):
+    APPROVED = "approved"
+    DECLINED = "declined"
 
 
 class EquipmentPreparationUpdate(BaseModel):
@@ -273,6 +282,13 @@ class EventRead(BaseModel):
     )
     equipment_preparation_updated_by: UUID | None = None
     equipment_preparation_updated_at: datetime | None = None
+    # S-17: the assigned Technical Support's sign-off on the equipment
+    # arrangements, all null while awaiting one.
+    technical_signoff_decision: TechnicalSignoffDecision | None = None
+    technical_signoff_reason: str | None = None
+    technical_signoff_override_comment: str | None = None
+    technical_signoff_by: UUID | None = None
+    technical_signoff_at: datetime | None = None
     # The coordinator's decision and its record -- all null until decided,
     # and cleared again on resubmit after a return. See
     # POST /events/{event_id}/decision.
@@ -377,12 +393,6 @@ class EventInformationImpact(BaseModel):
     changed_fields: list[str]
     significant_fields: list[str]
     requires_impact_acceptance: bool
-
-
-class EventSafetySubmission(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_version: int = Field(ge=0)
 
 
 class CancellationRequestCreate(BaseModel):
@@ -574,6 +584,46 @@ class InternalSafetyResubmit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     coordinator_id: UUID
+
+
+class InternalSafetySubmission(BaseModel):
+    """S-17: the safety_checks composite has already checked readiness."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: UUID
+
+
+class InternalTechnicalSignoff(BaseModel):
+    """S-17: approve, or decline with a reason. An approval given over an
+    S-44 shortage carries the comment Technical Support gave for it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    technical_support_id: UUID
+    decision: TechnicalSignoffDecision
+    reason: str | None = Field(default=None, max_length=500)
+    override_comment: str | None = Field(default=None, max_length=500)
+
+    @field_validator("reason", "override_comment", mode="before")
+    @classmethod
+    def strip_text(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def fields_match_decision(self):
+        if self.decision is TechnicalSignoffDecision.DECLINED:
+            if self.reason is None:
+                raise ValueError("reason is required to decline")
+            if self.override_comment is not None:
+                raise ValueError("override_comment is only given with an approval")
+        elif self.reason is not None:
+            raise ValueError("reason is not accepted when approving")
+        return self
 
 
 # Mirrors EventDraftUpdate (every field optional, same normalisation) plus

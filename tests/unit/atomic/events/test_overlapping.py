@@ -39,7 +39,9 @@ def test_overlapping_planning_and_confirmed_events_are_returned_in_start_order(c
     assert [event["id"] for event in response.json()] == [E5["id"], E1["id"], E2["id"]]
     assert set(response.json()[0]) == {"id", "name", "status", "start_date", "start_time", "end_date", "end_time"}
     select = db.schema.return_value.table.return_value.select
-    select.return_value.in_.assert_called_once_with("status", ["planning", "confirmed"])
+    select.return_value.in_.assert_called_once_with(
+        "status", ["planning", "pending_safety_check", "confirmed"]
+    )
     select.return_value.in_.return_value.lte.assert_called_once_with("start_date", "2026-11-12")
     select.return_value.in_.return_value.lte.return_value.gte.assert_called_once_with("end_date", "2026-11-12")
 
@@ -51,7 +53,7 @@ def test_only_planning_and_confirmed_events_are_asked_for(client, db):
     client.post("/events/overlapping", json=WINDOW)
 
     statuses = db.schema.return_value.table.return_value.select.return_value.in_.call_args.args[1]
-    assert sorted(statuses) == ["confirmed", "planning"]
+    assert sorted(statuses) == ["confirmed", "pending_safety_check", "planning"]
     for excluded in ("draft", "submitted", "returned", "rejected"):
         assert excluded not in statuses
 

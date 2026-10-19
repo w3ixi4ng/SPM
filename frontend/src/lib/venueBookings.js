@@ -365,6 +365,18 @@ export function replacementState(booking, bookings = []) {
     const replacement = bookings.find((row) => row.id === booking.replaced_by_booking_id)
     return { actions: [], label: `Replaced by ${replacement?.venue_name ?? 'another venue'}` }
   }
+  if (booking.status === 'rejected' && !booking.replaces_booking_id) {
+    // S-17: a rejection blocks the safety-check submission until a
+    // replacement is confirmed. There is nothing to resolve with a note.
+    const latest = replacementsOf(booking, bookings).at(-1)
+    if (latest && ACTIVE_REPLACEMENT.includes(latest.status)) {
+      return { actions: [], label: `Replacement requested: ${latest.venue_name}, waiting for Venue Staff` }
+    }
+    return {
+      actions: ['replace'],
+      label: latest?.status === 'rejected' ? `${latest.venue_name} declined the replacement request` : null,
+    }
+  }
   if (booking.requires_alternative_arrangements) {
     const latest = replacementsOf(booking, bookings).at(-1)
     if (latest && ACTIVE_REPLACEMENT.includes(latest.status)) {

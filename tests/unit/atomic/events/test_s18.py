@@ -56,14 +56,6 @@ def edit_update(db, rows):
     operation.execute.return_value = SimpleNamespace(data=rows)
 
 
-def safety_submit_update(db, rows):
-    operation = (
-        db.schema.return_value.table.return_value.update.return_value
-        .eq.return_value.eq.return_value.eq.return_value.eq.return_value
-    )
-    operation.execute.return_value = SimpleNamespace(data=rows)
-
-
 def sign_in_coordinator(client, auth, coordinator_id=COORDINATOR_A):
     authenticate(client, auth, fake_user(coordinator_id, "event_coordinator"))
 
@@ -130,13 +122,15 @@ def test_significant_changes_are_server_classified_and_require_acceptance(client
     db.schema.return_value.table.return_value.update.assert_not_called()
 
 
-def test_accepted_significant_edit_restarts_lifecycle_and_safety_check(client, db, auth):
+def test_accepted_significant_edit_restarts_lifecycle_without_resetting_signoffs(client, db, auth):
     review = {"review_number": 1, "decision": "approved", "reason": None,
         "safety_officer_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
         "decided_at": "2026-10-10T09:00:00Z"}
     current = editable_event(status="preparation", safety_decision="approved",
         safety_officer_id=review["safety_officer_id"], safety_decided_at=review["decided_at"],
-        safety_review_history=[review])
+        safety_review_history=[review], technical_signoff_decision="approved",
+        technical_signoff_by="dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        technical_signoff_at="2026-10-10T08:30:00Z")
     planning = editable_event(expected_attendance=150, status="planning", edit_version=1,
         safety_recheck_required=True,
         safety_review_history=[review], edit_history=[{
@@ -160,17 +154,7 @@ def test_accepted_significant_edit_restarts_lifecycle_and_safety_check(client, d
     assert values["safety_decision"] is None
     assert "safety_review_history" not in values
     assert "equipment_preparation_status" not in values
-
-    db.reset_mock()
-    assigned_select(db, [planning])
-    confirmed = {**planning, "status": "confirmed"}
-    safety_submit_update(db, [confirmed])
-    submitted = client.post(
-        f"/events/assigned/{EVENT_ID}/submit-safety-review",
-        json={"expected_version": 1},
-    )
-    assert submitted.status_code == 200
-    assert submitted.json()["status"] == "confirmed"
+    assert "technical_signoff_decision" not in values
 
 
 def test_event_edits_fail_closed_and_are_atomic(client, db, auth):

@@ -166,7 +166,7 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 Story: S-18 Update Event Information. Specification confirmed by the
 developer on 2026-10-19. Not yet implemented or executed.
 
-## TC-EVENTS-131 — Coordinator edits, lifecycle rollback, and audit persist through Kong
+## TC-EVENTS-153 — Coordinator edits, lifecycle rollback, and audit persist through Kong
 
 - **Scenario:** Authentication, gateway routing, Events storage constraints,
   lifecycle state, and edit history agree at the real boundary.
@@ -175,19 +175,38 @@ developer on 2026-10-19. Not yet implemented or executed.
   current safety approval, safety history, equipment preparation `ready`, and
   existing venue/equipment arrangements.
 - **Steps:** Through Kong, A saves a routine contact/note edit, previews and
-  accepts a significant attendance/time edit, reloads E, and submits it for a
-  fresh safety check. B attempts an edit. Inspect Events and history storage
+  accepts a significant attendance/time edit, and reloads E. B attempts an
+  edit. Inspect Events and history storage
   with the admin client.
 - **Expected:** Routine values persist without changing status. Significant
   values do not persist before acceptance; after acceptance they persist and
   E is `planning` with current safety fields cleared. Prior safety history and
   arrangements remain. History contains exact before/after values, A and
-  server times for both saves. The resubmission produces `confirmed` awaiting
-  a new safety decision. B receives `404`. Cleanup removes all created rows
+  server times for both saves. E remains `planning` and marked for a fresh
+  safety check; S-17 owns the checked transition to `pending_safety_check`.
+  B receives `404`. Cleanup removes all created rows
   and users.
 - **Actual:** Routine and accepted significant edits persisted through Kong;
-  assignment isolation, lifecycle restart, fresh safety submission, preserved
+  assignment isolation, lifecycle restart, preserved
   safety history/preparation state, and ordered audit entries all matched the
   specification.
 - **Status:** Pass
 - **Evidence:** `test_s18.py::test_coordinator_edit_lifecycle_and_audit_round_trip`; focused `.env.test` run, 2026-10-19.
+## TC-EVENTS-147 — the new status and sign-off columns exist and are constrained
+
+- **Scenario:** The S-17 SQL is applied, exposed and granted.
+- **Pre-conditions:** Fresh `.env.test` stack; S-17 block of
+  `backend/sql/events.sql` applied to the test project.
+- **Steps:** 1. Create an event, drive it to `planning`, then via the admin
+  client set `status: "pending_safety_check"`. 2. Try `status:
+  "pending_safety_check", decision: null`. 3. Record a declined sign-off
+  through `PUT /internal/events/{id}/technical-signoff`, read it back.
+  4. Try writing `technical_signoff_decision: "declined"` with a null reason
+  through the admin client. 5. Delete the event.
+- **Test data:** Reason "Only one sound desk exists".
+- **Expected:** 1 succeeds. 2 is refused (`23514`). 3 reads back decision,
+  reason, Technical Support id and timestamp. 4 is refused (`23514`).
+  5 leaves no row.
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_status_and_signoff_columns`

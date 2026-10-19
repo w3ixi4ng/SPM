@@ -47,6 +47,8 @@ def test_coordinator_updates_event_and_restarts_safety_lifecycle(
         "equipment_preparation_updated_at": "2026-10-02T00:00:00Z",
         "technical_support_required": True, "assigned_technical_support_id": support["id"],
         "technical_support_assigned_at": "2026-10-01T01:00:00Z",
+        "technical_signoff_decision": "approved", "technical_signoff_by": support["id"],
+        "technical_signoff_at": "2026-10-02T01:00:00Z",
         "safety_decision": "approved", "safety_officer_id": officer["id"],
         "safety_decided_at": "2026-10-02T02:00:00Z",
         "safety_review_history": [{
@@ -102,12 +104,12 @@ def test_coordinator_updates_event_and_restarts_safety_lifecycle(
     page.get_by_role("button", name="Review changes").click()
     page.get_by_role("button", name="Accept and save").click()
     expect(page.get_by_text("Event information saved.", exact=True)).to_be_visible(timeout=20000)
-    expect(page.get_by_role("button", name="Submit for fresh safety check")).to_be_visible()
+    expect(page.get_by_role("button", name="Submit for safety check")).to_be_visible()
     expect(page.get_by_text(venue["name"], exact=False).first).to_be_visible(timeout=20000)
     expect(page.get_by_text(item["type"], exact=False).first).to_be_visible(timeout=20000)
-    page.get_by_role("button", name="Submit for fresh safety check").click()
+    page.get_by_role("button", name="Submit for safety check").click()
     expect(page.get_by_text(
-        "Revised event submitted for a fresh Operational Safety Check.", exact=True
+        "Submitted for the Operational Safety Check. The Safety Officer will confirm the event.", exact=True
     )).to_be_visible(timeout=20000)
 
     stored = admin.schema("events").table("events").select(
@@ -115,7 +117,7 @@ def test_coordinator_updates_event_and_restarts_safety_lifecycle(
         "assigned_technical_support_id,safety_recheck_required,safety_decision,"
         "safety_review_history,edit_version,edit_history"
     ).eq("id", event["id"]).single().execute().data
-    assert stored["status"] == "confirmed"
+    assert stored["status"] == "pending_safety_check"
     assert stored["expected_attendance"] == 120
     assert str(stored["end_time"]).startswith("13:00")
     assert stored["equipment_preparation_status"] == "ready"

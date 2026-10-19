@@ -19,8 +19,7 @@ queries another service's tables.
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
 | `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
 | `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
-| `POST` | `/events/assigned/{event_id}/submit-safety-review` | `events:update_assigned` | Submit a materially revised planning event for a fresh Operational Safety Check. |
-| `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `confirmed`, and `preparation` events. |
+| `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `pending_safety_check`, `confirmed`, and `preparation` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
 | `PUT` | `/events/support-assigned/{event_id}/equipment-preparation` | `events:update_equipment_preparation` | Set the assigned event's equipment preparation status and server-owned audit fields. |
@@ -40,13 +39,16 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
 | `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
-| `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `confirmed`, and `returned` events, newest update first. |
-| `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, and `confirmed` events, newest update first. |
-| `GET` | `/internal/events/safety-review` | S-86 queue source: list `confirmed` events with no current safety decision, oldest update first. |
+| `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `pending_safety_check`, `confirmed`, and `returned` events, newest update first. |
+| `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, and `confirmed` events, newest update first. |
+| `GET` | `/internal/events/safety-review` | S-86 queue source: list `pending_safety_check` events with no current safety decision, oldest update first. |
 | `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
 | `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
 | `GET` | `/internal/events/{event_id}/safety-return?coordinator_id=…` | S-87: return a planning event's preserved safety feedback only when the supplied Coordinator is its current assignee. |
-| `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review. |
+| `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review (to `pending_safety_check`). |
+| `POST` | `/internal/events/{event_id}/safety-submission` | S-17: move the Coordinator's planning event to `pending_safety_check`. See [Safety-check submission](#safety-check-submission-and-sign-off-s-17). |
+| `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
+| `POST` | `/internal/events/{event_id}/technical-signoff/clear` | S-17: clear the sign-off after a Coordinator equipment change. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
@@ -74,7 +76,7 @@ them — never edit its fields directly.
 
 Both Technical Support read routes derive the staff id from the verified
 session, never a query or path parameter. They include only live assignments
-(`planning`, `confirmed`, and `preparation`). The S-26 update route applies the
+(`planning`, `pending_safety_check`, `confirmed`, and `preparation`). The S-26 update route applies the
 same assignment and lifecycle predicates again on its write, so a reassignment
 or lifecycle change racing the request cannot update stale work.
 An event assigned to another staff member, or an inactive assignment, returns
@@ -89,8 +91,8 @@ An event assigned to another staff member, or an inactive assignment, returns
 ```
 
 `status` is one of `not_started`, `in_progress`, or `ready`. It may move in
-either direction while the event is in `planning`, `confirmed`, or
-`preparation`. The service records the authenticated Technical Support id and
+either direction while the event is in `planning`, `pending_safety_check`,
+`confirmed`, or `preparation`. The service records the authenticated Technical Support id and
 server time; clients cannot supply either audit field. Success returns the
 complete event. `401` means no valid session, `403` means the trusted role is
 not Technical Support, `404` hides missing or differently assigned work,
@@ -318,7 +320,7 @@ user, most recently updated first. No assigned active events returns `[]`.
 {"status": "ok"}
 ```
 
-## Status model (S-14, S-36, S-43, S-86, S-87)
+## Status model (S-14, S-36, S-43, S-17, S-86, S-87)
 
 ```
 draft ──submit──> submitted ──approve──> planning   (venue/equipment planning)
@@ -326,15 +328,16 @@ draft ──submit──> submitted ──approve──> planning   (venue/equip
                     │   └─────return───> returned
                     └──edit + resubmit──────┘
 
-planning ──arrangements confirmed──> confirmed ──safety approve──> preparation
-                                          │────safety reject────> safety_rejected
-                                          └──request changes───> planning
-                                                └──S-87 resubmit──> confirmed
+planning ──S-17 submit──> pending_safety_check ──safety approve──> confirmed
+                                  │────safety reject────> safety_rejected
+                                  └──request changes───> planning
+                                        └──S-87 resubmit──> pending_safety_check
 ```
 
-For S-86, `confirmed` is the documented interpretation that required venue and
-technical arrangements are confirmed. The earlier story that performs the
-planning-to-confirmed transition is outside S-86.
+S-17: the Coordinator submits once every mandatory arrangement is complete;
+the `safety_checks` composite checks that and this service owns only the
+transition. Approved (the Coordinator's decision, `decision=approved`) and
+Confirmed (the Safety Officer's approval) are separate stages.
 
 - **draft** — incomplete, editable, never assigned a coordinator.
 - **submitted** — complete, assigned a coordinator, awaiting their decision.
@@ -344,9 +347,14 @@ planning-to-confirmed transition is outside S-86.
   `decision=approved`). Venue booking requests are made against events in
   this status. No further submit action; edits still go through the same
   `PATCH`.
-- **confirmed** — venue and technical arrangements are ready for safety review;
-  also a live commitment for Technical Support workload and overlap checks.
-- **preparation** — the Safety Officer approved the arrangements.
+- **pending_safety_check** — S-17: venue and technical arrangements are
+  complete and the event waits for the Safety Officer; also a live commitment
+  for Technical Support workload and overlap checks.
+- **confirmed** — the Safety Officer approved the arrangements (S-17; S-86
+  used `preparation`). Applying the S-17 SQL moves existing undecided
+  `confirmed` rows to `pending_safety_check` and approved `preparation` rows to
+  `confirmed`.
+- **preparation** — allowed for a later story; nothing sets it now.
 - **safety_rejected** — the safety arrangement was rejected; this is distinct
   from the original request's generic `rejected` state.
 - **safety_changes_requested** — retained only as a legacy-compatible enum for
@@ -389,6 +397,38 @@ Returns `200` with the updated event, `decided_at` set. `status` becomes
 including a decision already made, since a decision cannot be changed once
 recorded. `404` if the caller is not the assigned coordinator.
 
+## Safety-check submission and sign-off (S-17)
+
+Internal, called by composites only; none is routed through Kong.
+
+**`POST /internal/events/{event_id}/safety-submission`** takes
+`{"coordinator_id": "<uuid>"}` and moves the event from `planning` to
+`pending_safety_check` in one conditional write. The `safety_checks`
+composite has already checked every arrangement. `200` with the event; `404`
+if it is not that Coordinator's event; `409` `"This event is not in
+planning"`, or, for an event the Safety Officer sent back, a `409` saying to
+resubmit it instead (S-87's route clears the feedback).
+
+**`PUT /internal/events/{event_id}/technical-signoff`**:
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `technical_support_id` | uuid | Yes | Must be the event's assigned Technical Support, else `404`. |
+| `decision` | `"approved"` / `"declined"` | Yes | |
+| `reason` | string ≤ 500 | With `declined` | Not blank; refused with `approved`. |
+| `override_comment` | string ≤ 500 | No | Only with `approved`; not blank. |
+
+Stores `technical_signoff_decision`, `_reason`, `_override_comment`, `_by`
+and a server `_at`. `200` with the event; `409` `"Technical Support sign-off
+can only change while the event is in planning"`; `422` for the rules above.
+
+**`POST /internal/events/{event_id}/technical-signoff/clear`** sets all five
+sign-off fields to null. `200` with the event, also when there was nothing to
+clear; `404` if the event does not exist.
+
+Every event read (`EventRead`) carries the five sign-off fields, all `null`
+while awaiting Technical Support.
+
 ## Cancellation requests (S-62)
 
 **`POST /events/{event_id}/cancellation-request`** is for the organiser who
@@ -414,7 +454,7 @@ comes back on `GET /events` and `GET /events/{event_id}`.
 | `401` | No valid session. |
 | `403` | Not an `event_organiser`. |
 | `404` | `Event not found`: missing, or not the caller's. |
-| `409` | `This event can't be cancelled from its current status.`: only `submitted`, `under_review`, `planning`, `confirmed`, `preparation` and `safety_changes_requested` qualify. |
+| `409` | `This event can't be cancelled from its current status.`: only `submitted`, `under_review`, `planning`, `pending_safety_check`, `confirmed`, `preparation` and `safety_changes_requested` qualify. |
 | `409` | `A cancellation request has already been sent for this event.`: also returned when another request lands between the read and the write. |
 | `422` | Missing, blank or over-long `reason`, or an extra field. |
 | `500` | `Event storage unavailable`: nothing was recorded. |
@@ -484,8 +524,8 @@ must be after the start, or it is `422`. The window may span days.
 {"id": "…", "name": "Alumni talk", "status": "planning", "start_date": "2026-11-12", "start_time": "10:00:00", "end_date": "2026-11-12", "end_time": "11:00:00"}
 ```
 
-Only `planning` and `confirmed` events are returned: their equipment
-requirements reserve equipment. An event ending exactly when the window
+Only `planning`, `pending_safety_check` and `confirmed` events are returned:
+their equipment requirements reserve equipment. An event ending exactly when the window
 starts, or starting exactly when it ends, is not an overlap. `500` with the
 usual safe detail if storage fails.
 

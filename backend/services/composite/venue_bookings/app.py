@@ -51,6 +51,8 @@ REPLACEMENT_NOT_NEEDED = "This booking doesn't need a replacement venue"
 RESOLUTION_NOT_NEEDED = "This booking doesn't need alternative arrangements"
 EVENT_CLOSED = "This event's venue bookings can no longer be changed"
 REPLACEMENT_WAITING = "A replacement request for this booking is already with Venue Staff"
+# Venues checked at once by the S-78 replacement search.
+SEARCH_CONCURRENCY = 6
 CANNOT_REPLACE = "This booking can no longer be replaced"
 
 # The bookings service's identified 409s: a slot taken by a confirmed booking
@@ -794,10 +796,14 @@ async def remove_venue_block(
 # --- S-78: replacing an affected booking ---------------------------------------
 
 
-async def _affected_booking(booking_id, request: Request, users, events, venues, bookings, not_needed: str):
+async def _affected_booking(
+    booking_id, request: Request, users, events, venues, bookings, not_needed: str,
+    *, rejected_too: bool = False,
+):
     """The caller, the booking and its event, once the caller is the event's
-    current Coordinator and the booking carries S-77's flag. A booking whose
-    event isn't the caller's is the same 404 as one that doesn't exist."""
+    current Coordinator and the booking carries S-77's flag -- or, with
+    `rejected_too` (S-17), was rejected by Venue Staff. A booking whose event
+    isn't the caller's is the same 404 as one that doesn't exist."""
     user = await _authenticate(request, users, COORDINATOR_ROLE)
     booking = await _booking_by_id(bookings, booking_id)
     event = await _fetch(
@@ -805,6 +811,8 @@ async def _affected_booking(booking_id, request: Request, users, events, venues,
     )
     if event.get("status") not in replacement.OPEN_EVENT_STATUSES:
         raise HTTPException(status_code=409, detail=EVENT_CLOSED)
+    if rejected_too and booking.get("status") == "rejected":
+        return user, booking, event
     [flagged] = await _with_clashes([booking], venues, bookings, request.cookies)
     if not flagged["requires_alternative_arrangements"]:
         raise HTTPException(status_code=409, detail=not_needed)
@@ -823,22 +831,33 @@ async def search_replacement_venues(
     """S-78: the venues that could take the affected booking's event at its
     date and times, by name. A failed read is a 502, never "no venues"."""
     _, booking, event = await _affected_booking(
-        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED
+        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED,
+        rejected_too=True,
     )
     listed = await _get("Venues", venues, "/venues", cookies=request.cookies)
     if listed.status_code != status.HTTP_200_OK:
         raise _unavailable("Venues")
 
     day = str(booking["booking_date"])
-    offered = []
-    for venue in sorted(listed.json(), key=lambda venue: venue["name"]):
-        if str(venue["id"]) == str(booking["venue_id"]) or not replacement.suitable(booking, event, venue):
-            continue
+    candidates = [
+        venue for venue in sorted(listed.json(), key=lambda venue: venue["name"])
+        if str(venue["id"]) != str(booking["venue_id"]) and replacement.suitable(booking, event, venue)
+    ]
+    # Each venue costs two Bookings reads, so they are checked a few at a time
+    # rather than one after another -- in sequence, a dozen suitable venues
+    # kept the Coordinator waiting over 20 seconds.
+    gate = asyncio.Semaphore(SEARCH_CONCURRENCY)
+
+    async def free(venue):
         params = {"venue_id": str(venue["id"]), "from": day, "to": day}
-        same_day = await _list(bookings, "/bookings", params)
-        blocks = await _list(bookings, "/blocks", params)
-        if replacement.available(booking, venue, same_day, blocks):
-            offered.append(venue)
+        async with gate:
+            same_day, blocks = await asyncio.gather(
+                _list(bookings, "/bookings", params), _list(bookings, "/blocks", params),
+            )
+        return replacement.available(booking, venue, same_day, blocks)
+
+    checked = await asyncio.gather(*(free(venue) for venue in candidates))
+    offered = [venue for venue, ok in zip(candidates, checked) if ok]
     return {"booking": replacement.summary(booking), "venues": offered}
 
 
@@ -857,7 +876,8 @@ async def request_replacement_venue(
     any request (S-36), so nothing is typed in again. The original keeps its
     flag until Venue Staff approve this."""
     user, original, event = await _affected_booking(
-        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED
+        booking_id, request, users, events, venues, bookings, REPLACEMENT_NOT_NEEDED,
+        rejected_too=True,
     )
     event_bookings = await _list(bookings, "/bookings", {"event_id": str(original["event_id"])})
     waiting = replacement.active_replacement(original, event_bookings)

@@ -572,14 +572,15 @@ returns trigger
 language plpgsql
 as $$
 begin
-  -- Only an original that still stands is replaced: one already rejected or
-  -- replaced by another booking is left as it is.
+  -- An original already replaced by another booking is left as it is. S-17:
+  -- a rejected original is replaced too, so the rejection stops blocking the
+  -- event's submission for the Operational Safety Check.
   update bookings.bookings
      set status = 'replaced',
          replaced_by_booking_id = new.id,
          replaced_at = now()
    where id = new.replaces_booking_id
-     and status in ('pending', 'held', 'confirmed');
+     and status in ('pending', 'held', 'confirmed', 'rejected');
   return new;
 end;
 $$;

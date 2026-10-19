@@ -78,6 +78,15 @@ create table if not exists events.events (
   equipment_preparation_updated_by uuid,
   equipment_preparation_updated_at timestamptz,
 
+  -- S-17: the assigned Technical Support's sign-off on the equipment
+  -- arrangements. Null until given; cleared whenever the Coordinator changes
+  -- the equipment requirements. Constraints are in the S-17 block below.
+  technical_signoff_decision         text,
+  technical_signoff_reason           text,
+  technical_signoff_override_comment text,
+  technical_signoff_by               uuid,
+  technical_signoff_at               timestamptz,
+
   -- The assigned coordinator's decision on a submitted request. Null until
   -- decided; then one of the three outcomes below. Holds only the *latest*
   -- decision -- a return-then-resubmit cycle overwrites it, on purpose (see
@@ -134,9 +143,9 @@ create table if not exists events.events (
   -- recorded decision (see the decision column).
   constraint events_status_allowed
     check (status in (
-      'draft', 'submitted', 'under_review', 'planning', 'confirmed',
-      'preparation', 'safety_rejected', 'safety_changes_requested',
-      'cancelled', 'rejected', 'returned'
+      'draft', 'submitted', 'under_review', 'planning',
+      'pending_safety_check', 'confirmed', 'preparation', 'safety_rejected',
+      'safety_changes_requested', 'cancelled', 'rejected', 'returned'
     )),
 
   constraint events_name_not_blank
@@ -240,8 +249,9 @@ create table if not exists events.events (
     check (
       (status in ('draft', 'submitted', 'under_review') and decision is null)
       or (status in (
-        'planning', 'confirmed', 'preparation', 'safety_rejected',
-        'safety_changes_requested', 'cancelled', 'rejected', 'returned'
+        'planning', 'pending_safety_check', 'confirmed', 'preparation',
+        'safety_rejected', 'safety_changes_requested', 'cancelled',
+        'rejected', 'returned'
       ) and decision is not null)
     ),
 
@@ -291,14 +301,16 @@ create table if not exists events.events (
         and safety_decision_reason is null
         and safety_officer_id is null
         and safety_decided_at is null
-        and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+        and status not in (
+          'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+        )
       )
       or (
         safety_decision = 'approved'
         and safety_decision_reason is null
         and safety_officer_id is not null
         and safety_decided_at is not null
-        and status = 'preparation'
+        and status in ('confirmed', 'preparation')
       )
       or (
         safety_decision = 'rejected'
@@ -418,9 +430,9 @@ alter table events.events add constraint events_safety_review_history_array
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
   check (status in (
-    'draft', 'submitted', 'under_review', 'planning', 'confirmed',
-    'preparation', 'safety_rejected', 'safety_changes_requested',
-    'cancelled', 'rejected', 'returned'
+    'draft', 'submitted', 'under_review', 'planning',
+    'pending_safety_check', 'confirmed', 'preparation', 'safety_rejected',
+    'safety_changes_requested', 'cancelled', 'rejected', 'returned'
   ));
 
 alter table events.events drop constraint if exists events_decision_matches_status;
@@ -428,8 +440,9 @@ alter table events.events add constraint events_decision_matches_status
   check (
     (status in ('draft', 'submitted', 'under_review') and decision is null)
     or (status in (
-      'planning', 'confirmed', 'preparation', 'safety_rejected',
-      'safety_changes_requested', 'cancelled', 'rejected', 'returned'
+      'planning', 'pending_safety_check', 'confirmed', 'preparation',
+      'safety_rejected', 'safety_changes_requested', 'cancelled',
+      'rejected', 'returned'
     ) and decision is not null)
   );
 
@@ -449,6 +462,21 @@ set status = 'planning'
 where status = 'safety_changes_requested'
   and safety_decision = 'changes_requested';
 
+-- S-17: the Coordinator now submits a planning event for the Operational
+-- Safety Check, which moves it to pending_safety_check -- the stage S-86 used
+-- `confirmed` for. Only the Safety Officer's approval makes it `confirmed`
+-- (S-86 approved it to `preparation`). `preparation` stays allowed for a
+-- later story but nothing sets it now. Both updates match nothing once run.
+update events.events
+set status = 'pending_safety_check'
+where status = 'confirmed'
+  and safety_decision is null;
+
+update events.events
+set status = 'confirmed'
+where status = 'preparation'
+  and safety_decision = 'approved';
+
 alter table events.events add constraint events_safety_state_consistent
   check (
     (
@@ -456,14 +484,16 @@ alter table events.events add constraint events_safety_state_consistent
       and safety_decision_reason is null
       and safety_officer_id is null
       and safety_decided_at is null
-      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+      and status not in (
+        'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+      )
     )
     or (
       safety_decision = 'approved'
       and safety_decision_reason is null
       and safety_officer_id is not null
       and safety_decided_at is not null
-      and status = 'preparation'
+      and status in ('confirmed', 'preparation')
     )
     or (
       safety_decision = 'rejected'
@@ -551,14 +581,18 @@ create index if not exists events_events_assigned_coordinator_id_idx
   on events.events (assigned_coordinator_id)
   where status in ('submitted', 'planning');
 
-create index if not exists events_events_assigned_technical_support_id_idx
+-- S-17 changed both predicates below. `create index if not exists` keeps an
+-- existing index's old predicate, so each is dropped and rebuilt.
+drop index if exists events.events_events_assigned_technical_support_id_idx;
+create index events_events_assigned_technical_support_id_idx
   on events.events (assigned_technical_support_id)
-  where status in ('planning', 'confirmed')
+  where status in ('planning', 'pending_safety_check', 'confirmed', 'preparation')
     and assigned_technical_support_id is not null;
 
-create index if not exists events_events_pending_safety_review_idx
+drop index if exists events.events_events_pending_safety_review_idx;
+create index events_events_pending_safety_review_idx
   on events.events (updated_at)
-  where status = 'confirmed' and safety_decision is null;
+  where status = 'pending_safety_check' and safety_decision is null;
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.
@@ -829,9 +863,9 @@ alter table events.events drop constraint if exists events_edit_history_array;
 alter table events.events add constraint events_edit_history_array
   check (jsonb_typeof(edit_history) = 'array');
 
--- S-18 submits a materially revised event as confirmed while it awaits a new
--- safety decision. Reinstall the canonical safety constraint so projects
--- created before that state was introduced accept the transition too.
+-- S-18 submits a materially revised event into the S-17 pending safety stage.
+-- Reinstall the canonical S-17 safety constraint so older projects accept the
+-- transition while preserving the current lifecycle rules for new writes.
 alter table events.events add constraint events_safety_state_consistent
   check (
     (
@@ -839,14 +873,16 @@ alter table events.events add constraint events_safety_state_consistent
       and safety_decision_reason is null
       and safety_officer_id is null
       and safety_decided_at is null
-      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+      and status not in (
+        'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+      )
     )
     or (
       safety_decision = 'approved'
       and safety_decision_reason is null
       and safety_officer_id is not null
       and safety_decided_at is not null
-      and status = 'preparation'
+      and status in ('confirmed', 'preparation')
     )
     or (
       safety_decision = 'rejected'
@@ -865,6 +901,48 @@ alter table events.events add constraint events_safety_state_consistent
       and status = 'planning'
     )
   ) not valid;
+
+-- S-17 Technical Support sign-off. Safe to run repeatedly. Approve carries an
+-- override comment only when it was given over an S-44 shortage; decline
+-- always carries a reason. Who and when are set together with the decision.
+alter table events.events
+  add column if not exists technical_signoff_decision text,
+  add column if not exists technical_signoff_reason text,
+  add column if not exists technical_signoff_override_comment text,
+  add column if not exists technical_signoff_by uuid,
+  add column if not exists technical_signoff_at timestamptz;
+
+alter table events.events drop constraint if exists events_technical_signoff_valid;
+alter table events.events add constraint events_technical_signoff_valid
+  check (
+    (
+      technical_signoff_decision is null
+      and technical_signoff_reason is null
+      and technical_signoff_override_comment is null
+      and technical_signoff_by is null
+      and technical_signoff_at is null
+    )
+    or (
+      technical_signoff_decision = 'approved'
+      and technical_signoff_reason is null
+      and (
+        technical_signoff_override_comment is null
+        or (btrim(technical_signoff_override_comment) <> ''
+            and char_length(technical_signoff_override_comment) <= 500)
+      )
+      and technical_signoff_by is not null
+      and technical_signoff_at is not null
+    )
+    or (
+      technical_signoff_decision = 'declined'
+      and technical_signoff_reason is not null
+      and btrim(technical_signoff_reason) <> ''
+      and char_length(technical_signoff_reason) <= 500
+      and technical_signoff_override_comment is null
+      and technical_signoff_by is not null
+      and technical_signoff_at is not null
+    )
+  );
 
 notify pgrst, 'reload schema';
 commit;

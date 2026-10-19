@@ -1,29 +1,35 @@
 # Safety Checks service
 
-Composite FastAPI service for S-86 and S-87. It owns no database. It
+Composite FastAPI service for S-17, S-86 and S-87. It owns no database. It
 authenticates Safety Officers and Event Coordinators through Users, reads the
 current event from Events, enriches safety evidence and feedback, and sends
 lifecycle actions back to the Events atomic owner.
 
-`confirmed` is this project's documented lifecycle interpretation that the
-required venue and technical arrangements are confirmed. It is not a status
-name prescribed by the customer document.
+The lifecycle is `planning → pending_safety_check → confirmed`. S-17: the
+Coordinator submits a planning event once every mandatory arrangement is
+complete, which moves it to `pending_safety_check` -- the S-86 queue. Only the
+Safety Officer's approval makes it `confirmed`.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/safety-checks` | List confirmed events with no safety decision, enriched with organiser. |
+| `GET` | `/safety-checks` | List `pending_safety_check` events with no safety decision, enriched with organiser. |
 | `GET` | `/safety-checks/{event_id}` | Return all operational-safety evidence for one eligible event. |
 | `POST` | `/safety-checks/{event_id}/decision` | Record the first safety decision as the authenticated Safety Officer. |
 | `GET` | `/safety-checks/coordinator/events/{event_id}` | Return preserved safety feedback and history to the currently assigned Event Coordinator. |
-| `POST` | `/safety-checks/coordinator/events/{event_id}/resubmit` | Resubmit revised arrangements for a completely fresh safety review. |
+| `GET` | `/safety-checks/coordinator/events/{event_id}/readiness` | S-17: what is still outstanding before the event can be submitted, without submitting. |
+| `POST` | `/safety-checks/coordinator/events/{event_id}/submit` | S-17: submit a fully arranged planning event for the Operational Safety Check. |
+| `POST` | `/safety-checks/coordinator/events/{event_id}/resubmit` | Resubmit revised arrangements for a completely fresh safety review, after the same S-17 check. |
 | `GET` | `/health` | Liveness check. |
 
 Only trusted `app_metadata.role=safety_officer` is accepted. No Safety Officer
 assignment is introduced: every Safety Officer can access every eligible row.
 
 ## Requests
+
+`readiness`, `submit` and `resubmit` take no body and no query parameters.
+`submit` and `resubmit` refuse any body with `422`: there is no override.
 
 The decision body contains only client-owned fields:
 
@@ -66,12 +72,12 @@ A successful decision returns the updated Event object. Transitions are:
 
 | Decision | Event status |
 | --- | --- |
-| `approved` | `preparation` |
+| `approved` | `confirmed` |
 | `rejected` | `safety_rejected` |
 | `changes_requested` | `planning` with preserved current feedback and immutable history |
 
-The Events service conditionally writes only a `confirmed` row with a null
-current safety decision. A stale, repeated, or concurrent attempt returns
+The Events service conditionally writes only a `pending_safety_check` row with
+a null current safety decision. A stale, repeated, or concurrent attempt returns
 `409` and cannot overwrite the first stored result. S-86 creates no
 notifications.
 
@@ -80,20 +86,66 @@ also requires the authenticated id to be the event's current assignee. The
 returned detail resolves the recorded Safety Officer identity and exposes the
 reason, decision time and complete `safety_review_history`. Resubmission is
 permitted only for `planning` plus current `changes_requested`; ordinary
-planning events receive `409`, so this is not the general S-17 workflow.
-Success changes the event to `confirmed`, clears the current blocker, retains
+planning events receive `409` and are submitted instead. Resubmission runs the
+same S-17 check as a submission and is refused the same way. Success changes
+the event to `pending_safety_check`, clears the current blocker, retains
 history, and returns it to the S-86 queue. Events performs that transition in
 one conditional write; this composite performs no resource writes or retries.
+
+### S-17 submission
+
+An event is ready when:
+
+- **Venue approved** -- at least one `confirmed` booking, and no booking
+  `pending` or `held`, no `rejected` booking that has not been replaced (a
+  confirmed replacement marks it `replaced`, which stops counting), and no
+  `confirmed` booking with an unresolved S-77 unavailable period.
+- **Equipment and technical support arranged** -- only when the event has an
+  equipment requirement or `technical_support_required`: Technical Support
+  is assigned, its sign-off is `approved` (an approval over a shortage, with
+  its comment, counts), and `equipment_preparation_status` is `ready`.
+
+`GET .../readiness` answers `200`:
+
+```json
+{"ready": false, "outstanding": [
+  {"code": "venue_awaiting", "booking_id": "…", "label": "Studio 2 on 20 Nov 2026 is waiting for Venue Staff"},
+  {"code": "technical_signoff_awaiting", "label": "Technical Support has not approved the equipment arrangements"}
+]}
+```
+
+`POST .../submit` answers `200` with the updated event (`"status":
+"pending_safety_check"`), or `409` with every outstanding item at once and
+nothing written:
+
+```json
+{"detail": "This event has outstanding arrangements", "outstanding": [ … ]}
+```
+
+| `code` | `label` |
+| --- | --- |
+| `venue_missing` | No venue booking has been confirmed yet |
+| `venue_awaiting` | {venue} on {date} is waiting for Venue Staff |
+| `venue_rejected` | {venue} on {date} was rejected — request a replacement venue |
+| `venue_unavailable` | {venue} on {date} is affected by an unavailable period — replace it or record alternative arrangements |
+| `technical_support_unassigned` | Technical Support has not been assigned |
+| `technical_signoff_awaiting` | Technical Support has not approved the equipment arrangements |
+| `technical_signoff_declined` | Technical Support declined: {reason} |
+| `equipment_preparation` | Equipment preparation is {Not Started / In Progress} |
+
+Venue items carry the `booking_id` they are about. The rules are in
+[`readiness.py`](readiness.py); the S-77 flag rule there is repeated from
+`venue_bookings`.
 
 ## Errors
 
 | Status | Meaning |
 | --- | --- |
 | `401` | No valid session. |
-| `403` | The authenticated role is not Safety Officer. |
-| `404` | The event does not exist. |
-| `409` | It is ineligible, stale, or already decided. |
-| `422` | Invalid event id, decision, reason combination, or extra field. |
+| `403` | The authenticated role is not Safety Officer (queue, detail, decision) or Event Coordinator (coordinator routes). |
+| `404` | The event does not exist, or is not assigned to the calling Coordinator. |
+| `409` | It is ineligible, stale, or already decided; for submit/resubmit, not in planning (`"This event is not in planning"`) or has outstanding arrangements (body above). |
+| `422` | Invalid event id, decision, reason combination, or extra field; any body on submit/resubmit. |
 | `502` | A required atomic service is unavailable or returned an unidentified failure. |
 
 ## Configuration and running
@@ -115,11 +167,12 @@ Whole test stack and tests:
 docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/composite/safety_checks
-pytest tests/e2e/test_operational_safety_check.py
+pytest tests/e2e/test_operational_safety_check.py tests/e2e/test_confirm_event.py
 ```
 
 Before integration or browser tests, apply
-[`backend/sql/events.sql`](../../../sql/events.sql) to both dev and test
+[`backend/sql/events.sql`](../../../sql/events.sql) and the S-78 block of
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) to both dev and test
 Supabase projects. Unit tests require neither Docker nor Supabase:
 
 ```bash

@@ -214,7 +214,6 @@ def test_the_search_uses_the_events_current_requirements(client, world):
 # --- TC-VENUEBOOKINGS-081 / 086 / 091 --------------------------------------
 UNFLAGGED = {
     'pending': booking(A_ID, STUDIO_B, 'pending'),
-    'rejected': booking(A_ID, STUDIO_B, 'rejected'),
     'replaced': booking(A_ID, STUDIO_B, 'replaced'),
     'no period': booking(A_ID, HALL_C, 'confirmed'),
     'in the past': booking(A_ID, STUDIO_B, 'confirmed', day='2026-10-01'),
@@ -269,6 +268,20 @@ def test_a_booking_without_the_flag_is_refused(client, world, route, case):
     assert (response.status_code, response.json()) == (409, {'detail': detail})
     assert not world.posts(write)
     assert not world.venue_list_reads()
+
+
+# S-17: a rejected booking can be replaced (test_s17.py), but it was never
+# affected by a period, so there are no alternative arrangements to record.
+def test_a_rejected_booking_has_no_alternative_arrangements(client, world):
+    send, detail, write = ROUTES['resolve']
+    rejected = booking(A_ID, STUDIO_B, 'rejected')
+    world.one = {A_ID: rejected}
+    world.by_event = [rejected]
+
+    response = send(client)
+
+    assert (response.status_code, response.json()) == (409, {'detail': detail})
+    assert not world.posts(write)
 
 
 @pytest.mark.parametrize('route', ROUTES)

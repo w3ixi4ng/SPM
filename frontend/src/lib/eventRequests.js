@@ -129,6 +129,9 @@ const STATUS_META = {
   draft: { label: 'Draft', color: '#4C5A70' },
   submitted: { label: 'Under Review', color: '#B5842B' },
   planning: { label: 'Planning', color: '#3F8F5F' },
+  // S-17: submitted for the Operational Safety Check, waiting on the Safety
+  // Officer -- the same "someone else's move" amber as Under Review.
+  pending_safety_check: { label: 'Pending Safety Check', color: '#B5842B' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
   preparation: { label: 'Preparation', color: '#3F8F5F' },
   safety_rejected: { label: 'Safety Rejected', color: '#B25547' },
@@ -274,14 +277,6 @@ export function updateAssignedEventInformation(id, form, event, impactAccepted =
   })
 }
 
-export function submitAssignedEventForSafetyReview(id, event) {
-  return requestJSON(`/events/assigned/${encodeURIComponent(id)}/submit-safety-review`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expected_version: event.edit_version ?? 0 }),
-  })
-}
-
 export function createEventDraft(form) {
   return write('/events/drafts', 'POST', form, true)
 }
@@ -326,7 +321,8 @@ export function decideEventRequest(id, { decision, reason, comment }) {
 // cancelled once a later review completes it. Mirrors the events service's
 // _CANCELLABLE_STATUSES, which stays authoritative.
 const CANCELLABLE_STATUSES = new Set([
-  'submitted', 'under_review', 'planning', 'confirmed', 'preparation', 'safety_changes_requested',
+  'submitted', 'under_review', 'planning', 'pending_safety_check', 'confirmed', 'preparation',
+  'safety_changes_requested',
 ])
 export const CANCELLATION_REASON_MAX = 1000
 

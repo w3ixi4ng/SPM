@@ -2188,7 +2188,7 @@ Confirmed by the developer on 2026-10-14.
 Story: S-18 Update Event Information. Acceptance criteria and design choices
 confirmed by the developer on 2026-10-19.
 
-### TC-FRONTEND-132 — Coordinator edit mapping separates routine and significant changes
+### TC-FRONTEND-137 — Coordinator edit mapping separates routine and significant changes
 
 - **Pre-conditions:** The S-18 frontend helpers are imported directly.
 - **Steps:** Populate the editor from an assigned event; change purpose,
@@ -2205,7 +2205,7 @@ confirmed by the developer on 2026-10-19.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `S-18 coordinator mapping includes editable fields and omits server-owned state`
 
-### TC-FRONTEND-133 — significant edits require a review choice before saving
+### TC-FRONTEND-138 — significant edits require a review choice before saving
 
 - **Pre-conditions:** An assigned planning, confirmed, or preparation event is
   open in the Coordinator detail view.
@@ -2222,7 +2222,7 @@ confirmed by the developer on 2026-10-19.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `S-18 event information calls use encoded authenticated Kong routes`; `tests/e2e/test_update_event_information.py`
 
-### TC-FRONTEND-134 — a successful save refreshes lifecycle state without hiding arrangements
+### TC-FRONTEND-139 — a successful save refreshes lifecycle state without hiding arrangements
 
 - **Pre-conditions:** A confirmed/preparation event has venue bookings,
   equipment requirements, equipment preparation, and prior safety history.
@@ -2231,25 +2231,105 @@ confirmed by the developer on 2026-10-19.
 - **Expected:** The screen immediately shows the saved values and `Planning`,
   explains that a new safety check is required, and continues to show existing
   venue/equipment arrangements for the Coordinator to assess. Submitting for
-  safety review changes the displayed state to Confirmed/awaiting review.
+  safety review uses S-17's readiness check and changes the displayed state to
+  Pending Safety Check.
 - **Actual:** The browser refreshed to Planning after acceptance, retained
-  venue/equipment information, exposed the fresh-safety action, and refreshed
-  to Confirmed after submission.
+  venue/equipment information, exposed S-17's fresh-safety action, and
+  refreshed to Pending Safety Check after submission.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle`
 
-### TC-FRONTEND-135 — edit controls and failures are safe and role-appropriate
+### TC-FRONTEND-140 — edit controls and failures are safe and role-appropriate
 
 - **Steps:** Check presentation permissions for every role; map `401`, `403`,
-  `404`, `409`, `422`, network and `500` failures from preview, save and
-  safety-resubmission calls.
+  `404`, `409`, `422`, network and `500` failures from preview and save calls.
 - **Expected:** Only Event Coordinators receive the edit permission and only
   an eligible assigned event renders controls. Every failed save states that
   event information was not changed; stale `409` asks the user to reload;
   validation maps to the matching control. Requests use encoded Kong paths,
   session credentials and safe JSON only.
 - **Actual:** Coordinator permission and encoded, credentialed preview/save/
-  safety routes matched the policy and request contract; backend role,
+  routes matched the policy and request contract; backend role,
   assignment, lifecycle, validation, and stale-write tests failed closed.
 - **Status:** Pass
 - **Evidence:** `test_access.mjs`; `test_event_requests.mjs` — `S-18 event information calls use encoded authenticated Kong routes`; `tests/unit/atomic/events/test_s18.py`
+## S-17 — submit for the Operational Safety Check
+
+Pure functions in `frontend/src/lib/` only (no browser, no `npm ci`). The
+page wiring is proven by TC-E2E-243.
+
+## TC-FRONTEND-132 — the new stage has a label for every role
+
+- **Scenario:** Pending Safety Check reads as its own stage.
+- **Pre-conditions:** None.
+- **Steps:** Look up the status display for `pending_safety_check`,
+  `confirmed` and `preparation` in `lib/eventRequests.js`.
+- **Test data:** The three statuses.
+- **Expected:** `pending_safety_check` → label "Pending Safety Check", colour
+  `amber` (`#B5842B`); `confirmed` → "Confirmed", `green` — unchanged;
+  `preparation` keeps its existing entry. `pending_safety_check` is in the
+  Organiser's list of statuses shown on their dashboard.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "labels the new stage"
+
+## TC-FRONTEND-133 — readiness comes from the server's outstanding list
+
+- **Scenario:** The page shows exactly what the submission check will refuse.
+- **Pre-conditions:** None.
+- **Steps:** Build the readiness view from (a) `{"ready": true,
+  "outstanding": []}`; (b) the six-item response of TC-SAFETYCHECKS-020.
+- **Test data:** As above.
+- **Expected:** (a) `canSubmit: true`, no items. (b) `canSubmit: false`, six
+  rows whose text equals each `label` in the same order, each with an
+  "Outstanding" status label (not colour alone).
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "builds readiness from the server"
+
+## TC-FRONTEND-134 — submit result handling
+
+- **Scenario:** The Coordinator sees what happened either way.
+- **Pre-conditions:** `fetch` stubbed.
+- **Steps:** Call `submitForSafetyCheck("E1")` with the server answering
+  (a) `200` `{"status": "pending_safety_check"}`; (b) `409` with two
+  outstanding items; (c) `409` "This event is not in planning"; (d) `502`.
+- **Test data:** As above.
+- **Expected:** `POST /api/safety-checks/coordinator/events/E1/submit`, no
+  body. (a) resolves to the updated event. (b) rejects with
+  `outstanding` = the two items. (c) and (d) reject with a message saying what
+  happened and what to do next.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "handles each submit outcome"
+
+## TC-FRONTEND-135 — Technical Support sign-off payloads
+
+- **Scenario:** The sign-off form sends only what the server accepts.
+- **Pre-conditions:** `fetch` stubbed.
+- **Steps:** Build payloads for approve; approve over a shortage with comment
+  "Borrowing 2 projectors from Library"; decline with "Only one sound desk
+  exists"; decline with "   ".
+- **Test data:** As above.
+- **Expected:** `{"decision": "approved"}`; `{"decision": "approved",
+  "override_comment": "Borrowing 2 projectors from Library"}`;
+  `{"decision": "declined", "reason": "Only one sound desk exists"}`; the
+  blank decline is refused client-side with "Enter a reason for declining".
+  A `409` shortage response yields the `short` list for display.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "builds sign-off payloads"
+
+## TC-FRONTEND-136 — the Coordinator sees the sign-off outcome
+
+- **Scenario:** Decline reasons and override comments reach the Coordinator.
+- **Pre-conditions:** None.
+- **Steps:** Describe the sign-off for an event with (a) none; (b) approved;
+  (c) approved with override comment; (d) declined with reason.
+- **Test data:** Values from TC-FRONTEND-135.
+- **Expected:** (a) "Awaiting Technical Support"; (b) "Approved by
+  Technical Support"; (c) as (b) plus the comment text; (d) "Declined by
+  Technical Support" plus the reason text.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "describes the sign-off"

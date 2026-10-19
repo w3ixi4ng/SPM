@@ -44,8 +44,8 @@ all read attempts fail, the existing safe `502` response is returned.
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30/S-77: mark a venue unavailable for a timed period; the response names the bookings it affects. See [S-77](#s-77-unavailable-periods). |
 | `POST` | `/venue-bookings/blocks/{id}/notify` | `venue_staff` | S-77: retry telling the Coordinators of the bookings a period affects. |
 | `DELETE` | `/venue-bookings/blocks/{id}` | `venue_staff` | S-30: remove a block. |
-| `GET` | `/venue-bookings/{id}/replacement-venues` | `event_coordinator` | S-78: venues that could replace an affected booking. See [S-78](#s-78-replacement-venues). |
-| `POST` | `/venue-bookings/{id}/replacement` | `event_coordinator` | S-78: request a replacement venue for an affected booking. |
+| `GET` | `/venue-bookings/{id}/replacement-venues` | `event_coordinator` | S-78: venues that could replace an affected (or, S-17, rejected) booking. See [S-78](#s-78-replacement-venues). |
+| `POST` | `/venue-bookings/{id}/replacement` | `event_coordinator` | S-78: request a replacement venue for an affected (or, S-17, rejected) booking. |
 | `POST` | `/venue-bookings/{id}/resolution` | `event_coordinator` | S-78: resolve an affected booking's flag with a note. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
@@ -470,12 +470,15 @@ and `pytest tests/e2e/test_mark_venue_unavailable.py`.
 
 A Coordinator can replace a booking an unavailable period affects with
 another venue, without entering the event again, or resolve the flag with a
-note.
+note. S-17: a booking Venue Staff **rejected** can be replaced the same way,
+because a rejection blocks the event's submission for its Operational Safety
+Check until a replacement is confirmed. It cannot be resolved with a note.
 
 **Who and which booking.** All three routes are for the event's **current**
 Coordinator, checked with `GET /events/assigned/{event_id}` using the
 caller's session. The booking must carry S-77's flag
-(`requires_alternative_arrangements: true`). Its event must be `planning`,
+(`requires_alternative_arrangements: true`) -- or, for the two replacement
+routes, be `rejected`. Its event must be `planning`, `pending_safety_check`,
 `confirmed`, `preparation` or `safety_changes_requested`.
 
 | Status | Body | Meaning |
@@ -483,7 +486,7 @@ caller's session. The booking must carry S-77's flag
 | `401` | `{"detail": "Not authenticated"}` | No valid session. |
 | `403` | `{"detail": "Permission denied"}` | Not a Coordinator. |
 | `404` | `{"detail": "Booking not found"}` | No such booking, or its event isn't assigned to the caller. |
-| `409` | `{"detail": "This booking doesn't need a replacement venue"}` (resolution: `"This booking doesn't need alternative arrangements"`) | Not flagged: pending, rejected, replaced, past, no period, or already resolved. |
+| `409` | `{"detail": "This booking doesn't need a replacement venue"}` (resolution: `"This booking doesn't need alternative arrangements"`) | Not flagged: pending, replaced, past, no period, or already resolved; for resolution, also rejected. |
 | `409` | `{"detail": "This event's venue bookings can no longer be changed"}` | The event is in any other status. |
 | `502` | `{"detail": "<Users\|Events\|Venues\|Bookings> service unavailable"}` | A downstream service failed. Never an empty result. |
 

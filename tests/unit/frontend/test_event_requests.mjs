@@ -20,7 +20,6 @@ import {
   resubmitErrorMessage,
   sortEventsForOrganiser,
   submitEventDraft,
-  submitAssignedEventForSafetyReview,
   updateAssignedEventInformation,
   updateEventDraft,
 } from '../../../frontend/src/lib/eventRequests.js'
@@ -148,17 +147,14 @@ test('S-18 event information calls use encoded authenticated Kong routes', async
   try {
     await previewAssignedEventInformation('event 1/2', form, event)
     await updateAssignedEventInformation('event 1/2', form, event, true)
-    await submitAssignedEventForSafetyReview('event 1/2', event)
   } finally {
     globalThis.fetch = originalFetch
   }
   assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
     ['/api/events/assigned/event%201%2F2/edit-impact', 'POST'],
     ['/api/events/assigned/event%201%2F2', 'PATCH'],
-    ['/api/events/assigned/event%201%2F2/submit-safety-review', 'POST'],
   ])
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
-  assert.deepEqual(JSON.parse(calls[2].options.body), { expected_version: 2 })
 })
 
 test('event list loads the authenticated organisers saved requests', async () => {

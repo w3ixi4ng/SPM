@@ -22,6 +22,12 @@ import {
   technicalSupportWorkErrorMessage,
   updateEquipmentPreparation,
 } from '../lib/technicalSupportAssignments.js'
+import {
+  describeSignoff,
+  signOffEquipment,
+  signoffErrorMessage,
+  signoffPayload,
+} from '../lib/safetySubmission.js'
 
 const C = {
   ink: '#10192B',
@@ -46,6 +52,125 @@ const UPCOMING_AREAS = [
     description: 'Confirm AV and equipment are working before doors open.',
   },
 ]
+
+// S-17: approve the event's equipment arrangements, or decline with a reason
+// the Coordinator sees. A shortage blocks approval until Technical Support
+// says how it will be covered.
+function EquipmentSignoff({ event, onSigned }) {
+  const [mode, setMode] = useState('idle')
+  const [reason, setReason] = useState('')
+  const [comment, setComment] = useState('')
+  const [short, setShort] = useState([])
+  const [state, setState] = useState({ status: 'idle', error: null })
+  const current = describeSignoff(event)
+
+  async function send(decision) {
+    const built = signoffPayload({ decision, reason, overrideComment: short.length ? comment : '' })
+    if (built.error) {
+      setState({ status: 'idle', error: built.error })
+      return
+    }
+    if (decision === 'approved' && short.length && !comment.trim()) {
+      setState({ status: 'idle', error: 'Say how the shortage will be covered before approving' })
+      return
+    }
+    setState({ status: 'saving', error: null })
+    try {
+      const updated = await signOffEquipment(event.id, built.payload)
+      setMode('idle')
+      setReason('')
+      setComment('')
+      setShort([])
+      setState({ status: 'idle', error: null })
+      onSigned(updated)
+    } catch (error) {
+      if (error.short) setShort(error.short)
+      setState({ status: 'idle', error: signoffErrorMessage(error) })
+    }
+  }
+
+  const fieldStyle = { borderColor: C.line, color: C.ink, backgroundColor: C.paper }
+  return (
+    <div className="mt-4">
+      <p className="font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>Equipment sign-off</p>
+      <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>{current.label}</p>
+      {current.note && <p className="font-ui text-sm mt-1 whitespace-pre-wrap" style={{ color: C.inkFaint }}>{current.note}</p>}
+
+      {event.status === 'planning' && (
+        <>
+          {short.length > 0 && (
+            <div className="mt-3">
+              <ul className="divide-y font-ui text-sm" aria-label="Short equipment" style={{ borderColor: C.line }}>
+                {short.map((item) => (
+                  <li key={item.equipment_item_id} className="py-2 flex justify-between gap-4">
+                    <span style={{ color: C.ink }}>{item.name}</span>
+                    <span style={{ color: '#B5842B' }}>{item.available} free of {item.required} needed</span>
+                  </li>
+                ))}
+              </ul>
+              <label htmlFor={`override-${event.id}`} className="block font-ui text-xs mt-3 mb-1" style={{ color: C.inkFaint }}>
+                How will the shortage be covered?
+              </label>
+              <textarea
+                id={`override-${event.id}`}
+                value={comment}
+                maxLength={500}
+                onChange={(e) => setComment(e.target.value)}
+                className="w-full border rounded-sm px-3 py-2 font-ui text-sm"
+                style={fieldStyle}
+                rows={2}
+              />
+            </div>
+          )}
+          {mode === 'declining' && (
+            <div className="mt-3">
+              <label htmlFor={`decline-${event.id}`} className="block font-ui text-xs mb-1" style={{ color: C.inkFaint }}>
+                Reason for declining
+              </label>
+              <textarea
+                id={`decline-${event.id}`}
+                value={reason}
+                maxLength={500}
+                onChange={(e) => setReason(e.target.value)}
+                className="w-full border rounded-sm px-3 py-2 font-ui text-sm"
+                style={fieldStyle}
+                rows={2}
+              />
+            </div>
+          )}
+          {state.error && <p role="alert" className="font-ui text-sm mt-3" style={{ color: '#B25547' }}>{state.error}</p>}
+          <div className="flex flex-wrap gap-3 mt-3">
+            {mode === 'declining' ? (
+              <>
+                <button type="button" disabled={state.status === 'saving'} onClick={() => { void send('declined') }}
+                  className="px-4 py-2 rounded-sm font-ui text-sm font-medium disabled:opacity-60"
+                  style={{ backgroundColor: C.teal, color: C.paper }}>
+                  Decline sign-off
+                </button>
+                <button type="button" onClick={() => { setMode('idle'); setState({ status: 'idle', error: null }) }}
+                  className="px-4 py-2 rounded-sm font-ui text-sm font-medium border" style={{ borderColor: C.ink, color: C.ink }}>
+                  Keep current sign-off
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" disabled={state.status === 'saving'} onClick={() => { void send('approved') }}
+                  className="px-4 py-2 rounded-sm font-ui text-sm font-medium disabled:opacity-60"
+                  style={{ backgroundColor: C.teal, color: C.paper }}>
+                  {short.length ? 'Approve with comment' : 'Approve equipment'}
+                </button>
+                <button type="button" onClick={() => { setMode('declining'); setShort([]); setState({ status: 'idle', error: null }) }}
+                  className="px-4 py-2 rounded-sm font-ui text-sm font-medium border" style={{ borderColor: C.ink, color: C.ink }}>
+                  Decline
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 export default function TechnicalSupportDashboard({ role }) {
   const navigate = useNavigate()
@@ -357,6 +482,18 @@ export default function TechnicalSupportDashboard({ role }) {
                     {preparation.eventId === event.id && preparation.error && (
                       <p role="alert" className="font-ui text-sm mt-3" style={{ color: '#B25547' }}>{preparation.error}</p>
                     )}
+                    <EquipmentSignoff
+                      event={event}
+                      onSigned={(updated) => {
+                        setAssignments((current) => ({
+                          ...current,
+                          events: current.events.map((row) => (
+                            row.id === updated.id ? { ...row, ...updated } : row
+                          )),
+                        }))
+                        setNotice(`${describeSignoff(updated).label}.`)
+                      }}
+                    />
                     <div className="mt-4">
                       <p className="font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>
                         Required equipment

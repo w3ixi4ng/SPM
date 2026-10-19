@@ -360,7 +360,7 @@ Story: S-18 Update Event Information. Specification confirmed by the
 developer on 2026-10-19. Equipment owns requirement rows and their edit audit;
 S-82 can later combine this history with Events-owned history.
 
-## TC-EQUIPMENTREQUIREMENTS-023 — equipment requirement changes require accepted impact review and audit
+## TC-EQUIPMENTREQUIREMENTS-030 — equipment requirement changes require accepted impact review and audit
 
 - **Scenario:** Adding, changing, or removing required equipment is a
   significant event change and cannot bypass impact review.
@@ -381,3 +381,109 @@ S-82 can later combine this history with Events-owned history.
   Atomic tests proved each mutation is delegated to one database function.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_requirement_changes_require_accepted_impact`; `tests/unit/atomic/equipment/test_s18.py`; focused Python run, 377 passed, 2026-10-19.
+## S-17 — Technical Support sign-off
+
+`POST /equipment-requirements/{event_id}/sign-off` lets the assigned
+Technical Support approve or decline the event's equipment arrangements.
+Approval checks S-44 availability over the event's window first. Any
+Coordinator change to the requirements clears the sign-off. Users, Events and
+Equipment are faked.
+
+Shared test data: event `E1` (`planning`, `2026-11-20 09:00–17:00`, assigned
+Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
+(`P1`, 5 owned); other Technical Support `T2`.
+
+## TC-EQUIPMENTREQUIREMENTS-023 — approve with nothing short
+
+- **Scenario:** Technical Support approves when every item is available.
+- **Pre-conditions:** No overlapping event reserves `P1`.
+- **Steps:** `POST /equipment-requirements/E1/sign-off` as `T1` with
+  `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `200`. Events `PUT /internal/events/E1/technical-signoff`
+  called once with `{"technical_support_id": T1, "decision": "approved"}`.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_approve_without_shortage`
+
+## TC-EQUIPMENTREQUIREMENTS-024 — a shortage blocks approval and is listed
+
+- **Scenario:** Technical Support cannot approve over a shortage by default.
+- **Pre-conditions:** An overlapping event `E2` reserves 3 × `P1`, leaving 2.
+- **Steps:** Approve as `T1` with `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `409`, body `{"detail": "Some equipment is short for this
+  event", "short": [{"equipment_item_id": P1, "name": "Projector",
+  "required": 4, "available": 2}]}`. Events write not called.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_shortage_blocks_approval`
+
+## TC-EQUIPMENTREQUIREMENTS-025 — approval over a shortage needs a comment
+
+- **Scenario:** Technical Support may override a shortage only with a reason
+  the Coordinator will see.
+- **Pre-conditions:** As TC-EQUIPMENTREQUIREMENTS-024.
+- **Steps:** Approve with (a) `{"decision": "approved", "override_comment":
+  "Borrowing 2 projectors from Library"}`; (b) `"override_comment": "   "`.
+- **Test data:** As above.
+- **Expected:** (a) `200`, Events write includes the comment. (b) `422`, no
+  write.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_shortage_override_requires_comment`
+
+## TC-EQUIPMENTREQUIREMENTS-026 — decline needs a reason
+
+- **Scenario:** A decline tells the Coordinator why.
+- **Pre-conditions:** No shortage.
+- **Steps:** Decline with (a) `{"decision": "declined", "reason": "Only one
+  sound desk exists"}`; (b) `{"decision": "declined"}`.
+- **Test data:** As above.
+- **Expected:** (a) `200`, Events write `{"decision": "declined", "reason":
+  "Only one sound desk exists"}`; availability not checked. (b) `422`, no
+  write.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_decline_requires_reason`
+
+## TC-EQUIPMENTREQUIREMENTS-027 — only the assigned Technical Support
+
+- **Scenario:** Nobody else can sign off.
+- **Pre-conditions:** As shared data.
+- **Steps:** Approve as (a) `T2`; (b) Coordinator `C1`; (c) no session;
+  (d) `T1` with `E1` `pending_safety_check`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** (a) `404`; (b) `403`; (c) `401`; (d) `409`. No Events write.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_signoff_limited_to_assigned_support`
+
+## TC-EQUIPMENTREQUIREMENTS-028 — a Coordinator change clears the sign-off first
+
+- **Scenario:** Any change to the requirements sends the event back to
+  awaiting Technical Support.
+- **Pre-conditions:** `E1` has an approved sign-off; separately a declined one.
+- **Steps:** As `C1`, after accepting the S-18 impact: (a) `PUT
+  /equipment-requirements/E1/P1` with `{"required_quantity": 5,
+  "impact_accepted": true}`; (b) `DELETE
+  /equipment-requirements/E1/P1?impact_accepted=true`.
+- **Test data:** As above.
+- **Expected:** Each → its usual success (`200` / `204`). Events
+  `POST /internal/events/E1/technical-signoff/clear` is called **before** the
+  Equipment write, once per request.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_requirement_change_clears_signoff`
+
+## TC-EQUIPMENTREQUIREMENTS-029 — if the sign-off can't be cleared, nothing changes
+
+- **Scenario:** A requirement is never changed under a stale approval.
+- **Pre-conditions:** Approved sign-off; Events clear returns `500`.
+- **Steps:** `PUT /equipment-requirements/E1/P1` with
+  `{"required_quantity": 5, "impact_accepted": true}` as `C1`.
+- **Test data:** As above.
+- **Expected:** `502`; Equipment write not called.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_failed_clear_blocks_requirement_change`
