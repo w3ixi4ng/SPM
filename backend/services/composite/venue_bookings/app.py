@@ -51,6 +51,8 @@ REPLACEMENT_NOT_NEEDED = "This booking doesn't need a replacement venue"
 RESOLUTION_NOT_NEEDED = "This booking doesn't need alternative arrangements"
 EVENT_CLOSED = "This event's venue bookings can no longer be changed"
 REPLACEMENT_WAITING = "A replacement request for this booking is already with Venue Staff"
+# Venues checked at once by the S-78 replacement search.
+SEARCH_CONCURRENCY = 6
 CANNOT_REPLACE = "This booking can no longer be replaced"
 
 # The bookings service's identified 409s: a slot taken by a confirmed booking
@@ -837,15 +839,25 @@ async def search_replacement_venues(
         raise _unavailable("Venues")
 
     day = str(booking["booking_date"])
-    offered = []
-    for venue in sorted(listed.json(), key=lambda venue: venue["name"]):
-        if str(venue["id"]) == str(booking["venue_id"]) or not replacement.suitable(booking, event, venue):
-            continue
+    candidates = [
+        venue for venue in sorted(listed.json(), key=lambda venue: venue["name"])
+        if str(venue["id"]) != str(booking["venue_id"]) and replacement.suitable(booking, event, venue)
+    ]
+    # Each venue costs two Bookings reads, so they are checked a few at a time
+    # rather than one after another -- in sequence, a dozen suitable venues
+    # kept the Coordinator waiting over 20 seconds.
+    gate = asyncio.Semaphore(SEARCH_CONCURRENCY)
+
+    async def free(venue):
         params = {"venue_id": str(venue["id"]), "from": day, "to": day}
-        same_day = await _list(bookings, "/bookings", params)
-        blocks = await _list(bookings, "/blocks", params)
-        if replacement.available(booking, venue, same_day, blocks):
-            offered.append(venue)
+        async with gate:
+            same_day, blocks = await asyncio.gather(
+                _list(bookings, "/bookings", params), _list(bookings, "/blocks", params),
+            )
+        return replacement.available(booking, venue, same_day, blocks)
+
+    checked = await asyncio.gather(*(free(venue) for venue in candidates))
+    offered = [venue for venue, ok in zip(candidates, checked) if ok]
     return {"booking": replacement.summary(booking), "venues": offered}
 
 
