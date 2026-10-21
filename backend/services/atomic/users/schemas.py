@@ -33,6 +33,14 @@ class UserRead(UserBase):
     id: str
 
 
+class CoordinatorRead(BaseModel):
+    """Trusted Auth eligibility with optional profile display enrichment."""
+
+    id: str
+    name: str
+    email: EmailStr | None
+
+
 class CurrentUserRead(UserRead):
     # This comes from verified Supabase Auth app_metadata, never users.users or
     # user_metadata. None lets clients fail closed for older unassigned users.

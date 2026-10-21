@@ -35,7 +35,9 @@ def require_venue_staff(user=Depends(require_user)):
     return user
 
 
-def require_event_coordinator(user=Depends(require_user)):
+def require_coordinator(user=Depends(require_user)):
+    """S-78: a Coordinator resolving a booking's flag. Which events are theirs
+    is the events service's to say; the venue_bookings composite asks it."""
     if (getattr(user, "app_metadata", None) or {}).get("role") != "event_coordinator":
         raise HTTPException(status_code=403, detail="Permission denied")
     return user

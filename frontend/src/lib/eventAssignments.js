@@ -8,6 +8,10 @@ export function listAssignmentCoordinators() {
   return requestJSON('/event-requests/coordinators')
 }
 
+export function coordinatorOptionLabel(coordinator) {
+  return coordinator.email || coordinator.name
+}
+
 export function listActiveAssignments() {
   return requestJSON('/event-requests/assigned-active')
 }

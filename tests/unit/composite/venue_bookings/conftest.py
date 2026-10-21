@@ -26,12 +26,16 @@ os.environ.setdefault("USERS_SERVICE_URL", "http://users:8001")
 os.environ.setdefault("EVENTS_SERVICE_URL", "http://events:8002")
 os.environ.setdefault("VENUES_SERVICE_URL", "http://venues:8003")
 os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
+os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
 
 # Services use flat imports because each Docker image runs from its own
 # folder. Load this service while preserving any same-named modules another
 # service's conftest already loaded, so `pytest tests/unit` remains
 # collectable.
-_MODULE_NAMES = ("app", "availability", "clients", "database", "occupancy", "schemas", "suitability")
+_MODULE_NAMES = (
+    "app", "availability", "clients", "database", "occupancy", "replacement", "schemas", "suitability",
+    "unavailability",
+)
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}
 for _name in _MODULE_NAMES:
     sys.modules.pop(_name, None)
@@ -51,6 +55,7 @@ get_users_client = clients_module.get_users_client
 get_events_client = clients_module.get_events_client
 get_venues_client = clients_module.get_venues_client
 get_bookings_client = clients_module.get_bookings_client
+get_notifications_client = clients_module.get_notifications_client
 
 COORDINATOR_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 STAFF_ID = "abababab-abab-4bab-8bab-abababababab"
@@ -138,6 +143,9 @@ class Services:
         self.event = fake_response(200, dict(EVENT))
         self.venue = fake_response(200, dict(VENUE))
         self.pending = fake_response(200, [])
+        # S-77: what GET /blocks answers -- the unavailable periods a read
+        # checks each held or confirmed booking against.
+        self.blocks = fake_response(200, [])
 
         self.users = MagicMock()
         self.users.get = AsyncMock(side_effect=self._users_get)
@@ -161,6 +169,12 @@ class Services:
             "booking_date": "2026-11-12", "start_time": "09:00:00", "end_time": "12:00:00",
         })
 
+        # S-77: Coordinators of bookings an unavailable period affects.
+        self.notifications = MagicMock()
+        self.notifications.post = AsyncMock(
+            side_effect=lambda path, **kwargs: fake_response(201, kwargs["json"]["notifications"])
+        )
+
     def set_event(self, **changes):
         self.event = fake_response(200, {**EVENT, **changes})
 
@@ -183,6 +197,8 @@ class Services:
     async def _bookings_get(self, path, **kwargs):
         if path.startswith("/bookings/"):
             return self.booking
+        if path == "/blocks":
+            return self.blocks
         return self.pending
 
     async def _bookings_post(self, path, **kwargs):
@@ -213,6 +229,7 @@ def client(services):
     app.dependency_overrides[get_events_client] = lambda: services.events
     app.dependency_overrides[get_venues_client] = lambda: services.venues
     app.dependency_overrides[get_bookings_client] = lambda: services.bookings
+    app.dependency_overrides[get_notifications_client] = lambda: services.notifications
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

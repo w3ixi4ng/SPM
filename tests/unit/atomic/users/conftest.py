@@ -64,9 +64,14 @@ def on_in(db, rows):
     chain.execute.return_value = SimpleNamespace(data=rows)
 
 
-def auth_admin_user(uid, role):
+def auth_admin_user(uid, role, email=None, user_metadata=None):
     """A Supabase Auth admin-listing user -- only the fields the route reads."""
-    return SimpleNamespace(id=uid, app_metadata={} if role is None else {"role": role})
+    return SimpleNamespace(
+        id=uid,
+        email=email,
+        user_metadata=user_metadata or {},
+        app_metadata={} if role is None else {"role": role},
+    )
 
 
 @pytest.fixture

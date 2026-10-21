@@ -1,8 +1,8 @@
-"""TC-E2E-234 -- a Coordinator approves a cancellation request, and the event
+"""TC-E2E-245 -- a Coordinator approves a cancellation request, and the event
 shows as Cancelled for both sides (S-61).
 
-Decline, retries and every refusal are TC-EVENTS-131..138 and
-TC-EVENTREQUESTS-064..067/111's job and are not restaged here. This proves
+Decline, retries and every refusal are TC-EVENTS-154..162 and
+TC-EVENTREQUESTS-066..070/112's job and are not restaged here. This proves
 the Coordinator's review journey through Kong, the confirm step, and that
 the venue booking disappears.
 """
@@ -19,7 +19,7 @@ pytestmark = requires_env
 DAY = "2026-11-12"
 
 
-# --- TC-E2E-234 -----------------------------------------------------------
+# --- TC-E2E-245 -----------------------------------------------------------
 def test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled(
     admin, page, make_user, sign_in
 ):

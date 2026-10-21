@@ -6,6 +6,7 @@ import Logo from '../components/Logo.jsx'
 import {
   assignEventRequest,
   assignmentErrorMessage,
+  coordinatorOptionLabel,
   listAssignmentCoordinators,
   listCoordinatorOverview,
   listUnassignedEventRequests,
@@ -35,7 +36,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const access = getRoleAccess(role)
-  const [state, setState] = useState({ status: 'loading', events: [], coordinatorGroups: [], coordinators: [], error: null })
+  const [state, setState] = useState({ status: 'loading', events: [], coordinatorGroups: [], invalidAssignments: [], coordinators: [], error: null })
   const [choices, setChoices] = useState({})
   const [assigning, setAssigning] = useState(null)
   const [notice, setNotice] = useState('')
@@ -43,18 +44,18 @@ export default function EventCoordinatorLeadDashboard({ role }) {
   function load() {
     setState((current) => ({ ...current, status: 'loading', error: null }))
     Promise.all([listUnassignedEventRequests(), listCoordinatorOverview(), listAssignmentCoordinators()])
-      .then(([events, overview, coordinators]) => setState({ status: 'ready', events, coordinatorGroups: overview.coordinators, coordinators, error: null }))
-      .catch((error) => setState({ status: 'error', events: [], coordinatorGroups: [], coordinators: [], error: overviewErrorMessage(error) }))
+      .then(([events, overview, coordinators]) => setState({ status: 'ready', events, coordinatorGroups: overview.coordinators, invalidAssignments: overview.invalid_assignments ?? [], coordinators, error: null }))
+      .catch((error) => setState({ status: 'error', events: [], coordinatorGroups: [], invalidAssignments: [], coordinators: [], error: overviewErrorMessage(error) }))
   }
 
   useEffect(() => {
     let active = true
     Promise.all([listUnassignedEventRequests(), listCoordinatorOverview(), listAssignmentCoordinators()])
       .then(([events, overview, coordinators]) => {
-        if (active) setState({ status: 'ready', events, coordinatorGroups: overview.coordinators, coordinators, error: null })
+        if (active) setState({ status: 'ready', events, coordinatorGroups: overview.coordinators, invalidAssignments: overview.invalid_assignments ?? [], coordinators, error: null })
       })
       .catch((error) => {
-        if (active) setState({ status: 'error', events: [], coordinatorGroups: [], coordinators: [], error: overviewErrorMessage(error) })
+        if (active) setState({ status: 'error', events: [], coordinatorGroups: [], invalidAssignments: [], coordinators: [], error: overviewErrorMessage(error) })
       })
     return () => { active = false }
   }, [])
@@ -157,7 +158,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                     <label className="sr-only" htmlFor={`coordinator-${event.id}`}>Event Coordinator for {event.name}</label>
                     <select id={`coordinator-${event.id}`} value={choices[event.id] || ''} onChange={(e) => setChoices((current) => ({ ...current, [event.id]: e.target.value }))} className="border rounded-sm px-3 py-2 font-ui text-sm bg-white" style={{ borderColor: C.line, color: C.ink }}>
                       <option value="">Choose an Event Coordinator</option>
-                      {state.coordinators.map((coordinator) => <option key={coordinator.id} value={coordinator.id}>{coordinator.name}</option>)}
+                      {state.coordinators.map((coordinator) => <option key={coordinator.id} value={coordinator.id}>{coordinatorOptionLabel(coordinator)}</option>)}
                     </select>
                     <button type="button" disabled={assigning === event.id} onClick={() => handleAssign(event)} className="rounded-sm px-5 py-2 font-ui text-sm text-white disabled:opacity-60" style={{ backgroundColor: C.teal }}>
                       {assigning === event.id ? 'Assigning…' : 'Assign request'}
@@ -172,6 +173,19 @@ export default function EventCoordinatorLeadDashboard({ role }) {
         <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }}>
           <h2 className="font-display text-2xl mb-2" style={{ color: C.ink }}>Coordinator oversight</h2>
           <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>Active assignments grouped by their current Event Coordinator.</p>
+          {state.status === 'ready' && state.invalidAssignments.length > 0 && (
+            <div role="alert" className="border rounded-sm p-5 mb-6" style={{ borderColor: C.line, backgroundColor: C.paperDim }}>
+              <h3 className="font-ui font-semibold" style={{ color: C.ink }}>Assignment data needs review</h3>
+              <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>
+                {state.invalidAssignments.length} active {state.invalidAssignments.length === 1 ? 'event is' : 'events are'} assigned to an account that is not an eligible Event Coordinator. These assignments have not been changed.
+              </p>
+              <ul className="font-ui text-sm mt-3 space-y-1" style={{ color: C.inkFaint }}>
+                {state.invalidAssignments.map((item) => (
+                  <li key={item.event_id}>{item.name} ({formatStatus(item.status)}) · owner ID {item.assigned_coordinator_id}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {state.status === 'loading' && <p className="font-ui text-sm flex gap-2" style={{ color: C.inkFaint }}><Loader2 size={16} className="animate-spin" /> Loading coordinator overview…</p>}
           {state.status === 'ready' && state.coordinatorGroups.length === 0 && <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No Event Coordinators are available.</p>}
           {state.status === 'ready' && state.coordinatorGroups.length > 0 && (
@@ -202,7 +216,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                                 <label className="sr-only" htmlFor={`reassign-coordinator-${event.id}`}>New Event Coordinator for {event.name}</label>
                                 <select id={`reassign-coordinator-${event.id}`} value={choices[choiceKey] || ''} onChange={(e) => setChoices((current) => ({ ...current, [choiceKey]: e.target.value }))} className="border rounded-sm px-3 py-2 font-ui text-sm bg-white" style={{ borderColor: C.line, color: C.ink }}>
                                   <option value="">Choose a different Event Coordinator</option>
-                                  {state.coordinators.filter((coordinator) => coordinator.id !== event.assigned_coordinator_id).map((coordinator) => <option key={coordinator.id} value={coordinator.id}>{coordinator.name}</option>)}
+                                  {state.coordinators.filter((coordinator) => coordinator.id !== event.assigned_coordinator_id).map((coordinator) => <option key={coordinator.id} value={coordinator.id}>{coordinatorOptionLabel(coordinator)}</option>)}
                                 </select>
                                 <button type="button" disabled={assigning === event.id} onClick={() => handleReassign(event)} className="rounded-sm px-5 py-2 font-ui text-sm text-white disabled:opacity-60" style={{ backgroundColor: C.teal }}>
                                   {assigning === event.id ? 'Reassigning…' : 'Reassign event'}

@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-10-08, branch `S-83/assign-event-requests-from-unassigned-queue`, pre-commit working tree |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
 | Environment | Python 3.14.8, pytest 9.1.1. No network, no database, no Docker. |
-| Result | 35 passed in this suite; 711 passed across `tests/unit` |
+| Result | 37 passed in this suite; 840 passed, 17 skipped across `tests/unit` |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -460,3 +460,14 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** Known ids were returned once with profile fields only; empty input returned `[]` without storage access.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_profile_lookup_returns_known_unique_profiles`
+
+## TC-USERS-032 — Coordinator pool includes trusted Auth users without profiles
+
+- **Scenario:** Coordinator eligibility comes only from trusted Auth app metadata, while profile data is optional display enrichment.
+- **Pre-conditions:** Auth returns a profiled Coordinator A, a profile-less Coordinator B, and users with `event_organiser`, `technical_support`, `safety_officer`, `event_coordinator_lead`, and missing trusted roles. B has an Auth email but no `users.users` row. One non-Coordinator has editable `user_metadata.role=event_coordinator`.
+- **Steps:** Call `GET /internal/users/coordinators`; compare returned IDs and display fields with the Auth users and the available profile rows. Repeat with B on Auth page 2.
+- **Test data:** A `alex@example.com` with profile name `Alex`; B `idle@example.com` without a profile; five non-Coordinator roles and one editable-role impostor.
+- **Expected:** Exactly A and B are returned. A uses its profile name/email; B uses its Auth email as display name and email. No role is inferred from a profile, email, name, or editable `user_metadata`; no Auth secret or token is returned. The same complete pool remains usable by S-83 assignment and S-84 reassignment validation.
+- **Actual:** The returned pool contained exactly the two trusted Coordinator IDs; the profiled name remained Alex and the missing-profile account displayed its Auth email, including when that account was on Auth page 2. Every other trusted role and the editable-metadata impostor was excluded.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_listing_keeps_trusted_auth_users_without_profiles`, `test_app.py::test_coordinator_listing_includes_profileless_auth_user_on_later_page`; local Python 3.14 unit run, 2026-10-18.

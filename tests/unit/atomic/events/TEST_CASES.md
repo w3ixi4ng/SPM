@@ -1722,18 +1722,20 @@ cases confirmed by the developer on 2026-10-10. Executed locally on
 - **Actual:** The queue used both storage predicates and oldest-update order;
   missing returned `404`, while wrong state/current decision returned `409`.
 - **Status:** Pass
-- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_confirmed_events`; `test_s86.py::test_safety_detail_distinguishes_missing_from_ineligible`
+- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_pending_events`; `test_s86.py::test_safety_detail_distinguishes_missing_from_ineligible`
 
 ## TC-EVENTS-120 — safety outcomes are distinct and audited
+
+> **S-17 (2026-10-19):** approval now yields `confirmed`, not `preparation` — see TC-EVENTS-139.
 
 - **Pre-conditions:** A confirmed event has no safety decision.
 - **Steps:** Record approval, rejection with reason, and changes requested with
   reason, each as Safety Officer D.
-- **Expected:** Status becomes `preparation`, `safety_rejected`, or
-  `safety_changes_requested`; decision, optional reason, D and a server time
-  are stored together.
-- **Actual:** All three outcomes stored the distinct status, current decision,
-  applicable reason, Safety Officer id and non-null server timestamp.
+- **Expected:** Status becomes `preparation`, `safety_rejected`, or, after the
+  S-87 clarification, `planning`; decision, optional reason, D, a server time
+  and an immutable history entry are stored together.
+- **Actual:** All outcomes stored the required current fields and appended one
+  history record; requested changes returned directly to `planning`.
 - **Status:** Pass
 - **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`
 
@@ -1748,6 +1750,8 @@ cases confirmed by the developer on 2026-10-10. Executed locally on
 - **Evidence:** `test_s86.py::test_invalid_safety_decisions_are_rejected_before_storage`
 
 ## TC-EVENTS-122 — missing, stale, repeated and concurrent decisions do not overwrite
+
+> **S-17 (2026-10-19):** the conditional write now requires `pending_safety_check`, not `confirmed` — see TC-EVENTS-139.
 
 - **Pre-conditions:** Missing event; already-decided event; and a confirmed
   event whose compare-and-set loses a concurrent race.
@@ -1904,6 +1908,446 @@ owned by O, reason `"Keynote speaker withdrew and no replacement is available"`.
 - **Actual:** Both routes returned the three fields as stored with status `planning`; the other event had all three `null`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s62.py::test_the_request_is_returned_with_the_event`
+---
+
+## S-87 — Return after safety changes and resubmit
+
+Story: S-87 Return Event to Planning After Safety Changes Requested.
+Acceptance criteria and test cases confirmed by the developer on 2026-10-10.
+Executed locally on 2026-10-13 at commit `72886bb` in the full Python unit
+run: 981 passed, 17 skipped.
+
+## TC-EVENTS-130 — change request returns atomically to planning with history
+
+- **Pre-conditions:** A confirmed, undecided event has existing venue,
+  equipment and Technical Support arrangements.
+- **Steps:** Record `changes_requested` with a reason and Safety Officer id.
+- **Expected:** One conditional Events-row update changes the status to
+  `planning`, sets the current safety feedback, and appends review 1 to
+  `safety_review_history`. It does not update or clear any resource field.
+- **Actual:** The single conditional update set planning/current feedback and
+  appended review 1 without including any resource field in the update.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_changes_requested_returns_to_planning_and_appends_immutable_history`
+
+## TC-EVENTS-131 — returned safety work belongs to its current Coordinator
+
+- **Pre-conditions:** A planning event is assigned to Coordinator A and its
+  current safety decision is `changes_requested`.
+- **Steps:** Read its returned-safety source as A and Coordinator B.
+- **Expected:** A receives the event and complete review history; B receives
+  `404` and no event data.
+- **Actual:** Coordinator A received the complete row and history; B received
+  `404` from the assignment-scoped lookup.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_only_currently_assigned_coordinator_can_open_returned_safety_work`
+
+## TC-EVENTS-132 — resubmission is limited to safety-returned planning events
+
+> **S-17 (2026-10-19):** a `pending_safety_check` event is also ineligible; the general S-17 submission is TC-EVENTS-136.
+
+- **Steps:** Attempt the S-87 action for an ordinary planning event, a
+  confirmed event, and a planning event whose current decision is not
+  `changes_requested`.
+- **Expected:** Every attempt returns `409` before an update. This route does
+  not become the general S-17 confirmation workflow.
+- **Actual:** All three ineligible states returned `409` and made no update.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_only_safety_returned_planning_event_can_be_resubmitted`
+
+## TC-EVENTS-133 — resubmission preserves audit history and resources
+
+> **S-17 (2026-10-19):** resubmission now yields `pending_safety_check` — see TC-EVENTS-140.
+
+- **Pre-conditions:** Coordinator A owns a safety-returned planning event with
+  one history entry and existing resource fields.
+- **Steps:** Resubmit it for a fresh safety review.
+- **Expected:** One conditional update changes `planning` to `confirmed` and
+  clears only the four current safety-decision fields. History and all event
+  and resource fields remain unchanged, making the event eligible for S-86.
+- **Actual:** The result was confirmed with null current safety fields and the
+  original history; the update payload contained exactly those five lifecycle
+  fields and no history/resource field.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_resubmit_clears_only_current_blocker_and_preserves_history`
+
+## TC-EVENTS-134 — stale and concurrent resubmissions cannot overwrite
+
+- **Pre-conditions:** The eligibility read succeeds but the conditional write
+  loses a concurrent race.
+- **Steps:** Submit the S-87 transition.
+- **Expected:** Empty update result returns `409`; there is no fallback or
+  unconditional write and the prior review cannot be lost.
+- **Actual:** An empty conditional result returned `409` after exactly one
+  write attempt.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_repeated_or_concurrent_resubmit_is_409_without_fallback_write`
+
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Acceptance criteria supplied and design
+decisions confirmed by the developer on 2026-10-19.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The assigned Coordinator can edit an event during planning | TC-EVENTS-148, TC-EVENTS-152 |
+| Routine contact, description and internal-note edits do not trigger re-review | TC-EVENTS-148 |
+| Date/time, attendance, venue-requirement and equipment-requirement changes require impact review | TC-EVENTS-149; equipment requirements are covered by TC-EQUIPMENTREQUIREMENTS-030 |
+| Accepted significant changes to Confirmed/Preparation return to Planning and require a fresh safety check | TC-EVENTS-150 |
+| Existing venue and equipment arrangements are preserved | TC-EVENTS-150, TC-EVENTS-151 |
+| Saves are immediately reflected in the event record | TC-EVENTS-148, TC-EVENTS-150 |
+| Every edit records what, who and when for future S-82 display | TC-EVENTS-148, TC-EVENTS-151 |
+
+## TC-EVENTS-148 — routine edits save immediately without lifecycle review
+
+- **Scenario:** The assigned Coordinator updates routine planning information.
+- **Pre-conditions:** Coordinator A is assigned to event E in each of
+  `planning`, `confirmed`, and `preparation`. E has an existing purpose,
+  contact name/email/phone and internal note.
+- **Steps:** Patch each routine field as A, then read E through the assigned
+  event route.
+- **Test data:** Purpose `Updated delegate briefing`; contact `Sam Lee`,
+  `sam.lee@example.com`, `+65 6123 4567`; internal note
+  `Call organiser on arrival`.
+- **Expected:** The trimmed values are returned immediately and survive the
+  later read. Status and current safety fields are unchanged; no impact-review
+  confirmation is requested. One append-only history entry records only the
+  fields whose normalized values changed, their before/after values, A's
+  authenticated UUID and a server timestamp. Browser-supplied actor/time or
+  history fields are rejected.
+- **Actual:** Normalized routine values were saved in one versioned update;
+  lifecycle and current safety fields were absent from the update, and the
+  appended history named only the changed routine fields and trusted actor.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_routine_edits_save_immediately_without_lifecycle_review`
+
+## TC-EVENTS-149 — significant changes are classified by the server and require acceptance
+
+- **Scenario:** A significant edit cannot bypass impact review by changing the
+  browser request.
+- **Pre-conditions:** Coordinator A is assigned to planning event E.
+- **Steps:** Separately change start/end date or time, the effective duration,
+  expected attendance, venue preference, room layout, required facilities,
+  and required accessibility; repeat with normalized values equal to storage;
+  attempt the save without and then with explicit impact acceptance.
+- **Test data:** Attendance `120` to `150`; `theatre` to `banquet`; add
+  `stage`; reorder an otherwise identical facility list; client-supplied
+  `significant: false`.
+- **Expected:** The service calculates significance from stored and proposed
+  normalized values. Each real significant change first returns an impact
+  summary and leaves E unchanged until accepted. Reordered/deduplicated equal
+  lists and equal trimmed values are no-ops. Client classification is
+  forbidden. An accepted planning edit saves once, remains `planning`, and
+  records its exact audit entry.
+- **Actual:** The server preview identified attendance and facility changes;
+  a save without acceptance returned `409` before any update.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_significant_changes_are_server_classified_and_require_acceptance`
+
+## TC-EVENTS-150 — accepted significant edits restart the lifecycle and safety check
+
+- **Scenario:** A material change after confirmation must pass through
+  planning and a new Operational Safety Check.
+- **Pre-conditions:** Coordinator A owns one `confirmed` and one `preparation`
+  event. Each has current safety fields and at least one prior
+  `safety_review_history` entry.
+- **Steps:** Accept an attendance/date change; read the event; submit the
+  revised planning event for its new safety check.
+- **Expected:** The accepted edit atomically saves the values, changes status
+  to `planning`, clears only the current safety decision/reason/officer/time,
+  and preserves prior safety history. The later lifecycle action conditionally
+  uses the S-17 readiness check and moves this revised event from `planning`
+  to `pending_safety_check`. Only the Safety Officer can later make it
+  `confirmed`. The response at each step reflects the stored state immediately.
+- **Actual:** Acceptance produced Planning, cleared only current safety state,
+  retained safety history and existing sign-offs. S-17 separately proves that
+  a ready planning event moves to Pending Safety Check without a bypass.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_accepted_significant_edit_restarts_lifecycle_without_resetting_signoffs`; `test_s17.py::test_planning_event_moves_to_pending_safety_check`
+
+## TC-EVENTS-151 — significant edits preserve existing arrangements and append immutable history
+
+- **Scenario:** Re-review does not silently discard work already completed by
+  Venue Staff or Technical Support.
+- **Pre-conditions:** A confirmed/preparation event has equipment preparation
+  `ready`, a Technical Support assignment, safety-review history, and external
+  venue-booking/equipment-requirement references.
+- **Steps:** Accept a significant event edit and inspect the conditional update
+  payload, returned record, and edit history; attempt to overwrite or delete
+  an earlier history entry.
+- **Expected:** The event update does not reset equipment preparation or
+  assignments and does not issue writes to booking/equipment storage. Previous
+  safety and edit history remains byte-for-byte unchanged and a new numbered
+  edit entry is appended. History mutation through the edit payload is `422`.
+- **Actual:** The conditional Events update omitted equipment preparation and
+  safety history; schemas forbid browser-supplied audit and arrangement fields.
+  Database-backed browser verification retained the booking and requirement.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_accepted_significant_edit_restarts_lifecycle_without_resetting_signoffs`; `tests/e2e/test_update_event_information.py`
+
+## TC-EVENTS-152 — assignment, state, validation, concurrency and storage failures fail closed
+
+- **Scenario:** An edit reports success only when the assigned Coordinator's
+  complete change and audit record were stored together.
+- **Pre-conditions:** Events assigned to Coordinator A in editable and closed
+  states; Coordinator B; invalid payloads; a stale version; simulated storage
+  failure.
+- **Steps:** Edit as A, B, every other role and without a session; edit a
+  cancelled/rejected event; submit invalid contact/time values, a no-op, and a
+  stale concurrent write; make the atomic event-plus-history operation fail.
+- **Expected:** A may edit `planning`, `confirmed`, and `preparation`. B sees
+  `404`; other roles `403`; no session `401`; closed states and stale writes
+  `409`; invalid bodies `422`; a no-op creates no history; storage failure is a
+  safe `500`. No failure leaves changed event data without its audit entry or
+  an audit entry without its event change.
+- **Actual:** Wrong assignment was hidden, closed lifecycle and stale version
+  returned `409`, invalid/extra fields were rejected by the strict schema, and
+  the version predicate kept the data-plus-history update conditional.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_event_edits_fail_closed_and_are_atomic`; focused Python run, 377 passed, 2026-10-19.
+## S-26 — Update Equipment Preparation Status
+
+Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test
+cases confirmed by the developer on 2026-10-11. These cases are the canonical
+backend trace for the story and have not yet been executed.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| Technical Support can set Not Started, In Progress, and Ready | TC-EVENTS-123 |
+| The current status is available to the event readiness view | TC-EVENTS-123, TC-EVENTS-126 |
+| Only assigned Technical Support can change the status | TC-EVENTS-124 |
+| Confirmed rules: backwards transitions, eligible event states, audit, and safe races/failures | TC-EVENTS-123–125 |
+
+### TC-EVENTS-123 — assigned Technical Support records every preparation state with an audit trail
+
+- **Scenario:** The assigned Technical Support worker maintains one equipment preparation status for the event.
+- **Pre-conditions:** An event assigned to Technical Support A is in each eligible lifecycle state: `planning`, `confirmed`, or `preparation`.
+- **Steps:** Read a newly eligible event; update it to `in_progress`, then `ready`, then back to `not_started`; read it again.
+- **Test data:** Event `33333333-3333-4333-8333-333333333333`; Technical Support A `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; the three status values.
+- **Expected:** A new event reads as `not_started`. Every transition succeeds, including moving backwards; the response and later event read expose the current status, authenticated updater id, and a server-generated update time.
+- **Actual:** All three values persisted in every eligible lifecycle state; each response contained the authenticated updater and server timestamp.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards`
+
+### TC-EVENTS-124 — preparation updates are restricted to the assigned Technical Support worker
+
+- **Scenario:** Event assignment and trusted role jointly control the write.
+- **Pre-conditions:** The eligible event is assigned to Technical Support A.
+- **Steps:** Attempt the update as A, Technical Support B, its assigned Event Coordinator, Event Organiser, Venue Staff, Attendee, an unknown role, and without a session.
+- **Test data:** Status `ready`; support ids A and B; all trusted project roles.
+- **Expected:** A succeeds. B sees `404` so another worker's assignment is not disclosed. Other authenticated roles receive `403`; no session receives `401`; no denied request writes storage. The Coordinator can still read the resulting status through their existing assigned-event view.
+- **Actual:** Assigned Technical Support was authorised; unassigned support was hidden with `404`; every other tested role was denied before storage.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_only_assigned_support_can_update_preparation`
+
+### TC-EVENTS-125 — invalid, stale, concurrent, and failed preparation updates never report success
+
+- **Scenario:** A response cannot claim a preparation change that storage did not make.
+- **Pre-conditions:** Invalid payloads; an event that is missing, reassigned, cancelled, or changed concurrently; and a storage exception.
+- **Steps:** Submit an unknown status, extra audit fields, and each stale or failing update.
+- **Test data:** `done`; client-supplied updater/time; reassigned/cancelled event; empty conditional-update result; simulated Supabase failure.
+- **Expected:** Invalid payloads return `422` before storage. Missing or hidden assignments return `404`; ineligible or concurrently changed events return `409`. The conditional write matches event id, assigned worker, and eligible lifecycle status. Storage failure returns safe `500`; no case fabricates a changed response.
+- **Actual:** Invalid bodies failed before storage, an empty conditional update returned `409`, and a simulated storage exception returned only the safe service error.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_invalid_and_stale_updates_never_report_success`
+
+## S-17 — submit an event for the Operational Safety Check
+
+S-17 adds the stored status `pending_safety_check` between `planning` and
+`confirmed`. The Coordinator's submission (and S-87's resubmission) moves
+`planning → pending_safety_check`; the S-86 queue reads that status; a Safety
+Officer's approval moves it to `confirmed`. `preparation` stays allowed but
+nothing sets it in S-17. Readiness itself is checked in the `safety_checks`
+composite (TC-SAFETYCHECKS-010 onwards) — this service only owns the
+transitions and the Technical Support sign-off record.
+
+Shared test data: event `E1` = `0b6f0e55-0000-4000-8000-000000000001`,
+Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
+`c0000000-0000-4000-8000-000000000002`, Technical Support `T1` =
+`70000000-0000-4000-8000-000000000001`, `T2` =
+`70000000-0000-4000-8000-000000000002`, Safety Officer `S1` =
+`50000000-0000-4000-8000-000000000001`.
+
+## TC-EVENTS-135 — `pending_safety_check` is a valid stored status
+
+- **Scenario:** The new stage validates and serialises like any other status.
+- **Pre-conditions:** None (schema only).
+- **Steps:** 1. Build `EventRead` from a row with `status: "pending_safety_check"`,
+  `decision: "approved"`. 2. Build one with `status: "pending_safety_check"`,
+  `decision: null`.
+- **Test data:** The two rows above, otherwise a complete submitted event.
+- **Expected:** 1 validates and `status == "pending_safety_check"`. 2 is
+  refused at the database by `events_decision_matches_status` (covered by
+  TC-EVENTS-147); the Pydantic model accepts the status value itself.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_pending_safety_check_is_a_valid_status`
+
+## TC-EVENTS-136 — the assigned Coordinator's planning event moves to pending_safety_check
+
+- **Scenario:** The internal safety-submission transition succeeds once.
+- **Pre-conditions:** Fake returns `E1` with `status: "planning"`,
+  `assigned_coordinator_id: C1`, `safety_decision: null`.
+- **Steps:** 1. `POST /internal/events/E1/safety-submission` with
+  `{"coordinator_id": C1}`.
+- **Test data:** As above.
+- **Expected:** `200`; body `status == "pending_safety_check"`. Exactly one
+  update, values `{"status": "pending_safety_check"}`, filtered on `id = E1`,
+  `status = planning`, `assigned_coordinator_id = C1`. No resource field
+  (venue, equipment, Technical Support, sign-off) is in the update.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_planning_event_moves_to_pending_safety_check`
+
+## TC-EVENTS-137 — only a planning event of the caller can be submitted
+
+- **Scenario:** Ineligible states and other Coordinators never transition.
+- **Pre-conditions:** Fake returns `E1` assigned to `C1` in each state below.
+- **Steps:** 1. Submit as `C1` with `E1` in `submitted`, `pending_safety_check`,
+  `confirmed`, `safety_rejected`, `rejected`. 2. Submit as `C2` with `E1` in
+  `planning`. 3. Submit as `C1` with `E1` in `planning` but the conditional
+  update matches no row (a concurrent submission).
+- **Test data:** As above.
+- **Expected:** 1 → `409` "This event is not in planning", no update call.
+  2 → `404`, no update call. 3 → `409`, no second update.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_only_planning_events_can_be_submitted`; `test_s17.py::test_only_assigned_planning_event_can_be_submitted`; `test_s17.py::test_safety_returned_event_is_resubmitted_not_submitted`
+
+## TC-EVENTS-138 — the S-86 queue reads pending_safety_check
+
+- **Scenario:** The Safety Officer's queue is the new stage, not `confirmed`.
+- **Pre-conditions:** Fake records the query.
+- **Steps:** 1. `GET /internal/events/safety-review`. 2. `GET
+  /internal/events/safety-review/E1` with `E1` `confirmed`, then
+  `pending_safety_check`.
+- **Test data:** `E1` with `safety_decision: null`.
+- **Expected:** 1 filters `status = pending_safety_check` and
+  `safety_decision is null`, oldest `updated_at` first. 2 → `409` for
+  `confirmed`, `200` for `pending_safety_check`.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s86.py::test_safety_queue_selects_only_undecided_pending_events`
+
+## TC-EVENTS-139 — safety approval makes the event Confirmed
+
+- **Scenario:** Confirmed is reached only through the Safety Officer.
+- **Pre-conditions:** `E1` is `pending_safety_check`, `safety_decision: null`.
+- **Steps:** Record each decision in turn on a fresh `E1`: `approved`;
+  `rejected` with reason `"Fire exits blocked"`; `changes_requested` with
+  reason `"Add stewards"`; all by `S1`.
+- **Test data:** As above.
+- **Expected:** Resulting status `confirmed`, `safety_rejected`, `planning`
+  respectively. Each conditional update filters `status =
+  pending_safety_check` and `safety_decision is null`. No outcome sets
+  `preparation`.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s86.py::test_safety_decision_records_audit_and_distinct_lifecycle_state`; `test_s86.py::test_empty_conditional_update_reports_concurrent_decision_without_overwrite`
+
+## TC-EVENTS-140 — S-87 resubmission returns to pending_safety_check
+
+- **Scenario:** A safety-returned event re-enters the queue at the new stage.
+- **Pre-conditions:** `E1` is `planning`, `safety_decision:
+  "changes_requested"`, assigned to `C1`, one history record.
+- **Steps:** `POST /internal/events/E1/safety-resubmit` with
+  `{"coordinator_id": C1}`.
+- **Test data:** As above.
+- **Expected:** `200`, `status == "pending_safety_check"`, current safety
+  decision fields null, history unchanged (still one record).
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s87.py::test_resubmit_clears_only_current_blocker_and_preserves_history`
+
+## TC-EVENTS-141 — assigned Technical Support records a sign-off
+
+- **Scenario:** Approve and decline are stored with who and when, and the
+  Coordinator can read them.
+- **Pre-conditions:** `E1` is `planning`, `assigned_technical_support_id: T1`.
+- **Steps:** 1. `PUT /internal/events/E1/technical-signoff` with
+  `{"technical_support_id": T1, "decision": "approved"}`. 2. Same with
+  `{"decision": "approved", "override_comment": "Borrowing 2 projectors from
+  Library"}`. 3. Same with `{"decision": "declined", "reason": "Only one
+  sound desk exists"}`. 4. `GET /events/assigned/E1` as `C1` after 3.
+- **Test data:** As above.
+- **Expected:** 1 stores `technical_signoff_decision: "approved"`,
+  `technical_signoff_by: T1`, a server timestamp, reason and comment null.
+  2 stores the comment. 3 stores `"declined"` and the reason, comment null.
+  4 returns all five sign-off fields to the Coordinator.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_assigned_support_records_signoff`; `test_s17.py::test_coordinator_reads_the_signoff`
+
+## TC-EVENTS-142 — sign-off payload rules
+
+- **Scenario:** A decline always has a reason; an approval never does.
+- **Pre-conditions:** As TC-EVENTS-141.
+- **Steps:** Send each payload.
+- **Test data:** `{"decision": "declined"}`; `{"decision": "declined",
+  "reason": "   "}`; `{"decision": "approved", "reason": "x"}`;
+  `{"decision": "declined", "reason": "x", "override_comment": "y"}`;
+  `{"decision": "approved", "override_comment": "  "}`; reason of 501
+  characters; `{"decision": "maybe"}`.
+- **Expected:** Every payload → `422` and no update.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_signoff_payload_rules`
+
+## TC-EVENTS-143 — only the assigned Technical Support, only in planning
+
+- **Scenario:** Only the assigned Technical Support signs off, and only in planning.
+- **Pre-conditions:** As TC-EVENTS-141.
+- **Steps:** 1. Sign off `E1` as `T2` while `T1` is assigned. 2. Sign off as
+  `T1` with `E1` in `pending_safety_check`, then `confirmed`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** 1 → `404`, no update. 2 → `409` "Technical Support sign-off
+  can only change while the event is in planning", no update.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_signoff_limited_to_assigned_support_in_planning`
+
+## TC-EVENTS-144 — clearing a sign-off returns it to awaiting
+
+- **Scenario:** A Coordinator equipment change voids the previous sign-off.
+- **Pre-conditions:** `E1` `planning` with an approved sign-off (comment
+  set); separately with a declined sign-off; separately with none.
+- **Steps:** `POST /internal/events/E1/technical-signoff/clear` for each.
+- **Test data:** As above.
+- **Expected:** `200` each time; afterwards all five sign-off fields are null.
+  Clearing when none exists is not an error.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_clear_signoff_returns_to_awaiting`
+
+## TC-EVENTS-145 — the Organiser sees each stage
+
+- **Scenario:** The Organiser's own event shows Pending Safety Check, then
+  Confirmed.
+- **Pre-conditions:** Organiser `O1` owns `E1`.
+- **Steps:** `GET /events/E1` as `O1` with `E1` `pending_safety_check`, then
+  `confirmed`.
+- **Test data:** As above.
+- **Expected:** `200` with `status` `pending_safety_check`, then `confirmed`.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_organiser_reads_pending_and_confirmed`
+
+## TC-EVENTS-146 — pending_safety_check counts as an open event wherever confirmed does
+
+- **Scenario:** The new stage is not silently dropped by existing lists.
+- **Pre-conditions:** `E1` is `pending_safety_check`.
+- **Steps:** 1. Coordinator active assignments (`/internal/events/assigned-active`).
+  2. Technical Support's assigned list. 3. S-26 equipment preparation update
+  by `T1`. 4. S-62 cancellation request by the Organiser.
+- **Test data:** As above.
+- **Expected:** 1 and 2 include `E1`; 3 → `200`; 4 → `200`, exactly as for a
+  `confirmed` event.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`
+
 
 ## S-61 — review and approve cancellation request
 
@@ -1918,9 +2362,9 @@ range is full).
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| AC1: A Coordinator can approve a submitted cancellation request, changing the event's status to Cancelled | EVENTS-131, 134, 135, 137, EVENTREQUESTS-064, 111, FRONTEND-107, E2E-234 |
-| AC2: Approving releases the event's committed venue and equipment reservations | BOOKINGS-044, 045, EVENTREQUESTS-064, 067, 111, E2E-234; equipment: EVENTS-105/106 (only `planning` and `confirmed` events reserve equipment) and EVENTREQUESTS-111 |
-| AC3: The decision is recorded against the event | EVENTS-131, 132, EVENTREQUESTS-111 |
+| AC1: A Coordinator can approve a submitted cancellation request, changing the event's status to Cancelled | EVENTS-154, 157, 158, 160, EVENTREQUESTS-069, 112, FRONTEND-141, E2E-245 |
+| AC2: Approving releases the event's committed venue and equipment reservations | BOOKINGS-064, 065, EVENTREQUESTS-069, 067, 112, E2E-245; equipment: EVENTS-105/106 (only `planning` and `confirmed` events reserve equipment) and EVENTREQUESTS-112 |
+| AC3: The decision is recorded against the event | EVENTS-154, 155, EVENTREQUESTS-112 |
 
 Decisions agreed with the developer on 2026-10-11:
 
@@ -1951,7 +2395,7 @@ Decisions agreed with the developer on 2026-10-11:
 reason "Keynote speaker withdrew", requested `2026-10-11T09:00:00Z`, no
 decision.
 
-## TC-EVENTS-131 — the assigned Coordinator approves a cancellation request
+## TC-EVENTS-154 — the assigned Coordinator approves a cancellation request
 
 - **Scenario:** Approval cancels the event and records the decision (AC1, AC3).
 - **Pre-conditions:** K signed in. The assigned-event lookup returns E in
@@ -1971,10 +2415,10 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_the_assigned_coordinator_approves_a_cancellation_request`
 
-## TC-EVENTS-132 — the assigned Coordinator declines with a reason
+## TC-EVENTS-155 — the assigned Coordinator declines with a reason
 
 - **Scenario:** Declining records why and leaves the event as it was (AC3).
-- **Pre-conditions:** As TC-EVENTS-131, E `planning`.
+- **Pre-conditions:** As TC-EVENTS-154, E `planning`.
 - **Steps:** `POST /events/E/cancellation-decision`.
 - **Test data:** `{"decision": "declined", "reason": "  Venue is non-refundable; move the date instead  "}`
 - **Expected:** `200` with `status` still `planning`, `cancellation_decision`
@@ -1984,7 +2428,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_the_assigned_coordinator_declines_with_a_reason`
 
-## TC-EVENTS-133 — a decision with a missing or wrong field is refused
+## TC-EVENTS-156 — a decision with a missing or wrong field is refused
 
 - **Scenario:** A decline needs a reason; an approval takes none.
 - **Pre-conditions:** K signed in.
@@ -1999,7 +2443,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_decision_with_a_missing_or_wrong_field_is_refused`
 
-## TC-EVENTS-134 — only the event's assigned Coordinator may decide
+## TC-EVENTS-157 — only the event's assigned Coordinator may decide
 
 - **Scenario:** Nobody else can cancel or decline (AC1).
 - **Pre-conditions:** The assigned-event lookup returns no row for an
@@ -2016,7 +2460,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_no_session_is_401`; `tests/unit/atomic/events/test_s61.py::test_other_roles_are_403`; `tests/unit/atomic/events/test_s61.py::test_an_unassigned_or_missing_event_is_404`
 
-## TC-EVENTS-135 — there must be a pending request to decide
+## TC-EVENTS-158 — there must be a pending request to decide
 
 - **Scenario:** A Coordinator can't cancel an event nobody asked to cancel,
   or decide twice (AC1).
@@ -2033,7 +2477,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_there_must_be_a_pending_request_to_decide`
 
-## TC-EVENTS-136 — approving an already approved request again changes nothing
+## TC-EVENTS-159 — approving an already approved request again changes nothing
 
 - **Scenario:** A retry after a failed booking release is safe (decision 7).
 - **Pre-conditions:** K signed in; E `cancelled` with `cancellation_decision`
@@ -2044,7 +2488,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_approving_an_already_approved_request_again_changes_nothing`
 
-## TC-EVENTS-137 — a decision that loses a race is refused without overwriting
+## TC-EVENTS-160 — a decision that loses a race is refused without overwriting
 
 - **Scenario:** Two Coordinators' tabs, or a status change, between the read
   and the write.
@@ -2057,7 +2501,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_decision_that_loses_a_race_is_refused_without_overwriting`
 
-## TC-EVENTS-138 — after a decline the Organiser can request again
+## TC-EVENTS-161 — after a decline the Organiser can request again
 
 - **Scenario:** A declined request doesn't lock the Organiser out (decision 1).
 - **Pre-conditions:** O signed in. E `planning` with a declined request.
@@ -2077,7 +2521,7 @@ decision.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_after_a_decline_the_organiser_can_request_again`; `tests/unit/atomic/events/test_s61.py::test_a_pending_or_approved_request_still_blocks_another`
 
-## TC-EVENTS-139 — a cancelled event can't be edited or resubmitted
+## TC-EVENTS-162 — a cancelled event can't be edited or resubmitted
 
 - **Scenario:** A cancelled event is closed, at the service as well as in
   the page (S-61; added 2026-10-13 at the developer's request, after the

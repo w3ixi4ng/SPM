@@ -6,7 +6,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
 from database import get_auth, get_db
-from schemas import CurrentUserRead, LoginRequest, ProfileLookupRequest, SignUpRequest, UserRead
+from schemas import CoordinatorRead, CurrentUserRead, LoginRequest, ProfileLookupRequest, SignUpRequest, UserRead
 from security import (
     ACCESS_COOKIE,
     clear_session_cookies,
@@ -107,24 +107,29 @@ def _discard_auth_user(db: Client, user_id: str) -> None:
         pass
 
 
-def _list_user_ids_with_role(db: Client, role: str) -> list[str]:
-    """Every Auth user id whose trusted app_metadata.role matches, across pages."""
+def _list_auth_users_with_role(db: Client, role: str) -> list:
+    """Every Auth user with the trusted role, including users without profiles."""
     page_size = 200
-    ids: list[str] = []
+    users = []
     page = 1
     while True:
         batch = db.auth.admin.list_users(page=page, per_page=page_size)
         if not batch:
             break
-        ids.extend(
-            user.id
+        users.extend(
+            user
             for user in batch
             if (getattr(user, "app_metadata", None) or {}).get("role") == role
         )
         if len(batch) < page_size:
             break
         page += 1
-    return ids
+    return users
+
+
+def _list_user_ids_with_role(db: Client, role: str) -> list[str]:
+    """IDs for the existing role-specific routes that require profiles."""
+    return [user.id for user in _list_auth_users_with_role(db, role)]
 
 
 @app.get("/health")
@@ -262,14 +267,27 @@ def me(user=Depends(get_current_user), db: Client = Depends(get_db)):
 # No Kong route exists for this -- see the events service README's "Internal
 # routes" section. Only the event_requests composite calls it, to find who it
 # can assign an event request to.
-@app.get("/internal/users/coordinators", response_model=list[UserRead])
+@app.get("/internal/users/coordinators", response_model=list[CoordinatorRead])
 def list_coordinators(db: Client = Depends(get_db)):
-    coordinator_ids = _list_user_ids_with_role(db, COORDINATOR_ROLE)
-    if not coordinator_ids:
+    coordinators = _list_auth_users_with_role(db, COORDINATOR_ROLE)
+    if not coordinators:
         return []
 
-    res = db.schema(SCHEMA).table(TABLE).select("*").in_("id", coordinator_ids).execute()
-    return res.data
+    ids = [user.id for user in coordinators]
+    res = db.schema(SCHEMA).table(TABLE).select("id,name,email").in_("id", ids).execute()
+    profiles = {row["id"]: row for row in res.data}
+    return [
+        {
+            "id": user.id,
+            "name": profiles.get(user.id, {}).get("name")
+            or getattr(user, "email", None)
+            or getattr(user, "phone", None)
+            or user.id,
+            "email": profiles.get(user.id, {}).get("email")
+            or getattr(user, "email", None),
+        }
+        for user in coordinators
+    ]
 
 
 @app.post("/internal/users/profiles", response_model=list[UserRead])

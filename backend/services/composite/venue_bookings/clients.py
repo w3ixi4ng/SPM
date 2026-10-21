@@ -8,6 +8,7 @@ USERS_URL = os.environ["USERS_SERVICE_URL"]
 EVENTS_URL = os.environ["EVENTS_SERVICE_URL"]
 VENUES_URL = os.environ["VENUES_SERVICE_URL"]
 BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
+NOTIFICATIONS_URL = os.environ["NOTIFICATIONS_SERVICE_URL"]
 BOOKINGS_TIMEOUT = 15.0
 INTERNAL_READ_TIMEOUT = httpx.Timeout(
     connect=5.0,
@@ -33,3 +34,8 @@ def get_bookings_client() -> httpx.AsyncClient:
     # Booking writes can include Supabase constraint checks. Allow for CI and
     # remote-database latency while retaining a bounded downstream call.
     return httpx.AsyncClient(base_url=BOOKINGS_URL, timeout=BOOKINGS_TIMEOUT)
+
+
+def get_notifications_client() -> httpx.AsyncClient:
+    # S-77: Coordinators of bookings an unavailable period affects.
+    return httpx.AsyncClient(base_url=NOTIFICATIONS_URL, timeout=5.0)

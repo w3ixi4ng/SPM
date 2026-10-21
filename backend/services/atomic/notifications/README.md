@@ -3,15 +3,16 @@
 Atomic FastAPI service for persistent in-app notifications. It owns
 `notifications.notifications`; no other service reads or writes that table.
 
-Stories: S-83 Assign Event Requests from Unassigned Queue and S-84 Reassign
-Event Coordinator.
+Stories: S-83 Assign Event Requests from Unassigned Queue, S-84 Reassign
+Event Coordinator, S-77 Mark Venue Temporarily Unavailable, and S-81 Place
+Tentative Venue Hold with Expiry.
 
 ## Endpoints
 
 | Method | Path | Caller | Does |
 | --- | --- | --- | --- |
 | `GET` | `/notifications` | Authenticated browser | Lists only the signed-in user's notifications, newest first. |
-| `POST` | `/internal/notifications` | `event_requests` composite | Idempotently persists a batch using each row's deduplication key. Not routed through Kong. |
+| `POST` | `/internal/notifications` | `event_requests` and `venue_bookings` composites | Idempotently persists a batch using each row's deduplication key. Not routed through Kong. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
 ## Request
@@ -34,8 +35,10 @@ Event Coordinator.
 ```
 
 All fields are required. The batch contains 1–20 rows and cannot repeat a
-deduplication key. Supported kinds are `event_assignment` and
-`event_reassignment`. S-84 sends a three-row reassignment batch whose keys
+deduplication key. Supported kinds are `event_assignment`,
+`event_reassignment`, `venue_unavailable` (a Coordinator's booking needs
+alternative arrangements), and `venue_hold_expiry` (the time a tentative hold
+will be released). S-84 sends a three-row reassignment batch whose keys
 include the event's monotonic assignment version.
 
 ## Response

@@ -4,11 +4,17 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import Logo from '../components/Logo.jsx'
 import { eventErrorMessage, getAssignedEventRequest } from '../lib/eventRequests.js'
 import {
+  bookingToChangeForm,
+  canChangeVenueBooking,
   canRequestVenue,
+  changeVenueBooking,
+  listVenueBookingsForEvent,
   venueWarning,
   emptyVenueBookingForm,
   shortTime,
   submitVenueBooking,
+  VENUE_BOOKING_CHANGED,
+  venueBookingChangeErrorMessage,
   venueBookingErrorMessages,
   venueFit,
 } from '../lib/venueBookings.js'
@@ -135,8 +141,10 @@ function VenueOption({ venue, event, when, selected, onSelect }) {
 
 // The venue_bookings service makes every suitability call; this page shows
 // each venue against the event and sends the Coordinator's choice.
-function RequestForm({ event, onSent }) {
-  const [form, setForm] = useState(() => ({
+// S-80: with `booking`, the same form changes that booking instead of
+// sending a new request.
+function RequestForm({ event, booking = null, onSent }) {
+  const [form, setForm] = useState(() => (booking ? bookingToChangeForm(booking) : {
     ...emptyVenueBookingForm(event.id),
     bookingDate: event.start_date ?? '',
     startTime: shortTime(event.start_time),
@@ -188,10 +196,18 @@ function RequestForm({ event, onSent }) {
     }
     setSendState({ status: 'sending', errors: [] })
     try {
-      await submitVenueBooking(form)
+      if (booking) {
+        await changeVenueBooking(booking.id, form)
+      } else {
+        await submitVenueBooking(form)
+      }
       onSent()
     } catch (error) {
-      setSendState({ status: 'idle', errors: venueBookingErrorMessages(error) })
+      // A refused change can still fail several suitability checks at once.
+      const errors = booking && !(error.status === 422 && error.fieldErrors)
+        ? [venueBookingChangeErrorMessage(error)]
+        : venueBookingErrorMessages(error)
+      setSendState({ status: 'idle', errors })
     }
   }
 
@@ -301,7 +317,7 @@ function RequestForm({ event, onSent }) {
 
       {sendState.errors.length > 0 && (
         <div role="alert" className="font-ui text-sm mb-6" style={{ color: C.rose }}>
-          <p className="font-medium mb-1">This request wasn&apos;t sent:</p>
+          <p className="font-medium mb-1">{booking ? 'This change wasn\u2019t saved:' : 'This request wasn\u2019t sent:'}</p>
           <ul className="list-disc pl-5 space-y-0.5">
             {sendState.errors.map((message) => <li key={message}>{message}</li>)}
           </ul>
@@ -315,37 +331,48 @@ function RequestForm({ event, onSent }) {
         className="csp-primary-btn px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
         style={{ backgroundColor: C.teal, color: C.paper }}
       >
-        {sendState.status === 'sending' ? 'Sending…' : 'Send request'}
+        {sendState.status === 'sending'
+          ? (booking ? 'Saving…' : 'Sending…')
+          : (booking ? 'Save changes' : 'Send request')}
       </button>
     </form>
   )
 }
 
 export default function VenueRequestForm() {
-  const { id } = useParams()
+  // S-80: with a bookingId this screen changes that booking.
+  const { id, bookingId } = useParams()
   const navigate = useNavigate()
-  const [state, setState] = useState({ status: 'loading', event: null, error: null })
+  const [state, setState] = useState({ status: 'loading', event: null, booking: null, error: null })
   const eventPath = `/coordinator/events/${id}`
 
   useEffect(() => {
     let active = true
-    getAssignedEventRequest(id)
-      .then((event) => {
-        if (active) setState({ status: 'ready', event, error: null })
+    Promise.all([
+      getAssignedEventRequest(id),
+      bookingId ? listVenueBookingsForEvent(id) : Promise.resolve([]),
+    ])
+      .then(([event, bookings]) => {
+        if (!active) return
+        const booking = bookings.find((row) => row.id === bookingId) ?? null
+        setState({ status: 'ready', event, booking, error: null })
       })
       .catch((error) => {
-        if (active) setState({ status: 'error', event: null, error: eventErrorMessage(error) })
+        if (active) setState({ status: 'error', event: null, booking: null, error: eventErrorMessage(error) })
       })
     return () => {
       active = false
     }
-  }, [id])
+  }, [id, bookingId])
 
   function handleSent() {
-    navigate(eventPath, { state: { notice: 'Venue request sent to Venue Staff.' } })
+    const notice = bookingId ? VENUE_BOOKING_CHANGED : 'Venue request sent to Venue Staff.'
+    navigate(eventPath, { state: { notice } })
   }
 
-  const { event } = state
+  const { event, booking } = state
+  const changing = Boolean(bookingId)
+  const changeable = changing && state.status === 'ready' && canChangeVenueBooking(booking, event.status)
 
   return (
     <div className="font-ui min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
@@ -377,14 +404,36 @@ export default function VenueRequestForm() {
           <p className="font-ui text-sm" style={{ color: C.inkFaint }}>{state.error}</p>
         )}
 
-        {state.status === 'ready' && !canRequestVenue(event.status) && (
+        {changing && state.status === 'ready' && !changeable && (
+          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+            This booking can&apos;t be changed: it was not found, it has been rejected, or the event is no
+            longer in planning.{' '}
+            <Link to={eventPath} style={{ color: C.teal }}>Back to the event</Link>
+          </p>
+        )}
+
+        {changeable && (
+          <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
+            <h1 className="font-display text-3xl mb-2" style={{ color: C.ink }}>
+              Change venue booking
+            </h1>
+            <p className="font-ui text-sm leading-relaxed max-w-md mb-6" style={{ color: C.inkFaint }}>
+              For {event.name}. Saving sends this booking back to Venue Staff as pending, and frees its
+              current time at once. The event&apos;s other venue bookings stay as they are.
+            </p>
+            <Requirements event={event} />
+            <RequestForm event={event} booking={booking} onSent={handleSent} />
+          </section>
+        )}
+
+        {!changing && state.status === 'ready' && !canRequestVenue(event.status) && (
           <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
             A venue can only be requested for an event in planning.{' '}
             <Link to={eventPath} style={{ color: C.teal }}>Back to the event</Link>
           </p>
         )}
 
-        {state.status === 'ready' && canRequestVenue(event.status) && (
+        {!changing && state.status === 'ready' && canRequestVenue(event.status) && (
           <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
             <h1 className="font-display text-3xl mb-2" style={{ color: C.ink }}>
               Request a venue

@@ -301,6 +301,7 @@ def test_other_known_roles_have_only_their_read_permissions():
     assert ROLE_PERMISSIONS["technical_support"] == {
         "dashboard:view",
         "events:view_support_assigned",
+        "events:update_equipment_preparation",
     }
     assert ROLE_PERMISSIONS["attendee"] == {"dashboard:view"}
 
@@ -325,6 +326,7 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
     assert ROLE_PERMISSIONS["event_coordinator"] == {
         "dashboard:view",
         "events:view_assigned",
+        "events:update_assigned",
         "events:decide",
         # S-61
         "events:decide_cancellation",
@@ -1287,7 +1289,9 @@ def test_support_load_counts_only_planning_and_confirmed_events(client, db):
     ]
     first_in = db.schema.return_value.table.return_value.select.return_value.in_
     first_in.assert_called_once_with("assigned_technical_support_id", [SUPPORT_A, SUPPORT_B])
-    first_in.return_value.in_.assert_called_once_with("status", ["planning", "confirmed"])
+    first_in.return_value.in_.assert_called_once_with(
+        "status", ["planning", "pending_safety_check", "confirmed"]
+    )
 
 
 def _support_target_select(db):

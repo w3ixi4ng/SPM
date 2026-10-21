@@ -1,4 +1,5 @@
-"""TC-BOOKINGS-105..107. Run after the S-30 SQL on .env.test."""
+"""TC-BOOKINGS-105..107/112. Run after the bookings SQL on .env.test."""
+from datetime import datetime, timedelta, timezone
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -38,8 +39,8 @@ def test_a_block_can_be_saved_read_back_and_removed(admin, block_ids, actors):
     venue_id = str(uuid.uuid4())
 
     created = httpx.post(f'{BASE_URL}/blocks', headers=staff, json={
-        'venue_id': venue_id, 'venue_name': 'Studio B', 'start_date': '2026-11-13',
-        'end_date': '2026-11-16', 'reason': 'renovation', 'note': 'spm-test block',
+        'venue_id': venue_id, 'venue_name': 'Studio B', 'start_date': '2026-11-13', 'start_time': '00:00',
+        'end_date': '2026-11-17', 'end_time': '00:00', 'reason': 'renovation', 'note': 'spm-test block',
     }, timeout=15)
     assert created.status_code == 201, created.text
     block = created.json()
@@ -72,7 +73,10 @@ def test_two_simultaneous_overlapping_requests_produce_exactly_one_hold(admin, b
 
     def hold(booking_id):
         barrier.wait(timeout=10)
-        return httpx.post(f'{BASE_URL}/bookings/{booking_id}/hold', headers=staff, timeout=20)
+        return httpx.post(
+            f'{BASE_URL}/bookings/{booking_id}/hold', headers=staff,
+            json={'expires_at': '2099-01-01T12:00:00+08:00'}, timeout=20,
+        )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         one = pool.submit(hold, pending[0].json()['id'])
@@ -104,3 +108,50 @@ def test_rejecting_a_hold_releases_the_slot(booking_ids, actors):
     assert again.status_code == 201, again.text
     booking_ids.append(again.json()['id'])
     assert again.json()['status'] == 'pending'
+
+
+# --- TC-BOOKINGS-114 ------------------------------------------------------
+def test_an_expired_hold_is_released_before_the_slot_is_claimed_again(
+    admin, booking_ids, actors,
+):
+    _, staff = actors('venue_staff')
+    venue_id = str(uuid.uuid4())
+    first = create_booking(booking_ids, venue_id=venue_id)
+    held = httpx.post(
+        f"{BASE_URL}/bookings/{first['id']}/hold", headers=staff,
+        json={'expires_at': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()},
+        timeout=15,
+    )
+    assert held.status_code == 200, held.text
+
+    # Move the clock-relevant value into the past without changing state. The
+    # next service operation must invoke the database expiry function.
+    past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    admin.schema('bookings').table('bookings').update(
+        {'hold_expires_at': past}
+    ).eq('id', first['id']).execute()
+    listed = httpx.get(
+        f'{BASE_URL}/bookings', params={'venue_id': venue_id, 'from': '2026-11-12', 'to': '2026-11-12'},
+        timeout=15,
+    )
+    assert listed.status_code == 200, listed.text
+    assert [(row['id'], row['status']) for row in listed.json()] == [
+        (first['id'], 'pending')
+    ]
+    released = admin.schema('bookings').table('bookings').select(
+        'status,hold_release_reason,hold_released_at'
+    ).eq('id', first['id']).execute().data[0]
+    assert released['status'] == 'pending'
+    assert released['hold_release_reason'] == 'expired'
+    assert released['hold_released_at'] is not None
+
+    second = httpx.post(
+        f'{BASE_URL}/bookings', json=booking_body(venue_id, '09:00', '12:00'), timeout=15,
+    )
+    assert second.status_code == 201, second.text
+    booking_ids.append(second.json()['id'])
+    claimed = httpx.post(
+        f"{BASE_URL}/bookings/{second.json()['id']}/hold", headers=staff,
+        json={'expires_at': '2099-01-01T12:00:00+08:00'}, timeout=15,
+    )
+    assert claimed.status_code == 200, claimed.text

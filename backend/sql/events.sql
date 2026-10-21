@@ -72,6 +72,21 @@ create table if not exists events.events (
   assigned_technical_support_id  uuid,
   technical_support_assigned_at  timestamptz,
 
+  -- S-26: one event-level record of equipment-side preparation. The
+  -- authenticated assigned Technical Support worker owns this transition.
+  equipment_preparation_status     text not null default 'not_started',
+  equipment_preparation_updated_by uuid,
+  equipment_preparation_updated_at timestamptz,
+
+  -- S-17: the assigned Technical Support's sign-off on the equipment
+  -- arrangements. Null until given; cleared whenever the Coordinator changes
+  -- the equipment requirements. Constraints are in the S-17 block below.
+  technical_signoff_decision         text,
+  technical_signoff_reason           text,
+  technical_signoff_override_comment text,
+  technical_signoff_by               uuid,
+  technical_signoff_at               timestamptz,
+
   -- The assigned coordinator's decision on a submitted request. Null until
   -- decided; then one of the three outcomes below. Holds only the *latest*
   -- decision -- a return-then-resubmit cycle overwrites it, on purpose (see
@@ -98,6 +113,20 @@ create table if not exists events.events (
   safety_decision_reason     text,
   safety_officer_id          uuid,
   safety_decided_at          timestamptz,
+  -- S-87: append-only audit records for every completed safety review. The
+  -- current decision fields above may be cleared when revised arrangements
+  -- are resubmitted; this history is never cleared or replaced.
+  safety_review_history      jsonb not null default '[]'::jsonb,
+
+  -- S-18: Coordinator-maintained planning information. Internal notes and
+  -- edit history are returned only by assignment-scoped coordinator routes.
+  contact_name               text,
+  contact_email              text,
+  contact_phone              text,
+  internal_notes             text,
+  edit_version               integer not null default 0,
+  edit_history               jsonb not null default '[]'::jsonb,
+  safety_recheck_required    boolean not null default false,
 
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
@@ -114,9 +143,9 @@ create table if not exists events.events (
   -- recorded decision (see the decision column).
   constraint events_status_allowed
     check (status in (
-      'draft', 'submitted', 'under_review', 'planning', 'confirmed',
-      'preparation', 'safety_rejected', 'safety_changes_requested',
-      'cancelled', 'rejected', 'returned'
+      'draft', 'submitted', 'under_review', 'planning',
+      'pending_safety_check', 'confirmed', 'preparation', 'safety_rejected',
+      'safety_changes_requested', 'cancelled', 'rejected', 'returned'
     )),
 
   constraint events_name_not_blank
@@ -125,11 +154,31 @@ create table if not exists events.events (
   constraint events_purpose_not_blank
     check (purpose is null or btrim(purpose) <> ''),
 
+  constraint events_contact_fields_not_blank
+    check (
+      (contact_name is null or btrim(contact_name) <> '')
+      and (contact_email is null or btrim(contact_email) <> '')
+      and (contact_phone is null or btrim(contact_phone) <> '')
+      and (internal_notes is null or btrim(internal_notes) <> '')
+    ),
+
+  constraint events_edit_version_nonnegative check (edit_version >= 0),
+  constraint events_edit_history_array check (jsonb_typeof(edit_history) = 'array'),
+
   constraint events_venue_not_blank
     check (venue is null or btrim(venue) <> ''),
 
   constraint events_attendance_positive
     check (expected_attendance is null or expected_attendance > 0),
+
+  constraint events_equipment_preparation_status_allowed
+    check (equipment_preparation_status in ('not_started', 'in_progress', 'ready')),
+
+  constraint events_equipment_preparation_audit_valid
+    check (
+      (equipment_preparation_updated_by is null and equipment_preparation_updated_at is null)
+      or (equipment_preparation_updated_by is not null and equipment_preparation_updated_at is not null)
+    ),
 
   -- The end date, if set, is never before the start date -- an event
   -- spanning midnight (end_date > start_date) is fine; end_date < start_date
@@ -201,8 +250,8 @@ create table if not exists events.events (
     check (
       (status in ('draft', 'submitted', 'under_review') and decision is null)
       or (status in (
-        'planning', 'confirmed', 'preparation', 'safety_rejected',
-        'safety_changes_requested', 'rejected', 'returned'
+        'planning', 'pending_safety_check', 'confirmed', 'preparation',
+        'safety_rejected', 'safety_changes_requested', 'rejected', 'returned'
       ) and decision is not null)
       or status = 'cancelled'
     ),
@@ -243,6 +292,9 @@ create table if not exists events.events (
       or safety_decision in ('approved', 'rejected', 'changes_requested')
     ),
 
+  constraint events_safety_review_history_array
+    check (jsonb_typeof(safety_review_history) = 'array'),
+
   constraint events_safety_state_consistent
     check (
       (
@@ -250,14 +302,16 @@ create table if not exists events.events (
         and safety_decision_reason is null
         and safety_officer_id is null
         and safety_decided_at is null
-        and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+        and status not in (
+          'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+        )
       )
       or (
         safety_decision = 'approved'
         and safety_decision_reason is null
         and safety_officer_id is not null
         and safety_decided_at is not null
-        and status = 'preparation'
+        and status in ('confirmed', 'preparation')
       )
       or (
         safety_decision = 'rejected'
@@ -273,7 +327,7 @@ create table if not exists events.events (
         and btrim(safety_decision_reason) <> ''
         and safety_officer_id is not null
         and safety_decided_at is not null
-        and status = 'safety_changes_requested'
+        and status = 'planning'
       )
     ),
 
@@ -344,21 +398,54 @@ alter table events.events
   add column if not exists assigned_technical_support_id uuid,
   add column if not exists technical_support_assigned_at timestamptz;
 
--- S-86 upgrade path. Safe to run repeatedly. The four fields form one
--- current decision record and remain null on every pre-S-86 row.
+-- S-86/S-87 upgrade path. The four scalar fields form the current decision;
+-- S-87 adds an append-only JSON history so resubmission can clear the current
+-- blocker without deleting its audit record.
 alter table events.events
   add column if not exists safety_decision text,
   add column if not exists safety_decision_reason text,
   add column if not exists safety_officer_id uuid,
-  add column if not exists safety_decided_at timestamptz;
+  add column if not exists safety_decided_at timestamptz,
+  add column if not exists safety_review_history jsonb not null default '[]'::jsonb;
+
+-- Preserve pre-S-87 current decisions as review 1 before any lifecycle
+-- migration. Reapplying the file is harmless because only empty histories are
+-- backfilled.
+update events.events
+set safety_review_history = jsonb_build_array(
+  jsonb_build_object(
+    'review_number', 1,
+    'decision', safety_decision,
+    'reason', safety_decision_reason,
+    'safety_officer_id', safety_officer_id,
+    'decided_at', safety_decided_at
+  )
+)
+where safety_decision is not null
+  and safety_review_history = '[]'::jsonb;
+
+alter table events.events drop constraint if exists events_safety_review_history_array;
+alter table events.events add constraint events_safety_review_history_array
+  check (jsonb_typeof(safety_review_history) = 'array');
 
 alter table events.events drop constraint if exists events_status_allowed;
 alter table events.events add constraint events_status_allowed
   check (status in (
-    'draft', 'submitted', 'under_review', 'planning', 'confirmed',
-    'preparation', 'safety_rejected', 'safety_changes_requested',
-    'cancelled', 'rejected', 'returned'
+    'draft', 'submitted', 'under_review', 'planning',
+    'pending_safety_check', 'confirmed', 'preparation', 'safety_rejected',
+    'safety_changes_requested', 'cancelled', 'rejected', 'returned'
   ));
+
+alter table events.events drop constraint if exists events_decision_matches_status;
+alter table events.events add constraint events_decision_matches_status
+  check (
+    (status in ('draft', 'submitted', 'under_review') and decision is null)
+    or (status in (
+      'planning', 'pending_safety_check', 'confirmed', 'preparation',
+      'safety_rejected', 'safety_changes_requested', 'cancelled',
+      'rejected', 'returned'
+    ) and decision is not null)
+  );
 
 alter table events.events drop constraint if exists events_safety_decision_allowed;
 alter table events.events add constraint events_safety_decision_allowed
@@ -368,6 +455,29 @@ alter table events.events add constraint events_safety_decision_allowed
   );
 
 alter table events.events drop constraint if exists events_safety_state_consistent;
+-- Existing S-86 change requests used the transient status below. S-87 makes
+-- their return automatic while the preserved current decision marks why the
+-- event is back in planning.
+update events.events
+set status = 'planning'
+where status = 'safety_changes_requested'
+  and safety_decision = 'changes_requested';
+
+-- S-17: the Coordinator now submits a planning event for the Operational
+-- Safety Check, which moves it to pending_safety_check -- the stage S-86 used
+-- `confirmed` for. Only the Safety Officer's approval makes it `confirmed`
+-- (S-86 approved it to `preparation`). `preparation` stays allowed for a
+-- later story but nothing sets it now. Both updates match nothing once run.
+update events.events
+set status = 'pending_safety_check'
+where status = 'confirmed'
+  and safety_decision is null;
+
+update events.events
+set status = 'confirmed'
+where status = 'preparation'
+  and safety_decision = 'approved';
+
 alter table events.events add constraint events_safety_state_consistent
   check (
     (
@@ -375,14 +485,16 @@ alter table events.events add constraint events_safety_state_consistent
       and safety_decision_reason is null
       and safety_officer_id is null
       and safety_decided_at is null
-      and status not in ('preparation', 'safety_rejected', 'safety_changes_requested')
+      and status not in (
+        'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+      )
     )
     or (
       safety_decision = 'approved'
       and safety_decision_reason is null
       and safety_officer_id is not null
       and safety_decided_at is not null
-      and status = 'preparation'
+      and status in ('confirmed', 'preparation')
     )
     or (
       safety_decision = 'rejected'
@@ -398,7 +510,7 @@ alter table events.events add constraint events_safety_state_consistent
       and btrim(safety_decision_reason) <> ''
       and safety_officer_id is not null
       and safety_decided_at is not null
-      and status = 'safety_changes_requested'
+      and status = 'planning'
     )
   );
 
@@ -493,14 +605,15 @@ alter table events.events add constraint events_cancellation_decision_consistent
 
 -- S-61: an event can be cancelled before the Coordinator has decided on the
 -- request itself (submitted, under_review), so 'cancelled' no longer
--- requires a request decision.
+-- requires a request decision. Includes S-87's pending_safety_check, so this
+-- must stay after the S-86/S-87 block, which defines the rule without it.
 alter table events.events drop constraint if exists events_decision_matches_status;
 alter table events.events add constraint events_decision_matches_status
   check (
     (status in ('draft', 'submitted', 'under_review') and decision is null)
     or (status in (
-      'planning', 'confirmed', 'preparation', 'safety_rejected',
-      'safety_changes_requested', 'rejected', 'returned'
+      'planning', 'pending_safety_check', 'confirmed', 'preparation',
+      'safety_rejected', 'safety_changes_requested', 'rejected', 'returned'
     ) and decision is not null)
     or status = 'cancelled'
   );
@@ -519,14 +632,18 @@ create index if not exists events_events_assigned_coordinator_id_idx
   on events.events (assigned_coordinator_id)
   where status in ('submitted', 'planning');
 
-create index if not exists events_events_assigned_technical_support_id_idx
+-- S-17 changed both predicates below. `create index if not exists` keeps an
+-- existing index's old predicate, so each is dropped and rebuilt.
+drop index if exists events.events_events_assigned_technical_support_id_idx;
+create index events_events_assigned_technical_support_id_idx
   on events.events (assigned_technical_support_id)
-  where status in ('planning', 'confirmed')
+  where status in ('planning', 'pending_safety_check', 'confirmed', 'preparation')
     and assigned_technical_support_id is not null;
 
-create index if not exists events_events_pending_safety_review_idx
+drop index if exists events.events_events_pending_safety_review_idx;
+create index events_events_pending_safety_review_idx
   on events.events (updated_at)
-  where status = 'confirmed' and safety_decision is null;
+  where status = 'pending_safety_check' and safety_decision is null;
 
 -- Keep updated_at accurate for every update, regardless of which backend
 -- operation changes the row.
@@ -747,4 +864,137 @@ alter table events.events enable row level security;
 --   alter table events.events drop column if exists accessibility_requirements;
 -- ---------------------------------------------------------------------------
 
+-- S-26 migration for an existing Events table. Safe to run repeatedly.
+alter table events.events
+  add column if not exists equipment_preparation_status text not null default 'not_started',
+  add column if not exists equipment_preparation_updated_by uuid,
+  add column if not exists equipment_preparation_updated_at timestamptz;
+
+alter table events.events drop constraint if exists events_equipment_preparation_status_allowed;
+alter table events.events add constraint events_equipment_preparation_status_allowed
+  check (equipment_preparation_status in ('not_started', 'in_progress', 'ready'));
+alter table events.events drop constraint if exists events_equipment_preparation_audit_valid;
+alter table events.events add constraint events_equipment_preparation_audit_valid
+  check (
+    (equipment_preparation_updated_by is null and equipment_preparation_updated_at is null)
+    or (equipment_preparation_updated_by is not null and equipment_preparation_updated_at is not null)
+  );
+
+-- BEGIN S-18 DATA-PRESERVING MIGRATION
+-- Existing installations: run through END S-18 in BOTH dev and test.
+begin;
+-- Remove the legacy form before any ADD COLUMN with a default can rewrite an
+-- old row and make PostgreSQL evaluate that outdated constraint.
+alter table events.events drop constraint if exists events_safety_state_consistent;
+
+-- S-18 migration for an existing Events table. Safe to run repeatedly and
+-- data-preserving. The row version makes update-plus-history optimistic and
+-- atomic in one conditional statement.
+alter table events.events
+  add column if not exists contact_name text,
+  add column if not exists contact_email text,
+  add column if not exists contact_phone text,
+  add column if not exists internal_notes text,
+  add column if not exists edit_version integer not null default 0,
+  add column if not exists edit_history jsonb not null default '[]'::jsonb,
+  add column if not exists safety_recheck_required boolean not null default false;
+
+alter table events.events drop constraint if exists events_contact_fields_not_blank;
+alter table events.events add constraint events_contact_fields_not_blank
+  check (
+    (contact_name is null or btrim(contact_name) <> '')
+    and (contact_email is null or btrim(contact_email) <> '')
+    and (contact_phone is null or btrim(contact_phone) <> '')
+    and (internal_notes is null or btrim(internal_notes) <> '')
+  );
+alter table events.events drop constraint if exists events_edit_version_nonnegative;
+alter table events.events add constraint events_edit_version_nonnegative
+  check (edit_version >= 0);
+alter table events.events drop constraint if exists events_edit_history_array;
+alter table events.events add constraint events_edit_history_array
+  check (jsonb_typeof(edit_history) = 'array');
+
+-- S-18 submits a materially revised event into the S-17 pending safety stage.
+-- Reinstall the canonical S-17 safety constraint so older projects accept the
+-- transition while preserving the current lifecycle rules for new writes.
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in (
+        'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+      )
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status in ('confirmed', 'preparation')
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'planning'
+    )
+  ) not valid;
+
+-- S-17 Technical Support sign-off. Safe to run repeatedly. Approve carries an
+-- override comment only when it was given over an S-44 shortage; decline
+-- always carries a reason. Who and when are set together with the decision.
+alter table events.events
+  add column if not exists technical_signoff_decision text,
+  add column if not exists technical_signoff_reason text,
+  add column if not exists technical_signoff_override_comment text,
+  add column if not exists technical_signoff_by uuid,
+  add column if not exists technical_signoff_at timestamptz;
+
+alter table events.events drop constraint if exists events_technical_signoff_valid;
+alter table events.events add constraint events_technical_signoff_valid
+  check (
+    (
+      technical_signoff_decision is null
+      and technical_signoff_reason is null
+      and technical_signoff_override_comment is null
+      and technical_signoff_by is null
+      and technical_signoff_at is null
+    )
+    or (
+      technical_signoff_decision = 'approved'
+      and technical_signoff_reason is null
+      and (
+        technical_signoff_override_comment is null
+        or (btrim(technical_signoff_override_comment) <> ''
+            and char_length(technical_signoff_override_comment) <= 500)
+      )
+      and technical_signoff_by is not null
+      and technical_signoff_at is not null
+    )
+    or (
+      technical_signoff_decision = 'declined'
+      and technical_signoff_reason is not null
+      and btrim(technical_signoff_reason) <> ''
+      and char_length(technical_signoff_reason) <= 500
+      and technical_signoff_override_comment is null
+      and technical_signoff_by is not null
+      and technical_signoff_at is not null
+    )
+  );
+
 notify pgrst, 'reload schema';
+commit;
+-- END S-18 DATA-PRESERVING MIGRATION

@@ -29,7 +29,7 @@ const DECLINED = {
 const APPROVED = { status: 'cancelled', cancellation_requested_at: T, cancellation_decision: 'approved' }
 const NONE = { status: 'planning', cancellation_requested_at: null }
 
-// --- TC-FRONTEND-107 -------------------------------------------------------
+// --- TC-FRONTEND-141 -------------------------------------------------------
 test('who sees what about a cancellation request', () => {
   assert.deepEqual(
     [PENDING, DECLINED, APPROVED, NONE].map(canDecideCancellation),
@@ -68,7 +68,7 @@ test('only event coordinators may decide cancellation requests, as in authorizat
   }
 })
 
-// --- TC-FRONTEND-108 -------------------------------------------------------
+// --- TC-FRONTEND-142 -------------------------------------------------------
 test('the decision posts through Kong', async () => {
   const calls = []
   const originalFetch = globalThis.fetch
@@ -118,7 +118,7 @@ test('the approval summary names what is released', () => {
   assert.equal(cancellationApprovalSummary(2), `2 venue bookings will be removed and their times freed.${equipment}`)
 })
 
-// --- TC-FRONTEND-109 -------------------------------------------------------
+// --- TC-FRONTEND-143 -------------------------------------------------------
 test("the Organiser's decision banner always has words, or isn't shown", async () => {
   const { organiserDecisionBanner } = await import('../../../frontend/src/lib/eventRequests.js')
   assert.deepEqual(

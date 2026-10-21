@@ -91,3 +91,38 @@ Specification updated by the developer on 2026-10-05.
   cancelled event through both event and requirement routes. Cleanup ran.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_support_staff_only_reads_own_active_event_requirements`; `pytest tests/integration/composite/equipment_requirements`: 4 passed.
+
+---
+
+## S-18 — significant equipment-requirement edits
+
+## TC-EQUIPMENTREQUIREMENTS-106 — accepted requirement edits persist with service-owned history
+
+- **Pre-conditions:** Fresh `.env.test` stack with S-18 Equipment SQL applied,
+  exposed, and granted; planning event E assigned to Coordinator A; one
+  catalogue item and existing requirement quantity 2.
+- **Steps:** Through Kong, preview changing quantity to 4; verify storage;
+  accept it; reload requirements and inspect Equipment-owned history. Attempt
+  the same change as Coordinator B.
+- **Expected:** Preview identifies the significant equipment change and does
+  not write. Acceptance changes the quantity to 4 immediately and records
+  item, before/after quantity, A and server time. B receives `404`. Cleanup
+  removes the requirement, history, item, event and users.
+- **Actual:** Accepted create, quantity update, and removal persisted with the
+  expected ordered Equipment-owned history. Assignment isolation and current
+  Technical Support visibility also passed against real services and storage.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_coordinator_records_edits_and_deletes_requirement_visible_to_support`; `test_app.py::test_reassignment_uses_current_assignment_not_recorded_by_audit`; focused `.env.test` runs, 2026-10-19.
+## TC-EQUIPMENTREQUIREMENTS-105 — sign-off is stored and a change clears it
+
+- **Scenario:** Sign-off survives a round trip and a Coordinator change voids it.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-17 SQL; `E1` in
+  `planning`, Technical Support assigned, one requirement.
+- **Steps:** 1. Approve as Technical Support. 2. Read `E1`. 3. Change the
+  requirement quantity as the Coordinator. 4. Read `E1`. 5. Clean up.
+- **Test data:** Quantity 1 → 2, with S-18 impact acceptance on both writes.
+- **Expected:** 2 shows `approved` with the Technical Support id. 4 shows
+  every sign-off field null.
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_signoff_stored_and_cleared_by_change`

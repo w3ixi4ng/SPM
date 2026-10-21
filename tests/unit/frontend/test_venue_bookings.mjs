@@ -5,6 +5,8 @@ import { ApiError } from '../../../frontend/src/lib/api.js'
 import {
   canRequestVenue,
   holdActionErrorMessage,
+  holdExpiryLabel,
+  holdExpiryToIso,
   listPendingVenueBookings,
   listVenueBookingsForEvent,
   placeVenueHold,
@@ -18,15 +20,28 @@ import {
 
 test('hold actions use authenticated gateway routes and safe errors', async () => {
   const calls = await recordingFetch(async () => {
-    await placeVenueHold('b 1/2')
+    await placeVenueHold('b 1/2', '2026-11-12T02:00:00.000Z')
     await releaseVenueHold('b 1/2')
   })
   assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
     ['/api/venue-bookings/b%201%2F2/hold', 'POST'],
     ['/api/venue-bookings/b%201%2F2/release', 'POST'],
   ])
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    expires_at: '2026-11-12T02:00:00.000Z',
+  })
   assert.equal(holdActionErrorMessage(new ApiError('conflict', 409)), 'conflict')
   assert.match(holdActionErrorMessage(new ApiError('down', 500)), /Reload the list/)
+})
+
+test('a hold expiry is required, future, and converted from Singapore time', () => {
+  const now = new Date('2026-11-12T00:00:00.000Z')
+  assert.match(holdExpiryToIso('', now).error, /Choose when/)
+  assert.match(holdExpiryToIso('2026-11-12T07:00', now).error, /future/)
+  assert.deepEqual(holdExpiryToIso('2026-11-12T10:00', now), {
+    expiresAt: '2026-11-12T02:00:00.000Z',
+  })
+  assert.match(holdExpiryLabel('2026-11-12T02:00:00.000Z'), /12 Nov 2026/)
 })
 
 const FULL_FORM = {

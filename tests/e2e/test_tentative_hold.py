@@ -26,7 +26,10 @@ def add_booking(admin, event, venue, coordinator, *, start="09:00", end="12:00",
         "venue_name": venue["name"], "status": status,
     }
     if status == "held":
-        row.update(held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00")
+        row.update(
+            held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00",
+            hold_expires_at="2099-01-01T04:00:00+00:00",
+        )
     return admin.schema("bookings").table("bookings").insert(row).execute().data[0]
 
 
@@ -50,6 +53,7 @@ def test_tentative_hold_is_distinct_and_a_second_request_keeps_it(
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     # S-75: the hold is placed on the request's own page.
     open_request(page, event["name"])
+    page.get_by_label("Hold expiry").fill("2099-01-01T12:00")
     page.get_by_role("button", name="Place hold").click()
     expect(page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
     expect(page.get_by_text("Tentatively held").first).to_be_visible()

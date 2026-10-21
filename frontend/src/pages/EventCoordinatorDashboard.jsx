@@ -289,6 +289,11 @@ export default function EventCoordinatorDashboard({ role }) {
                             <p className="font-ui text-sm mt-0.5" style={{ color: C.inkFaint }}>
                               {event.start_date} at {event.start_time?.slice(0, 5)}{event.venue && ` · ${event.venue}`}
                             </p>
+                            {event.status === 'planning' && event.safety_decision === 'changes_requested' && (
+                              <p className="font-ui text-xs font-medium mt-1" style={{ color: '#B5842B' }}>
+                                Returned after safety review
+                              </p>
+                            )}
                             {cancellationTag && (
                               // S-61: waiting on this Coordinator's decision.
                               <p className="inline-flex items-center gap-1.5 font-ui text-xs mt-1.5" style={{ color: C.ink }}>

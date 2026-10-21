@@ -107,14 +107,19 @@ def test_a_coordinator_sees_booked_held_unavailable_and_past_days_apart(admin, p
         if status == "confirmed":
             row.update(decided_by=staff["id"], decided_at="2026-10-01T00:00:00+00:00")
         if status == "held":
-            row.update(held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00")
+            row.update(
+                held_by=staff["id"], held_at="2026-10-01T00:00:00+00:00",
+                hold_expires_at="2099-01-01T04:00:00+00:00",
+            )
         admin.schema("bookings").table("bookings").insert(row).execute()
 
     booking(event_a, "09:00", "12:00", "confirmed")
     booking(event_b, "14:00", "16:00", "held")
     admin.schema("bookings").table("blocks").insert({
         "venue_id": venue["id"], "venue_name": venue["name"],
-        "start_date": d(3).isoformat(), "end_date": d(4).isoformat(),
+        # S-77: whole days as a timed period, d(3) 00:00 up to d(5) 00:00.
+        "start_date": d(3).isoformat(), "start_time": "00:00",
+        "end_date": d(5).isoformat(), "end_time": "00:00",
         "reason": "maintenance", "note": "spm-e2e private note", "created_by": staff["id"],
     }).execute()
 
@@ -200,6 +205,7 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
     staff_page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     # S-75: the hold is placed on the request's own page.
     open_request(staff_page, first["name"])
+    staff_page.get_by_label("Hold expiry").fill("2099-01-01T12:00")
     staff_page.get_by_role("button", name="Place hold").click()
     expect(staff_page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
 
@@ -223,11 +229,17 @@ def test_a_new_hold_a_new_block_and_a_removed_block_all_show_up(admin, browser, 
 
         staff_page.get_by_role("button", name="Mark unavailable").click()
         panel = staff_page.get_by_role("dialog", name="Mark unavailable")
-        panel.get_by_label("First day").fill(d(6).isoformat())
-        panel.get_by_label("Last day").fill(d(6).isoformat())
+        panel.get_by_label("Start date").fill(d(6).isoformat())
+        panel.get_by_label("Start time").fill("00:00")
+        panel.get_by_label("End date").fill(d(7).isoformat())
+        panel.get_by_label("End time").fill("00:00")
         panel.get_by_label("Reason").select_option(label="Renovation")
         panel.get_by_role("button", name="Mark unavailable").click()
-        expect(panel).to_have_count(0, timeout=20000)
+        # S-77: the panel stays open to say which bookings are affected.
+        saved = staff_page.get_by_role("dialog", name=f"{venue['name']} marked unavailable")
+        expect(saved).to_contain_text("No bookings are affected.", timeout=20000)
+        saved.get_by_role("button", name="Done").click()
+        expect(saved).to_have_count(0, timeout=20000)
 
         # Staff see it straight away.
         day_cell(staff_page, d(6)).click()

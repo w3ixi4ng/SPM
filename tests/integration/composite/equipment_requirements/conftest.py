@@ -112,6 +112,7 @@ def world(admin):
         }
     finally:
         if event_id:
+            admin.schema("equipment").table("requirement_changes").delete().eq("event_id", event_id).execute()
             admin.schema("equipment").table("requirements").delete().eq("event_id", event_id).execute()
             admin.schema("events").table("events").delete().eq("id", event_id).execute()
         if equipment_id:

@@ -5,7 +5,7 @@ import pytest
 from .conftest import COORDINATOR_A, COORDINATOR_B, EVENT_ID, event_row
 
 
-ACTIVE = ["submitted", "planning", "confirmed", "returned"]
+ACTIVE = ["submitted", "planning", "pending_safety_check", "confirmed", "returned"]
 
 
 def assigned_row(owner=COORDINATOR_A, version=0, previous=None, **changes):

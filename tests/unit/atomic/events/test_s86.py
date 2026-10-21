@@ -12,7 +12,7 @@ OFFICER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 
 def _reviewable(**changes):
     values = {
-        "status": "confirmed",
+        "status": "pending_safety_check",
         "name": "Safety Forum",
         "purpose": "Operational safety review",
         "start_date": "2026-11-18",
@@ -27,6 +27,7 @@ def _reviewable(**changes):
         "safety_decision_reason": None,
         "safety_officer_id": None,
         "safety_decided_at": None,
+        "safety_review_history": [],
     }
     values.update(changes)
     return event_row(**values)
@@ -54,15 +55,15 @@ def _decision_update(db, rows):
     return operation
 
 
-def test_safety_queue_selects_only_undecided_confirmed_events(client, db):
+def test_safety_queue_selects_only_undecided_pending_events(client, db):
     _review_select(db, [_reviewable()])
 
     response = client.get("/internal/events/safety-review")
 
     assert response.status_code == 200
-    assert response.json()[0]["status"] == "confirmed"
+    assert response.json()[0]["status"] == "pending_safety_check"
     query = db.schema.return_value.table.return_value.select.return_value
-    query.eq.assert_called_once_with("status", "confirmed")
+    query.eq.assert_called_once_with("status", "pending_safety_check")
     query.eq.return_value.is_.assert_called_once_with("safety_decision", "null")
     query.eq.return_value.is_.return_value.order.assert_called_once_with(
         "updated_at", desc=False
@@ -86,12 +87,12 @@ def test_safety_detail_distinguishes_missing_from_ineligible(client, db):
 @pytest.mark.parametrize(
     "decision,reason,status",
     [
-        ("approved", None, "preparation"),
+        ("approved", None, "confirmed"),
         ("rejected", "Emergency exits are obstructed", "safety_rejected"),
         (
             "changes_requested",
             "Revise crowd movement and equipment placement",
-            "safety_changes_requested",
+            "planning",
         ),
     ],
 )
@@ -105,6 +106,15 @@ def test_safety_decision_records_audit_and_distinct_lifecycle_state(
         safety_decision_reason=reason,
         safety_officer_id=OFFICER_ID,
         safety_decided_at="2026-10-10T09:00:00Z",
+        safety_review_history=[
+            {
+                "review_number": 1,
+                "decision": decision,
+                "reason": reason,
+                "safety_officer_id": OFFICER_ID,
+                "decided_at": "2026-10-10T09:00:00Z",
+            }
+        ],
     )
     _event_select(db, [current])
     _decision_update(db, [stored])
@@ -126,6 +136,15 @@ def test_safety_decision_records_audit_and_distinct_lifecycle_state(
     assert values["safety_decision_reason"] == reason
     assert values["safety_officer_id"] == OFFICER_ID
     assert values["safety_decided_at"]
+    assert values["safety_review_history"] == [
+        {
+            "review_number": 1,
+            "decision": decision,
+            "reason": reason,
+            "safety_officer_id": OFFICER_ID,
+            "decided_at": values["safety_decided_at"],
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -155,7 +174,7 @@ def test_missing_event_is_404_and_stale_event_is_409_without_update(client, db):
     assert missing.status_code == 404
     db.schema.return_value.table.return_value.update.assert_not_called()
 
-    _event_select(db, [_reviewable(status="preparation", safety_decision="approved")])
+    _event_select(db, [_reviewable(status="confirmed", safety_decision="approved")])
     stale = client.post(
         f"/internal/events/safety-review/{EVENT_ID}/decision",
         json={"decision": "approved", "safety_officer_id": OFFICER_ID},

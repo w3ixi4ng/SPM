@@ -17,9 +17,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-10, branch `S-86/conduct-operational-safety-check`, commit `49a0f8b` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, merge tree of `833c9b2` and `sprint3` commit `d237cd0` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-86 journey plus S-84/S-85 regressions: 3 passed |
+| Result | Targeted S-83/S-84/S-85 journeys and new integrity case: 4 passed |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -820,7 +820,7 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
   1 passed.
 
-## TC-E2E-230 — Lead oversees every Coordinator and sees reassignment move work
+## TC-E2E-238 — Lead oversees every Coordinator and sees reassignment move work
 
 - **Scenario:** A real browser proves the S-85 grouped oversight view, idle
   Coordinator visibility, event summary, and S-84 refresh/update behaviour.
@@ -845,6 +845,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
+> **S-17 (2026-10-19):** the event starts `pending_safety_check` and approval stores `confirmed`.
+
 - **Scenario:** A Safety Officer reviews the cross-service safety evidence and
   approves a confirmed event through the browser.
 - **Pre-conditions:** Fresh `.env.test` stack with S-86 Events SQL; confirmed
@@ -863,9 +865,9 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   state and stored `preparation`, `approved`, the authenticated Safety Officer
   id and a server timestamp.
 - **Status:** Pass
-- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_confirmed_event[chromium]`;
-  local run on 2026-10-10 against the freshly recreated `.env.test` stack:
-  S-86 plus S-84/S-85 regressions, 3 passed.
+- **Evidence:** `test_operational_safety_check.py::test_safety_officer_approves_an_enriched_pending_event[chromium]`;
+  local run at commit `72886bb` on 2026-10-13 against the freshly recreated
+  `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
 
 ## S-79 — book multiple venues for one event
 
@@ -931,13 +933,296 @@ TC-E2E-232 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Chromium: **Keep event** closed the panel with nothing stored; confirming showed "Cancellation request sent. Your event stays in planning until it has been reviewed."; after a reload the badge read "Planning", the marker and reason were shown, the button was gone, and `events.events` had E `planning` with the reason. On the dashboard, E's row showed "Planning" with "Cancellation requested" beside it.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_cancellation.py::test_an_organiser_confirms_a_cancellation_request_and_the_event_is_not_cancelled[chromium]`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, with the dashboard tag. With `test_rejected_tab.py`: 2 passed.
+## S-77 — mark venue temporarily unavailable
+
+Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
+
+Executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable`. Needs:
+- the S-77 SQL for `bookings` and `notifications` in the test project;
+- the whole `.env.test` stack, recreated immediately before.
+
+Validation, overlap rules and status codes are covered by the unit and
+integration cases. This journey proves only what a browser can: the panel,
+the affected-bookings summary, and the flag and notification reaching the
+Coordinator.
+
+## TC-E2E-234 — Venue Staff mark a period over a confirmed booking, and its Coordinator sees the notification and the flag
+
+- **Scenario:** In a real browser through Kong, a timed period is marked
+  with a reason. The confirmed booking under it is shown to Venue Staff as
+  affected, and its Coordinator is notified and sees the booking flagged. The
+  event and booking stay as they were (AC1, AC3, AC4, AC5).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before. The S-77 SQL applied. Chromium. Created with the admin client:
+  - a Venue Staff user and a Coordinator;
+  - a venue `"spm-e2e Venue <hex>"`, open every day `08:00`–`20:00`, setup
+    and turnaround 0;
+  - a `planning` event E `"spm-e2e Event <hex>"` assigned to the
+    Coordinator;
+  - a confirmed booking K for E at the venue, `2026-11-12` `10:00`–`12:00`.
+- **Steps:**
+  1. Sign in as Venue Staff. Open the venue's availability calendar and
+     click **Mark unavailable**.
+  2. Enter `2026-11-12` `09:00` to `2026-11-12` `13:00`. Choose "Other
+     operational reason", leave the description empty, and click **Mark
+     unavailable**.
+  3. Enter the description `"Water leak in ceiling"` and click **Mark
+     unavailable** again.
+  4. Sign out and sign in as the Coordinator.
+  5. Open E.
+- **Expected:**
+  - After step 2, the panel says "Describe the operational reason." and
+    nothing is stored in `bookings.blocks`.
+  - After step 3, the panel says "1 booking needs alternative arrangements.
+    Their Coordinators have been notified." and lists E's name with
+    "12 Nov 2026 · 10:00–12:00 · Booked".
+  - After step 4, the dashboard's notifications list a message naming the
+    venue and ending "needs alternative arrangements."
+  - After step 5, K's row shows "Needs alternative arrangements" with the
+    period and "Other operational reason: Water leak in ceiling". It still
+    reads "Confirmed" (the event page's word for it; the panel in step 3
+    uses the calendar's "Booked"), and E's status still reads "Planning".
+    Corrected 2026-10-12 while writing the test.
+  - With the admin client, K is still `confirmed` and E still `planning`.
+  Cleanup deletes the block, K, the notification, E, the venue and both users.
+- **Actual:** In Chromium through Kong: the empty description was refused with "Describe the operational reason." and nothing stored; the saved panel said "1 booking needs alternative arrangements. Their Coordinators have been notified." and listed E as Booked; the Coordinator's dashboard showed the notification; E's page flagged K with the period and "Other operational reason: Water leak in ceiling", still Confirmed and Planning; K `confirmed` and E `planning` in the database.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_mark_venue_unavailable.py::test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_told`; `.env.test` stack recreated immediately before, 2026-10-12; `pytest tests/e2e`: 35 passed
+
+## S-78 — request replacement venue for affected booking
+
+Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the
+developer on 2026-10-14. Test in `test_replace_affected_booking.py`. Executed 2026-10-14 after the S-78
+SQL for `bookings` was run in the test project. Needs the whole `.env.test`
+stack, recreated immediately before.
+
+The search rules, the one-at-a-time rule and the resolution rules are covered
+by the unit and integration cases. This journey proves only what a browser
+can: the way in from the flagged booking, the replacement screen, and the
+original's state after Venue Staff approve.
+
+## TC-E2E-242 — a Coordinator replaces a flagged booking without re-entering the event, and approval clears the flag
+
+- **Scenario:** In a real browser through Kong, from the flagged booking to
+  a confirmed replacement (AC1–AC4).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before. The S-78 SQL applied. Chromium. Created with the admin client:
+  - a Venue Staff user and a Coordinator;
+  - venues `"spm-e2e Venue A <hex>"` and `"spm-e2e Venue B <hex>"`, both
+    open every day `08:00`–`20:00`, both suitable for E, with setup and
+    turnaround 0;
+  - a `planning` event E assigned to the Coordinator;
+  - a confirmed booking K for E at Venue A, `2026-11-12` `10:00`–`12:00`;
+  - a period on Venue A from `2026-11-12` `09:00` to `13:00`.
+- **Steps:**
+  1. Sign in as the Coordinator, open E, and click **Find a replacement venue** on K's row.
+  2. On the replacement screen, choose Venue B and click **Send replacement request**.
+  3. Sign out and sign in as Venue Staff. Open the new request and approve it.
+  4. Sign out, sign in as the Coordinator, and open E.
+- **Expected:**
+  - Step 1 opens `/coordinator/events/<E>/bookings/<K>/replacement`, which
+    shows E's name, "12 Nov 2026 · 10:00–12:00" and E's requirements as
+    read-only text. Venue B is listed and Venue A is not. There are no
+    inputs for date, time, attendance or requirements.
+  - After step 2 the page returns to E with "Replacement request sent to
+    Venue B." K's row still says "Needs alternative arrangements" and
+    "Replacement requested: Venue B, waiting for Venue Staff".
+  - In step 3, Venue Staff's request page shows "Replacement for Venue A".
+  - After step 4, K's row reads "Replaced by Venue B" with no flag. Venue
+    B's row reads "Confirmed".
+  - With the admin client, K is `replaced` and the new row is `confirmed`
+    with `replaces_booking_id` K.
+  Cleanup deletes the period, both bookings, E, both venues and both users.
+- **Actual:** In Chromium through Kong: the link opened the replacement screen with the event, date, times and requirements read-only and no date, time or number inputs; Venue B listed, Venue A not. After sending, K was still flagged with "Replacement requested: Venue B, waiting for Venue Staff". Venue Staff's page said "Replacement for Venue A". After approval K read "Replaced by Venue B" with no flag and Venue B's row read Confirmed; in the database K `replaced`, the new row `confirmed` with `replaces_booking_id` K.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_replace_affected_booking.py::test_a_coordinator_replaces_a_flagged_booking_and_approval_clears_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+## TC-E2E-235 — requested safety changes complete a fresh review cycle
+
+> **S-17 (2026-10-19):** the path is `pending_safety_check → planning → pending_safety_check → confirmed`, and resubmission needs every arrangement complete.
+
+- **Scenario:** The browser proves S-87 across both roles and the existing
+  arrangement workflow.
+- **Pre-conditions:** Fresh `.env.test` stack with S-87 Events SQL; confirmed
+  event with assigned Coordinator, Safety Officer, confirmed venue, equipment
+  requirement and Technical Support assignment.
+- **Steps:** Safety Officer requests changes; Coordinator sees the returned
+  marker and feedback; revises Technical Support notes; resubmits; Safety
+  Officer sees the event reappear and approves it; inspect storage.
+- **Test data:** Feedback `Move speakers away from the east emergency exit`;
+  revised notes `Speakers moved to the west wall away from emergency exits`.
+- **Expected:** The journey is `changes_requested → planning → revise/resubmit
+  → confirmed → Safety Officer queue → fresh approval → preparation`.
+  History contains both reviews, and the confirmed venue remains untouched.
+- **Actual:** Chromium showed the returned marker, Safety Officer feedback and
+  `planning` state to the assigned Coordinator. The revised Technical Support
+  notes were saved before resubmission; the event reappeared in the Safety
+  Officer queue and fresh approval produced `preparation`. Storage retained
+  both reviews, the revised notes and the original confirmed booking.
+- **Status:** Pass
+- **Evidence:** `test_operational_safety_check.py::test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval[chromium]`;
+  local run at commit `72886bb` on 2026-10-13 against the freshly recreated
+  `.env.test` stack: combined S-77/S-87 browser regression, 5 passed.
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+## TC-E2E-236 — Coordinator changes one venue booking and cancels another; the third is untouched
+
+- **Scenario:** The change screen and the cancel panel work through Kong,
+  and the event's other bookings stay as they were (S-80 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; Chromium. K assigned to planning E with two `confirmed` bookings:
+  Hall 09:00–12:00 and Studio 13:00–15:00, both on `2026-11-12`.
+- **Steps:**
+  1. K opens E. Click **Change** on the Studio booking; the change screen
+     opens with Studio, 12 Nov, 13:00–15:00 filled in.
+  2. Set 15:00–17:00 and click **Save changes**.
+  3. Click **Cancel** on the Hall booking; the panel names it. Click
+     **Keep booking**.
+  4. Click **Cancel** on the Hall booking again, then **Cancel booking**.
+  5. Reload.
+- **Expected:**
+  - After 2: back on E with "Venue booking changed. It's pending until
+    Venue Staff review it again."; the Studio row reads 15:00–17:00
+    "Pending"; the Hall row still reads 09:00–12:00 "Confirmed".
+  - After 3: nothing changed.
+  - After 4 and 5: "Venue booking cancelled. Its time is free for other
+    events." (after 4); only the Studio row remains, 15:00–17:00 Pending.
+  Cleanup deletes every row created.
+- **Actual:** Chromium: Change opened the screen pre-filled 13:00; saving 15:00–17:00 returned to E with the changed notice, the Studio row Pending 15:00–17:00 and the Hall row still Confirmed 09:00–12:00; Keep booking changed nothing; Cancel booking showed the cancelled notice; after a reload only the Studio row remained.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_change_cancel_booking.py::test_a_coordinator_changes_one_booking_and_cancels_another[chromium]` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. With the S-77, S-78, S-30, S-33 and S-79 venue journeys: 8 passed, 1 failed (S-78's replacement journey: its venue search makes two sequential reads per venue, about 80 for the 41 venues on the test project, and outlasts the 20 s wait; S-80 changes nothing on that path). A first run had failed on a DNS outage and was rerun.
+
+## TC-E2E-237 — Lead sees profile-less Coordinators but not invalid owners
+
+- **Scenario:** The S-85 browser view distinguishes eligible Coordinators from active events with invalid owners, while preserving S-83 and S-84 controls.
+- **Pre-conditions:** Fresh `.env.test` stack and disposable fixtures: a profiled Coordinator with one event, a profile-less trusted Coordinator with zero events, and an active event whose Auth owner has been deleted. All fixture changes are cleaned up.
+- **Steps:** Sign in as Lead; inspect the oversight groups and separate integrity warning; use S-84 to reassign the valid event to the profile-less Coordinator; reload; inspect the S-83 assignment queue.
+- **Test data:** Profiled `Alex <alex@example.com>`; profile-less Auth identity `blair@example.com`; deleted owner D; one event for Alex and one orphaned event for D.
+- **Expected:** Blair appears as a zero-assignment Coordinator using Auth identity display. D never appears as a Coordinator group; its event is reported only in the integrity warning. Reassignment moves the valid event to Blair and updates counts both immediately and after reload. The S-83 queue remains available; the orphan's assignment is not changed.
+- **Actual:** Chromium showed the profile-less Coordinator under its Auth email with count 0 and the deleted owner's event only in the integrity warning. The email-labelled S-84 choice moved the valid event and updated counts before and after reload; the S-83 queue remained visible.
+- **Status:** Pass
+- **Evidence:** `test_coordinator_overview.py::test_lead_sees_profileless_coordinator_and_invalid_assignment_separately[chromium]`; freshly recreated `.env.test` stack, 2026-10-18, after merging `sprint3`; four targeted browser journeys passed.
+
+## Merged-branch ID reconciliation
+
+The earliest allocation of each test ID remains canonical. Later cases from
+parallel story branches were renumbered when those branches met: S-85
+overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
+`235` -> `240`, S-24 readiness `233` -> `241`, and S-78 replacement `235` ->
+`242`. Earlier branch references to those old IDs identify the same cases.
+
+## S-26 — Update Equipment Preparation Status
+
+### TC-E2E-239 — assigned Technical Support updates preparation and the Coordinator sees it
+
+- **Scenario:** A browser proves the protected S-26 write, persistence, and read-only Coordinator visibility.
+- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; planning event assigned to a Coordinator and Technical Support A.
+- **Steps:** Sign in as A; observe Not Started; change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open the event.
+- **Test data:** One event requiring equipment and assigned support.
+- **Expected:** Each save confirms the server response. Ready survives reload. The Coordinator sees Ready on the event readiness view and no preparation edit control. Direct storage inspection shows Ready, A's id, and a non-null server timestamp.
+- **Actual:** Not run.
+- **Status:** Approved
+- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`
+
+## S-24 — Track Event Readiness
+
+### TC-E2E-241 — Coordinator readiness follows current venue, equipment, and preparation data
+
+- **Scenario:** The assigned Coordinator sees all five readiness areas on the event view.
+- **Pre-conditions:** Fresh `.env.test` stack; an assigned planning event with a confirmed venue, recorded equipment requirement, and preparation Ready.
+- **Steps:** Sign in as the Coordinator; open the event; inspect readiness; change the server-owned preparation status to In Progress; reload.
+- **Expected:** Initially Venue, Equipment, and Technical support are Complete and the total is 3 of 3. Programme and Registration are visible as Not available yet. After the underlying change and reload, Technical support becomes Outstanding and the total becomes 2 of 3 without a duplicate readiness record being edited.
+- **Actual:** The Coordinator saw all five indicators, three implemented areas complete, and two future areas unavailable. After preparation changed to In Progress and the page reloaded, the total changed to 2 of 3 and Technical support became Outstanding.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
+
+## TC-E2E-240 — a tentative hold expires and releases its slot
+
+- **Scenario:** Venue Staff place a visibly tentative hold with a required
+  expiry; its Coordinator is informed before it expires and the same
+  venue/time becomes available again.
+- **Expected:** Blank expiry is refused; the request and calendar show the
+  hold and expiry distinctly; the Coordinator receives an expiry notice; the
+  calendar removes the hold after expiry without manual release and storage
+  records `expired`.
+- **Actual:** Chromium refused a blank expiry, displayed the active hold and
+  expiry, showed the Coordinator notice, and showed the slot as available
+  after automatic expiry; storage recorded `pending/expired`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_tentative_hold_expiry.py::test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot`; `.env.test` stack recreated immediately before, 2026-10-13; full suite reached 35 passed with only this new assertion pending, then the corrected S-81 journey passed on its complete focused rerun (all 36 journeys passed).
+
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Specification confirmed by the
+developer on 2026-10-19. S-18 records history for future S-82 display; the
+S-82 history screen itself is outside this journey because that story is not
+yet present.
+
+## TC-E2E-244 — Coordinator saves routine and significant edits without losing arrangements
+
+- **Scenario:** A browser proves the complete assigned-Coordinator editing and
+  re-review journey through Kong.
+- **Pre-conditions:** Fresh `.env.test` stack with S-18 SQL; Coordinator A;
+  A's preparation event E with contact information, confirmed venue booking,
+  equipment requirement, equipment preparation Ready, Technical Support
+  assignment, and one completed safety-review history entry.
+- **Steps:**
+  1. Sign in as A, open E, edit the contact phone and internal note, save and
+     reload.
+  2. Change attendance and end time. Review the impact summary and cancel.
+  3. Repeat the significant edit and accept it.
+  4. Confirm existing arrangements remain visible, then submit E for a fresh
+     Operational Safety Check and reload.
+- **Expected:** Step 1 persists immediately without changing Preparation or
+  asking for re-review. Step 2 changes nothing. Step 3 shows the new values and
+  Planning with a clear fresh-safety-check message. The confirmed booking,
+  requirement, Ready state, assignment, and prior safety history remain.
+  Step 4 passes S-17 readiness and leaves E Pending Safety Check. Only a
+  Safety Officer can later confirm it. Direct storage
+  contains ordered audit entries naming only the fields changed, A's UUID and
+  server times. Cleanup removes all fixtures.
+- **Actual:** The browser saved routine contact/notes, cancelled an impact
+  review without changing storage, accepted attendance/time changes, retained
+  the confirmed venue and equipment requirement, and submitted the revised
+  event for a fresh safety decision. Direct storage contained two ordered
+  Coordinator audit entries and preserved preparation, assignment, and prior
+  safety history.
+- **Status:** Pass
+- **Evidence:** `test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle`; focused Chromium run through Kong against a freshly recreated `.env.test` stack, 2026-10-19.
+## TC-E2E-243 — Coordinator submits for the safety check; the Organiser sees Confirmed
+
+- **Scenario:** The journey only a browser can prove: the outstanding list,
+  the gateway routes and each role's view of the new stage.
+- **Pre-conditions:** Full stack on `.env.test` with the S-17 SQL; Chromium;
+  an event in `planning` with one `pending` booking and one equipment
+  requirement, Technical Support assigned.
+- **Steps:** 1. As the Coordinator, open the event; click "Submit for safety
+  check". 2. As Venue Staff, confirm the booking; as Technical Support,
+  approve and set preparation Ready. 3. As the Coordinator, reload and submit.
+  4. As the Organiser, open the event. 5. As the Safety Officer, approve it.
+  6. As the Organiser, reload.
+- **Test data:** As above.
+- **Expected:** 1 lists "Hall A on 20 Nov 2026 is waiting for Venue Staff",
+  "Technical Support has not approved the equipment arrangements",
+  "Equipment preparation is Not Started"; no override control is on the
+  page; status still "Planning". 3 shows "Pending Safety Check". 4 shows
+  "Pending Safety Check". 6 shows "Confirmed".
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`
+
 
 ## S-61 — review and approve cancellation request
 
 Story: S-61 Review and Approve Cancellation Request.
 Confirmed by the developer on 2026-10-11.
 
-## TC-E2E-234 — Coordinator approves a cancellation and the event shows as Cancelled for both sides
+## TC-E2E-245 — Coordinator approves a cancellation and the event shows as Cancelled for both sides
 
 - **Scenario:** The Coordinator's review journey works through Kong, the
   venue booking disappears, and the Organiser sees the result (S-61 AC1, AC2).

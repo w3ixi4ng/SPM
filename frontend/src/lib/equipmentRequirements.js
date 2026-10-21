@@ -24,16 +24,17 @@ export function listEquipmentRequirements(eventId) {
   return requestJSON(`/equipment-requirements${query}`)
 }
 
-export function saveEquipmentRequirement(eventId, equipmentItemId, quantity) {
-  return requestJSON(`/equipment-requirements/${eventId}/${equipmentItemId}`, {
+export function saveEquipmentRequirement(eventId, equipmentItemId, quantity, impactAccepted = false) {
+  return requestJSON(`/equipment-requirements/${encodeURIComponent(eventId)}/${encodeURIComponent(equipmentItemId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ required_quantity: Number(quantity) }),
+    body: JSON.stringify({ required_quantity: Number(quantity), impact_accepted: impactAccepted }),
   })
 }
 
-export function removeEquipmentRequirement(eventId, equipmentItemId) {
-  return requestJSON(`/equipment-requirements/${eventId}/${equipmentItemId}`, {
+export function removeEquipmentRequirement(eventId, equipmentItemId, impactAccepted = false) {
+  const query = impactAccepted ? '?impact_accepted=true' : ''
+  return requestJSON(`/equipment-requirements/${encodeURIComponent(eventId)}/${encodeURIComponent(equipmentItemId)}${query}`, {
     method: 'DELETE',
   })
 }

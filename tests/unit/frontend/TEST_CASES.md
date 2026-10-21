@@ -1646,7 +1646,7 @@ Story: S-85 View Coordinator Assignments and Active Events. Acceptance
 criteria and test cases confirmed by the developer on 2026-10-09. Executed
 in the full Node unit run on 2026-10-09.
 
-### TC-FRONTEND-096 — overview helper preserves the read-only API contract
+### TC-FRONTEND-125 — overview helper preserves the read-only API contract
 
 - **Expected:** The browser performs one credentialled `GET` to
   `/event-requests/coordinator-overview`. It sends no body and exposes no S-85
@@ -1657,7 +1657,7 @@ in the full Node unit run on 2026-10-09.
 - **Status:** Pass
 - **Evidence:** `test_coordinator_overview.mjs::overview helper uses the credentialled read-only route`
 
-### TC-FRONTEND-097 — populated overview groups events and shows counts
+### TC-FRONTEND-126 — populated overview groups events and shows counts
 
 - **Expected:** The Lead dashboard renders every Coordinator group, including
   count zero, and shows each event's name, status, organiser, complete
@@ -1810,13 +1810,537 @@ TC-FRONTEND-103 is skipped because S-79's unmerged branch uses it.
 - **Actual:** Both requested events were tagged "Cancellation requested"; every status without a request, and an event without the field, gave `null`; labels stayed "Planning" and "Confirmed".
 - **Status:** Pass
 - **Evidence:** `test_event_cancellation.mjs::the dashboard tags an event with a pending cancellation request`; `node --test tests/unit/frontend/test_*.mjs`: 131 passed, 2026-10-11.
+## S-77 — mark venue temporarily unavailable
+
+Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed.
+
+The cases cover pure functions in `frontend/src/lib/venueAvailability.js`
+and `venueBookings.js`, tested with no browser. Today is `2026-11-10`.
+Period P is Studio B from `2026-11-13` `09:00` to `2026-11-14` `17:00`,
+reason `equipment_failure`, note `"Air handling unit down"`. Studio B is open
+`mon`–`fri` `08:00`–`18:00`.
+
+**Changes to existing cases.** When S-77 lands:
+- TC-FRONTEND-068: "a block outranks everything" applies only to a day the
+  period covers completely, as TC-FRONTEND-110 sets out.
+- TC-FRONTEND-071: the add body includes the times (TC-FRONTEND-108).
+- TC-FRONTEND-072: the block detail is the TC-BOOKINGS-047 wording.
+
+Their tests were updated and re-run with S-77, and pass.
+
+## TC-FRONTEND-107 — the Mark unavailable form needs both dates, both times, an end after the start, and a reason
+
+- **Scenario:** Venue Staff can't send an incomplete period, and are told
+  exactly what to fix (AC1).
+- **Steps:** Call `validateBlockForm` with the base form
+  `{startDate:"2026-11-13", startTime:"09:00", endDate:"2026-11-14", endTime:"17:00", reason:"equipment_failure", note:""}`,
+  changing one thing per row. Then read `BLOCK_REASONS` and each reason's label.
+- **Test data / Expected:**
+  - base form → `[]`
+  - `startTime` `""` → `["Choose when the unavailable period starts."]`
+  - `endDate` `""` → `["Choose when the unavailable period ends."]`
+  - `endDate` `"2026-11-13"`, `endTime` `"09:00"` → `["The period must end after it starts."]`
+  - `endDate` `"2026-11-12"` → the same message
+  - `reason` `""` → `["Choose a reason."]`
+  - `reason` `"other"`, `note` `"  "` → `["Describe the operational reason."]`
+  - `reason` `"other"`, `note` `"Fire alarm testing"` → `[]`
+  - `BLOCK_REASONS` is exactly `maintenance`, `equipment_failure`,
+    `renovation`, `safety`, `other`, labelled "Maintenance", "Equipment
+    failure", "Renovation", "Safety concern", "Other operational reason"
+- **Actual:** Every row returned the listed messages; reasons and labels exactly as listed.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — the Mark unavailable form needs both dates, both times, an end after the start, and a reason`
+
+## TC-FRONTEND-108 — the period is sent with its times, and nothing the server owns
+
+- **Scenario:** The form becomes the S-77 request body.
+- **Steps:** With a fake `fetch`, call `addVenueBlock` with the base form
+  from TC-FRONTEND-107 and `venueId` Studio B. Call it again with `note`
+  `"  "`. Then call `retryBlockNotifications("cccccccc-…")`.
+- **Expected:**
+  - `POST /api/venue-bookings/blocks` with exactly
+    `{"venue_id":"bbbbbbbb-…","start_date":"2026-11-13","start_time":"09:00","end_date":"2026-11-14","end_time":"17:00","reason":"equipment_failure","note":null}`,
+    with credentials included. No `venue_name` or `created_by`.
+  - The blank note is sent as `null`.
+  - The retry is `POST /api/venue-bookings/blocks/cccccccc-…/notify`.
+- **Actual:** `POST /api/venue-bookings/blocks` with exactly the body, credentials included; blank note sent as null; retry `POST …/notify`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — the period is sent with its times, and nothing the server owns`
+
+## TC-FRONTEND-109 — after saving, Venue Staff are told which bookings are affected and whether Coordinators were told
+
+- **Scenario:** The bookings the period affects are identified to Venue
+  Staff in plain words, and a notification failure is not hidden (AC3, AC5).
+- **Steps:** Call `affectedBookingsSummary(response)` with three responses.
+- **Test data / Expected:**
+  1. `affected_bookings` `[]`, `coordinators_notified` `true` →
+     heading "Studio B marked unavailable", line "No bookings are affected."
+     No retry offered.
+  2. Two affected bookings, A (Alumni talk, confirmed, 13 Nov 2026 10:00–12:00,
+     Coordinator Ada Lim) and B (Board lunch, held, 14 Nov 2026 15:00–16:30,
+     Coordinator Ben Tan), with `coordinators_notified` `true`:
+     - line "2 bookings need alternative arrangements. Their Coordinators have been notified."
+     - rows "Alumni talk · 13 Nov 2026 · 10:00–12:00 · Booked · Ada Lim" and
+       "Board lunch · 14 Nov 2026 · 15:00–16:30 · Tentatively held · Ben Tan"
+     - no retry offered
+  3. As 2 with `coordinators_notified` `false`:
+     - the same rows
+     - line "The period is saved, but the Coordinators haven't been notified yet."
+     - `retry: true`, so the panel shows **Notify Coordinators**
+  One affected booking reads "1 booking needs alternative arrangements. …".
+- **Actual:** Empty, notified and not-notified summaries as specified; one booking reads "1 booking needs…".
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — after saving, Venue Staff are told which bookings are affected and whether Coordinators were told`
+
+## TC-FRONTEND-110 — the calendar marks a fully covered day Unavailable and a partly covered day with the period's times
+
+- **Scenario:** A timed period no longer greys out whole days it only
+  partly covers (AC1).
+- **Steps:** Call `availabilityDays({from:"2026-11-12", to:"2026-11-16"}, entries, operating_hours)`.
+  `entries` holds P as a `blocked` entry with times, and a confirmed booking
+  on `2026-11-12` `10:00`–`12:00`. Then repeat with a period from
+  `2026-11-13` `00:00` to `2026-11-17` `00:00` (a migrated S-30 block).
+- **Expected:**
+  - First call:
+    - `12 Nov` → `confirmed`, "Booked 10:00–12:00".
+    - `13 Nov` → `partly_blocked`, "Partly unavailable". Detail "Unavailable from 09:00 · Equipment failure".
+    - `14 Nov` → `partly_blocked`. Detail "Unavailable until 17:00 · Equipment failure".
+    - `15`–`16 Nov` → `closed` and `available` as before.
+    - `partly_blocked` has its own label and a colour no other state uses.
+    - A partly covered day with a booking keeps the booking's state and also
+      lists the period in its detail.
+  - Second call: `13`–`16 Nov` are `blocked`, "Unavailable — Maintenance",
+    the weekend included, as in TC-FRONTEND-068.
+- **Actual:** 12 Nov booked; 13 and 14 Nov partly unavailable with "from 09:00" / "until 17:00"; a held day keeps its state and lists the period; colours distinct; the migrated block covers 13–16 Nov.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — the calendar marks a fully covered day Unavailable and a partly covered day with the times`
+
+## TC-FRONTEND-111 — a Coordinator's flagged booking says it needs alternative arrangements, and why
+
+- **Scenario:** The flag reaches the Coordinator on the event page, as text
+  and not colour alone (AC3).
+- **Steps:** Call `alternativeArrangementsNotice(booking)` for two bookings:
+  - A, with `requires_alternative_arrangements` `true` and P in
+    `unavailable_periods`;
+  - A4, with `false` and `[]`.
+- **Expected:**
+  - A → `{label: "Needs alternative arrangements", color: C.rose, detail: "Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure: Air handling unit down)."}`.
+    A booking with two periods lists both in date order.
+  - A4 → `null`, and nothing is shown.
+- **Actual:** A gave the exact label, rose colour and detail; two periods in date order; A4 null.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_unavailable_periods.mjs — a Coordinator's flagged booking says it needs alternative arrangements, and why`
+
+## S-78 — request replacement venue for affected booking
+
+Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed. The
+criteria mapping and the agreed decisions are in
+`tests/unit/composite/venue_bookings/TEST_CASES.md`. The test file is
+`tests/unit/frontend/test_replacement_venue.mjs`, importing
+`frontend/src/lib/venueBookings.js`.
+
+Test data: A is Studio B, `confirmed`, `2026-11-13` `10:00`–`12:00`,
+flagged. R1 is Hall C, `replaces_booking_id` A.
+
+## TC-FRONTEND-129 — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither
+
+- **Scenario:** The way in starts from the affected booking (AC1).
+- **Steps:** Call `replacementState(booking, bookings)` for each row:
+- **Expected:**
+  - A flagged, with no replacement in `bookings` → `{actions: ["replace", "resolve"], label: null}`
+  - A flagged, R1 `pending` or `held` → `{actions: ["resolve"], label: "Replacement requested: Hall C, waiting for Venue Staff"}`
+  - A flagged, R1 `rejected` → `{actions: ["replace", "resolve"], label: "Hall C declined the replacement request"}`
+  - A `replaced` by R1 → `{actions: [], label: "Replaced by Hall C"}`
+  - A not flagged, with `alternative_resolution_note` "Moved online" → `{actions: [], label: "Resolved: Moved online"}`
+  - A not flagged and never resolved, or `pending` → `{actions: [], label: null}`
+  - R1 itself → `{actions: [], label: "Replacement for Studio B"}`
+- **Actual:** Every row gave exactly the expected actions and label.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — a flagged booking offers a replacement and a resolution, and an unflagged one offers neither`
+
+## TC-FRONTEND-130 — the resolution note must be written, and not too long
+
+- **Steps:** Call `validateResolutionNote(note)`.
+- **Expected:**
+  - `""` or `"   "` → `"Say what you've arranged instead."`
+  - 501 characters → `"Keep the note to 500 characters."`
+  - `"  Moved online  "` → `null`, and `resolutionPayload` gives `{note: "Moved online"}`
+- **Actual:** Blank and spaces gave the "Say what…" message, 501 characters the length message, 500 and the trimmed note `null`; payload trimmed.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the resolution note must be written, and not too long`
+
+## TC-FRONTEND-131 — the replacement request sends only the venue and notes
+
+- **Scenario:** Nothing about the event is sent from the browser (AC3).
+- **Steps:** Call `requestReplacementVenue("aaaaaaaa-…", {venueId: "cccccccc-…", notes: "  "})`
+  with `fetch` stubbed.
+- **Expected:** One `POST` to `/api/venue-bookings/aaaaaaaa-…/replacement`
+  with body `{"venue_id": "cccccccc-…", "notes": null}`. No event, date or
+  time field. `resolveAlternativeArrangements(id, "Moved online")` sends
+  `POST …/{id}/resolution` with `{"note":"Moved online"}`.
+  `searchReplacementVenues(id)` sends `GET …/{id}/replacement-venues`.
+- **Actual:** One `POST` to `…/replacement` with `{"venue_id":…,"notes":null}`; `…/resolution` with the note; `GET …/replacement-venues`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the replacement request sends only the venue and notes`
+
+## TC-FRONTEND-115 — every failure says what happened and what to do next
+
+- **Steps:** Call `replacementErrorMessages(error)` for each response.
+- **Expected:**
+  - `409` "This booking doesn't need a replacement venue" → `["This booking no longer needs a replacement. Go back to the event to see its current state."]`
+  - `409` "A replacement request for this booking is already with Venue Staff" → `["You've already asked for a replacement for this booking. Wait for Venue Staff's decision."]`
+  - `409` naming a taken or unavailable slot → `[<the service's detail>, "Choose another venue."]`
+  - `422` with `errors` `{expected_attendance: "…", required_facilities: "…"}` → both messages, in order
+  - `404` → `["We couldn't find this booking. Go back to the event and try again."]`
+  - `502` or a network failure → `["We couldn't reach the booking service. Try again in a moment."]`
+- **Actual:** Every response gave exactly the expected list.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — every failure says what happened and what to do next`
+
+## TC-FRONTEND-116 — the replacement screen's path and its empty state
+
+- **Steps / Expected:**
+  - `replacementPath("eeeeeeee-…", "aaaaaaaa-…")` → `"/coordinator/events/eeeeeeee-…/bookings/aaaaaaaa-…/replacement"`
+  - `replacementSearchSummary({booking: A, venues: []})` → `"No venue can take this event on 13 Nov 2026 from 10:00 to 12:00. Resolve the booking with a note if you've made other arrangements."`
+  - With two venues → `"2 venues can take this event on 13 Nov 2026 from 10:00 to 12:00."`. With one → `"1 venue can …"`
+- **Actual:** Path and all three summaries exact.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_replacement_venue.mjs — the replacement screen's path and its empty state`
+## S-87 — returned safety feedback and resubmission
+
+Story: S-87 Return Event to Planning After Safety Changes Requested.
+Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
+2026-10-13 at commit `72886bb` in the full Node unit run: 138 passed.
+
+### TC-FRONTEND-112 — Coordinator safety-return API contract
+
+- **Steps:** Load a returned review and resubmit it through the frontend
+  helpers.
+- **Expected:** Credentialled requests use
+  `/api/safety-checks/coordinator/events/{id}` and its `/resubmit` action;
+  resubmission is POST.
+- **Actual:** Both helpers used the required credentialled routes and the
+  resubmission helper sent POST.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::safety-check helpers use credentialled composite routes`
+
+### TC-FRONTEND-113 — returned event states and feedback are prominent
+
+- **Steps:** Inspect the Coordinator dashboard and detail implementation.
+- **Expected:** The dashboard marks returned safety work. Detail includes
+  loading/error states, reason, Safety Officer, decision time, history,
+  current planning state, resubmit control, and success feedback while the
+  existing venue/equipment/Technical Support controls remain available.
+- **Actual:** Both pages contain the returned marker and detail contains every
+  feedback, lifecycle, loading and success contract while retaining the
+  existing resource sections.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::Coordinator detail presents returned feedback and resubmission states`
+
+### TC-FRONTEND-114 — returned-safety failures are controlled
+
+- **Expected:** Session expiry, wrong ownership/role, stale transition and
+  service outage have specific controlled messages and never show success.
+- **Actual:** All four failure classes map to controlled, actionable copy.
+- **Status:** Pass
+- **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
+## S-26 — Update Equipment Preparation Status
+
+Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test cases confirmed by the developer on 2026-10-11. Not yet executed.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
+| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-239 |
+| Only Technical Support can change it | TC-FRONTEND-117–118 |
+
+### TC-FRONTEND-117 — preparation permissions, labels, and update request match the Events contract
+
+- **Pre-conditions:** Frontend access and equipment-preparation helpers loaded; fetch records requests.
+- **Steps:** Check the update permission for every role; format every status; update an id requiring URL encoding.
+- **Test data:** `not_started`, `in_progress`, `ready`; id `event 1/2`.
+- **Expected:** Only `technical_support` has the update permission. Labels are `Not Started`, `In Progress`, and `Ready`. The helper sends credentialled `PUT /api/events/support-assigned/event%201%2F2/equipment-preparation` with body exactly `{"status":"ready"}`.
+- **Actual:** The permission matrix, three labels, encoded route, exact JSON body, and session credentials matched the contract.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::preparation access labels and update request match the confirmed contract`
+
+### TC-FRONTEND-118 — support can change preparation while the Coordinator sees read-only current state
+
+- **Scenario:** Each dashboard presents the same server-owned status for its role, and a failed save never looks successful.
+- **Pre-conditions:** Assigned Technical Support and Coordinator event views; mocked successful and failed update calls.
+- **Steps:** Inspect Not Started; save In Progress then Ready; inspect the Coordinator view; fail a later update.
+- **Test data:** One assigned event and all three statuses.
+- **Expected:** Technical Support gets the three-value control on eligible assigned events. The Coordinator sees the current labelled value without an edit control. Other roles get no edit permission. UI state changes only from the successful server response; a failure keeps the prior value and shows actionable feedback.
+- **Actual:** The shared status mapping preserved the server value for the editable support view and read-only Coordinator display; failure messages did not fabricate success.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::dashboard contracts expose editable support and read-only coordinator states`
+
+## S-24 — Track Event Readiness
+
+Story: S-24 Track Event Readiness. Acceptance criteria and test cases confirmed
+by the developer on 2026-10-13. Programme and registration are shown as
+"Not available yet" until their owning stories provide data; they are excluded
+from the implemented-area total rather than presented as complete.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The event view shows venue, equipment, technical support, programme and registration indicators | TC-FRONTEND-119 |
+| Each implemented indicator reflects its owning data | TC-FRONTEND-119–120 |
+| The view is rebuilt from current underlying status | TC-FRONTEND-121 |
+
+### TC-FRONTEND-119 — readiness presents all five areas without inventing unfinished data
+
+- **Pre-conditions:** The readiness helper is loaded.
+- **Steps:** Build readiness for an event with a confirmed venue, an equipment requirement, and preparation Ready.
+- **Expected:** Venue, Equipment, and Technical support are Complete. Programme and Registration are Not available yet. Overall reads 3 of 3 implemented areas complete.
+- **Actual:** The helper returned three complete implemented areas and two explicitly unavailable future areas.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`
+
+### TC-FRONTEND-120 — incomplete source data remains outstanding
+
+- **Pre-conditions:** A held venue, no equipment requirements, and preparation In Progress.
+- **Steps:** Build readiness.
+- **Expected:** All three implemented areas are Outstanding; unfinished Programme and Registration remain unavailable.
+- **Actual:** All three implemented areas remained outstanding and the two future areas remained unavailable.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`
+
+### TC-FRONTEND-121 — readiness reloads its owning services instead of storing a duplicate answer
+
+- **Pre-conditions:** Fetch records authenticated Kong requests.
+- **Steps:** Load readiness for id `event 1/2`.
+- **Expected:** Current venue bookings and equipment requirements are fetched with credentials and an encoded event id; readiness is derived from those responses and the current event.
+- **Actual:** Both encoded, credentialled Kong reads were made and the result was derived from their current responses.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::readiness loads fresh venue and equipment data through Kong`
+
+## S-81 — tentative hold expiry
+
+### TC-FRONTEND-122 — the hold form requires a future Singapore expiry
+
+- **Expected:** Blank, invalid, and non-future values are refused locally.
+  A valid `datetime-local` value is converted to a timezone-aware ISO instant.
+
+### TC-FRONTEND-123 — the authenticated hold call carries only the expiry
+
+- **Expected:** `POST /api/venue-bookings/{id}/hold`, credentials included,
+  JSON body exactly `{"expires_at":"..."}`; safe messages cover `401`, `403`,
+  `404`, `409`, `422`, and an unavailable service.
+
+### TC-FRONTEND-124 — active holds show their expiry distinctly
+
+- **Expected:** Venue Staff see an expiry control before placing a hold and an
+  active hold says when it expires; after refresh an expired hold is no longer
+  shown as tentatively held.
+
+## Merged-branch ID reconciliation
+
+The earliest allocation of each test ID remains canonical. Later cases from
+parallel story branches were renumbered when those branches met: S-85
+overview `096`/`097` -> `125`/`126`, S-80 change/cancel `117`/`118` ->
+`127`/`128`, and S-78 replacement `112`/`113`/`114` -> `129`/`130`/`131`.
+Earlier branch references to those old IDs identify the same cases.
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+### TC-FRONTEND-127 — which bookings offer Change and Cancel, and what the screens say
+
+- **Pre-conditions:** `frontend/src/lib/venueBookings.js` imported directly.
+- **Steps:** Call the helpers with each booking and event status.
+- **Expected:**
+  - Change and Cancel are offered for `pending`, `held` and `confirmed`
+    bookings of a `planning` event; not for `rejected`, and not for any
+    booking once the event isn't `planning`.
+  - A booking pre-fills the change form with its venue, date, `HH:MM` times
+    and notes.
+  - The cancel panel reads "Cancel Main Hall on 12 Nov 2026, 09:00–12:00?
+    Its time is freed for other events. Your other venue bookings stay as
+    they are."
+  - The notice after a change reads "Venue booking changed. It's pending
+    until Venue Staff review it again."; after a cancel, "Venue booking
+    cancelled. Its time is free for other events."
+- **Actual:** Offered for pending, held and confirmed in planning only; the form pre-filled with `HH:MM` times and notes; the prompt and both notices as specified.
+- **Status:** Pass
+- **Evidence:** `test_change_cancel_booking.mjs::which bookings offer Change and Cancel, and what the screens say`
+
+### TC-FRONTEND-128 — the change and cancel calls, and their failure messages
+
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:** Change `b 1/2` with a form; cancel `b 1/2`; map errors `409`,
+  `422`, `404`, `500`, `0` for each.
+- **Expected:** `PATCH /api/venue-bookings/b%201%2F2` with credentials and
+  `{venue_id, booking_date, start_time, end_time, notes}` (no `event_id`);
+  `DELETE /api/venue-bookings/b%201%2F2` with credentials. A `409` shows the
+  service's message; every other failure ends "The booking has not
+  changed."
+- **Actual:** Two `PATCH` and one `DELETE` to `/api/venue-bookings/b%201%2F2` with credentials; no `event_id`; blank notes sent as `null`; `409` shows the service's message, the rest end "The booking has not changed."
+- **Status:** Pass
+- **Evidence:** `test_change_cancel_booking.mjs::the change and cancel calls go through Kong`; `test_change_cancel_booking.mjs::a failed change or cancel says the booking has not changed`
+
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Acceptance criteria and design choices
+confirmed by the developer on 2026-10-19.
+
+### TC-FRONTEND-137 — Coordinator edit mapping separates routine and significant changes
+
+- **Pre-conditions:** The S-18 frontend helpers are imported directly.
+- **Steps:** Populate the editor from an assigned event; change purpose,
+  contact and internal notes; then change each date/time, attendance and venue
+  requirement field; repeat with whitespace/list-order-only differences.
+- **Expected:** Stored values populate their controls. The routine payload
+  contains only editable routine fields. Real significant differences produce
+  an impact summary naming each changed field; normalized no-ops do not. Audit,
+  lifecycle, assignment, sign-off, and safety fields never enter browser
+  payloads.
+- **Actual:** Assigned-event responses populated every editable control and
+  the outgoing payload contained only the approved S-18 fields, normalized
+  requirement lists, the version, and explicit acceptance.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `S-18 coordinator mapping includes editable fields and omits server-owned state`
+
+### TC-FRONTEND-138 — significant edits require a review choice before saving
+
+- **Pre-conditions:** An assigned planning, confirmed, or preparation event is
+  open in the Coordinator detail view.
+- **Steps:** Make a routine edit; make a significant edit; cancel its impact
+  review; reopen and accept it.
+- **Expected:** Routine edits save directly. Significant edits show the
+  server-confirmed list of impacts and clear choices to go back or accept.
+  Cancelling sends no save and leaves the displayed record unchanged.
+  Acceptance sends the returned review token/version rather than trusting a
+  browser-generated significance flag.
+- **Actual:** The API helpers used preview before save; the Chromium journey
+  showed the server impact list, proved Go back made no storage change, and
+  required Accept and save for the mutation.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs` — `S-18 event information calls use encoded authenticated Kong routes`; `tests/e2e/test_update_event_information.py`
+
+### TC-FRONTEND-139 — a successful save refreshes lifecycle state without hiding arrangements
+
+- **Pre-conditions:** A confirmed/preparation event has venue bookings,
+  equipment requirements, equipment preparation, and prior safety history.
+- **Steps:** Accept a significant edit; render the returned event; submit the
+  revised planning event for a fresh Operational Safety Check.
+- **Expected:** The screen immediately shows the saved values and `Planning`,
+  explains that a new safety check is required, and continues to show existing
+  venue/equipment arrangements for the Coordinator to assess. Submitting for
+  safety review uses S-17's readiness check and changes the displayed state to
+  Pending Safety Check.
+- **Actual:** The browser refreshed to Planning after acceptance, retained
+  venue/equipment information, exposed S-17's fresh-safety action, and
+  refreshed to Pending Safety Check after submission.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle`
+
+### TC-FRONTEND-140 — edit controls and failures are safe and role-appropriate
+
+- **Steps:** Check presentation permissions for every role; map `401`, `403`,
+  `404`, `409`, `422`, network and `500` failures from preview and save calls.
+- **Expected:** Only Event Coordinators receive the edit permission and only
+  an eligible assigned event renders controls. Every failed save states that
+  event information was not changed; stale `409` asks the user to reload;
+  validation maps to the matching control. Requests use encoded Kong paths,
+  session credentials and safe JSON only.
+- **Actual:** Coordinator permission and encoded, credentialed preview/save/
+  routes matched the policy and request contract; backend role,
+  assignment, lifecycle, validation, and stale-write tests failed closed.
+- **Status:** Pass
+- **Evidence:** `test_access.mjs`; `test_event_requests.mjs` — `S-18 event information calls use encoded authenticated Kong routes`; `tests/unit/atomic/events/test_s18.py`
+## S-17 — submit for the Operational Safety Check
+
+Pure functions in `frontend/src/lib/` only (no browser, no `npm ci`). The
+page wiring is proven by TC-E2E-243.
+
+## TC-FRONTEND-132 — the new stage has a label for every role
+
+- **Scenario:** Pending Safety Check reads as its own stage.
+- **Pre-conditions:** None.
+- **Steps:** Look up the status display for `pending_safety_check`,
+  `confirmed` and `preparation` in `lib/eventRequests.js`.
+- **Test data:** The three statuses.
+- **Expected:** `pending_safety_check` → label "Pending Safety Check", colour
+  `amber` (`#B5842B`); `confirmed` → "Confirmed", `green` — unchanged;
+  `preparation` keeps its existing entry. `pending_safety_check` is in the
+  Organiser's list of statuses shown on their dashboard.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "labels the new stage"
+
+## TC-FRONTEND-133 — readiness comes from the server's outstanding list
+
+- **Scenario:** The page shows exactly what the submission check will refuse.
+- **Pre-conditions:** None.
+- **Steps:** Build the readiness view from (a) `{"ready": true,
+  "outstanding": []}`; (b) the six-item response of TC-SAFETYCHECKS-020.
+- **Test data:** As above.
+- **Expected:** (a) `canSubmit: true`, no items. (b) `canSubmit: false`, six
+  rows whose text equals each `label` in the same order, each with an
+  "Outstanding" status label (not colour alone).
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "builds readiness from the server"
+
+## TC-FRONTEND-134 — submit result handling
+
+- **Scenario:** The Coordinator sees what happened either way.
+- **Pre-conditions:** `fetch` stubbed.
+- **Steps:** Call `submitForSafetyCheck("E1")` with the server answering
+  (a) `200` `{"status": "pending_safety_check"}`; (b) `409` with two
+  outstanding items; (c) `409` "This event is not in planning"; (d) `502`.
+- **Test data:** As above.
+- **Expected:** `POST /api/safety-checks/coordinator/events/E1/submit`, no
+  body. (a) resolves to the updated event. (b) rejects with
+  `outstanding` = the two items. (c) and (d) reject with a message saying what
+  happened and what to do next.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "handles each submit outcome"
+
+## TC-FRONTEND-135 — Technical Support sign-off payloads
+
+- **Scenario:** The sign-off form sends only what the server accepts.
+- **Pre-conditions:** `fetch` stubbed.
+- **Steps:** Build payloads for approve; approve over a shortage with comment
+  "Borrowing 2 projectors from Library"; decline with "Only one sound desk
+  exists"; decline with "   ".
+- **Test data:** As above.
+- **Expected:** `{"decision": "approved"}`; `{"decision": "approved",
+  "override_comment": "Borrowing 2 projectors from Library"}`;
+  `{"decision": "declined", "reason": "Only one sound desk exists"}`; the
+  blank decline is refused client-side with "Enter a reason for declining".
+  A `409` shortage response yields the `short` list for display.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "builds sign-off payloads"
+
+## TC-FRONTEND-136 — the Coordinator sees the sign-off outcome
+
+- **Scenario:** Decline reasons and override comments reach the Coordinator.
+- **Pre-conditions:** None.
+- **Steps:** Describe the sign-off for an event with (a) none; (b) approved;
+  (c) approved with override comment; (d) declined with reason.
+- **Test data:** Values from TC-FRONTEND-135.
+- **Expected:** (a) "Awaiting Technical Support"; (b) "Approved by
+  Technical Support"; (c) as (b) plus the comment text; (d) "Declined by
+  Technical Support" plus the reason text.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_safety_submission.mjs` — "describes the sign-off"
+
 
 ## S-61 — review and approve cancellation request
 
 Story: S-61 Review and Approve Cancellation Request.
 Confirmed by the developer on 2026-10-11.
 
-### TC-FRONTEND-107 — who sees what about a cancellation request
+### TC-FRONTEND-141 — who sees what about a cancellation request
 
 - **Scenario:** The Coordinator is offered the decision only for a pending
   request; the Organiser sees the outcome (S-61 AC1).
@@ -1843,7 +2367,7 @@ Confirmed by the developer on 2026-10-11.
 - **Status:** Pass
 - **Evidence:** `test_cancellation_decision.mjs::who sees what about a cancellation request`; `test_cancellation_decision.mjs::only event coordinators may decide cancellation requests, as in authorization.py`
 
-### TC-FRONTEND-108 — the decision call, its validation and every failure message
+### TC-FRONTEND-142 — the decision call, its validation and every failure message
 
 - **Scenario:** The browser sends the decision through Kong, and a failure
   says exactly what changed.
@@ -1870,7 +2394,7 @@ Confirmed by the developer on 2026-10-11.
 - **Status:** Pass
 - **Evidence:** `test_cancellation_decision.mjs::the decision posts through Kong`; `test_cancellation_decision.mjs::a decline needs a reason of at most 1000 characters`; `test_cancellation_decision.mjs::every failure says what changed`; `test_cancellation_decision.mjs::the approval summary names what is released`
 
-### TC-FRONTEND-109 — the Organiser's decision banner always has words, or isn't shown
+### TC-FRONTEND-143 — the Organiser's decision banner always has words, or isn't shown
 
 - **Scenario:** An empty grey banner showed on events whose status the
   banner had no text for (found 2026-10-13 during S-61's manual check;

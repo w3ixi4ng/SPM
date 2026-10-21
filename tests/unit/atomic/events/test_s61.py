@@ -1,6 +1,6 @@
 """S-61: the assigned Coordinator decides on a cancellation request.
 
-TC-EVENTS-131..138. Only the event changes here; the event_requests
+TC-EVENTS-154..162. Only the event changes here; the event_requests
 composite releases its venue bookings.
 """
 
@@ -79,7 +79,7 @@ def _update(db):
     return db.schema.return_value.table.return_value.update
 
 
-# --- TC-EVENTS-131 ---------------------------------------------------------
+# --- TC-EVENTS-154 ---------------------------------------------------------
 @pytest.mark.parametrize(
     "event_status",
     ["submitted", "under_review", "planning", "confirmed", "preparation", "safety_changes_requested"],
@@ -120,7 +120,7 @@ def test_the_assigned_coordinator_approves_a_cancellation_request(client, db, au
     assert requested_guard.return_value.is_.call_args.args == ("cancellation_decision", "null")
 
 
-# --- TC-EVENTS-132 ---------------------------------------------------------
+# --- TC-EVENTS-155 ---------------------------------------------------------
 def test_the_assigned_coordinator_declines_with_a_reason(client, db, auth):
     _coordinator(client, auth)
     _assigned(db, [_event()])
@@ -145,7 +145,7 @@ def test_the_assigned_coordinator_declines_with_a_reason(client, db, auth):
     assert written["cancellation_decision_reason"] == reason
 
 
-# --- TC-EVENTS-133 ---------------------------------------------------------
+# --- TC-EVENTS-156 ---------------------------------------------------------
 @pytest.mark.parametrize(
     "body",
     [
@@ -169,7 +169,7 @@ def test_a_decision_with_a_missing_or_wrong_field_is_refused(client, db, auth, b
     db.schema.assert_not_called()
 
 
-# --- TC-EVENTS-134 ---------------------------------------------------------
+# --- TC-EVENTS-157 ---------------------------------------------------------
 def test_no_session_is_401(client, db):
     assert client.post(URL, json={"decision": "approved"}).status_code == 401
     db.schema.assert_not_called()
@@ -197,7 +197,7 @@ def test_an_unassigned_or_missing_event_is_404(client, db, auth, coordinator_id)
     _update(db).assert_not_called()
 
 
-# --- TC-EVENTS-135 ---------------------------------------------------------
+# --- TC-EVENTS-158 ---------------------------------------------------------
 @pytest.mark.parametrize(
     ("event", "decisions", "detail"),
     [
@@ -232,7 +232,7 @@ def test_there_must_be_a_pending_request_to_decide(client, db, auth, event, deci
     _update(db).assert_not_called()
 
 
-# --- TC-EVENTS-136 ---------------------------------------------------------
+# --- TC-EVENTS-159 ---------------------------------------------------------
 def test_approving_an_already_approved_request_again_changes_nothing(client, db, auth):
     _coordinator(client, auth)
     approved = _event(
@@ -251,7 +251,7 @@ def test_approving_an_already_approved_request_again_changes_nothing(client, db,
     _update(db).assert_not_called()
 
 
-# --- TC-EVENTS-137 ---------------------------------------------------------
+# --- TC-EVENTS-160 ---------------------------------------------------------
 def test_a_decision_that_loses_a_race_is_refused_without_overwriting(client, db, auth):
     _coordinator(client, auth)
     _assigned(db, [_event()])
@@ -264,7 +264,7 @@ def test_a_decision_that_loses_a_race_is_refused_without_overwriting(client, db,
     _update(db).assert_called_once()
 
 
-# --- TC-EVENTS-138 ---------------------------------------------------------
+# --- TC-EVENTS-161 ---------------------------------------------------------
 def _request_guard(db, rows):
     operation = (
         db.schema.return_value.table.return_value.update.return_value
@@ -322,7 +322,7 @@ def test_a_pending_or_approved_request_still_blocks_another(client, db, auth, ev
     _update(db).assert_not_called()
 
 
-# --- TC-EVENTS-139 ---------------------------------------------------------
+# --- TC-EVENTS-162 ---------------------------------------------------------
 FULL_SUBMISSION = {
     "name": "Alumni networking evening",
     "purpose": "Reconnect graduates with faculty",

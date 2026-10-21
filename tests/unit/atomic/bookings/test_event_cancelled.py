@@ -1,6 +1,6 @@
 """S-61: an approved cancellation removes every booking for the event.
 
-TC-BOOKINGS-044..046.
+TC-BOOKINGS-064..066.
 """
 
 from types import SimpleNamespace
@@ -39,7 +39,7 @@ def on_delete(db, rows=None, error=None):
     return operation
 
 
-# --- TC-BOOKINGS-044 -------------------------------------------------------
+# --- TC-BOOKINGS-064 -------------------------------------------------------
 def test_an_approved_cancellation_removes_every_booking_for_the_event(client, db, signed_in):
     on_delete(db, [booking_row(status=status) for status in ("pending", "held", "confirmed")])
 
@@ -54,7 +54,7 @@ def test_an_approved_cancellation_removes_every_booking_for_the_event(client, db
     assert [call.args[0] for call in db.schema.return_value.table.call_args_list] == ["bookings"]
 
 
-# --- TC-BOOKINGS-045 -------------------------------------------------------
+# --- TC-BOOKINGS-065 -------------------------------------------------------
 def test_removing_an_events_bookings_twice_is_safe(client, db, signed_in):
     on_delete(db, [])
 
@@ -64,7 +64,7 @@ def test_removing_an_events_bookings_twice_is_safe(client, db, signed_in):
     assert response.json() == {"deleted": 0}
 
 
-# --- TC-BOOKINGS-046 -------------------------------------------------------
+# --- TC-BOOKINGS-066 -------------------------------------------------------
 def test_without_a_session_nothing_is_removed(client, db):
     response = client.delete(URL)
 

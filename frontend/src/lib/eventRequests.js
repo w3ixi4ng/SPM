@@ -73,6 +73,33 @@ export function eventResponseToForm(event) {
     roomLayout: event.room_layout ?? '',
     requiredFacilities: event.required_facilities ?? [],
     requiredAccessibility: event.required_accessibility ?? [],
+    contactName: event.contact_name ?? '',
+    contactEmail: event.contact_email ?? '',
+    contactPhone: event.contact_phone ?? '',
+    internalNotes: event.internal_notes ?? '',
+  }
+}
+
+export function eventInformationPayload(form, event, { impactAccepted = false } = {}) {
+  return {
+    expected_version: event.edit_version ?? 0,
+    impact_accepted: impactAccepted,
+    name: form.name?.trim() || null,
+    purpose: form.purpose?.trim() || null,
+    contact_name: form.contactName?.trim() || null,
+    contact_email: form.contactEmail?.trim() || null,
+    contact_phone: form.contactPhone?.trim() || null,
+    internal_notes: form.internalNotes?.trim() || null,
+    start_date: form.startDate || null,
+    start_time: form.startTime || null,
+    end_date: form.endDate || null,
+    end_time: form.endTime || null,
+    expected_attendance: form.attendance === '' ? null : Number(form.attendance),
+    venue: form.venue?.trim() || null,
+    special_requirements: form.specialRequirements?.trim() || null,
+    room_layout: form.roomLayout || null,
+    required_facilities: [...(form.requiredFacilities ?? [])],
+    required_accessibility: [...(form.requiredAccessibility ?? [])],
   }
 }
 
@@ -102,6 +129,9 @@ const STATUS_META = {
   draft: { label: 'Draft', color: '#4C5A70' },
   submitted: { label: 'Under Review', color: '#B5842B' },
   planning: { label: 'Planning', color: '#3F8F5F' },
+  // S-17: submitted for the Operational Safety Check, waiting on the Safety
+  // Officer -- the same "someone else's move" amber as Under Review.
+  pending_safety_check: { label: 'Pending Safety Check', color: '#B5842B' },
   confirmed: { label: 'Confirmed', color: '#3F8F5F' },
   preparation: { label: 'Preparation', color: '#3F8F5F' },
   safety_rejected: { label: 'Safety Rejected', color: '#B25547' },
@@ -233,6 +263,22 @@ export function getAssignedEventRequest(id) {
   return requestJSON(`/events/assigned/${encodeURIComponent(id)}`)
 }
 
+export function previewAssignedEventInformation(id, form, event) {
+  return requestJSON(`/events/assigned/${encodeURIComponent(id)}/edit-impact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(eventInformationPayload(form, event)),
+  })
+}
+
+export function updateAssignedEventInformation(id, form, event, impactAccepted = false) {
+  return requestJSON(`/events/assigned/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(eventInformationPayload(form, event, { impactAccepted })),
+  })
+}
+
 export function createEventDraft(form) {
   return write('/events/drafts', 'POST', form, true)
 }
@@ -277,7 +323,8 @@ export function decideEventRequest(id, { decision, reason, comment }) {
 // cancelled once a later review completes it. Mirrors the events service's
 // _CANCELLABLE_STATUSES, which stays authoritative.
 const CANCELLABLE_STATUSES = new Set([
-  'submitted', 'under_review', 'planning', 'confirmed', 'preparation', 'safety_changes_requested',
+  'submitted', 'under_review', 'planning', 'pending_safety_check', 'confirmed', 'preparation',
+  'safety_changes_requested',
 ])
 export const CANCELLATION_REASON_MAX = 1000
 

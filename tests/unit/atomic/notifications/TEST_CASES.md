@@ -124,3 +124,29 @@ and the Event Organiser. No email or external delivery is required.
   and their version-scoped keys.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_internal_batch_accepts_three_reassignment_recipients`
+
+## S-77 — mark venue temporarily unavailable
+
+Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed. The S-77 caller is the `venue_bookings` composite. Persistence
+against a real table is proven by TC-VENUEBOOKINGS-110.
+
+## TC-NOTIFICATIONS-009 — a venue-unavailable notification is accepted; unknown kinds still are not
+
+- **Scenario:** The inbox accepts the S-77 kind, so Coordinators of affected
+  events can be told that alternative arrangements are required.
+- **Pre-conditions:** The fake batch upsert echoes its rows.
+- **Steps:**
+  1. `POST /internal/notifications` with one row of kind
+     `venue_unavailable`.
+  2. The same row with kind `venue_closed`.
+- **Test data:** Recipient `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; event
+  `33333333-3333-4333-8333-333333333333`, `"Alumni talk"`; message
+  `"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements."`;
+  key `venue_unavailable:cccccccc-cccc-4ccc-8ccc-cccccccccccc:44444444-4444-4444-8444-444444444444:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`.
+- **Expected:**
+  1. `201` with the row.
+  2. `422` on `kind`, with no storage call. `event_assignment` and
+     `event_reassignment` are still accepted (TC-NOTIFICATIONS-005, -008).
+- **Actual:** `venue_unavailable` row `201`; `venue_closed` `422` with no storage call.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_venue_unavailable_notification_is_accepted`; `test_app.py::test_an_unknown_kind_is_still_refused`

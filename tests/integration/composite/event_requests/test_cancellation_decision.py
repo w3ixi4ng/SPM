@@ -1,4 +1,4 @@
-"""TC-EVENTREQUESTS-111 (S-61): approving a cancellation through Kong cancels
+"""TC-EVENTREQUESTS-112 (S-61): approving a cancellation through Kong cancels
 the event and frees its venue and equipment; declining keeps everything."""
 
 import uuid
