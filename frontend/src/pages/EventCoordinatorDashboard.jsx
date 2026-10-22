@@ -8,7 +8,12 @@ import useVenueList from '../components/useVenueList.js'
 import VenueFilters from '../components/VenueFilters.jsx'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
-import { eventErrorMessage, eventStatusMeta, listAssignedEventRequests } from '../lib/eventRequests.js'
+import {
+  coordinatorCancellationTag,
+  eventErrorMessage,
+  eventStatusMeta,
+  listAssignedEventRequests,
+} from '../lib/eventRequests.js'
 import { emptyVenueFilters, filterVenues, getVenueOptions } from '../lib/venues.js'
 
 const C = {
@@ -19,6 +24,7 @@ const C = {
   line: '#E3DFD3',
   teal: '#0E7C74',
   sky: '#3C6E96',
+  amber: '#B5842B',
   green: '#3F8F5F',
 }
 
@@ -260,6 +266,7 @@ export default function EventCoordinatorDashboard({ role }) {
                 <ul className="divide-y" style={{ borderColor: C.line }}>
                   {assigned.events.map((event) => {
                     const { label: statusLabel, color: statusColor } = eventStatusMeta(event.status)
+                    const cancellationTag = coordinatorCancellationTag(event)
                     return (
                       <li key={event.id} className="py-4 first:pt-0 last:pb-0">
                         <Link
@@ -285,6 +292,13 @@ export default function EventCoordinatorDashboard({ role }) {
                             {event.status === 'planning' && event.safety_decision === 'changes_requested' && (
                               <p className="font-ui text-xs font-medium mt-1" style={{ color: '#B5842B' }}>
                                 Returned after safety review
+                              </p>
+                            )}
+                            {cancellationTag && (
+                              // S-61: waiting on this Coordinator's decision.
+                              <p className="inline-flex items-center gap-1.5 font-ui text-xs mt-1.5" style={{ color: C.ink }}>
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+                                {cancellationTag}
                               </p>
                             )}
                           </div>

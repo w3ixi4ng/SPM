@@ -2333,3 +2333,84 @@ page wiring is proven by TC-E2E-243.
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_safety_submission.mjs` — "describes the sign-off"
+
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+
+### TC-FRONTEND-141 — who sees what about a cancellation request
+
+- **Scenario:** The Coordinator is offered the decision only for a pending
+  request; the Organiser sees the outcome (S-61 AC1).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` and `access.js`
+  imported directly.
+- **Steps:** Call the helpers with each event.
+- **Test data:** pending request `{status: "planning", cancellation_requested_at: T, cancellation_decision: null}`;
+  declined `{…, cancellation_decision: "declined", cancellation_decision_reason: "Move the date instead"}`;
+  approved `{status: "cancelled", cancellation_requested_at: T, cancellation_decision: "approved"}`;
+  no request `{status: "planning", cancellation_requested_at: null}`.
+- **Expected:**
+  - The Coordinator may decide only the pending one.
+  - The Coordinator list tag is "Cancellation requested" for pending only.
+  - The status label for `cancelled` is "Cancelled".
+  - The approved card reads "Cancelled on 12 Oct 2026" for a decision on
+    `2026-10-12`, and nothing for a declined one (added 2026-10-13, when the
+    approved state got the same card as a pending request).
+  - The Organiser's dashboard tag is "Cancellation requested" (pending),
+    "Cancellation declined" (declined), or none.
+  - The Organiser may request again for the declined one, but not the
+    pending or approved one.
+  - Only `event_coordinator` has `events:decide_cancellation`.
+- **Actual:** Only the pending request is decidable and tagged for the Coordinator; `cancelled` reads "Cancelled"; Organiser tags requested/declined/none; re-request allowed only after a decline; only `event_coordinator` has `events:decide_cancellation`.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::who sees what about a cancellation request`; `test_cancellation_decision.mjs::only event coordinators may decide cancellation requests, as in authorization.py`
+
+### TC-FRONTEND-142 — the decision call, its validation and every failure message
+
+- **Scenario:** The browser sends the decision through Kong, and a failure
+  says exactly what changed.
+- **Pre-conditions:** `fetch` recorded.
+- **Steps:**
+  1. Approve `e 1/2`; decline `e 1/2` with `"  Move the date  "`.
+  2. Validate decline reasons `""`, `"   "`, 1001 characters, and `"ok"`.
+  3. Map errors `409` (service message), `502` (service message), `404`,
+     `500`, and a network failure (`0`).
+  4. Build the approval summary for 0, 1 and 2 bookings.
+- **Expected:**
+  1. `POST /api/event-requests/e%201%2F2/cancellation-decision` with
+     credentials and bodies `{"decision":"approved"}` and
+     `{"decision":"declined","reason":"Move the date"}`.
+  2. "Enter a reason for declining." for the first two; "Keep the reason
+     to 1000 characters." for the long one; none for `"ok"`.
+  3. `409` and `502` show the service's message. `404`, `500` and `0` end
+     with "Nothing was changed."
+  4. "No venue bookings to release." / "1 venue booking will be removed and
+     its time freed." / "2 venue bookings will be removed and their times
+     freed." Each is followed by "Equipment reserved for this event is
+     freed."
+- **Actual:** Both decisions posted to `/api/event-requests/e%201%2F2/cancellation-decision` with credentials and the expected bodies; reason messages, failure messages and the three summaries as specified.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::the decision posts through Kong`; `test_cancellation_decision.mjs::a decline needs a reason of at most 1000 characters`; `test_cancellation_decision.mjs::every failure says what changed`; `test_cancellation_decision.mjs::the approval summary names what is released`
+
+### TC-FRONTEND-143 — the Organiser's decision banner always has words, or isn't shown
+
+- **Scenario:** An empty grey banner showed on events whose status the
+  banner had no text for (found 2026-10-13 during S-61's manual check;
+  confirmed, preparation, both safety statuses and cancelled).
+- **Pre-conditions:** `frontend/src/lib/eventRequests.js` imported directly.
+- **Steps:** Ask for the banner text for every status.
+- **Expected:**
+  - `planning` "This request has been approved and is in planning."
+  - `confirmed` "This request has been approved and the event is confirmed."
+  - `preparation` "This request has been approved and the event is in preparation."
+  - `safety_rejected` "This request was approved, but the event did not pass its safety check."
+  - `safety_changes_requested` "This request was approved, but its safety check asked for changes."
+  - `rejected` "This request has been rejected and is closed."
+  - `returned` "This request was returned for amendment. Fix the issue below, then resubmit."
+  - `null` (no banner) for `cancelled`, `draft`, `submitted`, `under_review`
+    and an unknown status.
+- **Actual:** All seven statuses gave their sentence; cancelled, draft, submitted, under_review and an unknown status gave `null`.
+- **Status:** Pass
+- **Evidence:** `test_cancellation_decision.mjs::the Organiser's decision banner always has words, or isn't shown`; `node --test tests/unit/frontend/test_*.mjs`: 139 passed, 2026-10-13.

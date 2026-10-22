@@ -23,6 +23,7 @@ queries another service's tables.
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
 | `PUT` | `/events/support-assigned/{event_id}/equipment-preparation` | `events:update_equipment_preparation` | Set the assigned event's equipment preparation status and server-owned audit fields. |
+| `POST` | `/events/{event_id}/cancellation-decision` | `events:decide_cancellation` | S-61: the assigned coordinator approves (status becomes `cancelled`) or declines a pending cancellation request. See [Cancellation requests](#cancellation-requests-s-62). |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -65,7 +66,7 @@ Technical Support workflows have the following event permissions:
 | Role | Permissions |
 | --- | --- |
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
-| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide` |
+| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation` |
 | `attendee` | `dashboard:view` |
@@ -248,6 +249,10 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "cancellation_reason": null,
   "cancellation_requested_at": null,
   "cancellation_requested_by": null,
+  "cancellation_decision": null,
+  "cancellation_decision_reason": null,
+  "cancellation_decided_by": null,
+  "cancellation_decided_at": null,
   "safety_decision": null,
   "safety_decision_reason": null,
   "safety_officer_id": null,
@@ -459,6 +464,32 @@ comes back on `GET /events` and `GET /events/{event_id}`.
 | `422` | Missing, blank or over-long `reason`, or an extra field. |
 | `500` | `Event storage unavailable`: nothing was recorded. |
 
+### Deciding a request (S-61)
+
+**`POST /events/{event_id}/cancellation-decision`** is for the coordinator the
+event is assigned to only. The browser reaches it through the
+`event_requests` composite, which also releases the event's venue bookings.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `decision` | `"approved"` \| `"declined"` | yes | |
+| `reason` | string | when declining | Trimmed, 1–1000 characters. Not accepted when approving. |
+
+**Approving** sets `status` to `cancelled`. **Declining** leaves `status`
+alone. Both set `cancellation_decision`, `cancellation_decided_by` and
+`cancellation_decided_at`; a decline also sets
+`cancellation_decision_reason`. The record keeps the latest decision only.
+After a decline the organiser may request again, which clears the decision.
+
+| Status | When |
+| --- | --- |
+| `200` | Decided. Approving a request that is already approved returns the event unchanged, which is how the composite retries a failed booking release. |
+| `401` / `403` | No session / not an `event_coordinator`. |
+| `404` | `Event not found`: missing, or not assigned to the caller. |
+| `409` | `There is no cancellation request to decide for this event.` |
+| `409` | `This cancellation request has already been decided.`: also returned when another decision lands between the read and the write. |
+| `422` | Unknown `decision`, a decline without a reason, an approval with one, or an extra field. |
+
 ## Internal routes (composite-only)
 
 These routes support the repository's composite services. There is no Kong
@@ -592,7 +623,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

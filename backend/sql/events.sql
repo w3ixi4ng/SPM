@@ -245,14 +245,15 @@ create table if not exists events.events (
   -- decision is set exactly when a decision has been made -- draft and
   -- submitted (awaiting one) never carry one; planning/rejected/returned
   -- always do.
+  -- S-61: 'cancelled' may come before or after the request decision.
   constraint events_decision_matches_status
     check (
       (status in ('draft', 'submitted', 'under_review') and decision is null)
       or (status in (
         'planning', 'pending_safety_check', 'confirmed', 'preparation',
-        'safety_rejected', 'safety_changes_requested', 'cancelled',
-        'rejected', 'returned'
+        'safety_rejected', 'safety_changes_requested', 'rejected', 'returned'
       ) and decision is not null)
+      or status = 'cancelled'
     ),
 
   constraint events_decision_allowed
@@ -565,6 +566,56 @@ alter table events.events add constraint events_cancellation_request_consistent
       and cancellation_requested_at is not null
       and cancellation_requested_by is not null
     )
+  );
+
+-- S-61 upgrade path. Safe to run repeatedly. The assigned Coordinator's
+-- decision on the cancellation request -- the latest one only; a new request
+-- after a decline clears it. Approving sets status 'cancelled'; declining
+-- leaves status alone and needs a reason.
+alter table events.events
+  add column if not exists cancellation_decision text,
+  add column if not exists cancellation_decision_reason text,
+  add column if not exists cancellation_decided_by uuid,
+  add column if not exists cancellation_decided_at timestamptz;
+
+alter table events.events
+  drop constraint if exists events_cancellation_decision_consistent;
+alter table events.events add constraint events_cancellation_decision_consistent
+  check (
+    (
+      cancellation_decision is null
+      and cancellation_decision_reason is null
+      and cancellation_decided_by is null
+      and cancellation_decided_at is null
+    )
+    or (
+      cancellation_requested_at is not null
+      and cancellation_decided_by is not null
+      and cancellation_decided_at is not null
+      and (
+        (cancellation_decision = 'approved' and cancellation_decision_reason is null
+          and status = 'cancelled')
+        or (cancellation_decision = 'declined'
+          and cancellation_decision_reason is not null
+          and btrim(cancellation_decision_reason) <> ''
+          and char_length(cancellation_decision_reason) <= 1000)
+      )
+    )
+  );
+
+-- S-61: an event can be cancelled before the Coordinator has decided on the
+-- request itself (submitted, under_review), so 'cancelled' no longer
+-- requires a request decision. Includes S-87's pending_safety_check, so this
+-- must stay after the S-86/S-87 block, which defines the rule without it.
+alter table events.events drop constraint if exists events_decision_matches_status;
+alter table events.events add constraint events_decision_matches_status
+  check (
+    (status in ('draft', 'submitted', 'under_review') and decision is null)
+    or (status in (
+      'planning', 'pending_safety_check', 'confirmed', 'preparation',
+      'safety_rejected', 'safety_changes_requested', 'rejected', 'returned'
+    ) and decision is not null)
+    or status = 'cancelled'
   );
 
 -- Event access is scoped by the authenticated organiser, so this supports

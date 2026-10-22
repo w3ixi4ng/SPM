@@ -32,6 +32,7 @@ internal-service contract. Atomic services never call the users service.
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
 | `PATCH` | `/bookings/{id}` | S-80, Event Coordinator session only: change a `pending`/`held`/`confirmed` booking's `venue_id`, `venue_name`, `booking_date`, `start_time`, `end_time`, `notes` (setup/turnaround as query params, like `POST /bookings`). Refused with `409` if the new slot overlaps another hold, confirmed booking or block -- never itself. The booking becomes `pending` with every hold and decision field cleared. `404` missing, `409` rejected. |
 | `DELETE` | `/bookings/{id}` | S-80, Event Coordinator session only: delete one `pending`/`held`/`confirmed` booking (`204`). `404` missing, `409` rejected. |
+| `DELETE` | `/internal/events/{event_id}/bookings` | S-61, Event Coordinator session only: delete every booking for a cancelled event, whatever its status, so its times are available again. Returns `200` `{"deleted": <count>}`; safe to repeat (`{"deleted": 0}`). Called only by the `event_requests` composite after the event is cancelled. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
 | `POST` | `/bookings/{id}/alternative-resolution` | S-78, Coordinators only: record what was arranged instead for a held or confirmed booking. See [S-78](#s-78-replacement-requests-and-resolutions). |
 | `GET` | `/health` | Liveness check. |

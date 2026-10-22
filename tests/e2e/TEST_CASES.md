@@ -1215,3 +1215,44 @@ yet present.
 - **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`
+
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+
+## TC-E2E-245 — Coordinator approves a cancellation and the event shows as Cancelled for both sides
+
+- **Scenario:** The Coordinator's review journey works through Kong, the
+  venue booking disappears, and the Organiser sees the result (S-61 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; the S-61 SQL applied; Chromium. Coordinator K assigned to
+  `planning` event E, owned by Organiser O. E has a pending cancellation
+  request ("Keynote speaker withdrew") and one `confirmed` booking of a test
+  venue.
+- **Steps:**
+  1. K signs in. E's row on the dashboard shows "Cancellation requested".
+     K opens E.
+  2. The page shows the Organiser's reason. K clicks **Approve
+     cancellation**. The panel says "1 venue booking will be removed and its
+     time freed." K clicks **Keep event**.
+  3. K clicks **Approve cancellation** again, then **Cancel event**.
+  4. K reloads the page.
+  5. O signs in and opens the dashboard.
+- **Expected:**
+  - After step 2, nothing has changed in `events.events` or
+    `bookings.bookings`.
+  - After step 3, the page says "Event cancelled. 1 venue booking was
+    released."
+  - After step 4, the badge reads "Cancelled", the venue requests list is
+    empty, and no decision buttons remain. `bookings.bookings` has no rows
+    for E.
+  - After step 5, E's row reads "Cancelled" with no tag beside it.
+  - Opening E then shows "Your cancellation request was approved. This event
+    is cancelled.", with no empty decision banner, and the form is read-only
+    (added 2026-10-11 after a manual check found both).
+  Cleanup deletes every row created.
+- **Actual:** Chromium: the Events tab showed "Cancellation requested" on E; the reason was shown; the panel said "1 venue booking will be removed and its time freed."; Keep event changed nothing; Cancel event showed "Event cancelled. 1 venue booking was released."; after a reload the badge read "Cancelled", the venue requests list was empty and no decision buttons remained, with E `cancelled` and no bookings stored; the Organiser's row read "Cancelled" with no tag.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_approve_cancellation.py::test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled[chromium]`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. The first run failed in the test, not the feature: the Coordinator dashboard opens on its Venues tab, so the test now selects Events first. Rerun with `test_request_event_cancellation.py` and `test_coordinator_overview.py`: 3 passed. Rerun 2026-10-11 after fixing the empty banner and the editable form on a cancelled event: one run failed waiting 5 s for the venue list to load (now 20 s, as every other wait in the test); then, with `test_request_event_cancellation.py` and `test_respond_to_return.py`, 3 passed. Re-verified 2026-10-21 after merging sprint3 (S-17, S-18, S-24, S-78, S-80, S-87) into this branch and re-applying the S-61 `events_decision_matches_status` rule (with S-87's `pending_safety_check`) to dev and test: with the S-62, S-80 and safety-check journeys, 5 passed. An earlier batch run timed out waiting for S-62's Request cancellation button under load; it passed alone in 30 s and in the full rerun.

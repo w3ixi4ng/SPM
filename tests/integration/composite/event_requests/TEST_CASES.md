@@ -293,3 +293,42 @@ must no longer execute after S-83 replaces that workflow.
 - **Actual:** The real Auth pool included profile-less B in the overview and candidate list; wrong-role N and deleted D were diagnostics only. N was refused as a target, A→B succeeded, and the invalid assignments remained unchanged. The integration fixture event names were absent after cleanup.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners`; `.env.test` stack recreated and URL checked, 2026-10-18.
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+The S-61 SQL was applied to dev and test on 2026-10-11. The criteria mapping and agreed decisions are in the S-61
+section of `tests/unit/atomic/events/TEST_CASES.md`.
+
+### TC-EVENTREQUESTS-112 — approving through Kong cancels the event and frees its venue and equipment
+
+- **Scenario:** Real services agree that a cancelled event holds nothing, and
+  a decline keeps everything (S-61 AC1–AC3).
+- **Pre-conditions:** A fresh `.env.test` stack; the S-61 SQL applied.
+  - Coordinator K, Organiser O, Venue Staff S, and a venue V open `thu`
+    08:00–20:00.
+  - An equipment item Q with quantity 1.
+  - Event E1: `planning`, assigned to K, owned by O, `2026-11-12`
+    09:00–18:00. It has a pending cancellation request, a `confirmed` booking
+    of V 09:00–12:00, a `held` booking of V 13:00–15:00, and a requirement
+    for 1 × Q.
+  - Event E2: `planning`, assigned to K, with a pending request.
+- **Steps:**
+  1. K `POST /api/event-requests/E1/cancellation-decision` `{"decision": "approved"}`.
+  2. S `GET /api/venue-bookings/availability?venue_id=V&from=2026-11-12&to=2026-11-12`.
+  3. K checks equipment availability for Q on `2026-11-12` 09:00–18:00.
+  4. K declines E2 with reason "Move the date instead".
+  5. O `POST /api/events/E2/cancellation-request` `{"reason": "Still need to cancel"}`.
+- **Expected:**
+  1. `200`, `status` `cancelled`, `released_bookings` 2. In
+     `events.events`, E1 is `cancelled` with decision `approved` by K and a
+     decision time. `bookings.bookings` has no rows for E1.
+  2. 12 Nov shows nothing booked or held at V.
+  3. Q shows 1 available.
+  4. `200`. E2 is still `planning`, with decision `declined` and the reason.
+  5. `200`. E2's decision fields are cleared and the new reason is stored.
+  Cleanup deletes every row created.
+- **Actual:** Through Kong: approving E1 returned `200` `cancelled` with `released_bookings` 2; E1 stored `cancelled`, approved by K with a time; no booking rows left for E1; the calendar for 12 Nov had no entries; the projector showed 0 reserved, 1 available. Declining E2 kept it `planning` with the reason; the Organiser's new request returned `200` and cleared all four decision fields.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 21 passed, 5 skipped (pre-existing S-83 supersessions). Re-verified 2026-10-21 after merging sprint3 (S-17, S-18, S-24, S-78, S-80, S-87) into this branch and re-applying the S-61 `events_decision_matches_status` rule (with S-87's `pending_safety_check`) to dev and test: the seeded hold now sets `hold_expires_at` (S-24); `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 32 passed, 5 skipped, 1 failed (`test_decision.py`, an unrelated one-off 401 from session verification; 4 passed twice on rerun).

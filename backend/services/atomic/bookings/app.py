@@ -416,6 +416,22 @@ def release_hold(
     raise HTTPException(status_code=409, detail="Only a tentative hold can be released")
 
 
+@app.delete("/internal/events/{event_id}/bookings")
+def delete_event_bookings(
+    event_id: UUID,
+    _coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-61: a cancelled event holds no venue time. Every booking for it is
+    removed, whatever its status, so its slots show as available. Called by
+    the event_requests composite after it has checked the Coordinator is
+    assigned to the event and the event is cancelled. Safe to repeat."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).delete().eq("event_id", str(event_id))
+    )
+    return {"deleted": len(result.data or [])}
+
+
 # S-80: what a Coordinator may change or cancel. A rejected request is a
 # closed decision; it is left as it is.
 CHANGEABLE_STATUSES = ["pending", "held", "confirmed"]

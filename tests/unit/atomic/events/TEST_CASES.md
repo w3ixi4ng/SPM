@@ -717,6 +717,8 @@ browser-facing routes.
 
 ## TC-EVENTS-057 — event_coordinator has the view and decide permissions
 
+> **S-61 (2026-10-11):** the expected set now also includes `events:decide_cancellation`.
+
 - **Scenario:** S-14 adds a second coordinator workflow: deciding a request,
   on top of viewing it.
 - **Pre-conditions:** The centralized role policy is loaded.
@@ -2345,3 +2347,194 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`
+
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+A new Coordinator route, `POST /events/{id}/cancellation-decision`, called by
+the `event_requests` composite, which also releases the event's venue
+bookings. IDs continue from the next unused number (this file's 001–099
+range is full).
+
+**Acceptance criteria → cases (all layers)**
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: A Coordinator can approve a submitted cancellation request, changing the event's status to Cancelled | EVENTS-154, 157, 158, 160, EVENTREQUESTS-069, 112, FRONTEND-141, E2E-245 |
+| AC2: Approving releases the event's committed venue and equipment reservations | BOOKINGS-064, 065, EVENTREQUESTS-069, 067, 112, E2E-245; equipment: EVENTS-105/106 (only `planning` and `confirmed` events reserve equipment) and EVENTREQUESTS-112 |
+| AC3: The decision is recorded against the event | EVENTS-154, 155, EVENTREQUESTS-112 |
+
+Decisions agreed with the developer on 2026-10-11:
+
+- **Approve or decline.** Approving sets the status to `cancelled`.
+  Declining needs a reason and leaves the status as it was.
+- **Recorded on the event** in four new columns: `cancellation_decision`
+  (`approved` or `declined`), `cancellation_decision_reason` (decline only),
+  `cancellation_decided_by` and `cancellation_decided_at`. These hold the
+  latest decision only.
+- **After a decline the Organiser may request again.** The new request
+  overwrites the old one and clears the decision (changes S-62's
+  TC-EVENTS-127 rule for this one case).
+- **Venue bookings are deleted, not marked.** Every booking row for the event
+  is removed, so its times show as available and nothing is tied to the
+  cancelled event.
+- **Equipment** is freed by the status change alone. Requirement rows stay
+  but stop counting, because only `planning` and `confirmed` events reserve
+  equipment.
+- **Order and retry.** The status changes first, then the bookings are
+  removed. If that removal fails, approving again finishes it without
+  changing the status again.
+- **A `cancelled` event may have no request decision**, so a `submitted` or
+  `under_review` event can be cancelled. This needs an SQL constraint change.
+- **No notification** for now. The Organiser sees "Cancelled".
+
+**Shared test data.** Coordinator K (`aaaaaaaa-…`) is assigned event E
+(`33333333-…`). E is `planning` with a pending request from Organiser O:
+reason "Keynote speaker withdrew", requested `2026-10-11T09:00:00Z`, no
+decision.
+
+## TC-EVENTS-154 — the assigned Coordinator approves a cancellation request
+
+- **Scenario:** Approval cancels the event and records the decision (AC1, AC3).
+- **Pre-conditions:** K signed in. The assigned-event lookup returns E in
+  each status a request can be made in. The guarded update returns the
+  cancelled row.
+- **Steps:** `POST /events/E/cancellation-decision` `{"decision": "approved"}`
+  once per status.
+- **Test data:** statuses `submitted`, `under_review`, `planning`,
+  `confirmed`, `preparation`, `safety_changes_requested`.
+- **Expected:** `200` with `status` `cancelled`, `cancellation_decision`
+  `approved`, `cancellation_decided_by` K, `cancellation_decided_at` set, and
+  `cancellation_decision_reason` null. The write sets exactly those five
+  fields. The decision time is the server's. The write is guarded by id,
+  `assigned_coordinator_id` K, a non-null `cancellation_requested_at` and a
+  null `cancellation_decision`.
+- **Actual:** All six statuses returned `200` `cancelled` with the decision, coordinator and time set and no reason; the write set exactly those five fields, guarded by id, assigned coordinator, a requested and an undecided request.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_the_assigned_coordinator_approves_a_cancellation_request`
+
+## TC-EVENTS-155 — the assigned Coordinator declines with a reason
+
+- **Scenario:** Declining records why and leaves the event as it was (AC3).
+- **Pre-conditions:** As TC-EVENTS-154, E `planning`.
+- **Steps:** `POST /events/E/cancellation-decision`.
+- **Test data:** `{"decision": "declined", "reason": "  Venue is non-refundable; move the date instead  "}`
+- **Expected:** `200` with `status` still `planning`, `cancellation_decision`
+  `declined`, the trimmed reason, and `cancellation_decided_by` and
+  `cancellation_decided_at` set. The write never includes `status`.
+- **Actual:** `200` with status `planning`, `declined` and the trimmed reason; the write had the four decision fields and no `status`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_the_assigned_coordinator_declines_with_a_reason`
+
+## TC-EVENTS-156 — a decision with a missing or wrong field is refused
+
+- **Scenario:** A decline needs a reason; an approval takes none.
+- **Pre-conditions:** K signed in.
+- **Steps:** `POST /events/E/cancellation-decision` with each body.
+- **Test data:** `{}`; `{"decision": "maybe"}`;
+  `{"decision": "declined"}`; `{"decision": "declined", "reason": "   "}`;
+  `{"decision": "declined", "reason": "x" * 1001}`;
+  `{"decision": "approved", "reason": "ok"}`;
+  `{"decision": "approved", "status": "draft"}`.
+- **Expected:** `422` for each, before any database call.
+- **Actual:** All seven bodies returned `422` before any database call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_decision_with_a_missing_or_wrong_field_is_refused`
+
+## TC-EVENTS-157 — only the event's assigned Coordinator may decide
+
+- **Scenario:** Nobody else can cancel or decline (AC1).
+- **Pre-conditions:** The assigned-event lookup returns no row for an
+  unassigned or missing event.
+- **Steps:** Approve E as:
+  1. no session;
+  2. each of `event_organiser`, `venue_staff`, `technical_support`,
+     `attendee`;
+  3. a Coordinator E is not assigned to;
+  4. K, for a missing id.
+- **Expected:** 1 → `401`; 2 → `403`; 3 and 4 → `404` "Event not found". No
+  update in any case.
+- **Actual:** No session `401`; four other roles `403`; unassigned and missing `404`; no update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_no_session_is_401`; `tests/unit/atomic/events/test_s61.py::test_other_roles_are_403`; `tests/unit/atomic/events/test_s61.py::test_an_unassigned_or_missing_event_is_404`
+
+## TC-EVENTS-158 — there must be a pending request to decide
+
+- **Scenario:** A Coordinator can't cancel an event nobody asked to cancel,
+  or decide twice (AC1).
+- **Pre-conditions:** K signed in.
+- **Steps:** Approve, then decline, E in each state.
+- **Test data:**
+  1. E with no request (`cancellation_requested_at` null);
+  2. E already declined;
+  3. E already approved (`cancelled`) — decline only.
+- **Expected:** `409` each time: 1 "There is no cancellation request to
+  decide for this event."; 2 and 3 "This cancellation request has already
+  been decided." No update.
+- **Actual:** No request `409` "There is no cancellation request to decide for this event."; declined, and decline-after-approve, `409` "This cancellation request has already been decided."; no update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_there_must_be_a_pending_request_to_decide`
+
+## TC-EVENTS-159 — approving an already approved request again changes nothing
+
+- **Scenario:** A retry after a failed booking release is safe (decision 7).
+- **Pre-conditions:** K signed in; E `cancelled` with `cancellation_decision`
+  `approved` by K.
+- **Steps:** `POST /events/E/cancellation-decision` `{"decision": "approved"}`.
+- **Expected:** `200` with E as stored. No update is made.
+- **Actual:** `200` with the cancelled event; no update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_approving_an_already_approved_request_again_changes_nothing`
+
+## TC-EVENTS-160 — a decision that loses a race is refused without overwriting
+
+- **Scenario:** Two Coordinators' tabs, or a status change, between the read
+  and the write.
+- **Pre-conditions:** K signed in; E pending; the guarded update matches
+  nothing.
+- **Steps:** Approve E.
+- **Expected:** `409` "This cancellation request has already been decided."
+  after the one guarded write, with no unguarded retry.
+- **Actual:** `409` after the one guarded write; no retry.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_decision_that_loses_a_race_is_refused_without_overwriting`
+
+## TC-EVENTS-161 — after a decline the Organiser can request again
+
+- **Scenario:** A declined request doesn't lock the Organiser out (decision 1).
+- **Pre-conditions:** O signed in. E `planning` with a declined request.
+- **Steps:**
+  1. `POST /events/E/cancellation-request` `{"reason": "Speaker still unavailable"}`.
+  2. The same while E's request is pending (not decided).
+  3. The same once E's request is approved (E `cancelled`).
+- **Expected:**
+  1. `200`. The write sets the new reason, requester and time, and clears all
+     four decision fields. It is guarded by a request that is either absent
+     or declined.
+  2. `409` "A cancellation request has already been sent for this event." (as
+     TC-EVENTS-127).
+  3. `409` "This event can't be cancelled from its current status." (as
+     TC-EVENTS-124).
+- **Actual:** After a decline the new request returned `200`, cleared all four decision fields, and was guarded by an absent-or-declined request; pending and approved still returned their `409`s.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_after_a_decline_the_organiser_can_request_again`; `tests/unit/atomic/events/test_s61.py::test_a_pending_or_approved_request_still_blocks_another`
+
+## TC-EVENTS-162 — a cancelled event can't be edited or resubmitted
+
+- **Scenario:** A cancelled event is closed, at the service as well as in
+  the page (S-61; added 2026-10-13 at the developer's request, after the
+  page was locked for cancelled events).
+- **Pre-conditions:** Organiser O signed in; the owned-event lookup returns E
+  `cancelled`.
+- **Steps:**
+  1. `PATCH /events/E` `{"name": "New name"}`.
+  2. The same through `PATCH /events/E/internal` with `organiser_id` O.
+  3. `POST /events/E/submit` with a full valid body.
+- **Expected:** 1 and 2 → `409` "This event has been cancelled and is
+  closed."; 3 → `409` "Event has already been submitted.". No update in any
+  case.
+- **Actual:** Editing through both routes returned `409` "This event has been cancelled and is closed."; resubmitting returned `409` "Event has already been submitted"; no update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_cancelled_event_cant_be_edited_or_resubmitted`; `pytest tests/unit`: 964 passed, 17 skipped, 2026-10-13.

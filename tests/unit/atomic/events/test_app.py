@@ -328,6 +328,8 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
         "events:view_assigned",
         "events:update_assigned",
         "events:decide",
+        # S-61
+        "events:decide_cancellation",
     }
 
 

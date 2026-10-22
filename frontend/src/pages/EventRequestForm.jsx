@@ -16,6 +16,8 @@ import { optionLabel } from '../lib/venues.js'
 import useAuth from '../auth/useAuth.js'
 import {
   CANCELLATION_REASON_MAX,
+  cancellationApprovedLabel,
+  cancellationDeclinedLabel,
   cancellationErrorMessage,
   cancellationRequestedLabel,
   cancellationSentMessage,
@@ -29,6 +31,7 @@ import {
   getEventOptions,
   eventStatusMeta,
   getEventRequest,
+  organiserDecisionBanner,
   requestEventCancellation,
   submitEventDraft,
   updateEventDraft,
@@ -730,6 +733,18 @@ function CancellationPanel({ eventId, status, onClose, onSent }) {
   )
 }
 
+const NO_CANCELLATION = Object.freeze({
+  cancellation_reason: null,
+  cancellation_requested_at: null,
+  cancellation_decision: null,
+  cancellation_decision_reason: null,
+  cancellation_decided_at: null,
+})
+
+function cancellationFields(event) {
+  return Object.fromEntries(Object.keys(NO_CANCELLATION).map((field) => [field, event[field] ?? null]))
+}
+
 export default function EventRequestForm() {
   const { id: routeId } = useParams()
   const navigate = useNavigate()
@@ -745,11 +760,14 @@ export default function EventRequestForm() {
   const [saveState, setSaveState] = useState('idle')
   const [submitState, setSubmitState] = useState('idle')
   const [toast, setToast] = useState(null)
-  // S-62: the stored cancellation request, if any, and the panel that sends one.
-  const [cancellation, setCancellation] = useState({ requestedAt: null, reason: null })
+  // S-62: the stored cancellation request, if any, and the panel that sends
+  // one. S-61: with the Coordinator's decision on it. Kept in the API's own
+  // field names so the shared helpers read it directly.
+  const [cancellation, setCancellation] = useState(NO_CANCELLATION)
   const [cancelPanelOpen, setCancelPanelOpen] = useState(false)
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
+  const cancellationEvent = { status, ...cancellation }
 
   function showToast(tone, message) {
     setToast({ tone, message })
@@ -796,10 +814,7 @@ export default function EventRequestForm() {
     setForm(merged)
     setSavedForm(merged)
     setStatus(event.status)
-    setCancellation({
-      requestedAt: event.cancellation_requested_at ?? null,
-      reason: event.cancellation_reason ?? null,
-    })
+    setCancellation(cancellationFields(event))
     setDecision(
       event.decision
         ? {
@@ -859,11 +874,14 @@ export default function EventRequestForm() {
   const isPlanning = status === 'planning'
   const isRejected = status === 'rejected'
   const isReturned = status === 'returned'
+  // S-61: cancelled by the Coordinator on the Organiser's request.
+  const isCancelled = status === 'cancelled'
   // Planning and rejected are both decided -- neither is meant to be edited
   // further from here (rejected is enforced server-side too; planning is a
   // product choice, since re-editing an approved event without a fresh
-  // review would undercut the point of deciding on it at all).
-  const isLocked = isPlanning || isRejected
+  // review would undercut the point of deciding on it at all). A cancelled
+  // event is over, so there is nothing left to edit.
+  const isLocked = isPlanning || isRejected || isCancelled
   // A returned request still has to satisfy every submitted-required field
   // once resubmitted -- the same stricter check as an already-submitted or
   // planning one, not the permissive draft rules.
@@ -1158,7 +1176,9 @@ export default function EventRequestForm() {
             </p>
           )}
 
-          {decision && (
+          {/* The request decision's banner, only when there is something to
+              say -- a cancelled event is explained by its own section. */}
+          {decision && organiserDecisionBanner(status) && (
             <div
               className="rounded-sm px-4 py-3 mb-6"
               style={{
@@ -1167,9 +1187,7 @@ export default function EventRequestForm() {
               }}
             >
               <p className="font-ui text-sm font-medium">
-                {isPlanning && 'This request has been approved and is in planning.'}
-                {isRejected && 'This request has been rejected and is closed.'}
-                {isReturned && 'This request was returned for amendment. Fix the issue below, then resubmit.'}
+                {organiserDecisionBanner(status)}
               </p>
               {decision.reason && (
                 <p className="font-ui text-sm mt-1">
@@ -1186,7 +1204,7 @@ export default function EventRequestForm() {
             </div>
           )}
 
-          {routeId && loadState === 'ready' && (cancellation.requestedAt || canRequestCancellation({ status })) && (
+          {routeId && loadState === 'ready' && (cancellation.cancellation_requested_at || canRequestCancellation(cancellationEvent)) && (
             <section aria-label="Cancellation" className="mb-6">
               {cancelNotice && (
                 <p
@@ -1197,24 +1215,64 @@ export default function EventRequestForm() {
                   {cancelNotice}
                 </p>
               )}
-              {cancellation.requestedAt ? (
+              {cancellation.cancellation_requested_at && !cancellation.cancellation_decision && (
                 <div
                   className="font-ui text-sm rounded-sm px-4 py-3"
                   style={{ backgroundColor: withAlpha(C.amber, 0.1), color: C.ink }}
                 >
                   <p className="font-medium flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
-                    {cancellationRequestedLabel({ cancellation_requested_at: cancellation.requestedAt })}
+                    {cancellationRequestedLabel(cancellation)}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap">
                     <span className="font-medium">Reason: </span>
-                    {cancellation.reason}
+                    {cancellation.cancellation_reason}
                   </p>
                   <p className="mt-1" style={{ color: C.inkFaint }}>
                     The event is not cancelled until the request has been reviewed.
                   </p>
                 </div>
-              ) : (
+              )}
+              {cancellation.cancellation_decision === 'declined' && (
+                // S-61: declined, so the event goes on; the Organiser may ask again.
+                <div
+                  className="font-ui text-sm rounded-sm px-4 py-3 mb-3"
+                  style={{ backgroundColor: withAlpha(C.inkFaint, 0.08), color: C.ink }}
+                >
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.inkFaint }} aria-hidden="true" />
+                    {cancellationDeclinedLabel(cancellation)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">
+                    <span className="font-medium">Coordinator&apos;s reason: </span>
+                    {cancellation.cancellation_decision_reason}
+                  </p>
+                  <p className="mt-1" style={{ color: C.inkFaint }}>
+                    Your event goes ahead. You can send a new request if it still can&apos;t proceed.
+                  </p>
+                </div>
+              )}
+              {cancellation.cancellation_decision === 'approved' && (
+                // S-61: the same card as a pending request, so the outcome
+                // reads as the end of that story.
+                <div
+                  className="font-ui text-sm rounded-sm px-4 py-3"
+                  style={{ backgroundColor: withAlpha(C.inkFaint, 0.08), color: C.ink }}
+                >
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: C.inkFaint }} aria-hidden="true" />
+                    {cancellationApprovedLabel(cancellation)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">
+                    <span className="font-medium">Reason: </span>
+                    {cancellation.cancellation_reason}
+                  </p>
+                  <p className="mt-1" style={{ color: C.inkFaint }}>
+                    Your cancellation request was approved. This event is cancelled.
+                  </p>
+                </div>
+              )}
+              {canRequestCancellation(cancellationEvent) && (
                 <button
                   ref={cancelTriggerRef}
                   type="button"
@@ -1519,10 +1577,7 @@ export default function EventRequestForm() {
             // Only the request changed; the form keeps any unsaved edits.
             setCancelPanelOpen(false)
             setStatus(event.status)
-            setCancellation({
-              requestedAt: event.cancellation_requested_at,
-              reason: event.cancellation_reason,
-            })
+            setCancellation(cancellationFields(event))
             setCancelNotice(cancellationSentMessage(event.status))
           }}
         />

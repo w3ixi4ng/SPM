@@ -20,10 +20,12 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
 
 # S-14: a coordinator can now also decide (approve/reject/return) a request
 # routed to them, on top of viewing it.
+# S-61: and decide on an Organiser's cancellation request.
 EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({
     "events:view_assigned",
     "events:decide",
     "events:update_assigned",
+    "events:decide_cancellation",
 })
 
 # Every recognized role may enter its own role dashboard. Add internal-role

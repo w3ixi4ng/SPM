@@ -1005,3 +1005,91 @@ These cases supplement the already-confirmed S-83 cases 043–052, S-84 cases
 - **Actual:** All three trusted Coordinators appeared with counts 1/2/0 and profile-less Auth email display. The S-84 transfer to idle C succeeded; a fresh overview returned counts 0/2/1.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_overview_groups_profileless_trusted_coordinators_and_keeps_idle`; local unit run, 2026-10-18.
+
+## S-61 — review and approve cancellation request
+
+Story: S-61 Review and Approve Cancellation Request.
+Confirmed by the developer on 2026-10-11.
+A new route, `POST /event-requests/{id}/cancellation-decision`, reached by the
+browser through Kong. It forwards the decision to the events service and, on
+approval, removes the event's venue bookings. This composite gains a
+bookings client (`BOOKINGS_SERVICE_URL`). The criteria mapping and agreed
+decisions are in the S-61 section of `tests/unit/atomic/events/TEST_CASES.md`.
+
+### TC-EVENTREQUESTS-069 — approving cancels the event, then releases its bookings
+
+- **Scenario:** The two services are called in order and the result says what
+  was released (S-61 AC1, AC2).
+- **Pre-conditions:** The events fake answers the decision with `200` and E
+  `cancelled`. The bookings fake answers the delete with `{"deleted": 2}`.
+- **Steps:** `POST /event-requests/E/cancellation-decision` `{"decision": "approved"}`
+  with the Coordinator's cookie.
+- **Expected:** `200` with the event as the events service returned it, plus
+  `"released_bookings": 2`. The events call comes first, then
+  `DELETE /internal/events/E/bookings`. Both carry the caller's cookie.
+- **Actual:** `200` with the cancelled event and `released_bookings` 2; events then bookings, both with the cookie.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_approving_cancels_the_event_then_releases_its_bookings`
+
+### TC-EVENTREQUESTS-070 — declining touches only the event
+
+- **Scenario:** A decline leaves every booking in place.
+- **Pre-conditions:** The events fake answers with `200` and E still `planning`.
+- **Steps:** `POST /event-requests/E/cancellation-decision`
+  `{"decision": "declined", "reason": "Move the date instead"}`.
+- **Expected:** `200` with the event, and no `released_bookings`. The body
+  is forwarded unchanged. The bookings service is never called.
+- **Actual:** `200`, still `planning`, no `released_bookings`; body forwarded; bookings not called.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_declining_touches_only_the_event`
+
+### TC-EVENTREQUESTS-066 — a refused decision releases nothing
+
+- **Scenario:** If the events service says no, bookings are untouched.
+- **Pre-conditions:** The events fake answers with each refusal.
+- **Steps:** Approve E once per refusal.
+- **Test data:** `401`, `403`, `404` "Event not found", `409` "This
+  cancellation request has already been decided.", `422` with field errors.
+- **Expected:** The same status and body reach the caller. The bookings
+  service is never called.
+- **Actual:** Each of `401`, `403`, `404`, `409`, `422` reached the caller unchanged; bookings not called.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_refused_decision_releases_nothing`
+
+### TC-EVENTREQUESTS-067 — a failed release says so, and approving again finishes it
+
+- **Scenario:** The event is cancelled but its bookings weren't removed (S-61
+  decision 7).
+- **Pre-conditions:** The events fake answers the approval with `200` E
+  `cancelled`.
+- **Steps:**
+  1. Approve with the bookings fake answering `500`.
+  2. Approve with the bookings fake timing out.
+  3. Approve again with the bookings fake answering `{"deleted": 2}`.
+  4. Approve with the events service unreachable.
+- **Expected:**
+  1. and 2. `502` "The event is cancelled, but its venue bookings were not
+     released. Approve again to release them."
+  3. `200` with `"released_bookings": 2`.
+  4. `502` "The events service is unavailable. Nothing was changed.", with
+     no bookings call.
+- **Actual:** Bookings `500` and timeout gave `502` with the not-released message; approving again gave `200` with 2 released; events unreachable or `500` gave `502` "The events service is unavailable. Nothing was changed." with no bookings call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_failed_release_says_so`; `tests/unit/composite/event_requests/test_s61.py::test_approving_again_finishes_the_release`; `tests/unit/composite/event_requests/test_s61.py::test_events_down_changes_nothing`
+
+### TC-EVENTREQUESTS-068 — a refused edit keeps the events service's reason
+
+- **Scenario:** Saving changes to a closed event says why, instead of
+  claiming the service is down (added 2026-10-13 at the developer's request;
+  affected rejected events before S-61 and cancelled ones since).
+- **Pre-conditions:** Organiser session; the events fake answers the
+  forwarded `PATCH` with `409` and each detail.
+- **Steps:** `PATCH /event-requests/E` `{"venue": "Room 9"}`.
+- **Test data:** "This event has been cancelled and is closed."; "This
+  request has been rejected and is closed".
+- **Expected:** `409` with the same detail (before: `502` "Events service
+  unavailable"). `200`, `404` and `422` still pass through as before, and any
+  other answer is still `502`.
+- **Actual:** Both details came back as `409` unchanged; a `500` from the events service is still `502` "Events service unavailable".
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_refused_edit_keeps_the_events_services_reason`; `tests/unit/composite/event_requests/test_s61.py::test_an_unexpected_answer_on_edit_is_still_a_502`; `pytest tests/unit`: 967 passed, 17 skipped, 2026-10-13.
