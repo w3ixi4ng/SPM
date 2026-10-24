@@ -19,18 +19,22 @@ internal-service contract. Atomic services never call the users service.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
-| `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold. The service records `held_by` and `held_at`; an overlapping live slot returns `409`. |
+| `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold until the required future `expires_at`. The service records the staff member and timestamps; an overlapping live slot returns `409`. |
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or on a blocked day is refused. |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or an unavailable period is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
 | `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/bookings?venue_id={id}&from={date}&to={date}` | S-30: one venue's requests dated in the range, every status, by date then start time. |
-| `POST` | `/blocks` | S-30, Venue Staff only: mark whole days unavailable. |
-| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's blocks touching the range, by start date. |
+| `POST` | `/blocks` | S-30/S-77, Venue Staff only: mark a venue unavailable for a timed period. |
+| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's periods touching the range, by start date. |
+| `GET` | `/blocks/{id}` | S-77: one period, for the composite (internal). `404` `{"detail": "Block not found"}` if missing. |
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
+| `PATCH` | `/bookings/{id}` | S-80, Event Coordinator session only: change a `pending`/`held`/`confirmed` booking's `venue_id`, `venue_name`, `booking_date`, `start_time`, `end_time`, `notes` (setup/turnaround as query params, like `POST /bookings`). Refused with `409` if the new slot overlaps another hold, confirmed booking or block -- never itself. The booking becomes `pending` with every hold and decision field cleared. `404` missing, `409` rejected. |
+| `DELETE` | `/bookings/{id}` | S-80, Event Coordinator session only: delete one `pending`/`held`/`confirmed` booking (`204`). `404` missing, `409` rejected. |
 | `DELETE` | `/internal/events/{event_id}/bookings` | S-61, Event Coordinator session only: delete every booking for a cancelled event, whatever its status, so its times are available again. Returns `200` `{"deleted": <count>}`; safe to repeat (`{"deleted": 0}`). Called only by the `event_requests` composite after the event is cancelled. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
+| `POST` | `/bookings/{id}/alternative-resolution` | S-78, Coordinators only: record what was arranged instead for a held or confirmed booking. See [S-78](#s-78-replacement-requests-and-resolutions). |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -56,6 +60,7 @@ internal-service contract. Atomic services never call the users service.
 | `required_facilities` | array of string | no | From the venue facility set. Defaults to `[]`. |
 | `room_layout` | string or null | no | From the venue layout set. |
 | `notes` | string or null | no | Blank becomes null. |
+| `replaces_booking_id` | UUID or null | no | S-78: the booking this request replaces. See [S-78](#s-78-replacement-requests-and-resolutions). |
 
 Repeated entries in the two arrays are dropped. `status` and `submitted_at`
 are set by the service; sending either is a `422`. Any other unknown field is
@@ -239,18 +244,30 @@ part of the occupied range — once the venue's setup and turnaround are added
 (S-76 supersedes S-38 here): with 30 min setup and 45 min turnaround, a
 booking may start no earlier than 75 minutes after the previous one ends.
 `POST /bookings` refuses, with the `409`s above, a request that overlaps a
-pending or confirmed request for the same venue and date, or that falls on a
-blocked day. The range is `[start,end)`, so back-to-back requests are fine;
+pending or confirmed request for the same venue and date, or that overlaps an
+unavailable period (S-77). The range is `[start,end)`, so back-to-back requests are fine;
 rejected requests hold nothing. The database constraint
 `bookings_no_live_overlap` is the final authority, so of two simultaneous
 overlapping requests exactly one is stored. Rejecting a request releases its
-hold. A hold has no expiry.
+hold. S-81 requires a timezone-aware expiry. Before every relevant read or
+write the service calls the database expiry function, which releases due holds
+to `pending`, records release reason `expired`, and immediately frees the slot.
 
-**Blocks.** Whole days, inclusive at both ends, a venue cannot be used. A
-block may cover existing holds and bookings; none of them is changed —
-Venue Staff reassign those events offline. A pending request on a blocked day
-can still be rejected, but approving it is `409` with the
-"is unavailable from" detail.
+**Blocks (unavailable periods, S-77).** A period a venue cannot be used, from
+`start_date` + `start_time` up to, but not including, `end_date` + `end_time`.
+A booking overlaps a period when the window it occupies the venue — start −
+setup to end + turnaround, from the `setup_minutes` and `turnaround_minutes`
+query parameters the composite passes — overlaps it. Touching is fine: a
+booking may end exactly when a period starts. A request, a hold or a
+confirmation that overlaps one is `409`:
+
+```json
+{"detail": "Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00."}
+```
+
+A period may cover existing holds and bookings; none of them is changed here.
+The `venue_bookings` composite identifies them and notifies their
+Coordinators. A request inside a period can still be rejected.
 
 ### `POST /blocks`
 
@@ -261,10 +278,12 @@ here as for decisions. The gateway equivalent is `POST /api/venue-bookings/block
 | --- | --- | --- | --- |
 | `venue_id` | UUID | yes | |
 | `venue_name` | string | yes | A snapshot from the venues service, for messages. Trimmed; not blank. |
-| `start_date` | date `YYYY-MM-DD` | yes | First unavailable day. |
-| `end_date` | date `YYYY-MM-DD` | yes | Last unavailable day; on or after `start_date`. |
-| `reason` | string | yes | `maintenance`, `renovation`, `safety`, `internal_activity` or `other`. |
-| `note` | string or null | no | Trimmed; blank becomes null. Required when `reason` is `other`. |
+| `start_date` | date `YYYY-MM-DD` | yes | |
+| `start_time` | time `HH:MM` | yes | |
+| `end_date` | date `YYYY-MM-DD` | yes | |
+| `end_time` | time `HH:MM` | yes | The end is exclusive, and must be after the start: `errors.body` "Value error, The period must end after it starts". |
+| `reason` | string | yes | `maintenance`, `equipment_failure`, `renovation`, `safety` or `other`. |
+| `note` | string or null | no | The description. Trimmed; blank becomes null. Required when `reason` is `other`: "Value error, Add a description when the reason is other". |
 
 `created_by` (the verified staff id) and `created_at` are set by the service;
 sending either, or any other unknown field, is `422`.
@@ -277,9 +296,11 @@ sending either, or any other unknown field, is `422`.
   "venue_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
   "venue_name": "Studio B",
   "start_date": "2026-11-13",
-  "end_date": "2026-11-16",
-  "reason": "maintenance",
-  "note": "Ceiling repair",
+  "start_time": "09:00:00",
+  "end_date": "2026-11-14",
+  "end_time": "17:00:00",
+  "reason": "equipment_failure",
+  "note": "Air handling unit down",
   "created_by": "abababab-abab-4bab-8bab-abababababab",
   "created_at": "2026-11-10T01:00:00+00:00"
 }
@@ -290,7 +311,8 @@ sending either, or any other unknown field, is `422`.
 `venue_id`, `from` and `to` are all required, with the same `422`s as the
 venue filter on `GET /bookings`. `200` with a list of blocks shaped as above,
 every block overlapping the range (one that only partly does included), by
-start date.
+start date. A period ending at `00:00` on `from` stopped the day before, so it
+is left out.
 
 ### `DELETE /blocks/{id}`
 
@@ -314,6 +336,98 @@ pending and confirmed rows, and creates `bookings.blocks` with its grant and
 RLS. If overlapping pending requests already exist it fails without changing
 anything; the block's comment has the query that finds them. No new schema,
 port or secret: `bookings` is already exposed.
+
+### S-77 database setup
+
+Copy the entire block between `BEGIN S-77 DATA-PRESERVING MIGRATION` and
+`END S-77 DATA-PRESERVING MIGRATION` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects, after the S-30 block. It adds `start_time` and `end_time`
+to `bookings.blocks`, and turns each existing whole-day block into the same
+span as a period (00:00 on its first day to 00:00 the day after its last). It
+also changes the reasons: `internal_activity` becomes `other`, keeping its
+note. Safe to run twice.
+
+### S-77 verification
+
+```bash
+pytest tests/unit/atomic/bookings
+
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/atomic/bookings
+```
+
+## S-78 replacement requests and resolutions
+
+A Coordinator can replace a booking an unavailable period affects, or say
+what they arranged instead. The venue_bookings composite decides who may and
+when; this service stores it.
+
+**Replacement requests.** `POST /bookings` takes an optional
+`replaces_booking_id`. It must name a booking of the same `event_id` that
+still stands, or (S-17) one Venue Staff rejected:
+
+| Status | Body | When |
+| --- | --- | --- |
+| `422` | `{"detail": "Please check the details you entered", "errors": {"replaces_booking_id": "The booking being replaced doesn't exist"}}` | No such booking. |
+| `422` | `{..., "errors": {"replaces_booking_id": "A replacement must be for the same event"}}` | It belongs to another event. |
+| `409` | `{"detail": "This booking can no longer be replaced"}` | It is already `replaced`. |
+
+Everything else about the request is as for any other, including the overlap
+and period checks.
+
+**Approval replaces the original.** When `POST /bookings/{id}/decision`
+confirms a request with `replaces_booking_id`, a database trigger
+(`bookings_replace_original_on_confirm`) sets the original's `status` to
+`replaced`, with `replaced_by_booking_id` and `replaced_at`, in the same
+transaction. The original is only changed if it is still `pending`, `held`,
+`confirmed` or (S-17) `rejected`. `replaced` is not live, so the original stops reserving its
+venue. Rejecting a replacement changes nothing else.
+
+### `POST /bookings/{id}/alternative-resolution`
+
+Coordinator session (`sb_access_token` cookie). Body:
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `note` | string | yes | Trimmed; 1–500 characters. |
+
+`200` with the booking, which now has `alternative_resolved_at` and
+`alternative_resolved_by` (set here) and `alternative_resolution_note`.
+Nothing else on it changes. Calling it again overwrites all three.
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `401` | `{"detail": "Not authenticated"}` | No or expired session. |
+| `403` | `{"detail": "Permission denied"}` | Not an `event_coordinator`. |
+| `404` | `{"detail": "Booking not found"}` | No such booking. |
+| `409` | `{"detail": "Only a held or confirmed booking can be resolved"}` | It is `pending`, `rejected` or `replaced`. |
+| `422` | `{"detail": "Please check the details you entered", "errors": {"note": "..."}}` | Blank, too long, or a server-owned field was sent. |
+
+Every booking read (`BookingRead`) now also has `replaces_booking_id`,
+`replaced_by_booking_id`, `replaced_at`, `alternative_resolved_at`,
+`alternative_resolved_by` and `alternative_resolution_note`, all `null` until
+set. `status` may be `replaced`.
+
+### S-78 database setup
+
+Copy the entire block between `BEGIN S-78 DATA-PRESERVING MIGRATION` and
+`END S-78 DATA-PRESERVING MIGRATION` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects, after the S-77 block. It adds the six columns, allows the
+`replaced` status, and creates the trigger. Safe to run twice. No new schema,
+grant or port: `bookings` is already exposed and granted.
+
+### S-78 verification
+
+```bash
+pytest tests/unit/atomic/bookings
+
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/atomic/bookings
+```
 
 ### S-30 verification
 

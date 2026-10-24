@@ -78,7 +78,7 @@ def clashes_for(booking: dict, others: list[dict], venue: dict, today: date) -> 
     return found
 
 
-def _staff_view(booking: dict, venue: dict) -> dict:
+def staff_view(booking: dict, venue: dict) -> dict:
     start, end = occupied(booking, venue)
     return {
         "id": booking["id"],
@@ -106,5 +106,5 @@ def clash_pairs(bookings: list[dict], venue: dict, today: date) -> list[dict]:
     for index, first in enumerate(live):
         for second in live[index + 1:]:
             if _overlaps(first, second, venue):
-                pairs.append({"first": _staff_view(first, venue), "second": _staff_view(second, venue)})
+                pairs.append({"first": staff_view(first, venue), "second": staff_view(second, venue)})
     return pairs

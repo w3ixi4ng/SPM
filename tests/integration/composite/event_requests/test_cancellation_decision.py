@@ -1,4 +1,4 @@
-"""TC-EVENTREQUESTS-111 (S-61): approving a cancellation through Kong cancels
+"""TC-EVENTREQUESTS-112 (S-61): approving a cancellation through Kong cancels
 the event and frees its venue and equipment; declining keeps everything."""
 
 import uuid
@@ -69,7 +69,9 @@ def world(admin):
             }).execute()
 
         booking("09:00", "12:00", "confirmed", decided_by=s["id"], decided_at="2026-10-02T00:00:00Z")
-        booking("13:00", "15:00", "held", held_by=s["id"], held_at="2026-10-02T00:00:00Z")
+        # S-24: every hold has an expiry; far ahead, so it never lapses mid-test.
+        booking("13:00", "15:00", "held", held_by=s["id"], held_at="2026-10-02T00:00:00Z",
+                hold_expires_at="2030-01-01T00:00:00+00:00")
         admin.schema("equipment").table("requirements").insert({
             "event_id": e1["id"], "equipment_item_id": item_id,
             "required_quantity": 1, "recorded_by_coordinator_id": k["id"],

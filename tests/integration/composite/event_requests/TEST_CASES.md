@@ -9,9 +9,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
+| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | Targeted S-85 case and S-84 regression: 2 passed |
+| Result | Targeted S-83/S-84/S-85 regressions and new integrity case: 4 passed |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -283,6 +283,17 @@ must no longer execute after S-83 replaces that workflow.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_overview_groups_and_tracks_reassignment`
 
+## TC-EVENTREQUESTS-111 — real Auth eligibility survives missing profiles and invalid owners
+
+- **Scenario:** The real S-85 endpoint uses complete trusted Auth eligibility across Users, Events, Kong, and the test Supabase project.
+- **Pre-conditions:** A freshly recreated `.env.test` stack; disposable test Auth Coordinators A/B, with A profiled and B profile-less; a disposable non-Coordinator N; active events for A and N; and a deleted test Auth owner D with an existing event. B has no active event initially. Fixtures must clean up every row and account they create.
+- **Steps:** Read the Lead overview through Kong, inspect groups and `invalid_assignments`, then read S-83 candidates and attempt S-84 reassignment to B and N.
+- **Test data:** A has one active event; B has zero before reassignment; N and D each own one active event; all fixture emails are unique per run.
+- **Expected:** A and B are the only fixture Coordinator groups; B appears with its Auth email and count zero before reassignment. N/D events appear only as integrity diagnostics, not groups. B is an eligible S-83/S-84 candidate and N is rejected; a successful A→B reassignment yields updated counts without changing N/D ownership. Fixture cleanup leaves the project as it was.
+- **Actual:** The real Auth pool included profile-less B in the overview and candidate list; wrong-role N and deleted D were diagnostics only. N was refused as a target, A→B succeeded, and the invalid assignments remained unchanged. The integration fixture event names were absent after cleanup.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners`; `.env.test` stack recreated and URL checked, 2026-10-18.
+
 ## S-61 — review and approve cancellation request
 
 Story: S-61 Review and Approve Cancellation Request.
@@ -290,7 +301,7 @@ Confirmed by the developer on 2026-10-11.
 The S-61 SQL was applied to dev and test on 2026-10-11. The criteria mapping and agreed decisions are in the S-61
 section of `tests/unit/atomic/events/TEST_CASES.md`.
 
-### TC-EVENTREQUESTS-111 — approving through Kong cancels the event and frees its venue and equipment
+### TC-EVENTREQUESTS-112 — approving through Kong cancels the event and frees its venue and equipment
 
 - **Scenario:** Real services agree that a cancelled event holds nothing, and
   a decline keeps everything (S-61 AC1–AC3).
@@ -320,4 +331,4 @@ section of `tests/unit/atomic/events/TEST_CASES.md`.
   Cleanup deletes every row created.
 - **Actual:** Through Kong: approving E1 returned `200` `cancelled` with `released_bookings` 2; E1 stored `cancelled`, approved by K with a time; no booking rows left for E1; the calendar for 12 Nov had no entries; the projector showed 0 reserved, 1 available. Declining E2 kept it `planning` with the reason; the Organiser's new request returned `200` and cleared all four decision fields.
 - **Status:** Pass
-- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 21 passed, 5 skipped (pre-existing S-83 supersessions).
+- **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 21 passed, 5 skipped (pre-existing S-83 supersessions). Re-verified 2026-10-21 after merging sprint3 (S-17, S-18, S-24, S-78, S-80, S-87) into this branch and re-applying the S-61 `events_decision_matches_status` rule (with S-87's `pending_safety_check`) to dev and test: the seeded hold now sets `hold_expires_at` (S-24); `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 32 passed, 5 skipped, 1 failed (`test_decision.py`, an unrelated one-off 401 from session verification; 4 passed twice on rerun).

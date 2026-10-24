@@ -139,8 +139,12 @@ event must have a current `assigned_coordinator_id`. Unassigned, draft,
 rejected, cancelled, and completed events are excluded by Events before the
 composite groups them.
 
-The response contains every trusted Event Coordinator, including those with
-no current work:
+The response contains every trusted Auth Event Coordinator, including those
+without a profile or current work. A missing profile uses the Auth email for
+display. Active events whose owner is not in the trusted pool are never
+fabricated into Coordinator groups; they are reported separately in
+`invalid_assignments` for data-integrity review. The endpoint does not change
+those assignments:
 
 ```json
 {
@@ -174,6 +178,14 @@ no current work:
           "coordinator_assignment_version": 0
         }
       ]
+    }
+  ],
+  "invalid_assignments": [
+    {
+      "event_id": "44444444-4444-4444-8444-444444444444",
+      "name": "Orphaned forum",
+      "status": "planning",
+      "assigned_coordinator_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
     }
   ]
 }

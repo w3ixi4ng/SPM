@@ -1,6 +1,6 @@
 """S-61: the Coordinator's cancellation decision, orchestrated.
 
-TC-EVENTREQUESTS-064..067. The events service records the decision; on
+TC-EVENTREQUESTS-066..070. The events service records the decision; on
 approval the bookings service then removes the event's venue bookings.
 """
 
@@ -27,7 +27,7 @@ def _approve(client):
     return client.post(URL, json={"decision": "approved"}, cookies=COOKIE)
 
 
-# --- TC-EVENTREQUESTS-064 ----------------------------------------------------
+# --- TC-EVENTREQUESTS-069 ----------------------------------------------------
 def test_approving_cancels_the_event_then_releases_its_bookings(client, events, bookings):
     calls = []
     cancelled = event_response(200, **APPROVED)
@@ -49,7 +49,7 @@ def test_approving_cancels_the_event_then_releases_its_bookings(client, events, 
     assert bookings.delete.call_args.kwargs["cookies"] == COOKIE
 
 
-# --- TC-EVENTREQUESTS-065 ----------------------------------------------------
+# --- TC-EVENTREQUESTS-070 ----------------------------------------------------
 def test_declining_touches_only_the_event(client, events, bookings):
     events.post.return_value = event_response(
         200, status="planning", cancellation_decision="declined",
@@ -109,7 +109,7 @@ def test_a_failed_release_says_so(client, events, bookings, failure):
 
 def test_approving_again_finishes_the_release(client, events, bookings):
     # The events service answers a repeat approval with the cancelled event
-    # (TC-EVENTS-136), so the composite simply removes the bookings again.
+    # (TC-EVENTS-159), so the composite simply removes the bookings again.
     events.post.return_value = event_response(200, **APPROVED)
     bookings.delete.return_value = fake_response(200, {"deleted": 2})
 

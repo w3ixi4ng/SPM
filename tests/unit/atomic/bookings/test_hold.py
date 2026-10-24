@@ -37,12 +37,13 @@ def test_staff_places_and_releases_a_hold(client, db, auth):
     lookups(db, [pending], [], [])
     echo_update(db, pending)
 
-    held = client.post(f"/bookings/{BOOKING_ID}/hold", cookies=COOKIE)
+    held = client.post(f"/bookings/{BOOKING_ID}/hold", json={"expires_at": "2099-11-12T10:00:00+08:00"}, cookies=COOKIE)
 
     assert held.status_code == 200, held.text
     assert held.json()["status"] == "held"
     assert held.json()["held_by"] == STAFF
     assert held.json()["held_at"]
+    assert held.json()["hold_expires_at"] == "2099-11-12T10:00:00+08:00"
     values = table(db).update.call_args.args[0]
     assert values["hold_released_at"] is None
     assert values["hold_release_reason"] is None
@@ -64,6 +65,29 @@ def test_staff_places_and_releases_a_hold(client, db, auth):
     assert released.json()["hold_released_at"]
 
 
+@pytest.mark.parametrize("body", [
+    {},
+    {"expires_at": "2099-11-12T10:00:00"},
+    {"expires_at": "2020-01-01T10:00:00+08:00"},
+])
+def test_a_hold_needs_a_future_timezone_aware_expiry(client, db, auth, body):
+    if body:
+        lookups(db, [booking_row()])
+    response = client.post(f"/bookings/{BOOKING_ID}/hold", json=body, cookies=COOKIE)
+    assert response.status_code == 422
+    table(db).update.assert_not_called()
+
+
+def test_slot_sensitive_reads_expire_due_holds_first(client, db):
+    db.schema.return_value.rpc.return_value.execute.return_value = SimpleNamespace(
+        data=[booking_row(status="pending", hold_release_reason="expired")]
+    )
+    lookups(db, [])
+    response = client.get("/bookings", params={"status": "actionable"})
+    assert response.status_code == 200
+    db.schema.return_value.rpc.assert_called_with("expire_holds", {})
+
+
 def test_overlapping_hold_is_identified_and_nothing_changes(client, db, auth):
     pending = booking_row()
     conflict = booking_row(
@@ -74,7 +98,7 @@ def test_overlapping_hold_is_identified_and_nothing_changes(client, db, auth):
     )
     lookups(db, [pending], [conflict])
 
-    response = client.post(f"/bookings/{BOOKING_ID}/hold", cookies=COOKIE)
+    response = client.post(f"/bookings/{BOOKING_ID}/hold", json={"expires_at": "2099-11-12T10:00:00+08:00"}, cookies=COOKIE)
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(
@@ -85,7 +109,7 @@ def test_overlapping_hold_is_identified_and_nothing_changes(client, db, auth):
 
 def test_only_staff_manage_holds_and_protected_fields_are_rejected(client, db, auth):
     auth.auth.get_user.return_value.user.app_metadata = {"role": "event_organiser"}
-    assert client.post(f"/bookings/{BOOKING_ID}/hold", cookies=COOKIE).status_code == 403
+    assert client.post(f"/bookings/{BOOKING_ID}/hold", json={"expires_at": "2099-11-12T10:00:00+08:00"}, cookies=COOKIE).status_code == 403
     assert client.post(
         f"/bookings/{BOOKING_ID}/release",
         json={"reason": "staff_released"}, cookies=COOKIE,

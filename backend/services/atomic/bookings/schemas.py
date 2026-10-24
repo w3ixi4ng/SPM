@@ -40,9 +40,17 @@ RoomLayout = Literal[
     "cocktail",
 ]
 
-# S-36 creates pending requests; S-37 records final staff decisions.
-BookingStatus = Literal["pending", "held", "confirmed", "rejected"]
-HoldReleaseReason = Literal["staff_released", "event_rejected", "event_cancelled", "booking_replaced"]
+# S-36 creates pending requests; S-37 records final staff decisions. S-78: a
+# booking whose replacement is confirmed becomes `replaced`. Keep in step with
+# backend/sql/bookings.sql.
+BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced"]
+HoldReleaseReason = Literal[
+    "staff_released",
+    "event_rejected",
+    "event_cancelled",
+    "booking_replaced",
+    "expired",
+]
 
 
 def _unique_in_order(values: list) -> list:
@@ -79,6 +87,8 @@ class BookingCreate(BaseModel):
     room_layout: RoomLayout | None = None
     notes: str | None = None
     venue_name: str = Field(min_length=1)
+    # S-78: the booking this request replaces, for the same event.
+    replaces_booking_id: UUID | None = None
 
     @field_validator(
         "coordinator_name", "coordinator_email", "event_name", "event_purpose", "venue_name", mode="before"
@@ -106,6 +116,39 @@ class BookingCreate(BaseModel):
         return self
 
 
+class BookingChange(BaseModel):
+    """S-80: a Coordinator moves one booking. Only where and when it is, and
+    its notes; the event snapshot stays as it was taken. venue_name is
+    looked up by the composite, never taken from the browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    venue_id: UUID
+    venue_name: str = Field(min_length=1)
+    booking_date: date
+    start_time: time
+    end_time: time
+    notes: str | None = None
+
+    @field_validator("venue_name", mode="before")
+    @classmethod
+    def strip_venue_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def blank_notes_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def end_must_follow_start(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
+
+
 class BookingRead(BaseModel):
     decision_reason: str | None = None
     decision_alternative: str | None = None
@@ -113,6 +156,7 @@ class BookingRead(BaseModel):
     decided_at: datetime | None = None
     held_by: UUID | None = None
     held_at: datetime | None = None
+    hold_expires_at: datetime | None = None
     hold_released_at: datetime | None = None
     hold_release_reason: HoldReleaseReason | None = None
     id: UUID
@@ -135,18 +179,26 @@ class BookingRead(BaseModel):
     notes: str | None
     venue_name: str
     submitted_at: datetime
+    # S-78
+    replaces_booking_id: UUID | None = None
+    replaced_by_booking_id: UUID | None = None
+    replaced_at: datetime | None = None
+    alternative_resolved_at: datetime | None = None
+    alternative_resolved_by: UUID | None = None
+    alternative_resolution_note: str | None = None
 
 
-# S-30: why Venue Staff marked a venue unavailable. Keep in step with
+# S-77: why Venue Staff marked a venue unavailable. Keep in step with
 # backend/sql/bookings.sql.
-BlockReason = Literal["maintenance", "renovation", "safety", "internal_activity", "other"]
+BlockReason = Literal["maintenance", "equipment_failure", "renovation", "safety", "other"]
 
 
 class BlockCreate(BaseModel):
-    """A whole-day period a venue cannot be used, inclusive at both ends.
-    venue_name is a snapshot the venue_bookings composite takes from the
-    venues service, for messages. created_by and created_at are forbidden:
-    this service sets both from the verified session and the clock.
+    """S-77: a period a venue cannot be used, from start_date + start_time up
+    to, but not including, end_date + end_time. venue_name is a snapshot the
+    venue_bookings composite takes from the venues service, for messages.
+    created_by and created_at are forbidden: this service sets both from the
+    verified session and the clock.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -154,7 +206,9 @@ class BlockCreate(BaseModel):
     venue_id: UUID
     venue_name: str = Field(min_length=1)
     start_date: date
+    start_time: time
     end_date: date
+    end_time: time
     reason: BlockReason
     note: str | None = None
 
@@ -172,10 +226,12 @@ class BlockCreate(BaseModel):
 
     @model_validator(mode="after")
     def valid_block(self):
-        if self.end_date < self.start_date:
-            raise ValueError("end_date must be on or after start_date")
+        start = datetime.combine(self.start_date, self.start_time)
+        end = datetime.combine(self.end_date, self.end_time)
+        if end <= start:
+            raise ValueError("The period must end after it starts")
         if self.reason == "other" and self.note is None:
-            raise ValueError("Add a note when the reason is other")
+            raise ValueError("Add a description when the reason is other")
         return self
 
 
@@ -184,7 +240,9 @@ class BlockRead(BaseModel):
     venue_id: UUID
     venue_name: str
     start_date: date
+    start_time: time
     end_date: date
+    end_time: time
     reason: BlockReason
     note: str | None
     created_by: UUID
@@ -219,3 +277,32 @@ class HoldRelease(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: HoldReleaseReason
+
+
+class HoldCreate(BaseModel):
+    """A hold always ends at an explicit, timezone-aware instant."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expires_at: datetime
+
+    @field_validator("expires_at")
+    @classmethod
+    def expiry_has_timezone(cls, value: datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expires_at must include a timezone")
+        return value
+
+
+class AlternativeResolution(BaseModel):
+    """S-78: what a Coordinator arranged instead, for a booking an unavailable
+    period affects. Who resolved it and when are set by this service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def strip_note(cls, value):
+        return value.strip() if isinstance(value, str) else value

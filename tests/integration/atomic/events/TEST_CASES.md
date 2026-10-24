@@ -146,3 +146,67 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Actual:** Through Kong: the request returned `200`; `GET` showed status `planning` with the reason, requester and time; the second request returned `409`. `events.events` agreed.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/events/test_cancellation_request.py::test_a_cancellation_request_is_stored_with_the_event_through_kong`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-62/request-event-cancellation` at `cb446d3`; S-62 SQL applied to dev and test. `pytest tests/integration/atomic/events`: 6 passed.
+## S-26 — Update Equipment Preparation Status
+
+### TC-EVENTS-126 — equipment preparation persists through the real Events boundary
+
+- **Scenario:** The committed Events schema and authenticated HTTP route store and return S-26 state together.
+- **Pre-conditions:** Fresh `.env.test` Docker stack; `backend/sql/events.sql` applied, exposed, and granted in the test project; assigned Technical Support and Coordinator accounts; one eligible event.
+- **Steps:** Verify the database default; update through Kong as assigned Technical Support; load through both the support and Coordinator event views; attempt the same write as an unassigned worker.
+- **Test data:** `not_started` → `in_progress` → `ready` on one planning event.
+- **Expected:** The default, current value, updater, and timestamp persist in `events.events`; both authorised reads agree; the unassigned write is denied and leaves the row unchanged. The test deletes every row and account it creates.
+- **Actual:** Not run.
+- **Status:** Approved
+- **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`
+
+---
+
+## S-18 — Update Event Information
+
+Story: S-18 Update Event Information. Specification confirmed by the
+developer on 2026-10-19. Not yet implemented or executed.
+
+## TC-EVENTS-153 — Coordinator edits, lifecycle rollback, and audit persist through Kong
+
+- **Scenario:** Authentication, gateway routing, Events storage constraints,
+  lifecycle state, and edit history agree at the real boundary.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-18 Events SQL applied,
+  exposed, and granted; Coordinator A and B; A's preparation event with a
+  current safety approval, safety history, equipment preparation `ready`, and
+  existing venue/equipment arrangements.
+- **Steps:** Through Kong, A saves a routine contact/note edit, previews and
+  accepts a significant attendance/time edit, and reloads E. B attempts an
+  edit. Inspect Events and history storage
+  with the admin client.
+- **Expected:** Routine values persist without changing status. Significant
+  values do not persist before acceptance; after acceptance they persist and
+  E is `planning` with current safety fields cleared. Prior safety history and
+  arrangements remain. History contains exact before/after values, A and
+  server times for both saves. E remains `planning` and marked for a fresh
+  safety check; S-17 owns the checked transition to `pending_safety_check`.
+  B receives `404`. Cleanup removes all created rows
+  and users.
+- **Actual:** Routine and accepted significant edits persisted through Kong;
+  assignment isolation, lifecycle restart, preserved
+  safety history/preparation state, and ordered audit entries all matched the
+  specification.
+- **Status:** Pass
+- **Evidence:** `test_s18.py::test_coordinator_edit_lifecycle_and_audit_round_trip`; focused `.env.test` run, 2026-10-19.
+## TC-EVENTS-147 — the new status and sign-off columns exist and are constrained
+
+- **Scenario:** The S-17 SQL is applied, exposed and granted.
+- **Pre-conditions:** Fresh `.env.test` stack; S-17 block of
+  `backend/sql/events.sql` applied to the test project.
+- **Steps:** 1. Create an event, drive it to `planning`, then via the admin
+  client set `status: "pending_safety_check"`. 2. Try `status:
+  "pending_safety_check", decision: null`. 3. Record a declined sign-off
+  through `PUT /internal/events/{id}/technical-signoff`, read it back.
+  4. Try writing `technical_signoff_decision: "declined"` with a null reason
+  through the admin client. 5. Delete the event.
+- **Test data:** Reason "Only one sound desk exists".
+- **Expected:** 1 succeeds. 2 is refused (`23514`). 3 reads back decision,
+  reason, Technical Support id and timestamp. 4 is refused (`23514`).
+  5 leaves no row.
+- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_status_and_signoff_columns`

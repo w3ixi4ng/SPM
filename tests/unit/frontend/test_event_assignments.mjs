@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   assignEventRequest,
   assignmentErrorMessage,
+  coordinatorOptionLabel,
   listAssignmentCoordinators,
   listUnassignedEventRequests,
 } from '../../../frontend/src/lib/eventAssignments.js'
@@ -36,6 +37,14 @@ test('lead assignment helpers use the composite routes through Kong', async () =
   ])
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
   assert.deepEqual(JSON.parse(calls[2].options.body), { coordinator_id: 'coordinator-1' })
+})
+
+test('coordinator choices use Auth email when profile names overlap', () => {
+  assert.equal(
+    coordinatorOptionLabel({ name: 'E2E Tester', email: 'spm-e2e-123@example.com' }),
+    'spm-e2e-123@example.com',
+  )
+  assert.equal(coordinatorOptionLabel({ name: 'Coordinator', email: null }), 'Coordinator')
 })
 
 test('assignment failures give the lead actionable feedback', () => {

@@ -47,6 +47,8 @@ def studio_b(services):
 
     async def bookings_get(path, **kwargs):
         params = kwargs.get("params") or {}
+        if path == "/blocks":
+            return fake_response(200, [])
         if path.startswith("/bookings/"):
             booking_id = path.rsplit("/", 1)[-1]
             match = [r for r in SAME_DAY if r["id"] == booking_id]
@@ -104,16 +106,23 @@ def test_a_request_passes_the_venues_current_times(client, services):
 @pytest.mark.parametrize("action, body", [("hold", None), ("decision", {"decision": "approved"})])
 def test_holds_and_decisions_pass_the_bookings_venues_current_times(client, studio_b, action, body):
     studio_b.user = me("venue_staff")
-    studio_b.bookings.post = AsyncMock(return_value=fake_response(200, {**B, "status": "confirmed"}))
+    saved = {
+        **B, "status": "confirmed" if action == "decision" else "held",
+        "coordinator_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "hold_expires_at": "2099-11-12T02:00:00+00:00",
+    }
+    studio_b.bookings.post = AsyncMock(return_value=fake_response(200, saved))
 
-    response = client.post(f"/venue-bookings/{B['id']}/{action}", json=body)
+    request_body = {"expires_at": "2099-11-12T10:00:00+08:00"} if action == "hold" else body
+    response = client.post(f"/venue-bookings/{B['id']}/{action}", json=request_body)
 
     assert response.status_code == 200, response.text
     assert studio_b.bookings.post.call_args.kwargs["params"] == GAP
     assert studio_b.venues.get.await_args.args[0] == f"/venues/{VENUE_ID}"
 
     studio_b.set_venue(setup_minutes=0, turnaround_minutes=0)
-    client.post(f"/venue-bookings/{B['id']}/{action}", json=body)
+    second = client.post(f"/venue-bookings/{B['id']}/{action}", json=request_body)
+    assert second.status_code == 200, second.text
     assert studio_b.bookings.post.call_args.kwargs["params"] == {"setup_minutes": 0, "turnaround_minutes": 0}
 
 
@@ -162,6 +171,8 @@ def test_other_requests_carry_no_warning(client, studio_b, changes):
 
     async def bookings_get(path, **kwargs):
         params = kwargs.get("params") or {}
+        if path == "/blocks":
+            return fake_response(200, [])
         if "venue_id" in params:
             return fake_response(200, [A, other, C])
         return fake_response(200, [other])

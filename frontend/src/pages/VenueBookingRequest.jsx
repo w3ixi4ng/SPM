@@ -11,9 +11,12 @@ import {
   decisionNotice,
   getVenueBooking,
   holdActionErrorMessage,
+  holdExpiryLabel,
+  holdExpiryToIso,
   pendingListErrorMessage,
   placeVenueHold,
   releaseVenueHold,
+  replacementOriginLabel,
   shortTime,
 } from '../lib/venueBookings.js'
 import { optionLabel } from '../lib/venues.js'
@@ -78,13 +81,22 @@ function Clashes({ booking }) {
 function HoldAction({ booking, onChanged }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [expiry, setExpiry] = useState('')
 
   async function change() {
     setSaving(true)
     setError(null)
     try {
       if (booking.status === 'held') await releaseVenueHold(booking.id)
-      else await placeVenueHold(booking.id)
+      else {
+        const parsed = holdExpiryToIso(expiry)
+        if (parsed.error) {
+          setError(parsed.error)
+          setSaving(false)
+          return
+        }
+        await placeVenueHold(booking.id, parsed.expiresAt)
+      }
       await onChanged()
     } catch (failure) {
       setError(holdActionErrorMessage(failure))
@@ -94,6 +106,23 @@ function HoldAction({ booking, onChanged }) {
 
   return (
     <div className="mb-8">
+      {booking.status === 'held' ? (
+        <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
+          Expires {holdExpiryLabel(booking.hold_expires_at)} Singapore time
+        </p>
+      ) : (
+        <label className="block font-ui text-sm mb-3" style={{ color: C.ink }}>
+          Hold expiry (Singapore time)
+          <input
+            type="datetime-local"
+            required
+            value={expiry}
+            onChange={(event) => setExpiry(event.target.value)}
+            className="block mt-1 px-3 py-2 rounded-sm border"
+            style={{ borderColor: C.line }}
+          />
+        </label>
+      )}
       <button
         type="button"
         disabled={saving}
@@ -171,6 +200,15 @@ export default function VenueBookingRequest() {
               {booking.venue_name} · {bookingDateLabel(booking.booking_date)},{' '}
               {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
             </p>
+            {replacementOriginLabel(booking) && (
+              // S-78: the Coordinator is replacing a booking an unavailable
+              // period affects. Approving this replaces that one.
+              <p className="font-ui text-sm -mt-4 mb-6" style={{ color: C.inkFaint }}>
+                {replacementOriginLabel(booking)} ({bookingDateLabel(booking.replaces.booking_date)},{' '}
+                {shortTime(booking.replaces.start_time)}–{shortTime(booking.replaces.end_time)}). Approving this
+                request releases that booking.
+              </p>
+            )}
 
             <Clashes booking={booking} />
 

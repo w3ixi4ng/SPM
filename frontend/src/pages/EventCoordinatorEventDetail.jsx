@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Building2, Check, Headphones, RotateCcw, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
+import EventReadinessPanel from '../components/EventReadinessPanel.jsx'
+import SafetySubmissionPanel from '../components/SafetySubmissionPanel.jsx'
+import {
+  buildSubmissionReadiness,
+  describeSignoff,
+} from '../lib/safetySubmission.js'
+import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
@@ -19,15 +26,29 @@ import {
   eventStatusMeta,
   getAssignedEventRequest,
   validateDeclineReason,
+  previewAssignedEventInformation,
+  updateAssignedEventInformation,
 } from '../lib/eventRequests.js'
 import {
+  alternativeArrangementsNotice,
   bookingClashMessage,
   bookingDateLabel,
   bookingStatusMeta,
   canRequestVenue,
   listVenueBookingsForEvent,
+  replacementErrorMessages,
+  replacementPath,
+  replacementState,
+  resolveAlternativeArrangements,
+  RESOLUTION_NOTE_MAX,
   shortTime,
+  validateResolutionNote,
   venueRequestLinkLabel,
+  cancelVenueBooking,
+  cancelVenueBookingPrompt,
+  canChangeVenueBooking,
+  VENUE_BOOKING_CANCELLED,
+  venueBookingChangeErrorMessage,
 } from '../lib/venueBookings.js'
 import {
   canRequestTechnicalSupport,
@@ -35,6 +56,11 @@ import {
   requestTechnicalSupportAssignment,
   technicalSupportAssignmentErrorMessage,
 } from '../lib/technicalSupportAssignments.js'
+import {
+  getReturnedSafetyReview,
+  resubmitSafetyReview,
+  safetyReturnErrorMessage,
+} from '../lib/safetyChecks.js'
 
 const C = {
   ink: '#10192B',
@@ -64,6 +90,130 @@ function Field({ label, value }) {
         {value || '—'}
       </p>
     </div>
+  )
+}
+
+const EDITABLE_STATUSES = new Set(['planning', 'confirmed', 'preparation'])
+const FIELD_LABELS = {
+  start_date: 'start date', start_time: 'start time', end_date: 'end date', end_time: 'end time',
+  expected_attendance: 'expected attendance', venue: 'venue preference',
+  special_requirements: 'other requirements', room_layout: 'room layout',
+  required_facilities: 'required facilities', required_accessibility: 'accessibility requirements',
+}
+
+function EventInformationEditor({ event, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState(() => eventResponseToForm(event))
+  const [impact, setImpact] = useState(null)
+  const [state, setState] = useState({ status: 'idle', error: null, notice: null })
+
+  useEffect(() => {
+    setForm(eventResponseToForm(event))
+    setImpact(null)
+    setEditing(false)
+  }, [event.id, event.edit_version])
+
+  const set = (field) => (e) => setForm((current) => ({ ...current, [field]: e.target.value }))
+  const setList = (field) => (e) => setForm((current) => ({
+    ...current,
+    [field]: e.target.value.split(',').map((value) => value.trim()).filter(Boolean),
+  }))
+
+  async function save(acceptImpact = false) {
+    setState({ status: 'saving', error: null, notice: null })
+    try {
+      const updated = await updateAssignedEventInformation(event.id, form, event, acceptImpact)
+      setImpact(null)
+      setState({ status: 'idle', error: null, notice: 'Event information saved.' })
+      onSaved(updated)
+    } catch (error) {
+      setState({ status: 'idle', error: eventErrorMessage(error), notice: null })
+    }
+  }
+
+  async function review(event_) {
+    event_.preventDefault()
+    setState({ status: 'checking', error: null, notice: null })
+    try {
+      const result = await previewAssignedEventInformation(event.id, form, event)
+      if (result.changed_fields.length === 0) {
+        setState({ status: 'idle', error: null, notice: 'There are no changes to save.' })
+      } else if (result.requires_impact_acceptance) {
+        setImpact(result)
+        setState({ status: 'idle', error: null, notice: null })
+      } else {
+        await save(false)
+      }
+    } catch (error) {
+      setState({ status: 'idle', error: eventErrorMessage(error), notice: null })
+    }
+  }
+
+  if (!EDITABLE_STATUSES.has(event.status)) return null
+  if (!editing) return (
+    <div className="mt-6 flex flex-wrap items-center gap-3">
+      <button type="button" onClick={() => setEditing(true)} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.teal, color: C.teal }}>
+        Edit event information
+      </button>
+      {state.notice && <p role="status" className="font-ui text-sm" style={{ color: C.green }}>{state.notice}</p>}
+      {state.error && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
+    </div>
+  )
+
+  const inputClass = 'w-full border rounded-sm px-3 py-2 font-ui text-sm bg-white'
+  return (
+    <form onSubmit={review} className="mt-8 border-t pt-6" style={{ borderColor: C.line }}>
+      <h2 className="font-display text-xl mb-1" style={{ color: C.ink }}>Edit event information</h2>
+      <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>Material changes are reviewed before they are saved.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {[
+          ['name', 'Event name', 'text'], ['purpose', 'Description', 'text'],
+          ['contactName', 'Contact name', 'text'], ['contactEmail', 'Contact email', 'email'],
+          ['contactPhone', 'Contact phone', 'tel'], ['attendance', 'Expected attendance', 'number'],
+          ['startDate', 'Start date', 'date'], ['startTime', 'Start time', 'time'],
+          ['endDate', 'End date', 'date'], ['endTime', 'End time', 'time'],
+          ['venue', 'Venue preference', 'text'], ['roomLayout', 'Room layout code', 'text'],
+        ].map(([field, label, type]) => (
+          <label key={field} className="font-ui text-sm" style={{ color: C.ink }}>
+            {label}
+            <input className={inputClass} style={{ borderColor: C.line }} type={type} min={type === 'number' ? '1' : undefined} value={form[field]} onChange={set(field)} />
+          </label>
+        ))}
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Required facilities (comma-separated codes)
+          <input className={inputClass} style={{ borderColor: C.line }} value={form.requiredFacilities.join(', ')} onChange={setList('requiredFacilities')} />
+        </label>
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Accessibility requirements (comma-separated codes)
+          <input className={inputClass} style={{ borderColor: C.line }} value={form.requiredAccessibility.join(', ')} onChange={setList('requiredAccessibility')} />
+        </label>
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Other requirements
+          <textarea className={inputClass} style={{ borderColor: C.line }} value={form.specialRequirements} onChange={set('specialRequirements')} />
+        </label>
+        <label className="font-ui text-sm sm:col-span-2" style={{ color: C.ink }}>
+          Internal notes (Coordinator only)
+          <textarea className={inputClass} style={{ borderColor: C.line }} value={form.internalNotes} onChange={set('internalNotes')} />
+        </label>
+      </div>
+      {impact && (
+        <div role="alertdialog" aria-labelledby="impact-heading" className="mt-6 border rounded-sm p-5" style={{ borderColor: C.amber, backgroundColor: `${C.amber}0D` }}>
+          <h3 id="impact-heading" className="font-display text-lg" style={{ color: C.ink }}>Review significant changes</h3>
+          <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>These changes may affect existing arrangements: {impact.significant_fields.map((field) => FIELD_LABELS[field] || field).join(', ')}.</p>
+          {['confirmed', 'preparation'].includes(event.status) && <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>Accepting returns the event to Planning and requires a fresh Operational Safety Check. Existing venue and equipment sign-offs remain in place.</p>}
+          <div className="flex gap-3 mt-4">
+            <button type="button" onClick={() => setImpact(null)} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Go back</button>
+            <button type="button" onClick={() => save(true)} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.amber }}>Accept and save</button>
+          </div>
+        </div>
+      )}
+      {state.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{state.error}</p>}
+      {state.notice && <p role="status" className="font-ui text-sm mt-4" style={{ color: C.green }}>{state.notice}</p>}
+      <div className="flex gap-3 mt-6">
+        <button type="button" onClick={() => { setEditing(false); setImpact(null); setForm(eventResponseToForm(event)) }} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Cancel</button>
+        <button type="submit" disabled={state.status !== 'idle'} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.teal }}>{state.status === 'idle' ? 'Review changes' : 'Checking…'}</button>
+      </div>
+    </form>
   )
 }
 
@@ -221,24 +371,244 @@ function DecisionForm({ eventId, onDecided }) {
   )
 }
 
-// What this Coordinator has already asked for, so a reload never leaves them
-// guessing whether a request went out.
-function VenueRequests({ eventId, canRequest, notice }) {
-  const [state, setState] = useState({ status: 'loading', bookings: [] })
+// S-78: the Coordinator says what they arranged instead of a replacement
+// venue. A slide-over: one field, and the event page stays behind it.
+function ResolvePanel({ booking, onClose, onResolved }) {
+  const [note, setNote] = useState('')
+  const [state, setState] = useState({ saving: false, errors: [] })
+  const panelRef = useRef(null)
 
   useEffect(() => {
-    let active = true
-    listVenueBookingsForEvent(eventId)
-      .then((bookings) => {
-        if (active) setState({ status: 'ready', bookings })
-      })
-      .catch(() => {
-        if (active) setState({ status: 'error', bookings: [] })
-      })
-    return () => {
-      active = false
+    panelRef.current?.querySelector('textarea')?.focus()
+  }, [])
+
+  useEffect(() => {
+    const panel = panelRef.current
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button, textarea')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
-  }, [eventId])
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    const problem = validateResolutionNote(note)
+    if (problem) {
+      setState({ saving: false, errors: [problem] })
+      return
+    }
+    setState({ saving: true, errors: [] })
+    try {
+      await resolveAlternativeArrangements(booking.id, note)
+      onResolved()
+    } catch (error) {
+      setState({ saving: false, errors: replacementErrorMessages(error) })
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resolve-panel-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="resolve-panel-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            Mark resolved
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="csp-focus rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
+          {booking.venue_name}, {bookingDateLabel(booking.booking_date)} {shortTime(booking.start_time)}–{shortTime(booking.end_time)}.
+          The booking stays as it is. It is flagged again only if the venue is marked unavailable again.
+        </p>
+        <form onSubmit={handleSubmit} noValidate>
+          <label htmlFor="resolution-note" className="font-ui text-sm font-medium block mb-1.5" style={{ color: C.ink }}>
+            What have you arranged instead?
+          </label>
+          <textarea
+            id="resolution-note"
+            rows={4}
+            maxLength={RESOLUTION_NOTE_MAX}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="csp-focus w-full rounded-sm border px-3 py-2 font-ui text-sm mb-4"
+            style={{ borderColor: C.line, color: C.ink, backgroundColor: C.paper }}
+            placeholder="For example: moved online for this session"
+          />
+          {state.errors.length > 0 && (
+            <div role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>
+              {state.errors.map((message) => <p key={message}>{message}</p>)}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={state.saving}
+            className="csp-focus px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {state.saving ? 'Saving…' : 'Mark resolved'}
+          </button>
+        </form>
+      </div>
+    </>
+  )
+}
+
+// What this Coordinator has already asked for, so a reload never leaves them
+// guessing whether a request went out.
+// S-80: confirm before one booking is cancelled. The house slide-over.
+function CancelBookingPanel({ booking, onClose, onCancelled }) {
+  const [error, setError] = useState(null)
+  const [sending, setSending] = useState(false)
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    const panel = panelRef.current
+    panel?.querySelector('button:not([aria-label="Close"])')?.focus()
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function cancel() {
+    setSending(true)
+    setError(null)
+    try {
+      await cancelVenueBooking(booking.id)
+      onCancelled()
+    } catch (failure) {
+      setError(venueBookingChangeErrorMessage(failure))
+      setSending(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancel-booking-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7 font-ui"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="cancel-booking-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            Cancel venue booking
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
+          {cancelVenueBookingPrompt(booking)}
+        </p>
+        {error && <p role="alert" className="text-sm mb-4" style={{ color: C.rose }}>{error}</p>}
+        <div className="grid gap-3">
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {sending ? 'Cancelling…' : 'Cancel booking'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm border transition-colors duration-200"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Keep booking
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
+  const [state, setState] = useState({ status: 'loading', bookings: [] })
+  const [resolving, setResolving] = useState(null)
+  const [resolvedNotice, setResolvedNotice] = useState(null)
+  const triggerRef = useRef(null)
+  // S-80: the booking being cancelled, and what the last cancel did.
+  const [cancelling, setCancelling] = useState(null)
+  const [cancelNotice, setCancelNotice] = useState(null)
+  const cancelTriggerRef = useRef(null)
+
+  const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
+    (bookings) => setState({ status: 'ready', bookings }),
+    () => setState({ status: 'error', bookings: [] }),
+  ), [eventId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  function openResolve(booking, trigger) {
+    triggerRef.current = trigger
+    setResolving(booking)
+  }
+
+  function closeResolve() {
+    setResolving(null)
+    triggerRef.current?.focus()
+  }
+
+  async function handleResolved() {
+    setResolvedNotice(`${resolving.venue_name} booking marked resolved.`)
+    setCancelNotice(null)
+    setResolving(null)
+    await load()
+  }
 
   return (
     <section aria-labelledby="venue-requests-heading">
@@ -266,6 +636,8 @@ function VenueRequests({ eventId, canRequest, notice }) {
         <ul className="divide-y" aria-label="Venue requests sent">
           {state.bookings.map((booking) => {
             const { label, color } = bookingStatusMeta(booking.status)
+            const unavailable = alternativeArrangementsNotice(booking)
+            const replacing = replacementState(booking, state.bookings)
             return (
               <li
                 key={booking.id}
@@ -278,10 +650,37 @@ function VenueRequests({ eventId, canRequest, notice }) {
                     {bookingDateLabel(booking.booking_date)} · {shortTime(booking.start_time)}–{shortTime(booking.end_time)}
                   </p>
                 </div>
-                <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0" style={{ color }}>
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-                  {label}
-                </span>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="inline-flex items-center gap-1.5 font-ui text-xs" style={{ color }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                    {label}
+                  </span>
+                  {canChangeVenueBooking(booking, eventStatus) && (
+                    // S-80: this booking only; the others are untouched.
+                    <>
+                      <Link
+                        to={`/coordinator/events/${eventId}/venue-bookings/${booking.id}/change`}
+                        aria-label={`Change ${booking.venue_name} booking`}
+                        className="font-ui text-sm underline transition-colors duration-200"
+                        style={{ color: C.teal }}
+                      >
+                        Change
+                      </Link>
+                      <button
+                        type="button"
+                        aria-label={`Cancel ${booking.venue_name} booking`}
+                        onClick={(e) => {
+                          cancelTriggerRef.current = e.currentTarget
+                          setCancelling(booking)
+                        }}
+                        className="font-ui text-sm underline transition-colors duration-200"
+                        style={{ color: C.ink }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
                 {booking.status !== 'pending' && (
                   <div className="w-full font-ui text-sm space-y-1" style={{ color: C.ink }}>
                     {booking.decision_reason && <p className="whitespace-pre-wrap">Reason: {booking.decision_reason}</p>}
@@ -295,13 +694,53 @@ function VenueRequests({ eventId, canRequest, notice }) {
                     {bookingClashMessage(booking)}
                   </p>
                 )}
+                {unavailable && (
+                  // S-77: the venue is unavailable during this booking. The
+                  // booking and the event are unchanged until people act.
+                  <div role="alert" className="w-full font-ui text-sm">
+                    <p className="inline-flex items-center gap-1.5 font-medium" style={{ color: unavailable.color }}>
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: unavailable.color }} aria-hidden="true" />
+                      {unavailable.label}
+                    </p>
+                    <p className="mt-0.5" style={{ color: C.ink }}>{unavailable.detail}</p>
+                  </div>
+                )}
+                {(replacing.label || replacing.actions.length > 0) && (
+                  // S-78: replace the venue or resolve the flag, and where that stands.
+                  <div className="w-full font-ui text-sm">
+                    {replacing.label && <p style={{ color: C.inkFaint }}>{replacing.label}</p>}
+                    {replacing.actions.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-3 mt-2">
+                        {replacing.actions.includes('replace') && (
+                          <Link
+                            to={replacementPath(eventId, booking.id)}
+                            className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                            style={{ borderColor: C.ink, color: C.ink }}
+                          >
+                            Find a replacement venue
+                          </Link>
+                        )}
+                        {replacing.actions.includes('resolve') && (
+                          <button
+                            type="button"
+                            onClick={(e) => openResolve(booking, e.currentTarget)}
+                            className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                            style={{ borderColor: C.line, color: C.ink }}
+                          >
+                            Mark resolved
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </li>
             )
           })}
         </ul>
       )}
-      {canRequest && (
-        <div className="flex flex-wrap items-center gap-4 mt-6">
+      <div className="flex flex-wrap items-center gap-4 mt-6">
+        {canRequest && (
           <Link
             to={`/coordinator/events/${eventId}/request-venue`}
             className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5"
@@ -310,10 +749,26 @@ function VenueRequests({ eventId, canRequest, notice }) {
             <Building2 size={16} aria-hidden="true" />
             {venueRequestLinkLabel(state.bookings)}
           </Link>
-          <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-            {notice}
-          </p>
-        </div>
+        )}
+        <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
+          {cancelNotice ?? resolvedNotice ?? notice}
+        </p>
+      </div>
+      {resolving && <ResolvePanel booking={resolving} onClose={closeResolve} onResolved={handleResolved} />}
+      {cancelling && (
+        <CancelBookingPanel
+          booking={cancelling}
+          onClose={() => {
+            setCancelling(null)
+            cancelTriggerRef.current?.focus()
+          }}
+          onCancelled={async () => {
+            setCancelling(null)
+            setCancelNotice(VENUE_BOOKING_CANCELLED)
+            setResolvedNotice(null)
+            await load()
+          }}
+        />
       )}
     </section>
   )
@@ -613,10 +1068,106 @@ function TechnicalSupportAssignment({ eventId, eventStatus }) {
   )
 }
 
+function SafetyReturnPanel({ event, onResubmitted }) {
+  const [state, setState] = useState({ status: 'loading', detail: null, error: null })
+  const [submit, setSubmit] = useState({ status: 'idle', error: null, outstanding: [] })
+
+  useEffect(() => {
+    let active = true
+    getReturnedSafetyReview(event.id).then(
+      (detail) => { if (active) setState({ status: 'ready', detail, error: null }) },
+      (error) => { if (active) setState({ status: 'error', detail: null, error: safetyReturnErrorMessage(error) }) },
+    )
+    return () => { active = false }
+  }, [event.id])
+
+  async function resubmit() {
+    setSubmit({ status: 'saving', error: null, outstanding: [] })
+    try {
+      const updated = await resubmitSafetyReview(event.id)
+      setSubmit({ status: 'success', error: null, outstanding: [] })
+      onResubmitted(updated)
+    } catch (error) {
+      // S-17: a resubmission gets the same arrangement check as a first one.
+      const outstanding = error.body?.outstanding
+      setSubmit({
+        status: 'idle',
+        error: outstanding
+          ? 'This event still has outstanding arrangements. Complete each item below, then resubmit.'
+          : safetyReturnErrorMessage(error),
+        outstanding: outstanding ? buildSubmissionReadiness({ outstanding }).items : [],
+      })
+    }
+  }
+
+  const feedback = state.detail?.current_return
+  return (
+    <section
+      className="border rounded-sm p-6 sm:p-7 mt-8"
+      style={{ borderColor: C.amber, backgroundColor: `${C.amber}0D` }}
+      aria-labelledby="safety-feedback-heading"
+    >
+      <p className="font-ui text-xs font-medium uppercase tracking-widest mb-2" style={{ color: C.amber }}>
+        Returned after safety review
+      </p>
+      <h2 id="safety-feedback-heading" className="font-display text-2xl mb-3" style={{ color: C.ink }}>
+        Safety Officer feedback
+      </h2>
+      <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>
+        Current event state: planning. Revise the affected arrangements below, then submit them for a completely fresh Operational Safety Check.
+      </p>
+
+      {state.status === 'loading' && <p className="font-ui text-sm">Loading safety feedback…</p>}
+      {state.status === 'error' && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
+      {state.status === 'ready' && feedback && (
+        <div className="font-ui text-sm space-y-2">
+          <p className="whitespace-pre-wrap"><span className="font-medium">Reason:</span> {feedback.reason}</p>
+          <p>
+            <span className="font-medium">Safety Officer:</span>{' '}
+            {feedback.safety_officer?.name || feedback.safety_officer_id}
+          </p>
+          <p><span className="font-medium">Decision time:</span> {new Date(feedback.decided_at).toLocaleString()}</p>
+          <p className="sr-only">Safety review history contains {state.detail.safety_review_history.length} review records.</p>
+        </div>
+      )}
+
+      {submit.status === 'success' ? (
+        <p role="status" className="font-ui text-sm font-medium mt-5" style={{ color: C.green }}>
+          Revised arrangements submitted for a fresh safety review. The event is now pending its safety check.
+        </p>
+      ) : (
+        <>
+          {submit.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{submit.error}</p>}
+          {submit.outstanding.length > 0 && (
+            <ul className="divide-y mt-3 font-ui text-sm" aria-label="Outstanding arrangements" style={{ borderColor: C.line }}>
+              {submit.outstanding.map((item) => (
+                <li key={item.key} className="py-2 flex justify-between gap-4">
+                  <span style={{ color: C.ink }}>{item.label}</span>
+                  <span style={{ color: C.amber }}>{item.statusLabel}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={resubmit}
+            disabled={state.status !== 'ready' || submit.status === 'saving'}
+            className="mt-5 px-5 py-3 rounded-sm font-ui font-medium text-sm text-white disabled:opacity-60"
+            style={{ backgroundColor: C.teal }}
+          >
+            {submit.status === 'saving' ? 'Resubmitting…' : 'Resubmit for Safety Review'}
+          </button>
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function EventCoordinatorEventDetail() {
   const { id } = useParams()
   const { user } = useAuth()
   const [state, setState] = useState({ status: 'loading', event: null, error: null })
+  const [safetyNotice, setSafetyNotice] = useState(null)
   const location = useLocation()
   const navigate = useNavigate()
   // Set by the venue request screen after a send. Read once, then cleared
@@ -653,11 +1204,26 @@ export default function EventCoordinatorEventDetail() {
 
   const form = state.event ? eventResponseToForm(state.event) : null
   const isCoordinator = hasPermission(user?.role, PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS)
+  const canEditEvent = hasPermission(user?.role, PERMISSIONS.UPDATE_ASSIGNED_EVENT)
   const canAssignTechnicalSupport = hasPermission(user?.role, PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT)
   const showVenueRequest = Boolean(state.event) && canRequestVenue(state.event.status)
 
   return (
     <div className="min-h-screen px-6 py-10 md:py-14" style={{ backgroundColor: C.paper }}>
+      <style>{`
+        .csp-focus:focus-visible {
+          outline: 2px solid ${C.teal};
+          outline-offset: 2px;
+        }
+        @keyframes panelIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .csp-panel-in { animation: panelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        @media (prefers-reduced-motion: reduce) {
+          .csp-panel-in { animation: none; }
+        }
+      `}</style>
       <div className="w-full max-w-3xl mx-auto">
         <header className="flex items-center justify-between gap-6 mb-10">
           <Logo />
@@ -724,8 +1290,48 @@ export default function EventCoordinatorEventDetail() {
                 />
                 <Field label="Expected attendance" value={form.attendance} />
                 <Field label="Other requirements" value={form.specialRequirements} />
+                <Field label="Contact name" value={form.contactName} />
+                <Field label="Contact email" value={form.contactEmail} />
+                <Field label="Contact phone" value={form.contactPhone} />
+                <Field label="Internal notes" value={form.internalNotes} />
               </div>
+              {canEditEvent && (
+                <EventInformationEditor
+                  event={state.event}
+                  onSaved={(updated) => setState({ status: 'ready', event: updated, error: null })}
+                />
+              )}
             </section>
+
+            {state.event.status === 'planning' && state.event.safety_decision === 'changes_requested' && (
+              <SafetyReturnPanel
+                event={state.event}
+                onResubmitted={(updated) => {
+                  setState({ status: 'ready', event: updated, error: null })
+                  setSafetyNotice('Revised arrangements submitted for a fresh safety review. The event is now pending its safety check.')
+                }}
+              />
+            )}
+            {isCoordinator && state.event.status === 'planning' && !state.event.safety_decision && (
+              <SafetySubmissionPanel
+                eventId={state.event.id}
+                onSubmitted={(updated) => {
+                  setState({ status: 'ready', event: updated, error: null })
+                  setSafetyNotice('Submitted for the Operational Safety Check. The Safety Officer will confirm the event.')
+                }}
+              />
+            )}
+            {state.event.status === 'pending_safety_check' && !safetyNotice && (
+              <p role="status" className="font-ui text-sm mt-6" style={{ color: C.inkFaint }}>
+                Pending Safety Check. The Safety Officer will confirm the event or send it back with feedback.
+              </p>
+            )}
+            {safetyNotice && (
+              <p role="status" className="font-ui text-sm font-medium mt-6" style={{ color: C.green }}>
+                {safetyNotice}
+              </p>
+            )}
+            <EventReadinessPanel event={state.event} />
 
             <div
               role="group"
@@ -737,6 +1343,7 @@ export default function EventCoordinatorEventDetail() {
                 <VenueRequests
                   key={bookingsVersion}
                   eventId={state.event.id}
+                  eventStatus={state.event.status}
                   canRequest={showVenueRequest}
                   notice={notice}
                 />
@@ -758,6 +1365,21 @@ export default function EventCoordinatorEventDetail() {
                   status={state.event.status}
                   editable={isCoordinator}
                 />
+                <div className="border rounded-sm p-5" style={{ borderColor: C.line }} aria-label="Equipment preparation readiness">
+                  <p className="font-ui text-xs uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Equipment preparation</p>
+                  <p className="font-ui text-base font-medium" style={{ color: C.ink }}>
+                    {equipmentPreparationLabel(state.event.equipment_preparation_status)}
+                  </p>
+                  <p className="font-ui text-xs uppercase tracking-wide mt-4 mb-1" style={{ color: C.inkFaint }}>Technical Support sign-off</p>
+                  <p className="font-ui text-base font-medium" style={{ color: C.ink }}>
+                    {describeSignoff(state.event).label}
+                  </p>
+                  {describeSignoff(state.event).note && (
+                    <p className="font-ui text-sm mt-1 whitespace-pre-wrap" style={{ color: C.inkFaint }}>
+                      {describeSignoff(state.event).note}
+                    </p>
+                  )}
+                </div>
               </section>
 
               {canAssignTechnicalSupport && (

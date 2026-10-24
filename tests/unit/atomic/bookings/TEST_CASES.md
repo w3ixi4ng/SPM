@@ -760,6 +760,406 @@ never names another event.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_booking_conflicts.py::test_every_live_booking_from_a_date_is_listed_at_once`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_needs_a_start_date`; `tests/unit/atomic/bookings/test_booking_conflicts.py::test_a_live_list_can_be_narrowed_to_one_venue`
 
+## S-77 — mark venue temporarily unavailable
+
+**Story:** S-77 Mark Venue Temporarily Unavailable. Venue Staff mark a venue
+unavailable for a period, from a start date and time to an end date and time,
+with a reason. This turns S-30's whole-day blocks into timed periods. The
+period is half-open, `[start, end)`, so a booking may end exactly when it
+starts or begin exactly when it ends. Overlap uses the booking's occupied
+window from S-75: start − setup to end + turnaround, with the times the
+composite passes as `setup_minutes` and `turnaround_minutes`.
+
+Confirmed by the developer on 2026-10-12. Unit cases executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable` (working tree on `7d9ff61`): `pytest tests/unit` 967 passed, `node --test tests/unit/frontend/test_*.mjs` 137 passed.
+
+**Shared test data.** Studio B is `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`.
+Period P is Studio B from `2026-11-13` `09:00` to `2026-11-14` `17:00`,
+reason `equipment_failure`, note `"Air handling unit down"`.
+
+**Changes to existing cases.** When S-77 lands, these S-30 cases change as
+follows. Their tests were updated and re-run with S-77, and pass:
+- TC-BOOKINGS-028, -029: the block becomes period P. The `409` detail
+  becomes the TC-BOOKINGS-047 wording.
+- TC-BOOKINGS-030: the body gains `start_time` and `end_time`, as in
+  TC-BOOKINGS-044.
+- TC-BOOKINGS-032: the reason list and the "other" message follow
+  TC-BOOKINGS-045. The date-order row moves to TC-BOOKINGS-046.
+- TC-BOOKINGS-034: listed blocks carry `start_time` and `end_time`.
+- TC-BOOKINGS-031 is unchanged. A period may still cover existing bookings,
+  and nothing about them is changed.
+
+### TC-BOOKINGS-044 — Venue Staff mark a venue unavailable for a timed period
+
+- **Scenario:** A period with a start and end date and time and a reason is
+  stored (S-77 AC1).
+- **Pre-conditions:** The session check returns Venue Staff `55555555-5555-4555-8555-555555555555`.
+  The fake insert echoes the row with an id.
+- **Steps:**
+  1. `POST /blocks` with the `sb_access_token` cookie and body 1.
+  2. `POST /blocks` with body 2.
+- **Test data:**
+  1. `{"venue_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","venue_name":"Studio B","start_date":"2026-11-13","start_time":"09:00","end_date":"2026-11-14","end_time":"17:00","reason":"equipment_failure","note":"  Air handling unit down  "}`
+  2. The same venue on one day: `"start_date":"2026-11-20","start_time":"13:00","end_date":"2026-11-20","end_time":"15:00","reason":"maintenance"`, no note.
+- **Expected:**
+  1. `201` with the body's fields, times as `"09:00:00"` and `"17:00:00"`,
+     note trimmed to `"Air handling unit down"`, plus `id`, `created_by`
+     `55555555-…` (from the session, never the body) and a server-set
+     `created_at`. One insert, into `blocks`.
+  2. `201`, `note` `null`.
+- **Actual:** `201` with the period, times `09:00:00`/`17:00:00`, trimmed note, verified `created_by`, server `created_at`, one insert into `blocks`; the one-day period `201` with `note` null.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_venue_staff_mark_a_venue_unavailable_for_a_timed_period`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_may_fall_within_one_day`
+
+### TC-BOOKINGS-045 — every story reason is accepted, and "other" needs a description
+
+- **Scenario:** The reason must be maintenance, equipment failure,
+  renovation, safety concern, or another operational reason with a
+  description (S-77 AC1).
+- **Pre-conditions:** As TC-BOOKINGS-044.
+- **Steps:** `POST /blocks` with TC-BOOKINGS-044 body 1, changing only
+  `reason` and `note` per row.
+- **Test data / Expected:**
+  - `maintenance`, `equipment_failure`, `renovation` and `safety`, each with no note → `201`
+  - `other` with note `"Fire alarm testing"` → `201`
+  - `other` with no note, and `other` with note `"   "` → `422`, `errors.body` `"Value error, Add a description when the reason is other"`, no insert
+  - `internal_activity` (an S-30 reason the story drops) → `422` on `errors.reason`, no insert
+  - `flood` → `422` on `errors.reason`, no insert
+- **Actual:** All five story reasons `201`; "other" with no or blank note `422` with the description message; `internal_activity` and `flood` `422` on `reason`; no insert for any refusal.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_every_story_reason_is_accepted`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_other_needs_a_description`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_reason_outside_the_story_is_refused`
+
+### TC-BOOKINGS-046 — an invalid or unauthorised period is refused
+
+- **Scenario:** A period needs both dates and both times, and it must end
+  after it starts. Only Venue Staff may add one.
+- **Pre-conditions:** As TC-BOOKINGS-044.
+- **Steps:** `POST /blocks` with TC-BOOKINGS-044 body 1, changing one thing
+  per row.
+- **Test data / Expected:** No row makes an insert.
+  - `start_time` missing → `422` on `errors.start_time`
+  - `end_time` missing → `422` on `errors.end_time`
+  - `end_date` `"2026-11-13"`, `end_time` `"08:00"` (before the start) → `422`, `errors.body` `"Value error, The period must end after it starts"`
+  - `end_date` `"2026-11-13"`, `end_time` `"09:00"` (equal to the start) → `422`, same message
+  - `end_date` `"2026-11-12"` → `422`, same message
+  - `created_by` in the body → `422` (forbidden field)
+  - no cookie → `401` `{"detail":"Not authenticated"}`
+  - an `event_coordinator` session → `403` `{"detail":"Permission denied"}`
+- **Actual:** Missing times `422` on their field; end before, equal to, or a day before the start `422` "The period must end after it starts"; `created_by` `422`; no cookie `401`; Coordinator `403`; no insert.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_needs_both_times`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_must_end_after_it_starts`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_cannot_carry_who_created_it`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_only_venue_staff_mark_periods`
+
+### TC-BOOKINGS-047 — a new request overlapping the period is refused
+
+- **Scenario:** A period prevents new bookings that overlap it, counting
+  the venue's setup and turnaround (S-77 AC2).
+- **Pre-conditions:** Period P stored. No bookings.
+- **Steps:** `POST /bookings?setup_minutes=30&turnaround_minutes=30`, once
+  per row, for Studio B.
+- **Test data / Expected:**
+  - `2026-11-13` `14:00`–`16:00` (inside) → `409` `{"detail":"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00."}`, no insert
+  - `2026-11-13` `07:00`–`08:45` (occupied until `09:15`) → `409`, same detail, no insert
+  - `2026-11-14` `17:15`–`19:00` (occupied from `16:45`) → `409`, same detail, no insert
+  - `2026-11-13` `07:00`–`08:30` (occupied until exactly `09:00`) → `201`
+  - `2026-11-14` `17:30`–`19:00` (occupied from exactly `17:00`) → `201`
+  - `2026-11-12` `10:00`–`12:00` (the day before) → `201`
+- **Actual:** The three overlapping rows `409` with the exact detail and no insert, looked up by start_date ≤ day ≤ end_date; the back-to-back rows and the day before `201`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_request_overlapping_the_period_is_refused`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_request_clear_of_the_period_is_accepted`
+
+### TC-BOOKINGS-048 — a tentative hold overlapping the period is refused
+
+- **Scenario:** A period prevents new tentative holds that overlap it
+  (S-77 AC2).
+- **Pre-conditions:** Authenticated Venue Staff. Period P stored. Pending
+  request R1 for Studio B on `2026-11-13` `14:00`–`16:00`. Pending request
+  R2 on `2026-11-13` `07:00`–`08:30`.
+- **Steps:** `POST /bookings/{R1}/hold?setup_minutes=30&turnaround_minutes=30`,
+  then the same for R2.
+- **Expected:** R1 → `409` with the TC-BOOKINGS-047 detail; R1 stays
+  `pending` with no hold fields and no update is attempted. R2 → `200`,
+  `status` `held` (its occupied window ends exactly at `09:00`).
+- **Actual:** R1 `409` with the detail and no update; R2 `200` held.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_hold_overlapping_the_period_is_refused`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_hold_that_ends_as_the_period_starts_is_placed`
+
+### TC-BOOKINGS-049 — confirmation overlapping the period is refused; rejection is not
+
+- **Scenario:** A request sent before the period was marked can't then be
+  confirmed into it, but can still be rejected.
+- **Pre-conditions:** Authenticated Venue Staff. Period P stored. Held
+  request H for Studio B on `2026-11-13` `14:00`–`16:00`.
+- **Steps:**
+  1. `POST /bookings/{H}/decision` with `{"decision":"approved"}`.
+  2. `POST /bookings/{H}/decision` with `{"decision":"rejected","reason":"Air handling unit down"}`.
+- **Expected:**
+  1. `409` with the TC-BOOKINGS-047 detail; H stays `held`, no update.
+  2. `200`, `status` `rejected`.
+- **Actual:** Approval `409` with the detail and no update; rejection `200` rejected.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_confirmation_overlapping_the_period_is_refused`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_held_request_in_the_period_can_still_be_rejected`
+
+### TC-BOOKINGS-050 — one period can be read by id, and listed with its times
+
+- **Scenario:** The composite reads a period again to retry notifications
+  and to work out affected bookings.
+- **Pre-conditions:** Period P stored with id `cccccccc-cccc-4ccc-8ccc-cccccccccccc`.
+- **Steps:**
+  1. `GET /blocks/cccccccc-cccc-4ccc-8ccc-cccccccccccc`.
+  2. `GET /blocks/dddddddd-dddd-4ddd-8ddd-000000000000`, which doesn't exist.
+  3. `GET /blocks?venue_id=bbbbbbbb-…&from=2026-11-14&to=2026-11-30`.
+- **Expected:**
+  1. `200` with P, including `start_time` `"09:00:00"` and `end_time` `"17:00:00"`.
+  2. `404` `{"detail":"Block not found"}`.
+  3. `200` with a list containing P: it touches the range on 14 Nov.
+- **Actual:** `GET /blocks/{id}` `200` with times; unknown id `404` "Block not found"; the range list returned P and left out a period ending at 00:00 on `from`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_unavailable_periods.py::test_one_period_is_read_by_id`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_an_unknown_period_is_a_404`; `tests/unit/atomic/bookings/test_unavailable_periods.py::test_a_period_is_listed_for_a_range_it_touches`
+
+## S-81 — tentative venue holds expire
+
+**Story:** S-81 Place Tentative Venue Hold with Expiry. These cases extend
+S-33; all earlier release rules remain in force. The browser presents expiry
+times in Singapore time and the service stores a timezone-aware instant.
+
+### TC-BOOKINGS-057 — every hold needs a future expiry
+
+- **Scenario:** Venue Staff cannot create an indefinite or expired hold.
+- **Steps:** Place a hold with no expiry, a timezone-free expiry, a past expiry,
+  and `2026-11-12T10:00:00+08:00` while the server time is earlier.
+- **Expected:** The first three requests return `422` and do not update the
+  booking. The last stores `status=held`, server-owned audit fields, and the
+  same expiry instant.
+
+### TC-BOOKINGS-058 — expiry releases the slot before it is used
+
+- **Scenario:** An expired hold cannot block or become a confirmed booking.
+- **Steps:** Read availability and claim the same slot after the hold expires.
+- **Expected:** The old row becomes `pending`, with `hold_released_at` and
+  reason `expired`; it is absent from live availability and the claim succeeds.
+
+### TC-BOOKINGS-059 — released holds remain auditable
+
+- **Expected:** Manual, event-terminal, replacement and expiry releases retain
+  the hold timestamps and expiry; only an active `held` row is live.
+
+### TC-BOOKINGS-060 — concurrent expiry processing is idempotent
+
+- **Expected:** At most one conditional update wins; all callers see the slot
+  available and the first `expired` release audit is preserved.
+
+## S-78 — request replacement venue for affected booking
+
+**Story:** S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed. The
+criteria mapping and the agreed decisions are in the S-78 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+**Shared test data.** Event E1 `eeeeeeee-…`. Original booking A
+`aaaaaaaa-…`, Studio B, `confirmed`, `2026-11-13` `10:00`–`12:00`, event E1.
+Replacement R1 `11111111-…`, Hall C `cccccccc-…`, the same date and times,
+event E1, `replaces_booking_id` A. The Venue Staff session is S, and the
+Coordinator session is C2 (`event_coordinator`).
+
+**Changes to existing cases.** `BookingRead` gains `replaces_booking_id`,
+`replaced_by_booking_id`, `replaced_at`, `alternative_resolved_at`,
+`alternative_resolved_by` and `alternative_resolution_note`, all `null` on
+existing rows. `status` may also be `replaced`. Cases asserting a whole row
+are updated to match.
+
+### TC-BOOKINGS-051 — a replacement request is stored with its link to the original
+
+- **Scenario:** `POST /bookings` accepts `replaces_booking_id`, and the link
+  must point at a booking that can be replaced, for the same event.
+- **Pre-conditions:** The fake holds A.
+- **Steps / Expected:** `POST /bookings` with R1's body:
+  - `replaces_booking_id` A → `201`, the insert carries `"replaces_booking_id": "aaaaaaaa-…"`, `status` `pending`
+  - No `replaces_booking_id` → `201` with `null`, as before S-78
+  - `replaces_booking_id` that doesn't exist → `422` with `errors.replaces_booking_id` `"The booking being replaced doesn't exist"`, no insert
+  - A belongs to another event → `422` with `errors.replaces_booking_id` `"A replacement must be for the same event"`, no insert
+  - A is `rejected` or `replaced` → `409` `{"detail":"This booking can no longer be replaced"}`, no insert
+  - The usual overlap and period checks still apply: Hall C taken → the S-30 `409`
+- **Actual:** Linked insert `201` pending with `replaces_booking_id`; no link `201` with `null`; missing and other-event originals `422` with the exact messages; rejected and replaced originals `409` "This booking can no longer be replaced"; Hall C taken `409` with the S-30 detail. No insert in any refusal.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_replacement_is_stored_with_its_link`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_an_ordinary_request_has_no_link`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_link_to_a_missing_or_foreign_booking_is_refused`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_link_to_a_settled_booking_is_refused`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_replacement_still_gets_the_overlap_check`
+
+### TC-BOOKINGS-052 — approving a replacement replaces the original
+
+- **Scenario:** Approval confirms R1, and A stops reserving Studio B.
+- **Pre-conditions:** R1 is `pending`. Run once with A `confirmed`, once
+  with A `held`, and once with A `pending`.
+- **Steps:** As S, `POST /bookings/{R1}/decision` with `{"decision":"approved"}`.
+- **Expected:**
+  - `200` with R1 `confirmed`, `decided_by` S.
+  - A is updated conditionally on its status being `pending`, `held` or
+    `confirmed`, to `"status": "replaced"`, `"replaced_by_booking_id": "11111111-…"`
+    and `replaced_at` set. Nothing else on A changes, including
+    `decided_by`, `decided_at` and the snapshot fields.
+  - R1's confirmation and A's replacement are one database operation:
+    either both happen or neither does.
+- **Actual:** Service half: approving R1 `200` `confirmed`, `decided_by` S, exactly one update (R1). The original's replacement is the `bookings_replace_original_on_confirm` trigger, so it happens in the same transaction by construction; the S-78 SQL block defines it with the update to `replaced`, `replaced_by_booking_id` and `replaced_at`. Against real rows that is TC-BOOKINGS-112, which passed on 2026-10-14.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_deciding_a_replacement_writes_only_the_replacement`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_trigger_replaces_a_standing_original_when_its_replacement_is_confirmed`; `tests/integration/atomic/bookings/test_replacement_venue.py::test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot`
+
+### TC-BOOKINGS-053 — approving a replacement whose original is already settled leaves the original alone
+
+- **Scenario:** If A was rejected or replaced some other way, approving R1
+  still confirms R1.
+- **Pre-conditions:** R1 `pending`. A `rejected`, then (separately) A
+  `replaced` by another booking R0.
+- **Steps:** As S, approve R1.
+- **Expected:** `200` with R1 `confirmed`. A is unchanged. In the second run
+  it still points at R0.
+- **Actual:** The trigger only updates an original whose status is `pending`, `held` or `confirmed` (checked in the SQL text). There is no unit-level fake for a trigger, so this can only run against real rows.
+- **Status:** Not Executed
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_trigger_replaces_a_standing_original_when_its_replacement_is_confirmed` — the SQL condition only; no real-row test runs the settled-original case yet
+
+### TC-BOOKINGS-054 — rejecting a replacement, or approving an ordinary request, touches no other row
+
+- **Scenario:** Only an approved replacement writes a second row.
+- **Steps / Expected:**
+  1. As S, `POST /bookings/{R1}/decision` with `{"decision":"rejected","reason":"Hall C is being repainted"}` → `200` R1 `rejected`. A is not updated.
+  2. Approve a pending request with `replaces_booking_id` `null` → `200` `confirmed`, and exactly one row is updated, as before S-78.
+- **Actual:** Rejecting R1 `200` `rejected` with one update; approving an unlinked request `200` with one update.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_deciding_a_replacement_writes_only_the_replacement`; `tests/unit/atomic/bookings/test_decision.py::test_decision_preserves_request`
+
+### TC-BOOKINGS-055 — a Coordinator records a resolution note on a live booking
+
+- **Scenario:** `POST /bookings/{id}/alternative-resolution` stores who
+  resolved it, when, and the note. The booking itself doesn't change.
+- **Pre-conditions:** A `confirmed`, then (separately) A `held`.
+- **Steps:** As C2, `POST /bookings/{A}/alternative-resolution` with
+  `{"note": "  Moved online for this session  "}`.
+- **Expected:** `200` with A, with `"alternative_resolution_note": "Moved online for this session"`,
+  `alternative_resolved_by` C2's id and `alternative_resolved_at` set by
+  the service. `status`, the hold and decision fields, and the snapshot are
+  unchanged. A second call overwrites all three fields.
+- **Actual:** Confirmed and held each `200`; the update set only the three fields, note trimmed, by C2, time from the service, conditional on `held`/`confirmed`; status and decision fields unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_coordinator_records_a_resolution_note`
+
+### TC-BOOKINGS-056 — the resolution write is refused for the wrong caller, booking or note
+
+- **Steps / Expected:** `POST /bookings/{id}/alternative-resolution`, with
+  no update in any row:
+  - No session → `401`
+  - Venue Staff session → `403` `{"detail":"Permission denied"}`
+  - An unknown id → `404` `{"detail":"Booking not found"}`
+  - A `pending`, `rejected` or `replaced` → `409` `{"detail":"Only a held or confirmed booking can be resolved"}`
+  - `{"note": "   "}`, `{}`, or 501 characters → `422` with `errors.note`
+  - `alternative_resolved_by` or `alternative_resolved_at` in the body → `422`
+- **Actual:** No session `401`; Venue Staff `403`; unknown `404`; pending, rejected, replaced `409` with the detail; blank, missing, 501 characters and server-owned fields `422`. No update in any row.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_resolution_needs_a_coordinator_session`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_the_resolution_of_an_unknown_booking_is_not_found`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_only_a_live_booking_can_be_resolved`; `tests/unit/atomic/bookings/test_replacement_venue.py::test_a_bad_resolution_body_is_refused`
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+New routes `PATCH /bookings/{id}` and `DELETE /bookings/{id}`, for an Event
+Coordinator session, called only by the `venue_bookings` composite after it
+has checked the Coordinator is assigned to the event. The criteria mapping
+and agreed decisions are in the S-80 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-BOOKINGS-057 — a booking's venue, date and time are changed and it goes back to pending
+
+- **Scenario:** Only this booking changes, and it needs Venue Staff again
+  (S-80 AC1, AC2).
+- **Pre-conditions:** Coordinator session. The fake returns B (`held`, held
+  by staff S), then no overlapping live booking and no block, then the
+  updated row.
+- **Steps:** `PATCH /bookings/B?setup_minutes=0&turnaround_minutes=0` once
+  for each of B `pending`, `held`, `confirmed` (with a decision recorded).
+- **Test data:** `{"venue_id": V2, "venue_name": "Studio C", "booking_date": "2026-11-12", "start_time": "14:00", "end_time": "16:00", "notes": "Move to Studio C"}`
+- **Expected:** `200` with the row `pending` at Studio C 14:00–16:00. The
+  write sets the five fields and notes, `status` `pending`, and clears
+  `held_by`, `held_at`, `hold_released_at`, `hold_release_reason`,
+  `decided_by`, `decided_at`, `decision_reason`, `decision_alternative`.
+  It is filtered by id B only and guarded by status `pending`/`held`/
+  `confirmed`. The overlap lookup excludes B itself.
+- **Actual:** For pending, held and confirmed: `200` pending at the new venue and time; the write set the six fields, `pending` and cleared all eight review fields; filtered by id, guarded by the three statuses; the overlap lookup excluded the booking.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_a_change_goes_back_to_pending_and_touches_only_this_booking`
+
+### TC-BOOKINGS-058 — a change into a taken or blocked slot is refused
+
+- **Scenario:** A changed booking is checked like a new request (S-80 AC1).
+- **Pre-conditions:** Coordinator session; B `held`.
+- **Steps:** `PATCH /bookings/B` with the test data, once with the overlap
+  lookup finding another event's `confirmed` booking at Studio C 13:00–15:00,
+  once with a block over 12 Nov, once moving B to 14:00–16:00 at its own
+  venue (overlapping only its own old time).
+- **Expected:** `409` with the S-30 wording ("Studio C is already confirmed
+  on 12 Nov 2026 from 13:00 to 15:00." / "… is unavailable from …") and no
+  update; the last is `200` — a booking never clashes with itself.
+- **Actual:** A confirmed clash and a block each gave `409` with the S-30/S-77 wording and no update; overlapping its own old time gave `200`.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_a_change_into_a_taken_slot_is_refused`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_change_into_a_blocked_period_is_refused`; `tests/unit/atomic/bookings/test_change_cancel.py::test_moving_over_its_own_old_time_is_fine`
+
+### TC-BOOKINGS-059 — a rejected, missing or malformed change is refused
+
+- **Steps:** `PATCH /bookings/{id}` for a `rejected` booking; for a missing
+  id; with `end_time` before `start_time`; with an extra `status` field.
+- **Expected:** `409` "Only a pending, held or confirmed booking can be
+  changed"; `404` "Booking not found"; `422`; `422`. No update.
+- **Actual:** Rejected `409`; missing `404` (change and cancel); end-before-start and an extra field `422` with no database call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_a_rejected_booking_cannot_be_changed`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_missing_booking_is_404`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_malformed_change_is_422`
+
+### TC-BOOKINGS-060 — cancelling deletes that booking only
+
+- **Scenario:** A cancelled booking's time is free, and nothing else goes
+  (S-80 AC1, AC2).
+- **Pre-conditions:** Coordinator session.
+- **Steps:** `DELETE /bookings/A` for A `pending`, `held`, `confirmed`; then
+  for a `rejected` booking; then for a missing id.
+- **Expected:** `204` each time for the live ones, with one delete filtered
+  by id A and guarded by status `pending`/`held`/`confirmed`; `409` "Only a
+  pending, held or confirmed booking can be cancelled"; `404`. No delete for
+  the last two.
+- **Actual:** For pending, held and confirmed: `204` with one delete by id, guarded by the three statuses; rejected `409` with no delete.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_cancelling_deletes_that_booking_only`; `tests/unit/atomic/bookings/test_change_cancel.py::test_a_rejected_booking_cannot_be_cancelled`
+
+### TC-BOOKINGS-061 — only a Coordinator session can change or cancel
+
+- **Steps:** `PATCH` and `DELETE /bookings/A` without a session, and as each
+  of `event_organiser`, `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** `401`; `403` for each role. No database call.
+- **Actual:** No session `401`; four other roles `403`; no database call.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/bookings/test_change_cancel.py::test_without_a_session_nothing_changes`; `tests/unit/atomic/bookings/test_change_cancel.py::test_other_roles_cannot_change_or_cancel`
+
+## S-17 — a rejected booking can be replaced
+
+S-78 let a replacement point only at a booking that still stands. S-17 also
+lets it point at a **rejected** booking, so the Coordinator can clear a
+rejection that blocks submission for the safety check.
+
+## TC-BOOKINGS-062 — a replacement may point at a rejected booking
+
+- **Scenario:** A rejected original accepts a replacement request.
+- **Pre-conditions:** Fake holds `B2` (event `E1`, `rejected`).
+- **Steps:** `POST /bookings` for event `E1`, Studio 3, `2026-11-20
+  09:00–17:00`, `replaces_booking_id: B2`.
+- **Test data:** As above.
+- **Expected:** `201`, `status: "pending"`, `replaces_booking_id: B2`.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_rejected_booking_accepts_replacement`
+
+## TC-BOOKINGS-063 — a replaced booking still cannot be replaced
+
+- **Scenario:** The existing S-78 rule for `replaced` is unchanged.
+- **Pre-conditions:** Fake holds `B2` with `status: "replaced"`.
+- **Steps:** As TC-BOOKINGS-062.
+- **Test data:** As above.
+- **Expected:** `409` "This booking can no longer be replaced"; no insert.
+- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_replaced_booking_still_refuses_replacement`
+
 ## S-61 — review and approve cancellation request
 
 Story: S-61 Review and Approve Cancellation Request.
@@ -770,7 +1170,7 @@ Like every bookings route it has no Kong entry. The criteria mapping and
 agreed decisions are in the S-61 section of
 `tests/unit/atomic/events/TEST_CASES.md`.
 
-### TC-BOOKINGS-044 — an approved cancellation removes every booking for the event
+### TC-BOOKINGS-064 — an approved cancellation removes every booking for the event
 
 - **Scenario:** The cancelled event no longer holds any venue time (S-61 AC2).
 - **Pre-conditions:** A Coordinator session; the fake's delete returns three
@@ -782,18 +1182,18 @@ agreed decisions are in the S-61 section of
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_event_cancelled.py::test_an_approved_cancellation_removes_every_booking_for_the_event`
 
-### TC-BOOKINGS-045 — removing an event's bookings twice is safe
+### TC-BOOKINGS-065 — removing an event's bookings twice is safe
 
 - **Scenario:** A retry after a partial failure finds nothing left (S-61
   decision 7).
-- **Pre-conditions:** As TC-BOOKINGS-044, but the delete returns no rows.
+- **Pre-conditions:** As TC-BOOKINGS-064, but the delete returns no rows.
 - **Steps:** `DELETE /internal/events/E/bookings`.
 - **Expected:** `200` `{"deleted": 0}`.
 - **Actual:** `200` `{"deleted": 0}`.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_event_cancelled.py::test_removing_an_events_bookings_twice_is_safe`
 
-### TC-BOOKINGS-046 — only a Coordinator session can remove an event's bookings
+### TC-BOOKINGS-066 — only a Coordinator session can remove an event's bookings
 
 - **Scenario:** The route can't be used to wipe bookings by anyone else.
 - **Steps:** `DELETE /internal/events/E/bookings`:

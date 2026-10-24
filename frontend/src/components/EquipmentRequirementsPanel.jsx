@@ -27,6 +27,7 @@ export default function EquipmentRequirementsPanel({ eventId, status, editable =
   const [errors, setErrors] = useState({})
   const [busyId, setBusyId] = useState(null)
   const [notice, setNotice] = useState(null)
+  const [pendingImpact, setPendingImpact] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -57,26 +58,25 @@ export default function EquipmentRequirementsPanel({ eventId, status, editable =
       setErrors((current) => ({ ...current, [itemId]: error }))
       return
     }
-    setBusyId(itemId)
-    setNotice(null)
-    try {
-      await saveEquipmentRequirement(eventId, itemId, quantities[itemId])
-      setErrors((current) => ({ ...current, [itemId]: undefined }))
-      setNotice('Equipment requirement saved.')
-      await load()
-    } catch (caught) {
-      setErrors((current) => ({ ...current, [itemId]: requirementErrorMessage(caught) }))
-    } finally {
-      setBusyId(null)
-    }
+    const item = state.items.find((candidate) => candidate.id === itemId)
+    setPendingImpact({ action: 'save', itemId, itemName: item?.type || 'equipment', quantity: quantities[itemId] })
   }
 
-  async function remove(itemId) {
+  function remove(itemId) {
+    const item = state.items.find((candidate) => candidate.id === itemId)
+    setPendingImpact({ action: 'remove', itemId, itemName: item?.type || 'equipment' })
+  }
+
+  async function acceptImpact() {
+    const { action, itemId, quantity } = pendingImpact
     setBusyId(itemId)
     setNotice(null)
     try {
-      await removeEquipmentRequirement(eventId, itemId)
-      setNotice('Equipment requirement removed.')
+      if (action === 'save') await saveEquipmentRequirement(eventId, itemId, quantity, true)
+      else await removeEquipmentRequirement(eventId, itemId, true)
+      setErrors((current) => ({ ...current, [itemId]: undefined }))
+      setNotice(action === 'save' ? 'Equipment requirement saved.' : 'Equipment requirement removed.')
+      setPendingImpact(null)
       await load()
     } catch (caught) {
       setErrors((current) => ({ ...current, [itemId]: requirementErrorMessage(caught) }))
@@ -123,6 +123,20 @@ export default function EquipmentRequirementsPanel({ eventId, status, editable =
   return (
     <div>
       {notice && <p role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</p>}
+      {pendingImpact && (
+        <div role="alertdialog" aria-labelledby="equipment-impact-heading" className="border rounded-sm p-4 mb-4" style={{ borderColor: '#B5842B', backgroundColor: '#B5842B0D' }}>
+          <h3 id="equipment-impact-heading" className="font-display text-lg" style={{ color: C.ink }}>Review equipment impact</h3>
+          <p className="font-ui text-sm mt-1" style={{ color: C.ink }}>
+            {pendingImpact.action === 'save'
+              ? `Change ${pendingImpact.itemName} to ${pendingImpact.quantity} required?`
+              : `Remove ${pendingImpact.itemName} from this event?`} This may affect preparation arrangements.
+          </p>
+          <div className="flex gap-2 mt-3">
+            <button type="button" onClick={() => setPendingImpact(null)} className="px-3 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Go back</button>
+            <button type="button" onClick={acceptImpact} className="px-3 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: '#B5842B' }}>Accept and save</button>
+          </div>
+        </div>
+      )}
       {state.items.length === 0 ? (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No active equipment is available.</p>
       ) : (

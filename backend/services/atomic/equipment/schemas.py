@@ -74,6 +74,12 @@ class EquipmentRequirementWrite(BaseModel):
     recorded_by_coordinator_id: UUID
 
 
+class EquipmentRequirementRemove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recorded_by_coordinator_id: UUID
+
+
 class EquipmentRequirementRead(BaseModel):
     id: UUID
     event_id: UUID

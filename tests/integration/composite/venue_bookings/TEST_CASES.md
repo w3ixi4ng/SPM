@@ -273,3 +273,174 @@ For the criteria mapping and the agreed decisions, see the S-79 section of
 - **Actual:** Through Kong: Main Hall `201` and held; Studio at the same time `201` with Main Hall still `held`, no release reason; Seminar Room `422` (40 < 120); Main Hall 16:00–18:00 `409` "…already tentatively held on…"; the list returned exactly the two, held and pending; two rows stored for E.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_multiple_venues.py::test_one_event_holds_bookings_at_several_venues`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-11; `pytest tests/integration/atomic/bookings tests/integration/composite/venue_bookings`: 18 passed.
+
+## S-77 — mark venue temporarily unavailable
+
+Story: S-77 Mark Venue Temporarily Unavailable. Confirmed by the developer on 2026-10-12.
+
+Executed 2026-10-12 on branch `S-77/mark-venue-temporarily-unavailable`. Needs, in the test project:
+- the S-77 blocks in `backend/sql/bookings.sql`;
+- the S-77 change to `backend/sql/notifications.sql` (kind `venue_unavailable`).
+
+For the criteria mapping and the agreed decisions, see the S-77 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+**Changes to existing cases.** TC-VENUEBOOKINGS-106's block gains times. Its
+Status resets to Not Executed until re-run.
+
+### TC-VENUEBOOKINGS-110 — marking a period through Kong flags and notifies, and changes nothing else
+
+- **Scenario:** With real services behind Kong, a period over a confirmed
+  booking is saved. The booking is identified and flagged, and the event's
+  Coordinator gets a persistent notification. The event and the booking are
+  unchanged (AC1, AC3, AC4, AC5).
+- **Pre-conditions:** The shared pre-conditions. The venue has setup and
+  turnaround 0. A confirmed booking K for the event, `2026-11-12`
+  `10:00`–`12:00`, created through the service and approved by Venue Staff.
+  Snapshot K's row in `bookings.bookings` and the event's row in
+  `events.events` with the admin client.
+- **Steps:**
+  1. As Venue Staff, `POST /api/venue-bookings/blocks`: `2026-11-12` `09:00`
+     to `2026-11-12` `13:00`, reason `safety`.
+  2. As the Coordinator, `GET /api/notifications`.
+  3. As the Coordinator, `GET /api/venue-bookings?event_id=<event>`.
+  4. Read K and the event with the admin client again.
+- **Expected:**
+  1. `201`. `affected_bookings` has exactly K, and
+     `"coordinators_notified": true`.
+  2. Exactly one notification with `kind` `"venue_unavailable"` and the
+     event's id. Its message names the venue, the period and K's date and
+     times, ending "needs alternative arrangements."
+  3. K with `"requires_alternative_arrangements": true` and the period in
+     `unavailable_periods`.
+  4. K's row is identical to the snapshot, still `confirmed`. The event's
+     row is identical, still `planning`.
+  Cleanup deletes the block, K, the notification and the shared fixtures.
+- **Actual:** Through Kong: period `201` with exactly K affected and notified true; the Coordinator's inbox had one `venue_unavailable` notification naming the period and K's times; K flagged with the period; K and the event rows identical to their snapshots, still `confirmed` and `planning`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+
+### TC-VENUEBOOKINGS-111 — through Kong, a request and a hold inside the period are refused
+
+- **Scenario:** The real services refuse new bookings and holds that overlap
+  the period, with the venue's real setup time counted (AC2).
+- **Pre-conditions:** The shared pre-conditions. The venue's
+  `setup_minutes` is 30. A period on `2026-11-12` from `13:00` to `15:00`,
+  saved by Venue Staff. A pending request Q for the event on `2026-11-12`
+  `10:00`–`12:00`, made before the period.
+- **Steps:**
+  1. As the Coordinator, `POST /api/venue-bookings` on `2026-11-12`
+     `15:00`–`16:00` (occupied from `14:30`).
+  2. As the Coordinator, the same on `2026-11-12` `15:30`–`16:30` (occupied
+     from exactly `15:00`).
+  3. As Venue Staff, `DELETE` the period, re-create it from `2026-11-12`
+     `11:00` to `13:00`, then `POST /api/venue-bookings/{Q}/hold`.
+- **Expected:**
+  1. `409` "… is unavailable from 12 Nov 2026 13:00 to 12 Nov 2026 15:00."; nothing stored.
+  2. `201`.
+  3. The hold returns `409` with the period's detail. Q stays `pending` in
+     `bookings.bookings`.
+  Cleanup deletes everything created.
+- **Actual:** Through Kong: `15:00`–`16:00` refused `409` with the period's detail and nothing stored; `15:30`–`16:30` `201`; after re-marking `11:00`–`13:00`, holding Q `409` with that detail and Q still `pending`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_through_kong_a_request_and_a_hold_inside_the_period_are_refused`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+
+### TC-VENUEBOOKINGS-114 — hold expiry is notified and released through Kong
+
+- **Scenario:** The complete S-81 service path stores a required expiry, informs the Coordinator before it occurs, and removes the expired hold from availability.
+- **Pre-conditions:** `.env.test` stack; S-81 bookings and notifications migrations applied in the test project.
+- **Steps:** Request a venue through Kong; place a hold with an expiry as Venue Staff; read the Coordinator inbox; move the expiry into the past; load availability through Kong.
+- **Test data:** 12 Nov 2026, 09:00–12:00; expiry one hour ahead and then one second behind the current time.
+- **Expected:** The hold contains its expiry; exactly one `venue_hold_expiry` notification names the tentative hold; availability has no live booking after expiry; storage retains the row as pending with release reason `expired` and a release timestamp.
+- **Actual:** Kong stored the expiry and one Coordinator notice; after expiry,
+  the calendar had no live entry and storage retained `pending/expired` audit data.
+- **Status:** Pass
+- **Evidence:** `test_hold_expiry.py::test_hold_expiry_is_notified_and_released_through_kong`; `.env.test` stack recreated immediately before, 2026-10-13; full `pytest tests/integration`: 56 passed, 5 skipped.
+
+## S-78 — request replacement venue for affected booking
+
+Story: S-78 Request Replacement Venue for Affected Booking. Confirmed by the
+developer on 2026-10-14. Tests in `test_replacement_venue.py`. Executed 2026-10-14 after the S-78
+block in `backend/sql/bookings.sql` was run in the test project.
+
+For the criteria mapping and the agreed decisions, see the S-78 section of
+`tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-VENUEBOOKINGS-112 — through Kong, a Coordinator finds a free venue, requests it, and approval ends the flag
+
+- **Scenario:** With real services behind Kong, the search excludes a taken
+  venue, the replacement is stored linked to the original, the original
+  stays flagged until approval, and then reads as replaced (AC1, AC2, AC4).
+- **Pre-conditions:** The shared pre-conditions. Three venues, all suitable
+  for the event and open on `2026-11-12`, with setup and turnaround 0: V1,
+  V2 and V3. A confirmed booking K for the event at V1, `2026-11-12`
+  `10:00`–`12:00`. A confirmed booking for another event at V3,
+  `2026-11-12` `11:00`–`12:00`. A period on V1 from `2026-11-12` `09:00` to
+  `13:00`, saved by Venue Staff.
+- **Steps:**
+  1. As the Coordinator, `GET /api/venue-bookings/{K}/replacement-venues`.
+  2. `POST /api/venue-bookings/{K}/replacement` with `{"venue_id": "<V2>"}`.
+  3. `GET /api/venue-bookings?event_id=<event>`.
+  4. As Venue Staff, approve the new request.
+  5. As the Coordinator, `GET /api/venue-bookings?event_id=<event>`.
+- **Expected:**
+  1. `200`. `venues` includes V2 and excludes V1 and V3. (Other test
+     venues may appear; only these three are asserted.)
+  2. `201`. In `bookings.bookings`, the row has `replaces_booking_id` K, the
+     same `event_id`, `2026-11-12` `10:00`–`12:00`, and the event's name and
+     attendance.
+  3. K is `confirmed` and flagged. The new row is `pending`.
+  4. `200` `confirmed`.
+  5. K is `replaced`, with `replaced_by_booking_id` set to the new row, and
+     `requires_alternative_arrangements` `false`. The new row is `confirmed`.
+  Cleanup deletes the period, both bookings, the other event's booking and
+  the shared fixtures.
+- **Actual:** Through Kong: the search offered V2 and left out V1 and V3; the replacement `201` was stored linked to K for the same event, date, times, name and attendance; K stayed confirmed and flagged while it was pending; approval `200`; then K `replaced` pointing at the new row, unflagged, and the new row `confirmed`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_replacement_venue.py::test_through_kong_a_coordinator_finds_a_free_venue_requests_it_and_approval_ends_the_flag`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+
+### TC-VENUEBOOKINGS-113 — through Kong, resolving the flag with a note clears it
+
+- **Scenario:** The resolution route reaches the bookings service with the
+  Coordinator's session, and the flag reads cleared (AC4).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-112, up to K flagged.
+- **Steps:** As the Coordinator, `POST /api/venue-bookings/{K}/resolution`
+  with `{"note": "Moved online"}`, then
+  `GET /api/venue-bookings?event_id=<event>`.
+- **Expected:** `200`, then K `confirmed`, with
+  `requires_alternative_arrangements` `false` and
+  `alternative_resolution_note` `"Moved online"`.
+- **Actual:** Through Kong: resolution `200`; K still `confirmed`, unflagged, note "Moved online".
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
+
+## S-80 — change or cancel an individual venue booking
+
+Story: S-80 Change or Cancel an Individual Venue Booking.
+Confirmed by the developer on 2026-10-14.
+
+No new SQL: S-80 needs only the schemas already in `backend/sql/`. The criteria mapping and agreed decisions are
+in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
+
+### TC-VENUEBOOKINGS-114 — one booking changes and another is cancelled, and the rest stay, through Kong
+
+- **Scenario:** Real services agree that one booking moves or goes without
+  touching the others (S-80 AC1, AC2).
+- **Pre-conditions:** A fresh `.env.test` stack. K assigned to planning E
+  with A `confirmed`, B `held`, C `pending` (shared test data), and another
+  planning event F assigned to K.
+- **Steps:** As K, through `/api/venue-bookings`:
+  1. Change B to Studio B 16:00–17:00.
+  2. Request Studio B 13:00–15:00 for F (B's old slot).
+  3. Cancel A.
+  4. List E's bookings.
+- **Expected:**
+  1. `200`; B `pending` at 16:00–17:00 with no hold or decision fields.
+  2. `201` — the old slot is free.
+  3. `204`; A is gone from `bookings.bookings`.
+  4. Exactly B (pending, 16:00–17:00) and C (unchanged, `pending`
+     15:00–16:00).
+  Cleanup deletes every row created.
+- **Actual:** Through Kong: B changed to 16:00–17:00 and stored `pending` with no hold; another event then took B's old 13:00–15:00 (`201`); cancelling A gave `204` and removed it; E listed exactly B and C, C unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/venue_bookings/test_change_cancel.py::test_one_booking_changes_another_is_cancelled_and_the_rest_stay` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. `pytest tests/integration/composite/venue_bookings tests/integration/atomic/bookings`: 29 passed.
