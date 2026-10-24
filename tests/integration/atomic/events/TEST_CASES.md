@@ -210,3 +210,22 @@ developer on 2026-10-19. Not yet implemented or executed.
 - **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_status_and_signoff_columns`
+
+## TC-EVENTS-175 — the registration columns exist, round-trip and are constrained
+
+- **Scenario:** The S-51 SQL is applied, exposed and granted (S-51 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack; S-51 block of
+  `backend/sql/events.sql` applied to the test project.
+- **Steps:**
+  1. As a temporary Organiser, create a draft with registration on, opens
+     `2026-11-01T09:00`, closes `2026-11-15T18:00`; read it back.
+  2. Through the admin client, write closes `2026-11-01T08:00` (before opens).
+  3. Submit it, drive it to `confirmed` through the admin client, then
+     `GET /internal/events/published/{id}`.
+  4. `PATCH /events/{id}` `{"registration_required": false}`.
+  5. Delete the event.
+- **Expected:** 1 reads back all three values unchanged (no timezone shift).
+  2 is refused (`23514`). 3 → `200` with the period. 4 → `409`. 5 leaves no row.
+- **Actual:** All three values read back unchanged; the reversed period was refused with `23514`; the published read returned the period without `organiser_id`; the PATCH was refused with `409`; no row remained.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s51.py::test_registration_columns_round_trip_and_are_constrained`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project

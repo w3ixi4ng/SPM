@@ -2414,3 +2414,51 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** All seven statuses gave their sentence; cancelled, draft, submitted, under_review and an unknown status gave `null`.
 - **Status:** Pass
 - **Evidence:** `test_cancellation_decision.mjs::the Organiser's decision banner always has words, or isn't shown`; `node --test tests/unit/frontend/test_*.mjs`: 139 passed, 2026-10-13.
+
+## TC-FRONTEND-144 — the Organiser's registration settings are checked before saving
+
+- **Scenario:** The form says what's wrong before the service has to (S-51 AC1, AC2).
+- **Pre-conditions:** `frontend/src/lib/registration.js` imported directly.
+- **Steps:** Call `validateRegistrationSettings(settings, event, {submitting})`
+  with each case. Event starts `2026-11-20` `18:00`.
+- **Test data / Expected:**
+  1. off, no dates, submitting → `{}`.
+  2. on, no dates, submitting → `{opens: "Choose when registration opens.",
+     closes: "Choose when registration closes."}`.
+  3. on, no dates, saving a draft → `{}`.
+  4. on, opens `2026-11-15T18:00`, closes `2026-11-15T18:00` →
+     `{closes: "Registration must close after it opens."}`.
+  5. on, opens `2026-11-01T09:00`, closes `2026-11-20T18:00` →
+     `{closes: "Registration must close before the event starts."}`.
+  6. on, opens `2026-10-01T09:00` (past), closes `2026-11-15T18:00` → `{}`.
+- **Actual:** All six cases returned exactly the expected errors.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the Organiser's registration settings are checked before saving; `node --test tests/unit/frontend/test_*.mjs`: 173 passed, 2026-10-25
+
+## TC-FRONTEND-145 — where now falls in the registration period
+
+- **Scenario:** The event page shows the right state and button (S-51 AC3, AC4).
+- **Pre-conditions:** As TC-FRONTEND-144.
+- **Steps:** Call `registrationWindow(event, now)` with opens `2026-11-01T09:00`,
+  closes `2026-11-15T18:00`, each `now` given in UTC.
+- **Test data / Expected:**
+  - `2026-11-01T00:59Z` → `"not_open"`; `2026-11-01T01:00Z` → `"open"`;
+    `2026-11-15T09:59Z` → `"open"`; `2026-11-15T10:00Z` → `"closed"`.
+  - Registration off → `"not_required"` for any `now`.
+- **Actual:** `not_open`, `open`, `open`, `closed` at the four instants; `not_required` with registration off.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::where now falls in the registration period
+
+## TC-FRONTEND-146 — the period is described in words Attendees can read
+
+- **Scenario:** The configured period is visible and the blocked messages match the service's (S-51 AC3, AC4).
+- **Pre-conditions:** As TC-FRONTEND-144.
+- **Steps:** Call `describeRegistration(event, now)` for each state.
+- **Expected:**
+  - Period → "Registration opens 1 Nov 2026, 9:00 am and closes 15 Nov 2026, 6:00 pm."
+  - `not_open` status line → "Registration opens on 1 Nov 2026, 9:00 am."
+  - `closed` status line → "Registration closed on 15 Nov 2026, 6:00 pm."
+  - `not_required` → "This event doesn't need registration." and no period line.
+- **Actual:** The period, both status lines and the no-registration text matched exactly.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the period is described in words Attendees can read

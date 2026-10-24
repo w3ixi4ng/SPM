@@ -54,6 +54,8 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
+| `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
+| `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
 
 All event endpoints except health authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
@@ -147,6 +149,9 @@ When supplied, values still have to be valid.
 | `room_layout` | string or null | From the venue layout set. |
 | `required_facilities` | array of string | From the venue facility set. Defaults to `[]`. |
 | `required_accessibility` | array of string | From the venue accessibility set. Defaults to `[]`. |
+| `registration_required` | boolean | S-51. Defaults to `false`. Turning it off clears both dates. |
+| `registration_opens_at` | `YYYY-MM-DDTHH:MM` or null | S-51. Singapore time, no offset. May be left empty on a draft. |
+| `registration_closes_at` | `YYYY-MM-DDTHH:MM` or null | S-51. After `registration_opens_at`, and before the event's start, whenever those are known. |
 
 **Venue requirements (S-36).** `room_layout`, `required_facilities` and
 `required_accessibility` say what a venue must offer. They use the venue
@@ -191,6 +196,9 @@ failure, rather than reaching the database's own constraint as an opaque
 | `room_layout` | string or null | no | One of `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cocktail`. |
 | `required_facilities` | array of string | no | From the venue facility set; repeats dropped. Defaults to `[]`. |
 | `required_accessibility` | array of string | no | From the venue accessibility set; repeats dropped. Defaults to `[]`. |
+| `registration_required` | boolean | no | S-51. Defaults to `false`; when `false` both dates are stored as null. |
+| `registration_opens_at` | `YYYY-MM-DDTHH:MM` | when registration is on | Singapore time, no offset. May already have passed. |
+| `registration_closes_at` | `YYYY-MM-DDTHH:MM` | when registration is on | After `registration_opens_at`; before `start_date` + `start_time`. |
 
 ```json
 {
@@ -258,6 +266,9 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "safety_officer_id": null,
   "safety_decided_at": null,
   "safety_review_history": [],
+  "registration_required": true,
+  "registration_opens_at": "2026-10-01T09:00:00",
+  "registration_closes_at": "2026-10-15T18:00:00",
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
@@ -324,6 +335,54 @@ user, most recently updated first. No assigned active events returns `[]`.
 ```json
 {"status": "ok"}
 ```
+
+## Registration (S-51)
+
+The Organiser decides whether attendees register, and sets the period they
+may do it in, while creating or updating the request: on a `draft` or a
+`returned` request. Once it is submitted the settings are fixed. A `PATCH`
+that names any of the three fields on an event in any other status is
+refused with `409` "Registration settings can only be changed while the
+request is a draft or returned.", even if the values are unchanged. Other
+fields on the same event can still be edited as before.
+
+The period is Singapore wall-clock time and is stored without a timezone,
+like the event's own dates and times. A date-time sent with an offset is
+converted to Singapore time first.
+
+| Rule | Message (`422`) |
+| --- | --- |
+| Registration on and submitted without an opening | "Choose when registration opens." on `registration_opens_at` |
+| Registration on and submitted without a closing | "Choose when registration closes." on `registration_closes_at` |
+| Closing at or before opening | "Registration must close after it opens." |
+| Closing at or after the event starts | "Registration must close before the event starts." |
+
+The rules apply to the record a `PATCH` produces, so moving the event's start
+before an existing closing date is refused too. Registration being off clears
+both dates, and the order of dates is not checked while it is off.
+
+`GET /internal/events/published` and `GET /internal/events/published/{id}`
+return only `confirmed` events, and only their public fields:
+
+```json
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "name": "Alumni networking evening",
+  "purpose": "Reconnect alumni with current students",
+  "start_date": "2026-11-20",
+  "start_time": "18:00:00",
+  "end_date": "2026-11-20",
+  "end_time": "21:00:00",
+  "registration_required": true,
+  "registration_opens_at": "2026-11-01T09:00:00",
+  "registration_closes_at": "2026-11-15T18:00:00"
+}
+```
+
+A missing event, or one in any other status, is `404` "Event not found.".
+Registrations themselves are stored by the
+[registrations service](../registrations/README.md); this service only holds
+the settings.
 
 ## Status model (S-14, S-36, S-43, S-17, S-86, S-87)
 
@@ -623,7 +682,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; S-51: a `PATCH` naming a registration field on an event that is not `draft` or `returned`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 

@@ -32,11 +32,13 @@ import {
   eventStatusMeta,
   getEventRequest,
   organiserDecisionBanner,
+  registrationSettingsFromForm,
   requestEventCancellation,
   submitEventDraft,
   updateEventDraft,
   validateCancellationReason,
 } from '../lib/eventRequests.js'
+import { describeRegistration, validateRegistrationSettings } from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -72,6 +74,12 @@ const EMPTY_FORM = {
   roomLayout: '',
   requiredFacilities: [],
   requiredAccessibility: [],
+  // S-51: off unless the Organiser turns it on.
+  registrationRequired: false,
+  registrationOpensDate: '',
+  registrationOpensTime: '',
+  registrationClosesDate: '',
+  registrationClosesTime: '',
 }
 
 // Mirrors the backend's same-day rule (see events service schemas.py): once
@@ -116,6 +124,25 @@ function validateForSubmit(form) {
   if (!form.endDate) errors.endDate = 'Please choose an end date.'
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
   if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
+  return errors
+}
+
+// S-51: the registration period, checked as the events service checks it,
+// with each error shown on that end's date picker. A date with no time (or
+// a time with no date) is caught here, since it would otherwise be dropped.
+function validateRegistration(form, { submitting }) {
+  const errors = {}
+  if (!form.registrationRequired) return errors
+  const ends = [
+    ['registrationOpensDate', form.registrationOpensDate, form.registrationOpensTime],
+    ['registrationClosesDate', form.registrationClosesDate, form.registrationClosesTime],
+  ]
+  for (const [field, date, time] of ends) {
+    if (Boolean(date) !== Boolean(time)) errors[field] = 'Choose a date and a time.'
+  }
+  const found = validateRegistrationSettings(registrationSettingsFromForm(form), form, { submitting })
+  if (found.opens && !errors.registrationOpensDate) errors.registrationOpensDate = found.opens
+  if (found.closes && !errors.registrationClosesDate) errors.registrationClosesDate = found.closes
   return errors
 }
 
@@ -425,6 +452,108 @@ function TimeSelect({ id, value, onChange, error, disabled, isOptionDisabled }) 
         </div>
       )}
       <FieldError id={`${id}-error`} message={error} />
+    </div>
+  )
+}
+
+function todayISO() {
+  const today = new Date()
+  return toISODate(today.getFullYear(), today.getMonth(), today.getDate())
+}
+
+// S-51: whether attendees register, and the period they may do it in. While
+// the request is being written or amended the Organiser sets both; after
+// that the saved settings are shown as they stand.
+function RegistrationSettings({ editable, form, saved, errors, onChange }) {
+  if (!editable) {
+    const settings = registrationSettingsFromForm(saved)
+    const { period } = describeRegistration({
+      registration_required: settings.required,
+      registration_opens_at: settings.opensAt,
+      registration_closes_at: settings.closesAt,
+    })
+    return (
+      <div>
+        <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>
+          Attendee registration
+        </p>
+        <p className="font-ui text-sm leading-relaxed" style={{ color: C.ink }}>
+          {period ?? "This event doesn't need registration."}
+        </p>
+        <p className="font-ui text-xs mt-1" style={{ color: C.inkFaint }}>
+          Registration settings can&apos;t be changed after the request is submitted.
+        </p>
+      </div>
+    )
+  }
+
+  const today = todayISO()
+  return (
+    <div>
+      <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>
+        Attendee registration
+      </p>
+      <label className="flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
+        <input
+          type="checkbox"
+          checked={form.registrationRequired}
+          onChange={(e) => onChange('registrationRequired', e.target.checked)}
+        />
+        Attendees register for this event
+      </label>
+      <p className="font-ui text-xs mt-1 max-w-md" style={{ color: C.inkFaint }}>
+        Only registered attendees hold a place. Times are Singapore time, and
+        registration has to close before the event starts.
+      </p>
+
+      {form.registrationRequired && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label htmlFor="event-registration-opens-date" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration opening date
+            </label>
+            <DateSelect
+              id="event-registration-opens-date"
+              value={form.registrationOpensDate}
+              onChange={(v) => onChange('registrationOpensDate', v)}
+              error={errors.registrationOpensDate}
+              minDate={today}
+            />
+          </div>
+          <div>
+            <label htmlFor="event-registration-opens-time" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration opening time
+            </label>
+            <TimeSelect
+              id="event-registration-opens-time"
+              value={form.registrationOpensTime}
+              onChange={(v) => onChange('registrationOpensTime', v)}
+            />
+          </div>
+          <div>
+            <label htmlFor="event-registration-closes-date" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration closing date
+            </label>
+            <DateSelect
+              id="event-registration-closes-date"
+              value={form.registrationClosesDate}
+              onChange={(v) => onChange('registrationClosesDate', v)}
+              error={errors.registrationClosesDate}
+              minDate={form.registrationOpensDate || today}
+            />
+          </div>
+          <div>
+            <label htmlFor="event-registration-closes-time" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration closing time
+            </label>
+            <TimeSelect
+              id="event-registration-closes-time"
+              value={form.registrationClosesTime}
+              onChange={(v) => onChange('registrationClosesTime', v)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -890,6 +1019,9 @@ export default function EventRequestForm() {
   // form's one submit button at that point is "Save changes". Draft and
   // returned both still need a real submit/resubmit action.
   const routesSubmitToSave = isSubmitted || isPlanning
+  // S-51: whether attendees register, and when, is settled while the request
+  // is being written or amended -- never once it is with the Coordinator.
+  const canEditRegistration = !routeId || status === 'draft' || isReturned
   const isBusy = loadState === 'loading' || saveState === 'saving' || submitState === 'submitting'
   const canShowForm = !routeId || loadState === 'ready'
   // Submitting no longer freezes the record, so it can be dirty too -- the
@@ -918,6 +1050,14 @@ export default function EventRequestForm() {
       return next
     })
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+    // S-51: a period error sits on the date, but the time may be what fixes it.
+    const registrationDate = {
+      registrationOpensTime: 'registrationOpensDate',
+      registrationClosesTime: 'registrationClosesDate',
+    }[field]
+    if (registrationDate && errors[registrationDate]) {
+      setErrors((prev) => ({ ...prev, [registrationDate]: undefined }))
+    }
     if ((field === 'startDate' || field === 'startTime') && (errors.endDate || errors.endTime)) {
       setErrors((prev) => ({ ...prev, endDate: undefined, endTime: undefined }))
     }
@@ -938,9 +1078,12 @@ export default function EventRequestForm() {
   async function handleSave({ redirectTo } = {}) {
     if (isBusy) return
 
-    const validationErrors = requiresStrictValidation
-      ? validateForSubmit(form)
-      : validateDraft(form)
+    const validationErrors = {
+      ...(requiresStrictValidation ? validateForSubmit(form) : validateDraft(form)),
+      ...(canEditRegistration
+        ? validateRegistration(form, { submitting: requiresStrictValidation })
+        : {}),
+    }
     setErrors(validationErrors)
     if (Object.keys(validationErrors).length) {
       focusFirstError(validationErrors)
@@ -951,7 +1094,7 @@ export default function EventRequestForm() {
     setSaveState('saving')
     try {
       const event = routeId
-        ? await updateEventDraft(routeId, form)
+        ? await updateEventDraft(routeId, form, { includeRegistration: canEditRegistration })
         : await createEventDraft(form)
       applyEvent(event)
       setSaveState('saved')
@@ -998,7 +1141,10 @@ export default function EventRequestForm() {
       return
     }
 
-    const validationErrors = validateForSubmit(form)
+    const validationErrors = {
+      ...validateForSubmit(form),
+      ...validateRegistration(form, { submitting: true }),
+    }
     setErrors(validationErrors)
 
     if (Object.keys(validationErrors).length) {
@@ -1418,6 +1564,14 @@ export default function EventRequestForm() {
                 <FieldError id="event-venue-error" message={errors.venue} />
               </div>
             </div>
+
+            <RegistrationSettings
+              editable={canEditRegistration}
+              form={form}
+              saved={savedForm}
+              errors={errors}
+              onChange={updateField}
+            />
 
             <div>
               <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>

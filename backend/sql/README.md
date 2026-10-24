@@ -10,6 +10,7 @@ venues.sql
 bookings.sql
 equipment.sql
 notifications.sql
+registrations.sql
 ```
 
 The database is not generated from Python, so these files are the only record

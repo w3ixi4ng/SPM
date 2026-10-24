@@ -1,0 +1,106 @@
+# Event registrations composite
+
+S-51. Serves confirmed events' public pages, and lets Attendees register for
+them while registration is open. Owns no storage: event details and
+registration settings come from `events`, venue names from `bookings` and
+`venues`, the signed-in user from `users`, and places are written to
+`registrations`.
+
+Browser-facing through Kong at `/api/event-registrations`.
+
+## Endpoints
+
+| Method | Path | Sign-in | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/event-registrations/events` | none | Every confirmed event's public details, by start. |
+| `GET` | `/event-registrations/events/{event_id}` | none | One confirmed event's public details. |
+| `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open. |
+| `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered. |
+| `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
+
+## Request
+
+No body on any route. The event id is in the path; the Attendee is whoever
+the `sb_access_token` cookie belongs to, never anything in the request.
+
+## Response
+
+**Public event** (`GET /events`, an array of these; `GET /events/{id}`, one):
+
+```json
+{
+  "id": "22222222-2222-4222-8222-222222222222",
+  "name": "Alumni networking evening",
+  "purpose": "Reconnect alumni with current students",
+  "start_date": "2026-11-20",
+  "start_time": "18:00:00",
+  "end_date": "2026-11-20",
+  "end_time": "21:00:00",
+  "venues": ["Seminar Room 2-1"],
+  "registration_required": true,
+  "registration_opens_at": "2026-11-01T09:00:00",
+  "registration_closes_at": "2026-11-15T18:00:00"
+}
+```
+
+`venues` lists the names of the event's confirmed bookings, and is `[]` until
+one is confirmed. With registration off, `registration_required` is `false`
+and both dates are `null`. Nothing about the organiser, the expected
+attendance, contacts or internal notes is ever included.
+
+**Registration** (`201` from `POST`, `200` from `GET`):
+
+```json
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z"}
+```
+
+`GET` answers `{"registered": false, "registered_at": null}` when the
+Attendee holds no place.
+
+| Status | When | `detail` |
+| --- | --- | --- |
+| `401` | Registering or checking without signing in | "Sign in to register for this event." |
+| `403` | Signed in, but not an `attendee` | "Only attendee accounts can register for events." |
+| `404` | The event is missing or not `confirmed` | "Event not found." |
+| `409` | The event doesn't use registration | "This event doesn't need registration." |
+| `409` | Before the period opens | "Registration opens on 1 Nov 2026, 9:00 am." |
+| `409` | At or after the period closes | "Registration closed on 15 Nov 2026, 6:00 pm." |
+| `409` | Already registered | "You're already registered for this event." |
+| `502` | A service it depends on did not answer | "Events service unavailable" (or Users, Bookings, Venues, Registrations) |
+
+The period is Singapore time. "Now" is read in Singapore time whatever the
+server's clock, opening is inclusive and closing is exclusive.
+
+## Configuration
+
+`USERS_SERVICE_URL`, `EVENTS_SERVICE_URL`, `BOOKINGS_SERVICE_URL`,
+`VENUES_SERVICE_URL` and `REGISTRATIONS_SERVICE_URL`. Every outbound client
+has a bounded timeout.
+
+## Running
+
+Development, with the atomic services it calls running and the URLs above
+pointing at `localhost`:
+
+```bash
+cd backend/services/composite/event_registrations
+uvicorn app:app --reload --port 8104
+```
+
+Unit tests need no Docker or Supabase:
+
+```bash
+pytest tests/unit/composite/event_registrations
+```
+
+Integration and browser tests need the S-51 block of
+[`events.sql`](../../../sql/events.sql) and
+[`registrations.sql`](../../../sql/registrations.sql) applied and exposed in
+the test project, and the whole stack started immediately before:
+
+```bash
+docker compose --env-file .env.test down -v
+docker compose --env-file .env.test up -d --build --wait
+pytest tests/integration/composite/event_registrations
+pytest tests/e2e/test_register_for_event.py tests/e2e/test_set_registration_period.py
+```

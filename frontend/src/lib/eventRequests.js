@@ -29,7 +29,37 @@ const API_TO_FORM_FIELD = {
   required_accessibility: 'requiredAccessibility',
 }
 
-export function eventFormToPayload(form, { omitEmpty = false } = {}) {
+// S-51: the service names the date-time; the form shows it on the date.
+const REGISTRATION_ERROR_FIELDS = {
+  registration_opens_at: 'registrationOpensDate',
+  registration_closes_at: 'registrationClosesDate',
+}
+
+// S-51: the period is held in the form as a date and a time per end, the
+// same pickers as the event's own start and end, and sent as one naive
+// Singapore date-time. Half a moment (a date with no time) is no moment.
+function registrationMoment(date, time) {
+  return date && time ? `${date}T${time}` : null
+}
+
+function splitMoment(value) {
+  if (!value) return { date: '', time: '' }
+  const [date, time] = value.split('T')
+  return { date, time: time.slice(0, 5) }
+}
+
+export function registrationSettingsFromForm(form) {
+  return {
+    required: Boolean(form.registrationRequired),
+    opensAt: registrationMoment(form.registrationOpensDate, form.registrationOpensTime),
+    closesAt: registrationMoment(form.registrationClosesDate, form.registrationClosesTime),
+  }
+}
+
+// `includeRegistration` is false once the request has been submitted: the
+// settings are fixed from then on, and the events service refuses a PATCH
+// that names them at all, even unchanged.
+export function eventFormToPayload(form, { omitEmpty = false, includeRegistration = true } = {}) {
   const payload = {}
 
   for (const [formField, apiField] of Object.entries(TEXT_FIELDS)) {
@@ -55,10 +85,21 @@ export function eventFormToPayload(form, { omitEmpty = false } = {}) {
   if (layout !== null || !omitEmpty) payload.room_layout = layout
   payload.required_facilities = [...(form.requiredFacilities ?? [])]
   payload.required_accessibility = [...(form.requiredAccessibility ?? [])]
+
+  if (includeRegistration) {
+    const settings = registrationSettingsFromForm(form)
+    payload.registration_required = settings.required
+    const opensAt = settings.required ? settings.opensAt : null
+    const closesAt = settings.required ? settings.closesAt : null
+    if (opensAt !== null || !omitEmpty) payload.registration_opens_at = opensAt
+    if (closesAt !== null || !omitEmpty) payload.registration_closes_at = closesAt
+  }
   return payload
 }
 
 export function eventResponseToForm(event) {
+  const opens = splitMoment(event.registration_opens_at)
+  const closes = splitMoment(event.registration_closes_at)
   return {
     id: event.id,
     name: event.name ?? '',
@@ -77,6 +118,11 @@ export function eventResponseToForm(event) {
     contactEmail: event.contact_email ?? '',
     contactPhone: event.contact_phone ?? '',
     internalNotes: event.internal_notes ?? '',
+    registrationRequired: Boolean(event.registration_required),
+    registrationOpensDate: opens.date,
+    registrationOpensTime: opens.time,
+    registrationClosesDate: closes.date,
+    registrationClosesTime: closes.time,
   }
 }
 
@@ -109,6 +155,11 @@ export function eventFieldErrorsToForm(fieldErrors) {
     const apiField = path.split('.')[0]
     const formField = API_TO_FORM_FIELD[apiField]
     if (formField) mapped[formField] = message
+    else if (REGISTRATION_ERROR_FIELDS[apiField]) {
+      mapped[REGISTRATION_ERROR_FIELDS[apiField]] = message.replace(/^Value error, /, '')
+    } else if (message.includes('Registration must close')) {
+      mapped.registrationClosesDate = message.replace(/^Value error, /, '')
+    }
     else if (message.includes('end_time must be after start_time')) {
       mapped.endTime = 'End time must be after the start time.'
     } else if (message.includes('end_date must be on or after start_date')) {
@@ -232,11 +283,11 @@ export function resubmitErrorMessage(error) {
   return eventErrorMessage(error)
 }
 
-function write(path, method, form, omitEmpty = false) {
+function write(path, method, form, omitEmpty = false, includeRegistration = true) {
   return requestJSON(path, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(eventFormToPayload(form, { omitEmpty })),
+    body: JSON.stringify(eventFormToPayload(form, { omitEmpty, includeRegistration })),
   })
 }
 
@@ -288,8 +339,11 @@ export function createEventDraft(form) {
 // coordinator's availability, which needs the same cross-service logic as
 // submission. A draft, or an edit that leaves date/time alone, is a plain
 // passthrough on the composite's side -- see PATCH /event-requests/{id}.
-export function updateEventDraft(id, form) {
-  return write(`/event-requests/${encodeURIComponent(id)}`, 'PATCH', form)
+//
+// S-51: registration settings go only while the request is a draft or
+// returned -- pass `includeRegistration: false` for anything later.
+export function updateEventDraft(id, form, { includeRegistration = true } = {}) {
+  return write(`/event-requests/${encodeURIComponent(id)}`, 'PATCH', form, false, includeRegistration)
 }
 
 // Submission goes through the event_requests composite too, for the same

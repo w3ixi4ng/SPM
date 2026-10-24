@@ -128,6 +128,14 @@ create table if not exists events.events (
   edit_history               jsonb not null default '[]'::jsonb,
   safety_recheck_required    boolean not null default false,
 
+  -- S-51: whether attendees register, and when they may. No timezone: the
+  -- period is Singapore wall-clock time, like the event's own dates and
+  -- times. Null whenever registration is off. Constraints are in the S-51
+  -- block at the end of this file.
+  registration_required      boolean not null default false,
+  registration_opens_at      timestamp without time zone,
+  registration_closes_at     timestamp without time zone,
+
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
   -- Not updated_at: that moves for any write, so it cannot be relied on as a
@@ -998,3 +1006,41 @@ alter table events.events add constraint events_technical_signoff_valid
 notify pgrst, 'reload schema';
 commit;
 -- END S-18 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-51 REGISTRATION PERIOD
+-- Existing installations: run through END S-51 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving: every existing event gets registration
+-- off and no period.
+begin;
+alter table events.events
+  add column if not exists registration_required boolean not null default false,
+  add column if not exists registration_opens_at timestamp without time zone,
+  add column if not exists registration_closes_at timestamp without time zone;
+
+-- Registration off means no period; a period, once both ends are set, is a
+-- real interval. Closing before the event starts is checked by the service,
+-- which already has the event's start in hand.
+alter table events.events drop constraint if exists events_registration_period_valid;
+alter table events.events add constraint events_registration_period_valid
+  check (
+    (
+      not registration_required
+      and registration_opens_at is null
+      and registration_closes_at is null
+    )
+    or (
+      registration_required
+      and (
+        registration_opens_at is null
+        or registration_closes_at is null
+        or registration_closes_at > registration_opens_at
+      )
+    )
+  );
+
+-- The public listing reads confirmed events only.
+create index if not exists events_events_status_idx on events.events (status);
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-51 REGISTRATION PERIOD
