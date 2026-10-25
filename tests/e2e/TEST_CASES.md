@@ -1306,3 +1306,9 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** Chromium: the page showed "Registration opens on …" with Q's opening and no Register button.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+## TC-E2E-249 - Venue Staff prepare two venues and readiness updates
+- **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
+- **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
+- **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
+- **Status:** Pass.
+- **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.

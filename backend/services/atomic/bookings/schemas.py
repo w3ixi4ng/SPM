@@ -44,6 +44,7 @@ RoomLayout = Literal[
 # booking whose replacement is confirmed becomes `replaced`. Keep in step with
 # backend/sql/bookings.sql.
 BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced"]
+VenuePreparationStatus = Literal["not_started", "in_progress", "ready"]
 HoldReleaseReason = Literal[
     "staff_released",
     "event_rejected",
@@ -159,6 +160,10 @@ class BookingRead(BaseModel):
     hold_expires_at: datetime | None = None
     hold_released_at: datetime | None = None
     hold_release_reason: HoldReleaseReason | None = None
+    venue_preparation_status: VenuePreparationStatus = "not_started"
+    venue_preparation_updated_by: UUID | None = None
+    venue_preparation_updated_at: datetime | None = None
+    venue_preparation_version: int = 0
     id: UUID
     event_id: UUID
     venue_id: UUID
@@ -186,6 +191,19 @@ class BookingRead(BaseModel):
     alternative_resolved_at: datetime | None = None
     alternative_resolved_by: UUID | None = None
     alternative_resolution_note: str | None = None
+
+
+class VenuePreparationUpdate(BaseModel):
+    """S-25 state plus the version the staff member loaded.
+
+    Audit identity and time are deliberately absent and extra fields are
+    rejected: both are owned by the service.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: VenuePreparationStatus
+    expected_version: int = Field(ge=0)
 
 
 # S-77: why Venue Staff marked a venue unavailable. Keep in step with

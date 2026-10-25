@@ -563,3 +563,19 @@ request, the booking it replaces:
 Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
 recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
 and `pytest tests/e2e/test_replace_affected_booking.py`.
+## S-25 venue preparation
+
+`GET /venue-bookings/preparation` is Venue Staff only. It returns confirmed
+bookings whose owning event is currently in `preparation`.
+
+`PUT /venue-bookings/{id}/preparation` accepts
+`{"status":"not_started|in_progress|ready","expected_version":0}`. The
+composite verifies the caller is Venue Staff, the booking is confirmed, and
+the event is exactly in Preparation before forwarding the update to Bookings.
+It returns `409` when the event or booking is in the wrong lifecycle state.
+Dependency failures return `502` and never appear as a successful update.
+
+Run unit tests with `python -m pytest tests/unit/composite/venue_bookings`.
+After applying the S-25 bookings migration to the test project and recreating
+the `.env.test` stack, run
+`python -m pytest tests/integration/composite/venue_bookings`.

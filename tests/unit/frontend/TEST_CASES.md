@@ -2462,3 +2462,19 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** The period, both status lines and the no-registration text matched exactly.
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the period is described in words Attendees can read
+## S-25 - Update Venue Preparation Status
+
+### TC-FRONTEND-147 - readiness shows every confirmed venue's status
+- **Expected:** Each confirmed booking is listed separately as Not Started, In Progress, or Ready.
+- **Status:** Pass.
+- **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
+
+### TC-FRONTEND-148 - venue readiness requires every confirmed venue
+- **Expected:** Venue is complete only when at least one confirmed booking exists and all are Ready.
+- **Status:** Pass.
+- **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
+
+### TC-FRONTEND-149 - staff preparation updates use the gateway
+- **Expected:** The browser sends the state and expected version and reports success or a specific failure.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.mjs::venue preparation calls use the gateway and optimistic version`; `test_venue_preparation.mjs::venue preparation labels and failures stay specific`; `test_access.mjs::only venue staff update venue preparation`.

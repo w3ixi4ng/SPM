@@ -45,6 +45,12 @@ create table if not exists bookings.bookings (
   hold_released_at           timestamptz,
   hold_release_reason        text,
 
+  -- S-25: preparation is tracked per confirmed venue booking.
+  venue_preparation_status      text not null default 'not_started',
+  venue_preparation_updated_by  uuid,
+  venue_preparation_updated_at  timestamptz,
+  venue_preparation_version     integer not null default 0,
+
   booking_date               date not null,
   start_time                 time without time zone not null,
   end_time                   time without time zone not null,
@@ -78,6 +84,15 @@ create table if not exists bookings.bookings (
       'staff_released', 'event_rejected', 'event_cancelled', 'booking_replaced',
       'expired'
     )
+  ),
+
+  constraint bookings_venue_preparation_status_allowed
+    check (venue_preparation_status in ('not_started', 'in_progress', 'ready')),
+  constraint bookings_venue_preparation_audit_valid check (
+    (venue_preparation_updated_by is null and venue_preparation_updated_at is null
+      and venue_preparation_version = 0)
+    or (venue_preparation_updated_by is not null and venue_preparation_updated_at is not null
+      and venue_preparation_version > 0)
   ),
 
   -- One date, so the end is simply after the start. A venue's opening hours
@@ -596,3 +611,32 @@ create trigger bookings_replace_original_on_confirm
 notify pgrst, 'reload schema';
 commit;
 -- END S-78 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-25 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- Safe to repeat; existing bookings begin Not Started with no audit actor.
+begin;
+
+alter table bookings.bookings
+  add column if not exists venue_preparation_status text not null default 'not_started',
+  add column if not exists venue_preparation_updated_by uuid,
+  add column if not exists venue_preparation_updated_at timestamptz,
+  add column if not exists venue_preparation_version integer not null default 0;
+
+alter table bookings.bookings
+  drop constraint if exists bookings_venue_preparation_status_allowed;
+alter table bookings.bookings add constraint bookings_venue_preparation_status_allowed
+  check (venue_preparation_status in ('not_started', 'in_progress', 'ready'));
+
+alter table bookings.bookings
+  drop constraint if exists bookings_venue_preparation_audit_valid;
+alter table bookings.bookings add constraint bookings_venue_preparation_audit_valid check (
+  (venue_preparation_updated_by is null and venue_preparation_updated_at is null
+    and venue_preparation_version = 0)
+  or (venue_preparation_updated_by is not null and venue_preparation_updated_at is not null
+    and venue_preparation_version > 0)
+);
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-25 DATA-PRESERVING MIGRATION
