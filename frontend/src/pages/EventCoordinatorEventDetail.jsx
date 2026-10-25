@@ -11,6 +11,7 @@ import {
 } from '../lib/safetySubmission.js'
 import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
+import ReassignmentRequestPanel from '../components/ReassignmentRequestPanel.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
 import {
@@ -94,6 +95,7 @@ function Field({ label, value }) {
 }
 
 const EDITABLE_STATUSES = new Set(['planning', 'confirmed', 'preparation'])
+const REASSIGNABLE_STATUSES = new Set(['submitted', 'planning', 'pending_safety_check', 'confirmed', 'returned'])
 const FIELD_LABELS = {
   start_date: 'start date', start_time: 'start time', end_date: 'end date', end_time: 'end time',
   expected_attendance: 'expected attendance', venue: 'venue preference',
@@ -1332,6 +1334,7 @@ export default function EventCoordinatorEventDetail() {
               </p>
             )}
             <EventReadinessPanel event={state.event} />
+            {isCoordinator && REASSIGNABLE_STATUSES.has(state.event.status) && <ReassignmentRequestPanel eventId={state.event.id} />}
 
             <div
               role="group"

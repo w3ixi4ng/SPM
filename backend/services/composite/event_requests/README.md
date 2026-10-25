@@ -14,9 +14,15 @@ Coordinator. Schedule conflicts do not block that decision. Reassignment
 transfers event access and persistently notifies the former Coordinator, new
 Coordinator, and Event Organiser.
 
-Story S-85 adds a read-only oversight view. It groups all active assigned
-events under their current Coordinator, includes trusted Coordinators with no
-active work, and exposes an assignment count for each group.
+Story S-85 adds a read-only oversight view. It groups the Lead's active
+assigned events under their current Coordinator, includes trusted Coordinators
+with no work in that scope, and exposes an assignment count for each group.
+
+S-88 lets the currently assigned Coordinator request reassignment with a
+reason. Only the Lead who assigned that event sees the request. The request
+does not change ownership; the existing S-84 action does. Events without a
+recorded assigning Lead are excluded from Lead views and cannot receive a
+new request until their provenance is resolved.
 
 The existing S-43 Technical Support workflow remains available to assigned
 Event Coordinators.
@@ -31,9 +37,12 @@ Event Coordinators.
 | `GET` | `/event-requests/unassigned` | Event Coordinator Lead | Lists submitted requests whose `assigned_coordinator_id` is null, oldest submission first, including organiser details. |
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted Event Coordinator accounts available for manual selection. |
 | `POST` | `/event-requests/{event_id}/assignment` | Event Coordinator Lead | Assigns the selected Coordinator and creates both notifications. |
-| `GET` | `/event-requests/assigned-active` | Event Coordinator Lead | Lists assigned active events with organiser, current Coordinator, and assignment version. |
-| `GET` | `/event-requests/coordinator-overview` | Event Coordinator Lead | Groups active assigned events under every Coordinator, including zero-assignment Coordinators. |
-| `POST` | `/event-requests/{event_id}/reassignment` | Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
+| `GET` | `/event-requests/assigned-active` | Event Coordinator Lead | Lists active events assigned by that Lead with organiser, current Coordinator, and assignment version. |
+| `GET` | `/event-requests/coordinator-overview` | Event Coordinator Lead | Groups active events assigned by that Lead under every Coordinator. |
+| `POST` | `/event-requests/{event_id}/reassignment-request` | Assigned Event Coordinator | Saves a reasoned request without changing ownership. |
+| `GET` | `/event-requests/reassignment-requests/mine` | Event Coordinator | Lists the caller's pending and actioned request history, even after transfer. |
+| `GET` | `/event-requests/reassignment-requests/lead` | Event Coordinator Lead | Lists requests for events assigned by the caller, with requester profiles. |
+| `POST` | `/event-requests/{event_id}/reassignment` | Responsible Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
 | `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. |
@@ -83,6 +92,8 @@ The events service conditionally writes the assignment only while the request
 is still `submitted` and unassigned. The successful response is the updated
 event plus `assignment_created`, which is `true` for the first write and
 `false` when the same Coordinator assignment is retried.
+It records the authenticated Lead's ID as `assigning_lead_id`. That value
+remains the event's supervisory scope after a Coordinator transfer.
 
 After the event write, the composite asks the notifications service to persist
 exactly two `event_assignment` notifications:
@@ -120,6 +131,8 @@ eligible while `submitted`, `planning`, `confirmed`, or `returned`; draft,
 rejected, cancelled, unassigned, missing, or stale targets are not changed.
 The atomic write compares the expected owner and version, then increments the
 version. It deliberately performs no availability or conflict check.
+The caller must be the event's recorded assigning Lead. Another Lead gets
+`404`; an older event with no recorded Lead returns `409`.
 
 A successful transfer creates one persistent `event_reassignment`
 notification for the former Coordinator, new Coordinator, and Organiser.
@@ -130,6 +143,37 @@ and upserts any missing rows without duplicates. Once a newer transfer has
 incremented the version, an old retry returns `409` and cannot move the event
 back.
 
+## Reassignment requests (S-88)
+
+`POST /event-requests/{event_id}/reassignment-request` accepts only
+`{"reason":"Cannot cover the November event"}`. `reason` is a required,
+nonblank string of at most 2,000 characters. The Events service checks the
+verified Coordinator session and current event assignment, then stores a
+request. Its database trigger locks the event during insertion, preventing a
+request for an owner who was concurrently replaced. A partial unique index
+allows only one pending request per event; a duplicate returns `409`.
+
+Success returns `201`:
+
+```json
+{"id":"ffffffff-ffff-4fff-8fff-ffffffffffff","event_id":"33333333-3333-4333-8333-333333333333","event_name":"November Forum","requester_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","assigning_lead_id":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","assignment_version":2,"reason":"Cannot cover the November event","status":"pending","created_at":"2026-10-25T00:00:00Z","actioned_at":null}
+```
+
+Both list endpoints take no body or query parameters and return arrays of
+these rows. The Lead's list also includes `requester` with `id`, `name`, and
+`email`. The Events service derives each list filter from the verified
+session, so another Lead or Coordinator cannot choose a different ID. When
+S-84 changes the current owner, the Events database trigger changes the
+matching pending row to `actioned` and sets `actioned_at` in the same
+transaction. Failed transfers leave it pending. The original requester can
+still read it from `/mine` after losing event access. Historic rows are kept.
+
+Failures use `{"detail":"..."}`: `401` means no session, `403` means the
+role is not allowed, `404` means the event is missing or belongs to another
+Coordinator or Lead, `409` means a pending request exists, assignment changed,
+or no responsible Lead is recorded, `422` means invalid reason, and `502`
+means a required atomic service is unavailable.
+
 ## Coordinator oversight (S-85)
 
 `GET /event-requests/coordinator-overview` accepts no parameters or body. Only
@@ -138,6 +182,8 @@ an authenticated `event_coordinator_lead` may call it. Active means
 event must have a current `assigned_coordinator_id`. Unassigned, draft,
 rejected, cancelled, and completed events are excluded by Events before the
 composite groups them.
+It returns only events whose `assigning_lead_id` matches the authenticated
+Lead. The unassigned queue remains shared by all Leads.
 
 The response contains every trusted Auth Event Coordinator, including those
 without a profile or current work. A missing profile uses the Auth email for

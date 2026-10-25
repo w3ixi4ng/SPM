@@ -1306,3 +1306,29 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** Chromium: the page showed "Registration opens on …" with Q's opening and no Register button.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+
+## S-88 confirmed specification — Coordinator request to Lead action
+
+Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted, Chromium against fresh `.env.test` stack.
+
+## TC-E2E-249 — requester sees the Lead's completed reassignment
+
+- **Scenario:** The whole browser journey carries a request through Lead review to an actioned outcome.
+- **Pre-conditions:** Fresh `.env.test` stack through Kong and Chromium; an Organiser's event is assigned by Lead A to Coordinator A; Coordinator B is eligible.
+- **Steps:** Sign in as A and request reassignment from the event; refresh and check pending; sign in as Lead A and review the request; reassign using the existing S-84 control; sign in again as A and check request history after event access moves to B.
+- **Test data:** Event `November Forum`; reason `Cannot cover the November event`; Lead A, Coordinator A and B test accounts.
+- **Expected:** Lead A sees requester, event, reason and pending status; A stays owner until Lead A reassigns; after S-84, B owns the event and A sees `actioned` despite no longer owning it.
+- **Actual:** Chromium showed Lead A the pending request and unchanged owner; S-84 moved the event to B, then A saw the actioned request in their history.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_reassignment_from_lead.py::test_coordinator_request_is_actioned_after_lead_reassignment[chromium]`; 2026-10-25.
+
+## TC-E2E-250 — Lead request empty, error, and retry states
+
+- **Scenario:** The Lead request view explains an empty queue and recovers from a failed read.
+- **Pre-conditions:** Fresh `.env.test` stack and a Lead account with no reassignment requests.
+- **Steps:** Open the Lead dashboard; observe the empty state; make the list API return `502` and reload; restore the API and choose Try again.
+- **Test data:** `GET /api/event-requests/reassignment-requests/lead`; injected `{"detail":"Events service unavailable"}`.
+- **Expected:** Empty message is visible initially; a safe error appears on failure with a retry button; retry restores the empty message.
+- **Actual:** Chromium showed the empty state, then a safe read error and retry control; retry restored the empty state.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states[chromium]`; 2026-10-25.

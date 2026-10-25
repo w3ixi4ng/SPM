@@ -2,10 +2,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from .conftest import COORDINATOR_A, COORDINATOR_B, EVENT_ID, event_row
+from .conftest import COORDINATOR_A, COORDINATOR_B, EVENT_ID, authenticate, event_row, fake_user
 
 
 ACTIVE = ["submitted", "planning", "pending_safety_check", "confirmed", "returned"]
+LEAD_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
+
+@pytest.fixture(autouse=True)
+def lead_auth(client, auth):
+    authenticate(client, auth, fake_user(LEAD_ID, "event_coordinator_lead"))
 
 
 def assigned_row(owner=COORDINATOR_A, version=0, previous=None, **changes):
@@ -21,6 +27,7 @@ def assigned_row(owner=COORDINATOR_A, version=0, previous=None, **changes):
         assigned_coordinator_id=owner,
         previous_coordinator_id=previous,
         coordinator_assignment_version=version,
+        assigning_lead_id=LEAD_ID,
         submitted_at="2026-10-08T12:00:00Z",
     )
     row.update(changes)
@@ -35,7 +42,7 @@ def current_read(db, rows):
 
 def reassignment_write(db, rows):
     operation = db.schema.return_value.table.return_value.update.return_value
-    operation.eq.return_value.eq.return_value.eq.return_value.in_.return_value.select.return_value.execute.return_value = (
+    operation.eq.return_value.eq.return_value.eq.return_value.eq.return_value.in_.return_value.select.return_value.execute.return_value = (
         SimpleNamespace(data=rows)
     )
 
@@ -50,7 +57,7 @@ def payload(target=COORDINATOR_B, expected=COORDINATOR_A, version=0):
 
 def test_internal_active_assignments_filter_status_owner_and_order(client, db):
     operation = (
-        db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.return_value
+        db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.eq.return_value.order.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=[assigned_row()])
 
@@ -62,7 +69,10 @@ def test_internal_active_assignments_filter_status_owner_and_order(client, db):
     table.select.return_value.in_.return_value.not_.is_.assert_called_once_with(
         "assigned_coordinator_id", "null"
     )
-    table.select.return_value.in_.return_value.not_.is_.return_value.order.assert_called_once_with(
+    table.select.return_value.in_.return_value.not_.is_.return_value.eq.assert_called_once_with(
+        "assigning_lead_id", LEAD_ID
+    )
+    table.select.return_value.in_.return_value.not_.is_.return_value.eq.return_value.order.assert_called_once_with(
         "updated_at", desc=True
     )
 
@@ -94,7 +104,10 @@ def test_internal_reassignment_uses_versioned_compare_and_set(client, db):
     update.return_value.eq.return_value.eq.return_value.eq.assert_called_once_with(
         "coordinator_assignment_version", 0
     )
-    update.return_value.eq.return_value.eq.return_value.eq.return_value.in_.assert_called_once_with(
+    update.return_value.eq.return_value.eq.return_value.eq.return_value.eq.assert_called_once_with(
+        "assigning_lead_id", LEAD_ID
+    )
+    update.return_value.eq.return_value.eq.return_value.eq.return_value.eq.return_value.in_.assert_called_once_with(
         "status", ACTIVE
     )
 
@@ -142,6 +155,16 @@ def test_internal_reassignment_rejects_stale_or_same_owner_requests(
     )
 
     assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
+
+
+def test_internal_reassignment_rejects_unrelated_lead_and_legacy_event(client, db):
+    current_read(db, [assigned_row(assigning_lead_id="eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")])
+    unrelated = client.post(f"/internal/events/{EVENT_ID}/reassignment", json=payload())
+    assert unrelated.status_code == 404
+    current_read(db, [assigned_row(assigning_lead_id=None)])
+    legacy = client.post(f"/internal/events/{EVENT_ID}/reassignment", json=payload())
+    assert legacy.status_code == 409
     db.schema.return_value.table.return_value.update.assert_not_called()
 
 

@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import NotificationPanel from '../components/NotificationPanel.jsx'
+import { ReassignmentRequestHistory } from '../components/ReassignmentRequestPanel.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueFilters from '../components/VenueFilters.jsx'
 import VenueList from '../components/VenueList.jsx'
@@ -314,6 +315,11 @@ export default function EventCoordinatorDashboard({ role }) {
                   })}
                 </ul>
               )}
+            </section>
+
+            <section className="border rounded-sm p-7 sm:p-8 mb-10" style={{ borderColor: C.line }}>
+              <h2 className="font-display text-2xl mb-5" style={{ color: C.ink }}>Reassignment requests</h2>
+              <ReassignmentRequestHistory />
             </section>
 
             <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>

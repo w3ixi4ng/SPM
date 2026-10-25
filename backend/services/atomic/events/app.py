@@ -39,6 +39,8 @@ from schemas import (
     InternalCoordinatorAssignmentResult,
     InternalCoordinatorReassignment,
     InternalCoordinatorReassignmentResult,
+    ReassignmentRequestCreate,
+    ReassignmentRequestRead,
     InternalSafetyDecision,
     InternalSafetyResubmit,
     InternalSafetySubmission,
@@ -58,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "events"
 TABLE = "events"
+REASSIGNMENT_TABLE = "reassignment_requests"
 # S-17: pending_safety_check sits between planning and confirmed, so it is
 # open wherever confirmed is.
 ACTIVE_ASSIGNMENT_STATUSES = [
@@ -546,20 +549,21 @@ def list_unassigned_events(db: Client = Depends(get_db)):
 
 
 @app.get("/internal/events/assigned-active", response_model=list[EventRead])
-def list_active_assigned_events(db: Client = Depends(get_db)):
+def list_active_assigned_events(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
         .select("*")
         .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
         .not_.is_("assigned_coordinator_id", "null")
+        .eq("assigning_lead_id", str(user.id))
         .order("updated_at", desc=True)
     )
     return _execute(operation).data
 
 
 @app.get("/internal/events/coordinator-overview", response_model=list[EventRead])
-def list_coordinator_overview_events(db: Client = Depends(get_db)):
+def list_coordinator_overview_events(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
     """Return assigned active rows for the S-85 composite read model.
 
     The atomic service owns lifecycle filtering. Role checks, trusted
@@ -574,6 +578,7 @@ def list_coordinator_overview_events(db: Client = Depends(get_db)):
         .not_.is_("assigned_coordinator_id", "null")
         .order("updated_at", desc=True)
     )
+    operation = operation.eq("assigning_lead_id", str(user.id))
     return _execute(operation).data
 
 
@@ -1400,6 +1405,7 @@ def create_submitted_event_internal(
 def assign_coordinator_internal(
     event_id: UUID,
     payload: InternalCoordinatorAssignment,
+    user=Depends(require_permission("events:lead_assignments")),
     db: Client = Depends(get_db),
 ):
     """Conditionally assign one submitted request.
@@ -1409,10 +1415,11 @@ def assign_coordinator_internal(
     failure. A different coordinator is a real concurrent-write conflict.
     """
     coordinator_id = str(payload.coordinator_id)
+    lead_id = str(user.id)
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
-        .update({"assigned_coordinator_id": coordinator_id})
+        .update({"assigned_coordinator_id": coordinator_id, "assigning_lead_id": lead_id})
         .eq("id", str(event_id))
         .eq("status", "submitted")
         .is_("assigned_coordinator_id", "null")
@@ -1432,6 +1439,7 @@ def assign_coordinator_internal(
     if (
         event["status"] == "submitted"
         and event.get("assigned_coordinator_id") == coordinator_id
+        and event.get("assigning_lead_id") == lead_id
     ):
         return {**event, "assignment_created": False}
 
@@ -1439,6 +1447,75 @@ def assign_coordinator_internal(
         status_code=409,
         detail="This event request is no longer available for assignment",
     )
+
+
+@app.get("/internal/events/{event_id}/assignment-scope", response_model=EventRead)
+def get_assignment_scope(event_id: UUID, user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+    rows = _execute(db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))).data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = rows[0]
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    if event["assigning_lead_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Event not found in your scope")
+    return event
+
+
+@app.post(
+    "/events/{event_id}/reassignment-request",
+    response_model=ReassignmentRequestRead,
+    status_code=201,
+)
+def create_reassignment_request_internal(
+    event_id: UUID, payload: ReassignmentRequestCreate,
+    user=Depends(require_permission("events:request_reassignment")),
+    db: Client = Depends(get_db),
+):
+    event = _get_assigned_event(event_id, str(user.id), db)
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    values = {
+        "event_id": str(event_id), "requester_id": str(user.id),
+        "assigning_lead_id": event["assigning_lead_id"],
+        "assignment_version": event["coordinator_assignment_version"],
+        "reason": payload.reason,
+    }
+    # The database trigger locks and checks the current event in the same
+    # transaction as this insert. A pre-read here would race with S-84.
+    try:
+        result = db.schema(SCHEMA).table(REASSIGNMENT_TABLE).insert(values).execute()
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code == "23505":
+            raise HTTPException(status_code=409, detail="A reassignment request is already pending") from exc
+        if code in {"23514", "23503"}:
+            raise HTTPException(status_code=409, detail="This event assignment has changed or has no responsible Lead") from exc
+        logger.exception("Reassignment request storage failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    return result.data[0]
+
+
+@app.get(
+    "/events/reassignment-requests/mine",
+    response_model=list[ReassignmentRequestRead],
+)
+def list_requester_reassignment_requests(user=Depends(require_permission("events:request_reassignment")), db: Client = Depends(get_db)):
+    return _execute(
+        db.schema(SCHEMA).table(REASSIGNMENT_TABLE).select("*")
+        .eq("requester_id", str(user.id)).order("created_at", desc=True)
+    ).data
+
+
+@app.get(
+    "/internal/reassignment-requests/lead",
+    response_model=list[ReassignmentRequestRead],
+)
+def list_lead_reassignment_requests(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+    return _execute(
+        db.schema(SCHEMA).table(REASSIGNMENT_TABLE).select("*")
+        .eq("assigning_lead_id", str(user.id)).order("created_at", desc=True)
+    ).data
 
 
 def _is_exact_reassignment_retry(
@@ -1463,6 +1540,7 @@ def _is_exact_reassignment_retry(
 def reassign_coordinator_internal(
     event_id: UUID,
     payload: InternalCoordinatorReassignment,
+    user=Depends(require_permission("events:lead_assignments")),
     db: Client = Depends(get_db),
 ):
     """Versioned compare-and-set transfer with exact-retry recognition.
@@ -1474,6 +1552,7 @@ def reassign_coordinator_internal(
     target_id = str(payload.coordinator_id)
     expected_id = str(payload.expected_coordinator_id)
     expected_version = payload.expected_assignment_version
+    lead_id = str(user.id)
 
     current = _execute(
         db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
@@ -1481,6 +1560,10 @@ def reassign_coordinator_internal(
     if not current.data:
         raise HTTPException(status_code=404, detail="Event not found")
     event = current.data[0]
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    if event["assigning_lead_id"] != lead_id:
+        raise HTTPException(status_code=404, detail="Event not found in your scope")
 
     if _is_exact_reassignment_retry(
         event,
@@ -1515,6 +1598,7 @@ def reassign_coordinator_internal(
         .eq("id", str(event_id))
         .eq("assigned_coordinator_id", expected_id)
         .eq("coordinator_assignment_version", expected_version)
+        .eq("assigning_lead_id", lead_id)
         .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
         .select("*")
     )

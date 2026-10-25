@@ -20,6 +20,13 @@ def lead_me_response():
     return organiser_me_response(user_id=LEAD_ID, role="event_coordinator_lead")
 
 
+@pytest.fixture(autouse=True)
+def scoped_event(events):
+    events.get.return_value = event_response(
+        status_code=200, assigning_lead_id=LEAD_ID,
+    )
+
+
 def request_body(target=COORDINATOR_B, expected=COORDINATOR_A, version=0):
     return {
         "coordinator_id": target,
@@ -92,7 +99,9 @@ def test_lead_lists_active_assignments_with_profiles(client, users, events):
     assert item["organiser"]["name"] == "Ada Organiser"
     assert item["coordinator"]["name"] == "Alex Coordinator"
     assert item["coordinator_assignment_version"] == 0
-    events.get.assert_awaited_once_with("/internal/events/assigned-active")
+    events.get.assert_awaited_once_with(
+        "/internal/events/assigned-active", cookies={}
+    )
     users.post.assert_awaited_once_with(
         "/internal/users/profiles", json={"ids": [ORGANISER_ID, COORDINATOR_A]}
     )

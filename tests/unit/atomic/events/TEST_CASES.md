@@ -2724,3 +2724,55 @@ case says otherwise, starts `2026-11-20` at `18:00`. "Today" is `2026-10-25`.
 - **Actual:** Confirmed returned `200` with the public fields; the query filters `status = confirmed`, and no matching row returned `404` "Event not found."
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_single_published_event_is_found_only_while_confirmed
+
+## S-88 confirmed specification — Events storage and state transitions
+
+Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted; Python unit suite and fresh `.env.test` integration stack.
+Shared data: event `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, current Coordinator
+`bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, replacement
+`cccccccc-cccc-4ccc-8ccc-cccccccccccc`, assigning Lead
+`dddddddd-dddd-4ddd-8ddd-dddddddddddd`, assignment version `2`.
+
+## TC-EVENTS-176 — create immutable request record
+
+- **Scenario:** Events owns and stores the Coordinator's request without changing the owner.
+- **Pre-conditions:** Active event has the shared owner, Lead and version; Supabase is faked.
+- **Steps:** Create a request for that event, then inspect the stored write and returned row.
+- **Test data:** Requester is current owner; reason `Cannot cover the November event`.
+- **Expected:** One row records event, requester, reason, `pending`, assignment version and server timestamps; the event owner and version are unchanged; client-supplied status or timestamps cannot override them.
+- **Actual:** The atomic route inserted validated fields only; the integration read showed a persisted pending row and unchanged event ownership.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_reassignment_requests.py::test_request_insert_passes_only_validated_fields_to_events_schema; tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTS-177 — concurrent duplicate protection
+
+- **Scenario:** Two simultaneous submissions cannot leave two pending requests.
+- **Pre-conditions:** No pending request at the start; database uniqueness is enforced.
+- **Steps:** Submit the same event twice concurrently.
+- **Test data:** Shared event and requester.
+- **Expected:** Exactly one persisted pending row; one success and one conflict response; prior actioned rows remain intact.
+- **Actual:** Two concurrent submissions produced one 201, one 409 and one persisted pending row.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_concurrent_submissions_leave_one_pending_request`; 2026-10-25.
+
+## TC-EVENTS-178 — actioned status follows successful compare-and-set
+
+- **Scenario:** S-84's versioned transfer actions the matching pending request.
+- **Pre-conditions:** Pending row names current owner and version 2.
+- **Steps:** Transfer to replacement with expected owner and version 2; read the request.
+- **Test data:** Shared IDs.
+- **Expected:** Owner becomes replacement at version 3 and the matching request becomes `actioned` with an action timestamp; a repeated exact S-84 retry leaves the same outcome without duplicate history.
+- **Actual:** S-84 transferred ownership, incremented the version and actioned the matching row; its exact retry did not create another transition.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTS-179 — stale transfer cannot action a request
+
+- **Scenario:** A version conflict leaves request and owner consistent.
+- **Pre-conditions:** Request was raised at version 2; event is still owned by the requester at version 2.
+- **Steps:** Attempt S-84 with stale expected version 1, then read the stored request and event.
+- **Test data:** Shared IDs; actual version `2`, submitted expected version `1`.
+- **Expected:** `409`; the request stays `pending`, the owner and version stay unchanged, and history remains visible to the requester.
+- **Actual:** A stale S-84 attempt returned 409; the pending row, owner and version remained unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.

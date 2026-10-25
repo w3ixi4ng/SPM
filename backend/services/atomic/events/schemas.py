@@ -349,6 +349,7 @@ class EventRead(BaseModel):
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
+    assigning_lead_id: UUID | None = None
     # Monotonic compare-and-set token for S-84 reassignment. Initial S-83
     # assignment remains version 0; every real owner-to-owner transfer adds 1.
     coordinator_assignment_version: int = Field(default=0, ge=0)
@@ -676,6 +677,33 @@ class InternalCoordinatorReassignment(BaseModel):
     coordinator_id: UUID
     expected_coordinator_id: UUID
     expected_assignment_version: int = Field(ge=0)
+
+
+class ReassignmentRequestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
+class ReassignmentRequestRead(BaseModel):
+    id: UUID
+    event_id: UUID
+    event_name: str
+    requester_id: UUID
+    assigning_lead_id: UUID
+    assignment_version: int
+    reason: str
+    status: Literal["pending", "actioned"]
+    created_at: datetime
+    actioned_at: datetime | None
 
 
 class InternalCoordinatorReassignmentResult(EventRead):

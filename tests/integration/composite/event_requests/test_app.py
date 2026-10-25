@@ -494,6 +494,7 @@ def test_lead_assignment_persists_notifications_and_repairs_missing_rows(
             events_api,
             "POST",
             f"/internal/events/{partial_event['id']}/assignment",
+                headers=lead_headers,
             json={"coordinator_id": coordinator},
         )
         assert event_only.status_code == 200, event_only.text
@@ -873,6 +874,7 @@ def test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners(
             "organiser_id": organiser_id,
             "status": "submitted",
             "assigned_coordinator_id": owner_id,
+            "assigning_lead_id": lead_session["user_id"],
             "name": name,
             "purpose": "S-85 integrity regression",
             "start_date": "2026-11-18",
