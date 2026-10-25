@@ -56,7 +56,8 @@ whether the case passes or fails, so the suite can be run twice in a row.
   7. `POST /users/login` with the same address and password.
   8. `GET /users/me` with the cookies from step 7.
   9. Delete the account and its row, in the fixture teardown.
-- **Test data:** `{"name": "Ada Lovelace", "email": "spm-test-<hex>@example.com", "password": "correct-horse-battery-staple"}`
+- **Test data:** `{"name": "Ada Lovelace", "email": "spm-test-<hex>@example.com", "password": "correct-horse-battery-staple", "role": "event_organiser"}`
+  (`role` added by S-01: sign-up now requires one.)
 - **Expected:**
   - Step 1: `201`, body has `id`, `name` and the address as sent.
   - Step 2: exactly one row, at `users.users` — not in `public`.
@@ -74,7 +75,7 @@ whether the case passes or fails, so the suite can be run twice in a row.
   `Secure` with no token in the body, and `/users/me` returned the same profile
   plus the trusted `event_organiser` role after both sign-up and login.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_signup_login_me_logout_round_trip`
+- **Evidence:** `test_app.py::test_signup_login_me_logout_round_trip`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 
 ## TC-USERS-102 — the same address cannot sign up twice
 
@@ -134,3 +135,19 @@ whether the case passes or fails, so the suite can be run twice in a row.
 - **Actual:** Not yet run.
 - **Status:** Blocked — needs the new endpoint built.
 - **Evidence:** —
+
+## TC-USERS-106 — an Attendee sign-up reads back as an Attendee
+
+- **Scenario:** S-01: the role chosen at sign-up is the one real Supabase Auth
+  hands back on `/users/me` (AC1, AC3).
+- **Pre-conditions:** Shared, including item 5.
+- **Steps:**
+  1. `POST /users/signup` with a fresh address and `"role": "attendee"`.
+  2. `GET /users/me` with the cookies from step 1.
+  3. Read the Auth user with the service_role key.
+- **Test data:** Shared test data plus `"role": "attendee"`.
+- **Expected:** 1 is `201`. 2 is `200` with `"role": "attendee"`. 3 has
+  `app_metadata.role == "attendee"`. The account is deleted afterwards.
+- **Actual:** `201`; Auth `app_metadata.role` was `attendee`; `/users/me` returned `"role": "attendee"`; account deleted.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_attendee_sign_up_reads_back_as_an_attendee`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); users suite 6 passed, 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree

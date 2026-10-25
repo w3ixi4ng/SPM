@@ -6,7 +6,7 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
 S-83 adds `test_event_assignments.mjs` and `test_notifications.mjs`; S-84
 adds `test_event_reassignments.mjs`; S-85 adds
-`test_coordinator_overview.mjs`.
+`test_coordinator_overview.mjs`; S-01 adds `test_sign_up.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -2533,3 +2533,34 @@ Specification confirmed by the developer before code. Covers `test_registration.
 - **Actual:** "No one has registered yet.", "1 attendee registered", "2 attendees registered".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the attendee count reads as a sentence; 2026-10-25, branch `S-48/register-for-event`
+
+## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
+
+## TC-FRONTEND-256 — sign-up offers exactly two roles, none chosen
+
+- **Scenario:** The page's choices are the two public roles, with no default (AC1, AC2).
+- **Pre-conditions:** None.
+- **Steps:** Read `SIGN_UP_ROLES` from `frontend/src/lib/signUp.js`; call
+  `validateSignUp` with every other field valid and `role` left at its initial value.
+- **Test data:** First `Ada`, last `Lovelace`, `ada@example.com`, password and
+  confirm `correct-horse-battery-staple`, `role: ''`.
+- **Expected:** `SIGN_UP_ROLES` is exactly `attendee` → "Attendee",
+  `event_organiser` → "Event Organiser", in that order. The result is
+  `{ role: "Choose whether you're signing up as an Attendee or an Event Organiser." }`
+  and nothing else.
+- **Actual:** Exactly Attendee then Event Organiser; with no role the only error was the role message.
+- **Status:** Pass
+- **Evidence:** test_sign_up.mjs::sign-up offers exactly two roles, none chosen; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## TC-FRONTEND-257 — the chosen role is sent with the sign-up
+
+- **Scenario:** Whichever button was picked is the role the users service receives (AC1).
+- **Pre-conditions:** `fetch` stubbed to record the request and answer `201`.
+- **Steps:** Call `signUp({ name, email, password, role })` once per role.
+- **Test data:** As TC-FRONTEND-256, with `role` `attendee`, then `event_organiser`.
+- **Expected:** `POST /api/users/signup` whose JSON body is
+  `{ name: "Ada Lovelace", email, password, role }` with that role.
+  `validateSignUp` returns `{}` for both.
+- **Actual:** Both requests were `POST /api/users/signup` with the chosen role in the body; validation returned `{}` for both.
+- **Status:** Pass
+- **Evidence:** test_sign_up.mjs::the chosen role is sent with the sign-up; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree

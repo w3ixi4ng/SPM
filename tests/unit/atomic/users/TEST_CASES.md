@@ -348,13 +348,14 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Pre-conditions:** Shared.
 - **Steps:** Submit the normal signup payload with each internal/non-public role
   added as a `role` field.
-- **Test data:** `event_coordinator`, `venue_staff`, `technical_support`, and
-  `attendee`.
+- **Test data:** `event_coordinator`, `venue_staff`, `technical_support`.
+  (`attendee` was dropped from this list by S-01: sign-up may now choose it --
+  see TC-USERS-033.)
 - **Expected:** Every request returns `422`; Supabase signup and admin role
   assignment are never called.
-- **Actual:** As expected for all four roles.
+- **Actual:** As expected for all three roles.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_signup_cannot_choose_an_internal_role`
+- **Evidence:** `test_app.py::test_signup_cannot_choose_an_internal_role`; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 
 ## TC-USERS-025 — failed trusted-role assignment is rolled back
 
@@ -471,3 +472,66 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** The returned pool contained exactly the two trusted Coordinator IDs; the profiled name remained Alex and the missing-profile account displayed its Auth email, including when that account was on Auth page 2. Every other trusted role and the editable-metadata impostor was excluded.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_listing_keeps_trusted_auth_users_without_profiles`, `test_app.py::test_coordinator_listing_includes_profileless_auth_user_on_later_page`; local Python 3.14 unit run, 2026-10-18.
+
+## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
+
+Confirmed acceptance criteria (developer, 2026-10-25):
+
+1. Sign-up asks the user to choose **Attendee** or **Event Organiser** -- one,
+   never both, with nothing pre-selected.
+2. Only those two roles can be chosen at sign-up.
+3. After sign-up the account lands on that role's dashboard.
+4. Existing accounts keep the role they already have.
+
+## TC-USERS-033 — sign-up as an Attendee stamps the attendee role
+
+- **Scenario:** The chosen role is the one written to trusted Auth metadata (AC1).
+- **Pre-conditions:** Shared. Supabase Auth sign-up returns a user and a session.
+- **Steps:** `POST /users/signup` with the shared payload plus `role`.
+- **Test data:** Shared signup payload plus `"role": "attendee"`.
+- **Expected:** `201` with the profile (`id`, `name`, `email`); the admin
+  metadata update is called once with `{"app_metadata": {"role": "attendee"}}`;
+  the profile insert contains only `id`, `name`, `email` (no role in `users.users`).
+- **Actual:** `201` with the profile; admin update called once with `role: attendee`; insert had only `id`, `name`, `email`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_signup_stamps_the_role_that_was_chosen[attendee]`; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## TC-USERS-034 — sign-up as an Event Organiser stamps the organiser role
+
+- **Scenario:** The other public choice is stamped just as faithfully (AC1).
+- **Pre-conditions:** As TC-USERS-033.
+- **Steps:** As TC-USERS-033.
+- **Test data:** Shared signup payload plus `"role": "event_organiser"`.
+- **Expected:** `201`; the admin metadata update is called once with
+  `{"app_metadata": {"role": "event_organiser"}}`.
+- **Actual:** `201`; admin update called once with `role: event_organiser`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_signup_stamps_the_role_that_was_chosen[event_organiser]`; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## TC-USERS-035 — sign-up without a role is rejected
+
+- **Scenario:** There is no default role; the caller must choose (AC1).
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /users/signup` with the shared payload and no `role`; then
+  again with `"role": null` and `"role": ""`.
+- **Test data:** Shared signup payload; `role` omitted / `null` / `""`.
+- **Expected:** Each returns `422` with `role` named in the validation errors;
+  Supabase sign-up and the admin metadata update are never called.
+- **Actual:** All three were `422` naming `role`; Supabase was never called.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_signup_without_a_role_is_rejected`; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## TC-USERS-036 — sign-up cannot choose any role but the two public ones
+
+- **Scenario:** Only Attendee and Event Organiser are choosable (AC2).
+- **Pre-conditions:** Shared.
+- **Steps:** `POST /users/signup` once per value below.
+- **Test data:** `event_coordinator`, `event_coordinator_lead`, `venue_staff`,
+  `technical_support`, `safety_officer`, `admin`, `Attendee` (wrong case),
+  `["attendee", "event_organiser"]` (both).
+- **Expected:** Every request returns `422` with `role` named in the
+  validation errors; Supabase sign-up and the admin metadata update are never
+  called.
+- **Actual:** All eight were `422` naming `role`; Supabase was never called.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_signup_cannot_choose_any_role_but_the_two_public_ones`; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree

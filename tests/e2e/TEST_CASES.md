@@ -31,7 +31,8 @@ surviving a page load.
   session and the case reports Blocked (see below).
 - **Steps:**
   1. Open `/signup` through Kong.
-  2. Fill first name, last name, email, password, confirm password.
+  2. Fill first name, last name, email, password, confirm password, and choose
+     **Event Organiser** (S-01).
   3. Submit the form.
   4. Wait for the browser to leave `/signup`.
 - **Test data:** `Ada` / `Lovelace` / `spm-e2e-<random>@example.com` /
@@ -41,7 +42,7 @@ surviving a page load.
   `/users/me` to have returned it, and the route guard to have resolved it.
 - **Actual:** Redirected to `/dashboard/event-organiser`.
 - **Status:** Pass
-- **Evidence:** `test_sign_up.py::test_sign_up_lands_on_the_organiser_dashboard`
+- **Evidence:** `test_sign_up.py::test_sign_up_lands_on_the_organiser_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 
 > If the test project has email confirmation on, the case skips with the fix
 > spelled out rather than failing. That is **Blocked**, not Fail — the code is
@@ -1306,12 +1307,8 @@ Confirmed by the developer on 2026-10-11.
   is shown and there is no enabled **Register** button.
 - **Actual:** Chromium: the page showed "Registration hasn't opened yet. It's open from {opening} to {closing}." and no Register button.
 - **Status:** Pass
-<<<<<<< HEAD
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
 
-=======
-- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
->>>>>>> origin/sprint4
 ## S-88 confirmed specification — Coordinator request to Lead action
 
 Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted, Chromium against fresh `.env.test` stack.
@@ -1338,7 +1335,6 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states[chromium]`; 2026-10-25.
 
-<<<<<<< HEAD
 ## S-48 — Register for Event
 
 ## TC-E2E-252 — an Attendee's registration shows on their dashboard and on the Organiser's event
@@ -1359,11 +1355,30 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** Chromium: the dashboard first said "You haven't registered for any events yet."; after registering it linked the event to `/public/events/P` with its date; the Organiser's `/events/P` showed "1 attendee registered" with A's name and email.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_a_registration_shows_on_the_attendees_dashboard_and_the_organisers_event[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
-=======
+
 ## TC-E2E-251 - Venue Staff prepare two venues and readiness updates
 - **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
 - **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
 - **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
 - **Status:** Pass.
 - **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
->>>>>>> origin/sprint4
+
+## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
+
+## TC-E2E-253 — an Attendee sign-up lands on the Attendee dashboard
+
+- **Scenario:** Choosing Attendee on the real form ends on the Attendee
+  dashboard, and the page will not submit until a role is chosen (AC1, AC3).
+- **Pre-conditions:** As TC-E2E-201.
+- **Steps:**
+  1. Open `/signup` through Kong; check neither **Attendee** nor **Event
+     Organiser** is selected.
+  2. Fill every other field and submit.
+  3. Choose **Attendee** and submit again.
+- **Test data:** As TC-E2E-201, with a fresh `spm-e2e-*` address.
+- **Expected:** 1: both role buttons report not pressed. 2: the page stays on
+  `/signup` showing "Choose whether you're signing up as an Attendee or an
+  Event Organiser." 3: the browser ends on `/dashboard/attendee`.
+- **Actual:** Chromium: both buttons started `aria-pressed="false"`; submitting without a role stayed on `/signup` with the role message; after choosing Attendee the browser ended on `/dashboard/attendee`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_sign_up.py::test_an_attendee_sign_up_lands_on_the_attendee_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree

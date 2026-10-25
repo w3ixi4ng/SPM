@@ -26,7 +26,6 @@ app = FastAPI(title="Users Service")
 
 SCHEMA = "users"
 TABLE = "users"
-PUBLIC_SIGNUP_ROLE = "event_organiser"
 COORDINATOR_ROLE = "event_coordinator"
 TECHNICAL_SUPPORT_ROLE = "technical_support"
 
@@ -161,7 +160,7 @@ def signup(
     try:
         db.auth.admin.update_user_by_id(
             created.user.id,
-            {"app_metadata": {"role": PUBLIC_SIGNUP_ROLE}},
+            {"app_metadata": {"role": payload.role}},
         )
     except Exception:
         _discard_auth_user(db, created.user.id)
