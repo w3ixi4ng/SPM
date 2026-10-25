@@ -113,7 +113,7 @@ test('the form sends the period as one date-time, and can leave it out', () => {
   )
 })
 
-// --- TC-FRONTEND-251 -------------------------------------------------------
+// --- TC-FRONTEND-254 -------------------------------------------------------
 test('the registration lists are read from the composite', async (t) => {
   const calls = []
   const realFetch = globalThis.fetch
@@ -134,7 +134,7 @@ test('the registration lists are read from the composite', async (t) => {
   for (const call of calls) assert.equal(call.options.credentials, 'include')
 })
 
-// --- TC-FRONTEND-252 -------------------------------------------------------
+// --- TC-FRONTEND-255 -------------------------------------------------------
 test('the attendee count reads as a sentence', () => {
   assert.equal(attendeeCountLabel(0), 'No one has registered yet.')
   assert.equal(attendeeCountLabel(1), '1 attendee registered')

@@ -48,6 +48,7 @@ def test_lead_assigns_request_and_both_recipients_are_notified(
     request_link = page.get_by_role("link").filter(has_text=event_name)
     request_link.get_by_text("Under review").wait_for(timeout=20000)
     page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
     sign_in(lead)
     page.wait_for_url(
@@ -64,6 +65,7 @@ def test_lead_assigns_request_and_both_recipients_are_notified(
     )
     assert card.count() == 0
     page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
     sign_in(coordinator)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
@@ -74,6 +76,7 @@ def test_lead_assigns_request_and_both_recipients_are_notified(
     page.reload()
     page.get_by_text(coordinator_message, exact=True).wait_for(timeout=20000)
     page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
     sign_in(organiser)
     organiser_message = f"E2E Tester has been assigned to {event_name}."
@@ -81,6 +84,7 @@ def test_lead_assigns_request_and_both_recipients_are_notified(
     page.reload()
     page.get_by_text(organiser_message, exact=True).wait_for(timeout=20000)
     page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
     sign_in(unrelated)
     page.wait_for_url(re.compile(r"/dashboard/attendee$"), timeout=20000)

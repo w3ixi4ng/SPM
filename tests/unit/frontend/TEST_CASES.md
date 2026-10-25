@@ -2489,11 +2489,28 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_reassignment_requests.mjs; tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states`; 2026-10-25.
 
+## S-25 - Update Venue Preparation Status
+
+### TC-FRONTEND-251 - readiness shows every confirmed venue's status
+- **Expected:** Each confirmed booking is listed separately as Not Started, In Progress, or Ready.
+- **Status:** Pass.
+- **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
+
+### TC-FRONTEND-252 - venue readiness requires every confirmed venue
+- **Expected:** Venue is complete only when at least one confirmed booking exists and all are Ready.
+- **Status:** Pass.
+- **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
+
+### TC-FRONTEND-253 - staff preparation updates use the gateway
+- **Expected:** The browser sends the state and expected version and reports success or a specific failure.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.mjs::venue preparation calls use the gateway and optimistic version`; `test_venue_preparation.mjs::venue preparation labels and failures stay specific`; `test_access.mjs::only venue staff update venue preparation`.
+
 ## S-48 — Register for Event
 
 Specification confirmed by the developer before code. Covers `test_registration.mjs`.
 
-## TC-FRONTEND-251 — the registration lists are read from the composite
+## TC-FRONTEND-254 — the registration lists are read from the composite
 
 - **Scenario:** The dashboard and the Organiser's event page read the S-48 lists (S-48 AC3).
 - **Pre-conditions:** `fetch` is faked.
@@ -2506,7 +2523,7 @@ Specification confirmed by the developer before code. Covers `test_registration.
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the registration lists are read from the composite; 2026-10-25, branch `S-48/register-for-event`
 
-## TC-FRONTEND-252 — the attendee count reads as a sentence
+## TC-FRONTEND-255 — the attendee count reads as a sentence
 
 - **Scenario:** The Organiser's list states how many have registered.
 - **Pre-conditions:** None.

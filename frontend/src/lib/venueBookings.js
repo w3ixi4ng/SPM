@@ -131,6 +131,33 @@ export function listPendingVenueBookings() {
   return requestJSON('/venue-bookings/pending')
 }
 
+export const VENUE_PREPARATION_OPTIONS = [
+  { value: 'not_started', label: 'Not Started' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'ready', label: 'Ready' },
+]
+
+export function venuePreparationLabel(status) {
+  return VENUE_PREPARATION_OPTIONS.find(({ value }) => value === status)?.label ?? 'Not Started'
+}
+
+export function listVenuePreparationBookings() {
+  return requestJSON('/venue-bookings/preparation')
+}
+
+export function updateVenuePreparation(id, status, expectedVersion) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/preparation`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, expected_version: expectedVersion }),
+  })
+}
+
+export function venuePreparationErrorMessage(error) {
+  if ([401, 403, 404, 409, 422].includes(error.status) && error.message) return error.message
+  return "We couldn't update venue preparation. Reload and try again."
+}
+
 // The requests sent for one event, every status, oldest first.
 export function listVenueBookingsForEvent(eventId) {
   return requestJSON(`/venue-bookings?event_id=${encodeURIComponent(eventId)}`)

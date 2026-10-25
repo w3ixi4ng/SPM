@@ -1,6 +1,6 @@
 """TC-E2E-247, TC-E2E-248 -- S-51: anyone reads a confirmed event's public
 page; an Attendee registers while registration is open, and is told when it
-isn't. TC-E2E-251 -- S-48: the registration then shows on the Attendee's
+isn't. TC-E2E-252 -- S-48: the registration then shows on the Attendee's
 dashboard and on the Organiser's own event page.
 
 What only a browser proves: the public routes need no session, Kong serves
@@ -143,7 +143,7 @@ def test_an_attendee_is_told_registration_hasnt_opened_yet(admin, page, make_use
     expect(page.get_by_role("button", name="Register")).to_have_count(0)
 
 
-# --- TC-E2E-251 -----------------------------------------------------------
+# --- TC-E2E-252 -----------------------------------------------------------
 def test_a_registration_shows_on_the_attendees_dashboard_and_the_organisers_event(
     admin, page, make_user, sign_in
 ):
