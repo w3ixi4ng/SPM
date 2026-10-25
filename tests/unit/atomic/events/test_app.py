@@ -336,6 +336,7 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
         "events:decide",
         # S-61
         "events:decide_cancellation",
+        "events:request_reassignment",
     }
 
 

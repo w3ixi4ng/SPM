@@ -16,13 +16,14 @@ import {
   reassignmentErrorMessage,
 } from '../lib/eventAssignments.js'
 import { getRoleAccess } from '../lib/access.js'
+import { listLeadReassignmentRequests, reassignmentRequestError } from '../lib/reassignmentRequests.js'
 
 const C = {
   ink: '#10192B', inkFaint: '#4C5A70', paper: '#F8F6F1', line: '#E3DFD3',
   teal: '#0E7C74', green: '#3F8F5F', paperDim: '#F0EDE5',
 }
 
-const REASSIGNABLE_STATUSES = new Set(['submitted', 'returned', 'planning', 'confirmed'])
+const REASSIGNABLE_STATUSES = new Set(['submitted', 'returned', 'planning', 'pending_safety_check', 'confirmed'])
 
 function formatWindow(event) {
   return `${event.start_date} ${event.start_time?.slice(0, 5)} – ${event.end_date} ${event.end_time?.slice(0, 5)}`
@@ -40,6 +41,22 @@ export default function EventCoordinatorLeadDashboard({ role }) {
   const [choices, setChoices] = useState({})
   const [assigning, setAssigning] = useState(null)
   const [notice, setNotice] = useState('')
+  const [requests, setRequests] = useState({ status: 'loading', rows: [] })
+
+  function loadRequests() {
+    setRequests({ status: 'loading', rows: [] })
+    listLeadReassignmentRequests()
+      .then((rows) => setRequests({ status: 'ready', rows }))
+      .catch((error) => setRequests({ status: 'error', rows: [], error: reassignmentRequestError(error) }))
+  }
+
+  useEffect(() => {
+    let active = true
+    listLeadReassignmentRequests()
+      .then((rows) => { if (active) setRequests({ status: 'ready', rows }) })
+      .catch((error) => { if (active) setRequests({ status: 'error', rows: [], error: reassignmentRequestError(error) }) })
+    return () => { active = false }
+  }, [])
 
   function load() {
     setState((current) => ({ ...current, status: 'loading', error: null }))
@@ -110,6 +127,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
       }))
       setChoices((current) => ({ ...current, [choiceKey]: '' }))
       setNotice(`${event.name} was reassigned to ${coordinator?.name || 'the selected coordinator'}.`)
+      loadRequests()
     } catch (error) {
       setNotice(reassignmentErrorMessage(error))
     } finally {
@@ -164,6 +182,24 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                       {assigning === event.id ? 'Assigning…' : 'Assign request'}
                     </button>
                   </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }}>
+          <h2 className="font-display text-2xl mb-5" style={{ color: C.ink }}>Reassignment requests</h2>
+          {requests.status === 'loading' && <p className="font-ui text-sm">Loading reassignment requests…</p>}
+          {requests.status === 'error' && <p role="alert" className="font-ui text-sm">{requests.error} <button type="button" className="underline" onClick={loadRequests}>Try again</button></p>}
+          {requests.status === 'ready' && requests.rows.length === 0 && <p className="font-ui text-sm">No reassignment requests in your scope.</p>}
+          {requests.status === 'ready' && requests.rows.length > 0 && (
+            <ul className="space-y-3 font-ui text-sm">
+              {requests.rows.map((item) => (
+                <li key={item.id} className="border rounded-sm p-4" style={{ borderColor: C.line }}>
+                  <strong>{item.event_name}</strong> · {item.requester?.name || 'Unknown coordinator'} · {item.status === 'actioned' ? 'Actioned' : 'Pending'}
+                  <p className="mt-1" style={{ color: C.inkFaint }}>{item.reason}</p>
+                  {item.status === 'pending' && <p className="mt-1" style={{ color: C.teal }}>Use the reassignment control in Coordinator oversight below.</p>}
                 </li>
               ))}
             </ul>

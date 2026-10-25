@@ -20,6 +20,7 @@ from schemas import (
     CancellationDecision,
     CoordinatorAssignmentCreate,
     CoordinatorReassignmentCreate,
+    ReassignmentRequestSubmit,
     EventRequestSubmit,
     EventRequestUpdate,
     TechnicalSupportRequest,
@@ -432,7 +433,7 @@ async def list_active_assignments(
 ):
     await _authenticate_lead(request, users)
     try:
-        response = await events.get("/internal/events/assigned-active")
+        response = await events.get("/internal/events/lead-assigned-active", cookies=request.cookies)
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)
         raise HTTPException(status_code=502, detail="Events service unavailable") from exc
@@ -483,7 +484,7 @@ async def coordinator_overview(
     coordinators = await _coordinator_pool(users)
 
     try:
-        response = await events.get("/internal/events/coordinator-overview")
+        response = await events.get("/internal/events/coordinator-overview", cookies=request.cookies)
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)
         raise HTTPException(status_code=502, detail="Events service unavailable") from exc
@@ -560,7 +561,7 @@ async def assign_event_request(
     try:
         event_response = await events.post(
             f"/internal/events/{event_id}/assignment",
-            json={"coordinator_id": coordinator_id},
+            json={"coordinator_id": coordinator_id}, cookies=request.cookies,
         )
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)
@@ -609,6 +610,68 @@ async def assign_event_request(
     return event
 
 
+@app.get("/event-requests/reassignment-requests/mine")
+async def my_reassignment_requests(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    await _authenticate_coordinator(request, users)
+    try:
+        response = await events.get("/events/reassignment-requests/mine", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    return response.json()
+
+
+@app.get("/event-requests/reassignment-requests/lead")
+async def lead_reassignment_requests(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    await _authenticate_lead(request, users)
+    try:
+        response = await events.get("/internal/reassignment-requests/lead", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    rows = response.json()
+    profiles = await _profiles_by_id(users, [row["requester_id"] for row in rows])
+    return [{**row, "requester": profiles.get(row["requester_id"], {
+        "id": row["requester_id"], "name": "Unknown coordinator", "email": None,
+    })} for row in rows]
+
+
+@app.post("/event-requests/{event_id}/reassignment-request", status_code=201)
+async def request_event_reassignment(
+    event_id: UUID,
+    payload: ReassignmentRequestSubmit,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    await _authenticate_coordinator(request, users)
+    event = await _assigned_event(event_id, request, events)
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    try:
+        response = await events.post(
+            f"/events/{event_id}/reassignment-request",
+            json={"reason": payload.reason}, cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code in (404, 409, 422):
+        raise HTTPException(status_code=response.status_code, detail=response.json().get("detail"))
+    if response.status_code != 201:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    return response.json()
+
+
 @app.post("/event-requests/{event_id}/reassignment")
 async def reassign_event_request(
     event_id: UUID,
@@ -618,7 +681,7 @@ async def reassign_event_request(
     events: httpx.AsyncClient = Depends(get_events_client),
     notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
-    await _authenticate_lead(request, users)
+    lead = await _authenticate_lead(request, users)
     target_id = str(payload.coordinator_id)
     expected_id = str(payload.expected_coordinator_id)
     if target_id == expected_id:
@@ -637,9 +700,25 @@ async def reassign_event_request(
         )
 
     try:
+        scope_response = await events.get(
+            f"/internal/events/{event_id}/assignment-scope", cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if scope_response.status_code in (404, 409):
+        raise HTTPException(status_code=scope_response.status_code, detail=scope_response.json().get("detail"))
+    if scope_response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    scope = scope_response.json()
+    if not scope.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    if scope["assigning_lead_id"] != lead["id"]:
+        raise HTTPException(status_code=404, detail="Event not found in your scope")
+
+    try:
         event_response = await events.post(
             f"/internal/events/{event_id}/reassignment",
-            json=payload.model_dump(mode="json"),
+            json=payload.model_dump(mode="json"), cookies=request.cookies,
         )
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)

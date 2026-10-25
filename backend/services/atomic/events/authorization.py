@@ -23,6 +23,7 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
 # S-61: and decide on an Organiser's cancellation request.
 EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({
     "events:view_assigned",
+    "events:request_reassignment",
     "events:decide",
     "events:update_assigned",
     "events:decide_cancellation",
@@ -38,6 +39,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "event_coordinator": frozenset(
         {DASHBOARD_PERMISSION, *EVENT_COORDINATOR_EVENT_PERMISSIONS}
     ),
+    "event_coordinator_lead": frozenset({DASHBOARD_PERMISSION, "events:lead_assignments"}),
     "venue_staff": frozenset({DASHBOARD_PERMISSION, "events:view_booking_status"}),
     "technical_support": frozenset(
         {

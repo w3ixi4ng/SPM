@@ -1,6 +1,7 @@
 # Events service
 
-Atomic FastAPI service for event requests. It owns `events.events` and never
+Atomic FastAPI service for event requests. It owns `events.events` and
+`events.reassignment_requests` and never
 queries another service's tables.
 
 ## Endpoints
@@ -17,6 +18,8 @@ queries another service's tables.
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
+| `POST` | `/events/{event_id}/reassignment-request` | `events:request_reassignment` | Create a reasoned request for the current Coordinator. |
+| `GET` | `/events/reassignment-requests/mine` | `events:request_reassignment` | List the caller's request history, including actioned requests after transfer. |
 | `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
 | `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `pending_safety_check`, `confirmed`, and `preparation` events. |
@@ -28,9 +31,10 @@ queries another service's tables.
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
 
-Internal, composite-only routes — no Kong route, unauthenticated at this
-layer because they are unreachable from a browser; only the `event_requests`
-composite calls them. See [Internal routes](#internal-routes-composite-only).
+Internal, composite-only routes have no Kong route. S-83/S-84/S-85/S-88
+assignment and request routes also verify the Lead's session at this layer,
+because service ports are published for direct testing. See
+[Internal routes](#internal-routes-composite-only).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -39,9 +43,12 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/events/overlapping` | S-44: the `planning` and `confirmed` events overlapping a window, for the `equipment_requirements` composite's availability check. |
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
-| `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
-| `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `pending_safety_check`, `confirmed`, and `returned` events, newest update first. |
-| `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, and `confirmed` events, newest update first. |
+| `POST` | `/internal/events/{event_id}/assignment` | Authenticated Lead assigns an unassigned request, recording their ID; same-target retry support. |
+| `GET` | `/internal/events/assigned-active` | Internal cross-service active assignments for affected booking notifications. |
+| `GET` | `/internal/events/lead-assigned-active` | Authenticated Lead's active assignments, newest update first. |
+| `GET` | `/internal/events/coordinator-overview` | Authenticated Lead's scoped S-85 active events, newest update first. |
+| `GET` | `/internal/events/{event_id}/assignment-scope` | Return an event only to its recorded assigning Lead. |
+| `GET` | `/internal/reassignment-requests/lead` | Return only the authenticated Lead's request history. |
 | `GET` | `/internal/events/safety-review` | S-86 queue source: list `pending_safety_check` events with no current safety decision, oldest update first. |
 | `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
 | `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
@@ -50,14 +57,14 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/internal/events/{event_id}/safety-submission` | S-17: move the Coordinator's planning event to `pending_safety_check`. See [Safety-check submission](#safety-check-submission-and-sign-off-s-17). |
 | `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
 | `POST` | `/internal/events/{event_id}/technical-signoff/clear` | S-17: clear the sign-off after a Coordinator equipment change. |
-| `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
+| `POST` | `/internal/events/{event_id}/reassignment` | Authenticated responsible Lead's versioned compare-and-set transfer, with exact-retry support. |
 | `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
 | `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
 | `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
 
-All event endpoints except health authenticate the `sb_access_token` and
+Public event endpoints and the S-83/S-84/S-85/S-88 Lead routes authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
 trusted `app_metadata.role` against the permission shown above.
 
@@ -68,7 +75,8 @@ Technical Support workflows have the following event permissions:
 | Role | Permissions |
 | --- | --- |
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
-| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation` |
+| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation`, `events:request_reassignment` |
+| `event_coordinator_lead` | `dashboard:view`, `events:lead_assignments` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation` |
 | `attendee` | `dashboard:view` |
@@ -666,6 +674,37 @@ returns `200` with `assignment_created: false`; this lets the composite repair
 a failed notification write. A different existing assignment or changed
 status returns `409`, and a missing event returns `404`. This atomic route does
 not evaluate schedule conflicts.
+The Lead identity comes from the verified session and is stored as
+`assigning_lead_id`; a retry by another Lead cannot claim the event.
+
+### Reassignment requests (S-88)
+
+The authenticated current Coordinator may call
+`POST /events/{event_id}/reassignment-request` with exactly
+`{"reason":"Cannot cover the November event"}`. The reason must be nonblank
+and at most 2,000 characters. The service derives requester, assigning Lead,
+and assignment version from the current event; clients cannot provide them.
+The request is inserted into `events.reassignment_requests` with database
+timestamps. A database trigger locks and rechecks the event in the same
+transaction as insertion. A unique pending index rejects concurrent duplicates.
+
+Success is `201` with this shape:
+
+```json
+{"id":"ffffffff-ffff-4fff-8fff-ffffffffffff","event_id":"33333333-3333-4333-8333-333333333333","event_name":"November Forum","requester_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","assigning_lead_id":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","assignment_version":2,"reason":"Cannot cover the November event","status":"pending","created_at":"2026-10-25T00:00:00Z","actioned_at":null}
+```
+
+`GET /events/reassignment-requests/mine` and the Lead-only internal list
+take no parameters or body and return arrays of these rows. Both filter by
+the verified caller's ID. A successful S-84 event update actions the matching
+pending request in the same database transaction, setting `actioned_at`; a
+failed transfer leaves it pending. The original requester can read the
+actioned row after losing event ownership. Historical rows remain.
+
+Failures use `{"detail":"..."}`: `401` for no session, `403` for a wrong
+role, `404` for an event outside the Coordinator's or Lead's scope, `409` for
+no recorded Lead, duplicate pending request, or a stale assignment, `422`
+for an invalid reason, and `500` if Events storage fails.
 
 ### `PATCH /events/{event_id}/internal`
 
