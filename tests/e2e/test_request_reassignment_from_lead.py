@@ -38,6 +38,7 @@ def test_coordinator_request_is_actioned_after_lead_reassignment(page, make_user
     page.get_by_text(reason, exact=True).wait_for(timeout=20000)
     page.goto("/dashboard/event-coordinator")
     page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
     sign_in(lead)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator-lead$"), timeout=20000)
@@ -50,6 +51,7 @@ def test_coordinator_request_is_actioned_after_lead_reassignment(page, make_user
     page.get_by_text(f"{event_name} was reassigned to Blair Coordinator.", exact=True).wait_for(timeout=30000)
     requests.get_by_text("Actioned", exact=False).wait_for(timeout=20000)
     page.get_by_role("button", name="Sign out").click()
+    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
     sign_in(former)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)

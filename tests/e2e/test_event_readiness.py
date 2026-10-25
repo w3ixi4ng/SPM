@@ -81,6 +81,10 @@ def test_coordinator_readiness_tracks_current_underlying_data(
         "venue_name": venue["name"],
         "decided_by": venue_staff["id"],
         "decided_at": "2026-10-02T00:00:00Z",
+        "venue_preparation_status": "ready",
+        "venue_preparation_updated_by": venue_staff["id"],
+        "venue_preparation_updated_at": "2026-10-02T01:00:00Z",
+        "venue_preparation_version": 1,
     }).execute()
 
     sign_in(coordinator)
