@@ -38,7 +38,13 @@ import {
   updateEventDraft,
   validateCancellationReason,
 } from '../lib/eventRequests.js'
-import { describeRegistration, validateRegistrationSettings } from '../lib/registration.js'
+import {
+  attendeeCountLabel,
+  describeRegistration,
+  formatRegistrationMoment,
+  listEventAttendees,
+  validateRegistrationSettings,
+} from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -556,6 +562,88 @@ function RegistrationSettings({ editable, form, saved, errors, onChange }) {
       )}
     </div>
   )
+}
+
+// S-48: who holds a place at this confirmed event, earliest first. The
+// composite shows it to the event's own Organiser only.
+function RegisteredAttendees({ eventId }) {
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [state, setState] = useState({ status: 'loading', list: null })
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading', list: null })
+    listEventAttendees(eventId)
+      .then((list) => { if (active) setState({ status: 'ready', list }) })
+      .catch((error) => {
+        if (active) setState({ status: 'error', list: null, message: error.message })
+      })
+    return () => { active = false }
+  }, [eventId, loadAttempt])
+
+  return (
+    <section aria-labelledby="registered-attendees-heading">
+      <h2
+        id="registered-attendees-heading"
+        className="block font-display text-s font-medium mb-1"
+        style={{ color: C.ink }}
+      >
+        Registered attendees
+      </h2>
+      {state.status === 'loading' && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading attendees…</p>
+      )}
+      {state.status === 'error' && (
+        <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          <p role="alert">We couldn&apos;t load who has registered. {state.message}</p>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt((n) => n + 1)}
+            className="mt-3 px-4 py-2 rounded-sm border font-medium"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {state.status === 'ready' && (
+        <>
+          <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
+            {attendeeCountLabel(state.list.count)}
+          </p>
+          {state.list.attendees.length > 0 && (
+            <ul className="divide-y border-t border-b" style={{ borderColor: C.line }}>
+              {state.list.attendees.map((attendee) => (
+                <li
+                  key={attendee.attendee_id}
+                  className="py-3 flex flex-wrap items-baseline justify-between gap-2"
+                  style={{ borderColor: C.line }}
+                >
+                  <div>
+                    <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>
+                      {attendee.name || 'Name not on record'}
+                    </p>
+                    <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                      {attendee.email || 'Email not on record'}
+                    </p>
+                  </div>
+                  <p className="font-ui text-xs" style={{ color: C.inkFaint }}>
+                    Registered {formatRegistrationMoment(singaporeTime(attendee.registered_at))}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+// A registration time is a real instant; show it in Singapore wall-clock
+// time, like every other time on the page.
+function singaporeTime(instant) {
+  return new Date(new Date(instant).getTime() + 8 * 60 * 60 * 1000).toISOString()
 }
 
 function StatusBadge({ status }) {
@@ -1572,6 +1660,10 @@ export default function EventRequestForm() {
               errors={errors}
               onChange={updateField}
             />
+
+            {routeId && status === 'confirmed' && savedForm.registrationRequired && (
+              <RegisteredAttendees eventId={routeId} />
+            )}
 
             <div>
               <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>

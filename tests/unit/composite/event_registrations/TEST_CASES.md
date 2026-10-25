@@ -13,9 +13,9 @@ open; at exactly the closing time it is closed.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_registrations` |
-| Last run | 2026-10-25, branch `S-51/configure-registration-and-open-close-period`, pre-commit working tree |
+| Last run | 2026-10-25, branch `S-48/register-for-event`, pre-commit working tree |
 | Environment | Python 3.14.4, pytest 9.1.1; no network, database, or Docker |
-| Result | 12 cases, 17 tests passed in this suite; 1325 passed, 17 skipped across `tests/unit` |
+| Result | 18 cases, 26 tests passed in this suite; 1364 passed, 17 skipped across `tests/unit` |
 
 Event E below is `confirmed`, starts `2026-11-20 18:00`, registration on,
 opens `2026-11-01T09:00`, closes `2026-11-15T18:00`. Its one confirmed booking
@@ -90,27 +90,27 @@ is the venue "Seminar Room 2-1".
 
 ## TC-EVENTREGISTRATIONS-006 — registering before the period opens is blocked
 
-- **Scenario:** Attempts before opening are blocked with a message (S-51 AC3).
+- **Scenario:** Attempts before opening are blocked with a message (S-51 AC3; S-48 AC1, AC2 — the message states the whole window, developer's answer 2026-10-25).
 - **Pre-conditions:** Signed-in Attendee A; event E.
 - **Steps:** `POST /event-registrations/events/E/registration` at each clock.
 - **Test data:** 1. `2026-10-25 10:00` SGT. 2. `2026-11-01 08:59` SGT.
   3. `2026-11-01 09:00` SGT (exactly opening).
-- **Expected:** 1 and 2 → `409` "Registration opens on 1 Nov 2026, 9:00 am."
+- **Expected:** 1 and 2 → `409` "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
   and the registrations service is not called. 3 → `201`.
-- **Actual:** 10:00 on 25 Oct and 08:59 on 1 Nov → `409` "Registration opens on 1 Nov 2026, 9:00 am." with no registrations call; 09:00 → `201`.
+- **Actual:** 10:00 on 25 Oct and 08:59 on 1 Nov → `409` with the whole-window "hasn't opened yet" message, no registrations call; 09:00 → `201`.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_registering_before_the_period_opens_is_blocked; tests/unit/composite/event_registrations/test_app.py::test_registration_opens_at_exactly_the_opening_time
 
 ## TC-EVENTREGISTRATIONS-007 — registering after the period closes is blocked
 
-- **Scenario:** Attempts after closing are blocked with a message (S-51 AC3).
+- **Scenario:** Attempts after closing are blocked with a message (S-51 AC3; S-48 AC1, AC2).
 - **Pre-conditions:** Signed-in Attendee A; event E.
 - **Steps:** `POST /event-registrations/events/E/registration` at each clock.
 - **Test data:** 1. `2026-11-15 17:59` SGT. 2. `2026-11-15 18:00` SGT
   (exactly closing). 3. `2026-11-18 09:00` SGT.
-- **Expected:** 1 → `201`. 2 and 3 → `409` "Registration closed on 15 Nov
-  2026, 6:00 pm." and the registrations service is not called.
-- **Actual:** 17:59 → `201`; 18:00 on 15 Nov and 09:00 on 18 Nov → `409` "Registration closed on 15 Nov 2026, 6:00 pm." with no registrations call.
+- **Expected:** 1 → `201`. 2 and 3 → `409`
+  "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm." and the registrations service is not called.
+- **Actual:** 17:59 → `201`; 18:00 on 15 Nov and 09:00 on 18 Nov → `409` with the whole-window "has closed" message, no registrations call.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_registering_after_the_period_closes_is_blocked; tests/unit/composite/event_registrations/test_app.py::test_registration_is_still_open_a_minute_before_closing
 
@@ -145,9 +145,9 @@ is the venue "Seminar Room 2-1".
 - **Pre-conditions:** Signed-in Attendee A; event E. The injected clock is UTC.
 - **Steps:** `POST /event-registrations/events/E/registration` at each UTC instant.
 - **Test data:** 1. `2026-11-01T00:59:00Z` (08:59 SGT). 2. `2026-11-01T01:00:00Z` (09:00 SGT).
-- **Expected:** 1 → `409` "Registration opens on 1 Nov 2026, 9:00 am."
+- **Expected:** 1 → `409` "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
   2 → `201`.
-- **Actual:** 00:59Z → `409` with the opening message; 01:00Z → `201`.
+- **Actual:** 00:59Z → `409` with the whole-window "hasn't opened yet" message; 01:00Z → `201`.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_now_is_singapore_time_whatever_the_servers_clock
 
@@ -175,3 +175,111 @@ is the venue "Seminar Room 2-1".
 - **Actual:** `502` "Events service unavailable", then `502` "Registrations service unavailable".
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_a_service_it_depends_on_is_down
+
+## S-48 — Register for Event
+
+Acceptance criteria and the developer's answers, 2026-10-25: a successful
+registration is visible to the Attendee, as a list on their dashboard, and to
+the event's own Organiser only, as the event's attendee list with each
+attendee's name, email and registration time plus a count. The period checks
+and their messages are TC-EVENTREGISTRATIONS-006, -007 and -010.
+
+Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
+("Ada Tan", `ada@example.com`, registered `2026-11-05T04:00:00Z`) and B
+("Ben Lim", `ben@example.com`, registered `2026-11-06T04:00:00Z`).
+
+## TC-EVENTREGISTRATIONS-013 — the Organiser sees who registered for their event
+
+- **Scenario:** A registration is recorded against the event and its Organiser sees it (S-48 AC3).
+- **Pre-conditions:** O's session cookie. Events fake answers
+  `GET /events/E` (with O's cookie forwarded) `200`. Registrations fake
+  returns A's and B's rows for E. Users fake answers
+  `POST /internal/users/profiles` with A and B.
+- **Steps:** `GET /event-registrations/events/E/attendees`.
+- **Test data:** As above.
+- **Expected:** `200` exactly:
+  ```json
+  {"event_id": "E", "count": 2, "attendees": [
+    {"attendee_id": "A", "name": "Ada Tan", "email": "ada@example.com", "registered_at": "2026-11-05T04:00:00Z"},
+    {"attendee_id": "B", "name": "Ben Lim", "email": "ben@example.com", "registered_at": "2026-11-06T04:00:00Z"}]}
+  ```
+  Earliest registration first. The users service received `{"ids": [A, B]}`.
+- **Actual:** `200` with the exact body, A before B; O's cookie forwarded to `GET /events/E`; users received `{"ids": [A, B]}`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_the_organiser_sees_who_registered_for_their_event
+
+## TC-EVENTREGISTRATIONS-014 — an event no one has registered for yet
+
+- **Scenario:** The Organiser's list is empty rather than an error.
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-013, but the registrations fake returns `[]`.
+- **Steps:** `GET /event-registrations/events/E/attendees`.
+- **Test data:** As above.
+- **Expected:** `200` `{"event_id": "E", "count": 0, "attendees": []}`. The
+  users profile lookup is not called.
+- **Actual:** `200` `{"event_id": "E", "count": 0, "attendees": []}`; users never called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_an_event_no_one_has_registered_for_yet
+
+## TC-EVENTREGISTRATIONS-015 — only the event's own Organiser sees its attendees
+
+- **Scenario:** Attendee names and emails reach no one else (developer's answer, 2026-10-25).
+- **Pre-conditions:** The events fake's `GET /events/E` answers, in turn:
+  `401`, `403` `{"detail": "Insufficient permissions"}` (an Attendee or
+  Coordinator), `404` `{"detail": "Event not found"}` (another Organiser).
+- **Steps:** `GET /event-registrations/events/E/attendees` once per answer.
+- **Test data:** As above.
+- **Expected:** `401` "Sign in to see who has registered.", then `403`
+  "Insufficient permissions", then `404` "Event not found". The registrations
+  and users services are never called.
+- **Actual:** `401` "Sign in to see who has registered.", `403` "Insufficient permissions", `404` "Event not found"; registrations and users never called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_only_the_events_own_organiser_sees_its_attendees
+
+## TC-EVENTREGISTRATIONS-016 — an Attendee sees the events they registered for
+
+- **Scenario:** A registration is recorded against the Attendee and they see it (S-48 AC3).
+- **Pre-conditions:** Signed-in Attendee A. Registrations fake answers
+  `GET /registrations/attendees/A` with A's rows for E (registered
+  `2026-11-05T04:00:00Z`) and for event G (registered `2026-11-02T04:00:00Z`),
+  where G is confirmed and starts `2026-11-10 10:00`. Events fake returns E's
+  and G's published details.
+- **Steps:** `GET /event-registrations/me/registrations`.
+- **Test data:** As above.
+- **Expected:** `200`, G first then E (soonest event first), each exactly
+  `{"event_id", "name", "start_date", "start_time", "end_date", "end_time",
+  "registered_at"}`, e.g. E's:
+  ```json
+  {"event_id": "E", "name": "Alumni networking evening", "start_date": "2026-11-20", "start_time": "18:00:00",
+   "end_date": "2026-11-20", "end_time": "21:00:00", "registered_at": "2026-11-05T04:00:00Z"}
+  ```
+  The attendee id comes from the session only.
+- **Actual:** `200`, G then E; E matched exactly; registrations read for the session's Attendee A.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_an_attendee_sees_the_events_they_registered_for
+
+## TC-EVENTREGISTRATIONS-017 — an Attendee with no public registrations
+
+- **Scenario:** The Attendee's list is empty rather than an error, and lists only public events.
+- **Pre-conditions:** Signed-in Attendee A. 1: registrations fake returns
+  `[]`. 2: it returns A's row for E, and the events fake answers
+  `GET /internal/events/published/E` `404` (E is no longer confirmed).
+- **Steps:** `GET /event-registrations/me/registrations` for each.
+- **Test data:** As above.
+- **Expected:** Both → `200` `[]`. In 1 the events service is not called.
+- **Actual:** Both `200` `[]`; with no rows the events service was not called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_an_attendee_with_no_public_registrations
+
+## TC-EVENTREGISTRATIONS-018 — the Attendee's list needs a signed-in Attendee
+
+- **Scenario:** Nobody else reads an Attendee's registrations.
+- **Pre-conditions:** Users fake answers `GET /users/me` with `401`, then an
+  `event_organiser` user.
+- **Steps:** `GET /event-registrations/me/registrations` for each.
+- **Test data:** As above.
+- **Expected:** `401` "Sign in to register for this event.", then `403`
+  "Only attendee accounts can register for events." The registrations service
+  is never called.
+- **Actual:** `401` "Sign in to register for this event.", then `403` "Only attendee accounts can register for events."; registrations never called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_the_attendees_list_needs_a_signed_in_attendee
