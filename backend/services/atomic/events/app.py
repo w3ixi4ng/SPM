@@ -549,7 +549,22 @@ def list_unassigned_events(db: Client = Depends(get_db)):
 
 
 @app.get("/internal/events/assigned-active", response_model=list[EventRead])
-def list_active_assigned_events(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+def list_active_assigned_events(db: Client = Depends(get_db)):
+    """Internal cross-service read for affected booking notifications."""
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .not_.is_("assigned_coordinator_id", "null")
+        .order("updated_at", desc=True)
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/lead-assigned-active", response_model=list[EventRead])
+def list_lead_active_assigned_events(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+    """The S-84 Lead view uses recorded assignment provenance."""
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)

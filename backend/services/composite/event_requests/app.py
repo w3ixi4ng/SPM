@@ -433,7 +433,7 @@ async def list_active_assignments(
 ):
     await _authenticate_lead(request, users)
     try:
-        response = await events.get("/internal/events/assigned-active", cookies=request.cookies)
+        response = await events.get("/internal/events/lead-assigned-active", cookies=request.cookies)
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)
         raise HTTPException(status_code=502, detail="Events service unavailable") from exc

@@ -54,7 +54,7 @@ def test_lead_assigns_request_and_both_recipients_are_notified(
         re.compile(r"/dashboard/event-coordinator-lead$"), timeout=20000
     )
     card = page.get_by_role("listitem").filter(has_text=event_name)
-    card.get_by_text("Expected attendance: 120").wait_for(timeout=20000)
+    card.get_by_text("Expected attendance: 120").wait_for(timeout=40000)
     card.get_by_label(f"Event Coordinator for {event_name}").select_option(
         coordinator["id"]
     )

@@ -1608,18 +1608,22 @@ the full unit run on 2026-10-08.
 Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
 confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
 
-## TC-EVENTS-112 — active assigned events are listed for Lead orchestration
+## TC-EVENTS-112 — active assigned events support Lead oversight and notifications
 
-- **Scenario:** The atomic service supplies the assigned work that can be
-  reassigned without making role or profile decisions.
-- **Steps:** `GET /internal/events/assigned-active`.
+- **Scenario:** The atomic service supplies assigned work to its responsible
+  Lead while retaining the cross-service read needed for notifications.
+- **Steps:** As a Lead, call `GET /internal/events/lead-assigned-active`;
+  then, without a Lead session, call `GET /internal/events/assigned-active`
+  as the venue notifications composite does.
 - **Expected:** Storage selects assigned events in `submitted`, `planning`,
-  `confirmed`, or `returned`, excludes null owners, and orders newest updates
-  first. Draft, rejected, and cancelled rows cannot enter the result.
-- **Actual:** The query used the four active statuses, excluded null owners,
-  and ordered by newest update.
+  `pending_safety_check`, `confirmed`, or `returned`, excludes null owners, and orders newest updates
+  first. The Lead read includes only events with that Lead's recorded assignment
+  provenance; the cross-service read remains available for affected booking
+  notifications. Draft, rejected, and cancelled rows cannot enter either result.
+- **Actual:** The Lead query filtered by its trusted ID. The notification read
+  worked without a Lead session and retained the active-status and owner filters.
 - **Status:** Pass
-- **Evidence:** `test_s84.py::test_internal_active_assignments_filter_status_owner_and_order`
+- **Evidence:** `test_s84.py::test_internal_active_assignments_filter_status_owner_and_order`; `test_s84.py::test_notification_assignment_read_does_not_require_a_lead_session`; 2026-10-25 S-88 regression rerun.
 
 ## TC-EVENTS-113 — reassignment compare-and-set transfers an active event
 

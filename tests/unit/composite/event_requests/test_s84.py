@@ -100,7 +100,7 @@ def test_lead_lists_active_assignments_with_profiles(client, users, events):
     assert item["coordinator"]["name"] == "Alex Coordinator"
     assert item["coordinator_assignment_version"] == 0
     events.get.assert_awaited_once_with(
-        "/internal/events/assigned-active", cookies={}
+        "/internal/events/lead-assigned-active", cookies={}
     )
     users.post.assert_awaited_once_with(
         "/internal/users/profiles", json={"ids": [ORGANISER_ID, COORDINATOR_A]}

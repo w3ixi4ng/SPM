@@ -314,7 +314,7 @@ def test_organiser_reads_pending_and_confirmed(client, db, auth, event_status):
 def test_pending_safety_check_is_open_everywhere_confirmed_is(client, db, auth):
     # 1. Coordinator active assignments
     authenticate(client, auth, fake_user(user_id=SUPPORT_A, role="event_coordinator_lead"))
-    client.get("/internal/events/assigned-active")
+    client.get("/internal/events/lead-assigned-active")
     statuses = table(db).select.return_value.in_.call_args.args[1]
     assert "pending_safety_check" in statuses and "confirmed" in statuses
 

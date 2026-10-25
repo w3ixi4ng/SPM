@@ -61,7 +61,7 @@ def test_internal_active_assignments_filter_status_owner_and_order(client, db):
     )
     operation.execute.return_value = SimpleNamespace(data=[assigned_row()])
 
-    response = client.get("/internal/events/assigned-active")
+    response = client.get("/internal/events/lead-assigned-active")
 
     assert response.status_code == 200
     table = db.schema.return_value.table.return_value
@@ -73,6 +73,24 @@ def test_internal_active_assignments_filter_status_owner_and_order(client, db):
         "assigning_lead_id", LEAD_ID
     )
     table.select.return_value.in_.return_value.not_.is_.return_value.eq.return_value.order.assert_called_once_with(
+        "updated_at", desc=True
+    )
+
+
+def test_notification_assignment_read_does_not_require_a_lead_session(client, db, auth):
+    client.cookies.clear()
+    operation = (
+        db.schema.return_value.table.return_value.select.return_value.in_
+        .return_value.not_.is_.return_value.order.return_value
+    )
+    operation.execute.return_value = SimpleNamespace(data=[assigned_row()])
+
+    response = client.get("/internal/events/assigned-active")
+
+    assert response.status_code == 200
+    assert response.json()[0]["assigned_coordinator_id"] == COORDINATOR_A
+    assert not auth.auth.get_user.called
+    db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.assert_called_once_with(
         "updated_at", desc=True
     )
 

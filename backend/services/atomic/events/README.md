@@ -44,7 +44,8 @@ because service ports are published for direct testing. See
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
 | `POST` | `/internal/events/{event_id}/assignment` | Authenticated Lead assigns an unassigned request, recording their ID; same-target retry support. |
-| `GET` | `/internal/events/assigned-active` | Authenticated Lead's active assignments, newest update first. |
+| `GET` | `/internal/events/assigned-active` | Internal cross-service active assignments for affected booking notifications. |
+| `GET` | `/internal/events/lead-assigned-active` | Authenticated Lead's active assignments, newest update first. |
 | `GET` | `/internal/events/coordinator-overview` | Authenticated Lead's scoped S-85 active events, newest update first. |
 | `GET` | `/internal/events/{event_id}/assignment-scope` | Return an event only to its recorded assigning Lead. |
 | `GET` | `/internal/reassignment-requests/lead` | Return only the authenticated Lead's request history. |
