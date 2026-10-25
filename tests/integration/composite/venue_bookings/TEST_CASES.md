@@ -444,3 +444,10 @@ in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Through Kong: B changed to 16:00–17:00 and stored `pending` with no hold; another event then took B's old 13:00–15:00 (`201`); cancelling A gave `204` and removed it; E listed exactly B and C, C unchanged.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_change_cancel.py::test_one_booking_changes_another_is_cancelled_and_the_rest_stay` `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-15, after merging sprint3 (S-78, S-87) into this branch, re-applying S-77's SQL and relaxing S-24's unmerged `bookings_hold_valid` back to sprint3's rule on the test project. `pytest tests/integration/composite/venue_bookings tests/integration/atomic/bookings`: 29 passed.
+## TC-VENUEBOOKINGS-121 - preparation persists across real service boundaries
+- **Pre-conditions:** Fresh `.env.test` stack; S-25 migration applied and `bookings` exposed/granted.
+- **Steps:** Venue Staff list a Preparation event's confirmed booking, set In Progress then Ready, retry a stale version, and attempt as Coordinator.
+- **Expected:** The two saves return `200`; audit/version persist; stale is `409`; Coordinator is `403`.
+- **Actual:** Both saves returned `200`; the stored actor, timestamp, status and versions were correct; the stale write returned `409`; the Coordinator write returned `403`.
+- **Status:** Pass.
+- **Evidence:** `tests/integration/composite/venue_bookings/test_venue_preparation.py::test_venue_preparation_round_trip`; S-25 SQL applied to both projects; fresh `.env.test` stack; full integration run on 2026-10-25: 74 passed, 5 skipped.

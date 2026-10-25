@@ -24,6 +24,7 @@ export const PERMISSIONS = Object.freeze({
   MANAGE_VENUE_HOLDS: 'venue_bookings:manage_holds',
   VIEW_VENUE_AVAILABILITY: 'venue_bookings:view_availability',
   MANAGE_VENUE_BLOCKS: 'venue_bookings:manage_blocks',
+  UPDATE_VENUE_PREPARATION: 'venue_bookings:update_preparation',
   CREATE_EQUIPMENT: 'equipment:create',
   UPDATE_EQUIPMENT: 'equipment:update',
   RETIRE_EQUIPMENT: 'equipment:retire',
@@ -101,6 +102,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.MANAGE_VENUE_HOLDS,
       PERMISSIONS.VIEW_VENUE_AVAILABILITY,
       PERMISSIONS.MANAGE_VENUE_BLOCKS,
+      PERMISSIONS.UPDATE_VENUE_PREPARATION,
     ]),
   }),
   technical_support: Object.freeze({
