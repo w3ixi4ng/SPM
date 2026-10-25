@@ -2462,19 +2462,45 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** The period, both status lines and the no-registration text matched exactly.
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the period is described in words Attendees can read
+## S-88 confirmed specification — reassignment request UI
+
+Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted; Node unit suite and Chromium browser checks.
+
+## TC-FRONTEND-249 — Coordinator request form and status
+
+- **Scenario:** The assigned Coordinator can submit a reason and see the stored status.
+- **Pre-conditions:** Event detail is open for its assigned Coordinator; API calls are faked.
+- **Steps:** Load requests, submit a non-blank reason, refresh request data, then try blank input.
+- **Test data:** Event ID `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; reason `Cannot cover the November event`; blank `   `.
+- **Expected:** API uses `/api/event-requests` with credentials; pending status and reason appear after success and refresh; blank input is rejected; the UI never sends a direct transfer request.
+- **Actual:** The helper sent credentials to the composite API; the form rejected blank input and rendered pending and actioned history without invoking S-84.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_reassignment_requests.mjs; tests/e2e/test_request_reassignment_from_lead.py::test_coordinator_request_is_actioned_after_lead_reassignment`; 2026-10-25.
+
+## TC-FRONTEND-250 — Lead list and state handling
+
+- **Scenario:** The Lead can review scoped requests without losing existing S-84 controls.
+- **Pre-conditions:** Lead dashboard API responses are faked.
+- **Steps:** Render loading, empty, pending, actioned, and error results; submit S-84 transfer from a pending item.
+- **Test data:** Lead-visible event, requester `Alex Coordinator`, reason `Cannot cover the November event`.
+- **Expected:** Each state is distinct and understandable; pending item shows requester, event and reason; actioned item shows outcome; error offers retry; reassignment still uses the existing S-84 API and updates the list after success.
+- **Actual:** Loading, empty, error and retry states rendered distinctly; pending and actioned rows rendered requester, event, reason and outcome, while reassignment stayed on S-84.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_reassignment_requests.mjs; tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states`; 2026-10-25.
+
 ## S-25 - Update Venue Preparation Status
 
-### TC-FRONTEND-147 - readiness shows every confirmed venue's status
+### TC-FRONTEND-251 - readiness shows every confirmed venue's status
 - **Expected:** Each confirmed booking is listed separately as Not Started, In Progress, or Ready.
 - **Status:** Pass.
 - **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
 
-### TC-FRONTEND-148 - venue readiness requires every confirmed venue
+### TC-FRONTEND-252 - venue readiness requires every confirmed venue
 - **Expected:** Venue is complete only when at least one confirmed booking exists and all are Ready.
 - **Status:** Pass.
 - **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
 
-### TC-FRONTEND-149 - staff preparation updates use the gateway
+### TC-FRONTEND-253 - staff preparation updates use the gateway
 - **Expected:** The browser sends the state and expected version and reports success or a specific failure.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.mjs::venue preparation calls use the gateway and optimistic version`; `test_venue_preparation.mjs::venue preparation labels and failures stay specific`; `test_access.mjs::only venue staff update venue preparation`.

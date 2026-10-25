@@ -158,7 +158,12 @@ def test_overview_groups_profileless_trusted_coordinators_and_keeps_idle(
         _event(COORDINATOR_B, id="22222222-2222-4222-8222-222222222222", name="B1"),
         _event(COORDINATOR_B, id="33333333-3333-4333-8333-333333333333", name="B2"),
     ]
-    events.get.return_value = fake_response(200, rows)
+    async def scoped_events_get(path, **kwargs):
+        if path.endswith("/assignment-scope"):
+            return fake_response(200, {**rows[0], "assigning_lead_id": LEAD_ID})
+        return fake_response(200, rows)
+
+    events.get.side_effect = scoped_events_get
     users.post.return_value = fake_response(
         200, [{"id": ORGANISER_ID, "name": "Ada Organiser", "email": "ada@example.com"}],
     )
@@ -190,6 +195,7 @@ def test_overview_groups_profileless_trusted_coordinators_and_keeps_idle(
         "expected_assignment_version": 0,
     })
     assert moved.status_code == 200
+    events.get.side_effect = None
     events.get.return_value = fake_response(200, [
         {**rows[0], "assigned_coordinator_id": COORDINATOR_C, "coordinator_assignment_version": 1},
         *rows[1:],

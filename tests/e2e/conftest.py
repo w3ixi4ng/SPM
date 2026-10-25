@@ -126,6 +126,9 @@ def make_user(admin):
         admin.schema("events").table("events").delete().eq(
             "organiser_id", user_id
         ).execute()
+        admin.schema("events").table("reassignment_requests").delete().eq(
+            "requester_id", user_id
+        ).execute()
         admin.schema("venues").table("venues").delete().eq(
             "created_by", user_id
         ).execute()

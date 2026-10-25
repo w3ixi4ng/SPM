@@ -332,3 +332,33 @@ section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Actual:** Through Kong: approving E1 returned `200` `cancelled` with `released_bookings` 2; E1 stored `cancelled`, approved by K with a time; no booking rows left for E1; the calendar for 12 Nov had no entries; the projector showed 0 reserved, 1 available. Declining E2 kept it `planning` with the reason; the Organiser's new request returned `200` and cleared all four decision fields.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_requests/test_cancellation_decision.py::test_approving_through_kong_cancels_the_event_and_frees_its_venue_and_equipment`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 21 passed, 5 skipped (pre-existing S-83 supersessions). Re-verified 2026-10-21 after merging sprint3 (S-17, S-18, S-24, S-78, S-80, S-87) into this branch and re-applying the S-61 `events_decision_matches_status` rule (with S-87's `pending_safety_check`) to dev and test: the seeded hold now sets `hold_expires_at` (S-24); `pytest tests/integration/composite/event_requests tests/integration/atomic/events tests/integration/atomic/bookings`: 32 passed, 5 skipped, 1 failed (`test_decision.py`, an unrelated one-off 401 from session verification; 4 passed twice on rerun).
+
+## S-88 confirmed specification — real boundary checks
+
+Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch,
+uncommitted, fresh `.env.test` stack. The developer confirmed that the updated
+`backend/sql/events.sql` was applied to **both** dev and test Supabase projects
+and `events` was exposed and granted in each. The test recreated the `.env.test`
+stack and deleted its created rows.
+
+## TC-EVENTREQUESTS-113 — persisted request and scoped review
+
+- **Scenario:** A submitted request survives refresh and reaches only its assigning Lead.
+- **Pre-conditions:** Fresh test stack and schema; two Lead accounts, two Coordinator accounts, and an event assigned by Lead A to Coordinator A.
+- **Steps:** Coordinator A submits a reason; reread their history in a new HTTP request; read Lead A and Lead B queues; reread the event.
+- **Test data:** Reason `Cannot cover the November event`; Lead A and Lead B have distinct user IDs.
+- **Expected:** `201` request remains `pending` on refresh; Lead A sees requester, event and reason; Lead B sees no row; event remains owned by Coordinator A.
+- **Actual:** The request persisted across HTTP reads. The assigning Lead saw it, the unrelated Lead did not, and event ownership remained with the requester.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTREQUESTS-114 — existing S-84 actions request and preserves history
+
+- **Scenario:** The Lead's existing reassignment changes ownership and reports the result to the requester.
+- **Pre-conditions:** TC-EVENTREQUESTS-113 setup with pending request and valid Coordinator B.
+- **Steps:** Lead A calls S-84; fetch event and request from fresh HTTP requests as former Coordinator A; verify older actioned rows remain after a later request cycle.
+- **Test data:** Coordinator B, expected Coordinator A and captured assignment version.
+- **Expected:** S-84 succeeds, event owner is B, request is `actioned` with timestamp, A can still read it, and audit rows remain. A stale retry cannot transfer ownership again.
+- **Actual:** S-84 changed ownership and actioned the matching request. The former Coordinator could still read its history, while the stale retry was rejected and did not alter ownership.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.

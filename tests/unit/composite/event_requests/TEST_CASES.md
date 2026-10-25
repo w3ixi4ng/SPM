@@ -1093,3 +1093,134 @@ decisions are in the S-61 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Actual:** Both details came back as `409` unchanged; a `500` from the events service is still `502` "Events service unavailable".
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/event_requests/test_s61.py::test_a_refused_edit_keeps_the_events_services_reason`; `tests/unit/composite/event_requests/test_s61.py::test_an_unexpected_answer_on_edit_is_still_a_502`; `pytest tests/unit`: 967 passed, 17 skipped, 2026-10-13.
+
+# S-88 confirmed specification — request reassignment from Lead
+
+Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted; Python unit suite and fresh `.env.test` integration/browser stack.
+Shared data: event `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, assigned Coordinator
+`bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, replacement Coordinator
+`cccccccc-cccc-4ccc-8ccc-cccccccccccc`, responsible Lead
+`dddddddd-dddd-4ddd-8ddd-dddddddddddd`, unrelated Lead
+`eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`, assignment version `2`, and reason
+`Cannot cover the November event`. HTTP clients are faked in every unit case.
+
+## TC-EVENTREQUESTS-087 — assigned Coordinator submits a request
+
+- **Scenario:** The current owner asks the responsible Lead for reassignment.
+- **Pre-conditions:** `/users/me` identifies the assigned Coordinator; the event is active, version 2, and was assigned by the responsible Lead.
+- **Steps:** POST a reassignment request for the event with the reason, then read the response.
+- **Test data:** Shared event and `{"reason":"Cannot cover the November event"}`.
+- **Expected:** `201`, with event ID, requester ID, trimmed reason, `pending`, and server timestamps; the composite calls the Events service to persist it and never calls the S-84 transfer endpoint.
+- **Actual:** A signed-in assigned Coordinator received 201 with a trimmed reason; the Events request endpoint received the write and S-84 was untouched.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s88.py::test_assigned_coordinator_submits_without_transfer`; 2026-10-25.
+
+## TC-EVENTREQUESTS-088 — invalid reason
+
+- **Scenario:** A blank request cannot be submitted.
+- **Pre-conditions:** Assigned Coordinator session.
+- **Steps:** POST requests with empty and whitespace-only reasons.
+- **Test data:** `{"reason":""}` and `{"reason":"   "}`.
+- **Expected:** Each returns `422`; no request or owner write is attempted.
+- **Actual:** Blank and whitespace reasons returned 422 before any downstream write.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s88.py::test_blank_reason_rejected_before_any_write`; 2026-10-25.
+
+## TC-EVENTREQUESTS-089 — submission access
+
+- **Scenario:** Only the assigned Coordinator can ask for reassignment.
+- **Pre-conditions:** The event belongs to the shared Coordinator.
+- **Steps:** Repeat the POST as an anonymous visitor, another Coordinator, an Organiser, and a Lead.
+- **Test data:** Shared event and reason; four distinct identities.
+- **Expected:** Anonymous receives `401`, unrelated roles `403`, and another Coordinator `404` or `403` without event details; no request is persisted.
+- **Actual:** Anonymous, wrong-role and wrong-owner callers were rejected without a request write or event details.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s88.py::test_only_current_coordinator_can_submit`; 2026-10-25.
+
+## TC-EVENTREQUESTS-090 — duplicate outstanding request
+
+- **Scenario:** Repeating a request does not create another pending row.
+- **Pre-conditions:** The shared Coordinator already has a pending request for the event.
+- **Steps:** POST the same event and reason again.
+- **Test data:** Shared event and reason.
+- **Expected:** `409` with an actionable duplicate message; the original request remains pending and there is still one pending row.
+- **Actual:** The second submission returned 409 and the existing pending request remained the only one.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_concurrent_submissions_leave_one_pending_request`; 2026-10-25.
+
+## TC-EVENTREQUESTS-091 — requester reads history after ownership changes
+
+- **Scenario:** The original requester can see the actioned outcome after transfer.
+- **Pre-conditions:** A stored request names the shared Coordinator; S-84 has assigned the event to the replacement.
+- **Steps:** GET the requester's reassignment requests as the original Coordinator, then as another Coordinator.
+- **Test data:** Shared IDs; status `actioned`.
+- **Expected:** Original requester receives the event, reason and `actioned` status; the other Coordinator receives no request data.
+- **Actual:** The original requester received their actioned history after transfer; the other Coordinator received no rows.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTREQUESTS-092 — Lead visibility follows supervisory scope
+
+- **Scenario:** Only the Lead who assigned the event can review its request.
+- **Pre-conditions:** The event records the shared responsible Lead; a pending request exists.
+- **Steps:** GET the Lead request list as the responsible Lead, then the unrelated Lead and a Coordinator.
+- **Test data:** Shared IDs and reason.
+- **Expected:** Responsible Lead sees event, requester, reason and status; unrelated Lead sees an empty list and cannot fetch the request directly; Coordinator gets `403` on Lead routes.
+- **Actual:** The assigning Lead saw the request; the unrelated Lead received an empty list and could not access the event scope; the Coordinator was forbidden.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTREQUESTS-093 — S-84 transfer actions the request
+
+- **Scenario:** Existing Lead reassignment remains the sole owner-changing action.
+- **Pre-conditions:** Responsible Lead, pending request for current owner at version 2, valid replacement.
+- **Steps:** POST the existing S-84 reassignment payload; read the request status.
+- **Test data:** Replacement ID, expected owner ID, expected version `2`.
+- **Expected:** S-84 returns the replacement as owner; pending request becomes `actioned` with server action timestamp; existing reassignment notifications still occur.
+- **Actual:** The existing S-84 path transferred the event and sent its reassignment notifications; the matching request became actioned.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTREQUESTS-094 — failed or stale transfer preserves status
+
+- **Scenario:** A failed S-84 call cannot claim that the request was actioned.
+- **Pre-conditions:** Pending request; Events service returns `409` for a stale version, then `502` in a separate run.
+- **Steps:** POST the existing S-84 reassignment with each upstream result and reread status.
+- **Test data:** Expected version `2`; actual version `3` or upstream failure.
+- **Expected:** Client receives `409` or safe `502`; request is not marked `actioned`; no success notice is emitted.
+- **Actual:** The stale and upstream-failure paths returned 409 and 502 respectively; neither reported a successful transfer or actioned the request.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTREQUESTS-095 — unrelated Lead cannot transfer scoped event
+
+- **Scenario:** Request review cannot be bypassed through the existing S-84 route.
+- **Pre-conditions:** Event records the responsible Lead, who differs from caller.
+- **Steps:** POST S-84 reassignment as the unrelated Lead.
+- **Test data:** Shared IDs and valid replacement.
+- **Expected:** `403` or scoped `404`; owner, request status and notifications remain unchanged.
+- **Actual:** The unrelated Lead was refused before S-84; no owner or request write and no notification followed.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s88.py::test_s84_requires_recorded_scope`; 2026-10-25.
+
+## TC-EVENTREQUESTS-096 — downstream failures fail closed
+
+- **Scenario:** Auth, event, profile or request storage outages reveal no cross-scope data.
+- **Pre-conditions:** Each downstream client fails separately.
+- **Steps:** Read or submit a request with each failure injected.
+- **Test data:** Shared event and identities.
+- **Expected:** Safe `502` response; no request is reported as persisted or actioned and unrelated Lead data is never returned.
+- **Actual:** Injected downstream failures produced safe 502 responses without leaking scoped rows or reporting success.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s88.py::test_users_or_profile_failure_returns_no_lead_request_data`; 2026-10-25.
+
+## TC-EVENTREQUESTS-097 — S-83 and S-85 remain usable with scoped ownership
+
+- **Scenario:** New request handling preserves the shared unassigned queue and Lead oversight.
+- **Pre-conditions:** Two Leads; one unassigned event, one active event assigned by each Lead.
+- **Steps:** List the unassigned queue as both Leads; assign it as Lead A using S-83; list each Lead's overview.
+- **Test data:** Shared Lead IDs and three distinct event IDs.
+- **Expected:** Both Leads initially see the unassigned event; its S-83 assignment records Lead A; Lead A sees the newly assigned event and their prior event; Lead B sees only their own active event; no request handling changes any existing owner.
+- **Actual:** Both Leads saw the unassigned queue; S-83 recorded the assigning Lead, and S-85 returned only that Lead’s active assignments.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s83.py; tests/unit/composite/event_requests/test_s85.py; tests/e2e/test_coordinator_overview.py`; 2026-10-25.

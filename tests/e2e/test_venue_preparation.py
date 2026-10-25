@@ -1,4 +1,4 @@
-"""TC-E2E-249: Venue Staff preparation reaches Coordinator readiness."""
+"""TC-E2E-251: Venue Staff preparation reaches Coordinator readiness."""
 import re
 import uuid
 

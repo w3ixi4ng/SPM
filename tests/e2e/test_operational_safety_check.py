@@ -256,7 +256,7 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
     page.get_by_role("link", name=re.compile(event_name)).click()
     page.wait_for_url(re.compile(r"/coordinator/events/[^/]+$"), timeout=20000)
     expect(page.get_by_role("heading", name="Safety Officer feedback")).to_be_visible()
-    expect(page.get_by_text("Move speakers away from the east emergency exit")).to_be_visible()
+    expect(page.get_by_text("Move speakers away from the east emergency exit")).to_be_visible(timeout=20000)
 
     notes = page.get_by_label("Support details (optional)")
     expect(notes).to_be_visible(timeout=20000)

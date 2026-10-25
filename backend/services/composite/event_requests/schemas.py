@@ -227,6 +227,20 @@ class CoordinatorReassignmentCreate(BaseModel):
     expected_assignment_version: int = Field(ge=0)
 
 
+class ReassignmentRequestSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
 class CancellationDecision(BaseModel):
     """S-61: the Coordinator's decision on a cancellation request. Only the
     shape is checked here; the events service enforces the rules (a reason
