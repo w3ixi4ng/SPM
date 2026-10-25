@@ -469,7 +469,7 @@ active again and proves S-38 at the confirmation boundary.
   on the S-76 branch: pass (full e2e suite 29 passed).
 - **Actual:** The first request became Confirmed; the overlapping approval stayed Pending and displayed the venue/date/time conflict. Reload preserved both outcomes, and the two Coordinator event pages showed Confirmed and Pending respectively.
 - **Status:** Pass
-- **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; restored after S-33 and rerun locally on 2026-10-01: 1 passed.
+- **Evidence:** `test_prevent_overlapping_confirmation.py::test_confirmed_venue_time_becomes_unavailable_to_another_event[chromium]`; rerun 2026-10-25 on the S-88 branch against a freshly rebuilt `.env.test` stack: 1 passed. The test now waits for the previous user's sign-out to finish before the Coordinator signs in.
 
 ## TC-E2E-219 — a Coordinator narrows the Venues tab with filters, and results follow each change
 
