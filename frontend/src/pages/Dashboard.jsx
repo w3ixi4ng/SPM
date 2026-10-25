@@ -335,6 +335,23 @@ export default function Dashboard({ role }) {
 
             <EventRequestList refreshAuth={refresh} />
           </div>
+        ) : role === 'attendee' ? (
+          <section className="border rounded-sm p-8 max-w-2xl" style={{ borderColor: C.line }}>
+            <h2 className="font-display text-2xl mb-3" style={{ color: C.ink }}>
+              Events you can attend
+            </h2>
+            <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
+              See every confirmed event and register while its registration is open.
+            </p>
+            <Link
+              to="/public/events"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui text-sm font-medium text-white"
+              style={{ backgroundColor: C.teal }}
+            >
+              Browse events
+              <ArrowRight size={16} aria-hidden="true" />
+            </Link>
+          </section>
         ) : (
           <section className="border rounded-sm p-8 max-w-2xl" style={{ borderColor: C.line }}>
             <h2 className="font-display text-2xl mb-3" style={{ color: C.ink }}>

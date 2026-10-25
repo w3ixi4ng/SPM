@@ -48,6 +48,10 @@ def test_empty_draft_is_valid():
         "room_layout": None,
         "required_facilities": [],
         "required_accessibility": [],
+        # S-51: registration is off, with no period, unless turned on.
+        "registration_required": False,
+        "registration_opens_at": None,
+        "registration_closes_at": None,
     }
 
 

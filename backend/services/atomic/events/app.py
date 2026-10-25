@@ -45,6 +45,8 @@ from schemas import (
     InternalTechnicalSignoff,
     OverlappingEvent,
     OverlappingEventsRequest,
+    PublishedEventRead,
+    REGISTRATION_FIELDS,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
@@ -312,7 +314,9 @@ def _event_information_changes(existing: dict, payload: EventInformationUpdate) 
 
 
 def _validate_event_information(existing: dict, changes: dict) -> None:
-    candidate = {field: existing.get(field) for field in EventSubmittedCreate.model_fields}
+    candidate = {
+        field: existing[field] for field in EventSubmittedCreate.model_fields if field in existing
+    }
     candidate.update({field: change["after"] for field, change in changes.items() if field in candidate})
     try:
         EventSubmittedCreate.model_validate(candidate)
@@ -491,6 +495,40 @@ def get_booking_status(
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
+
+
+# S-51: confirmed events' public details, for the event_registrations
+# composite to show anyone without signing in. Only confirmed events are
+# public; every other status is still being planned, or is over.
+_PUBLISHED_COLUMNS = ",".join(PublishedEventRead.model_fields)
+
+
+@app.get("/internal/events/published", response_model=list[PublishedEventRead])
+def list_published_events(db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(_PUBLISHED_COLUMNS)
+        .eq("status", "confirmed")
+        .order("start_date")
+        .order("start_time")
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/published/{event_id}", response_model=PublishedEventRead)
+def get_published_event(event_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(_PUBLISHED_COLUMNS)
+        .eq("id", str(event_id))
+        .eq("status", "confirmed")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found.")
     return result.data[0]
 
 
@@ -819,6 +857,52 @@ def get_event(
 _CANCELLED_CLOSED = "This event has been cancelled and is closed."
 
 
+# S-51: whether attendees register, and when, is the Organiser's to settle
+# while creating or updating the request. Once it is submitted the
+# Coordinator plans around it, so it stays as it was submitted.
+_REGISTRATION_LOCKED = (
+    "Registration settings can only be changed while the request is a draft or returned."
+)
+
+
+def _validated_changes(existing: dict, changes: dict) -> dict:
+    """The PATCH to write, checked against the record it produces.
+
+    A PATCH may supply only one time while the other already exists on the
+    record. Validate the resulting record, not only the partial request, so
+    a cross-field conflict is still a 422 instead of reaching the SQL CHECK.
+
+    Everything past a draft -- submitted, planning, returned -- still has
+    to satisfy every submitted-required rule after the edit; the draft
+    schema would happily accept a PATCH that nulls out a required field,
+    which the database's own constraint would then reject as an opaque
+    storage failure instead of a readable 422.
+    """
+    if REGISTRATION_FIELDS & changes.keys() and existing["status"] not in _SUBMITTABLE_STATUSES:
+        raise HTTPException(status_code=409, detail=_REGISTRATION_LOCKED)
+
+    validator = EventDraftCreate if existing["status"] == "draft" else EventSubmittedCreate
+    candidate = {
+        field: existing[field] for field in EventDraftCreate.model_fields if field in existing
+    }
+    candidate.update(
+        {key: value for key, value in changes.items() if key in EventDraftCreate.model_fields}
+    )
+    try:
+        merged = validator.model_validate(candidate)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    # Turning registration off clears the period the record still holds, so
+    # write whichever registration value the merged record changed.
+    if REGISTRATION_FIELDS & changes.keys():
+        settled = merged.model_dump(mode="json", include=REGISTRATION_FIELDS)
+        for field, value in settled.items():
+            if field in changes or value != existing.get(field):
+                changes[field] = value
+    return changes
+
+
 @app.patch("/events/{event_id}", response_model=EventRead)
 def update_event(
     event_id: UUID,
@@ -841,25 +925,7 @@ def update_event(
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
         return existing
-
-    # A PATCH may supply only one time while the other already exists on the
-    # record. Validate the resulting record, not only the partial request, so
-    # a cross-field conflict is still a 422 instead of reaching the SQL CHECK.
-    #
-    # Everything past a draft -- submitted, planning, returned -- still has
-    # to satisfy every submitted-required rule after the edit; the draft
-    # schema would happily accept a PATCH that nulls out a required field,
-    # which the database's own constraint would then reject as an opaque
-    # storage failure instead of a readable 422.
-    validator = EventDraftCreate if existing["status"] == "draft" else EventSubmittedCreate
-    candidate = {
-        field: existing.get(field) for field in EventDraftCreate.model_fields
-    }
-    candidate.update(changes)
-    try:
-        validator.model_validate(candidate)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
+    changes = _validated_changes(existing, changes)
 
     operation = (
         db.schema(SCHEMA)
@@ -1527,16 +1593,7 @@ def update_event_internal(
     changes = payload.model_dump(exclude_unset=True, mode="json", exclude={"organiser_id"})
     if not changes:
         return existing
-
-    validator = EventDraftCreate if existing["status"] == "draft" else EventSubmittedCreate
-    candidate = {field: existing.get(field) for field in EventDraftCreate.model_fields}
-    candidate.update(
-        {key: value for key, value in changes.items() if key in EventDraftCreate.model_fields}
-    )
-    try:
-        validator.model_validate(candidate)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
+    changes = _validated_changes(existing, changes)
 
     operation = (
         db.schema(SCHEMA)

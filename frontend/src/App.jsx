@@ -11,6 +11,8 @@ import EquipmentAvailability from './pages/EquipmentAvailability.jsx'
 import EquipmentForm from './pages/EquipmentForm.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Login from './pages/Login.jsx'
+import PublicEvent from './pages/PublicEvent.jsx'
+import PublicEvents from './pages/PublicEvents.jsx'
 import SignUp from './pages/SignUp.jsx'
 import TechnicalSupportDashboard from './pages/TechnicalSupportDashboard.jsx'
 import VenueAvailability from './pages/VenueAvailability.jsx'
@@ -44,6 +46,10 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        {/* S-51: confirmed events' public details. No sign-in needed to read
+            them; registering asks for an attendee account. */}
+        <Route path="/public/events" element={<PublicEvents />} />
+        <Route path="/public/events/:id" element={<PublicEvent />} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
         {Object.entries(ROLE_ACCESS).map(([role, access]) => {
           const RoleDashboard = ROLE_DASHBOARDS[role]

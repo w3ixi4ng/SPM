@@ -11,11 +11,19 @@ There is no response schema here: the events service already validated and
 shaped the event it hands back, so this composite returns that JSON as-is.
 """
 
-from datetime import date, time
-from typing import Literal
+from datetime import date, datetime, time, timedelta, timezone
+from typing import ClassVar, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 # S-36: the venue catalogue's sets, as in the events service.
 RoomLayout = Literal["theatre", "classroom", "boardroom", "u_shape", "banquet", "cocktail"]
@@ -51,7 +59,62 @@ def _check_end_after_start(start_date, start_time, end_date, end_time):
         raise ValueError("end_time must be after start_time")
 
 
-class EventRequestSubmit(BaseModel):
+# S-51: as the events service's RegistrationSettings. The period is
+# Singapore wall-clock time, stored without a timezone.
+SINGAPORE = timezone(timedelta(hours=8))
+_REGISTRATION_DATE_PROMPTS = {
+    "registration_opens_at": "Choose when registration opens.",
+    "registration_closes_at": "Choose when registration closes.",
+}
+
+
+class RegistrationSettings(BaseModel):
+    """Whether attendees register, and when. A submission needs both dates
+    once registration is on, opening before closing, and closing before the
+    event starts. The events service repeats every check on the merged
+    record; this copy only spares a doomed call."""
+
+    REGISTRATION_DATES_REQUIRED: ClassVar[bool] = True
+    PARTIAL: ClassVar[bool] = False
+
+    registration_required: bool = False
+    registration_opens_at: datetime | None = Field(default=None, validate_default=True)
+    registration_closes_at: datetime | None = Field(default=None, validate_default=True)
+
+    @field_validator("registration_opens_at", "registration_closes_at")
+    @classmethod
+    def check_registration_date(cls, value: datetime | None, info: ValidationInfo):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(SINGAPORE).replace(tzinfo=None)
+        if not info.data.get("registration_required"):
+            return value
+        if value is None:
+            if cls.REGISTRATION_DATES_REQUIRED:
+                raise ValueError(_REGISTRATION_DATE_PROMPTS[info.field_name])
+            return value
+        if info.field_name == "registration_closes_at":
+            opens = info.data.get("registration_opens_at")
+            if opens is not None and value <= opens:
+                raise ValueError("Registration must close after it opens.")
+        return value
+
+    @model_validator(mode="after")
+    def registration_closes_before_start(self):
+        if not self.registration_required:
+            if not self.PARTIAL:
+                self.registration_opens_at = None
+                self.registration_closes_at = None
+            return self
+        start_date = getattr(self, "start_date", None)
+        start_time = getattr(self, "start_time", None)
+        closes = self.registration_closes_at
+        if closes is not None and start_date is not None and start_time is not None:
+            if closes >= datetime.combine(start_date, start_time):
+                raise ValueError("Registration must close before the event starts.")
+        return self
+
+
+class EventRequestSubmit(RegistrationSettings):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -94,8 +157,13 @@ class EventRequestSubmit(BaseModel):
 # relevant pair is present -- a PATCH may touch just one of them. Used by
 # PATCH /event-requests/{event_id} to validate the organiser's edit before
 # any downstream call, the same reason EventRequestSubmit exists.
-class EventRequestUpdate(BaseModel):
+class EventRequestUpdate(RegistrationSettings):
     model_config = ConfigDict(extra="forbid")
+
+    # A PATCH names only what changed: the events service checks the period
+    # against the stored record, and clears it when registration goes off.
+    REGISTRATION_DATES_REQUIRED: ClassVar[bool] = False
+    PARTIAL: ClassVar[bool] = True
 
     name: str | None = None
     purpose: str | None = None

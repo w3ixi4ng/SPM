@@ -1,0 +1,270 @@
+import { useEffect, useState } from 'react'
+import { CalendarDays, ChevronLeft, Loader2, MapPin, Ticket } from 'lucide-react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import useAuth from '../auth/useAuth.js'
+import Logo from '../components/Logo.jsx'
+import {
+  describeRegistration,
+  formatEventWhen,
+  getMyRegistration,
+  getPublicEvent,
+  registerForEvent,
+  registrationCountdown,
+} from '../lib/registration.js'
+
+const C = {
+  ink: '#10192B',
+  inkSoft: '#1C2A42',
+  inkFaint: '#4C5A70',
+  paper: '#F8F6F1',
+  paperDim: '#F1EEE6',
+  line: '#E3DFD3',
+  lineOnInk: '#2A3A54',
+  teal: '#0E7C74',
+  tealBright: '#149E92',
+  amber: '#B5842B',
+  rose: '#B25547',
+  green: '#3F8F5F',
+}
+
+// The countdown only needs minute precision.
+const TICK_MS = 30 * 1000
+
+function useNow() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
+  return now
+}
+
+function Header({ signedIn }) {
+  return (
+    <header className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between gap-6">
+      <Logo />
+      {signedIn ? (
+        <Link
+          to="/dashboard"
+          className="csp-ghost px-5 py-3 rounded-sm font-ui text-sm font-medium border"
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          Your dashboard
+        </Link>
+      ) : (
+        <Link
+          to="/login"
+          className="csp-ghost px-5 py-3 rounded-sm font-ui text-sm font-medium border"
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          Sign in
+        </Link>
+      )}
+    </header>
+  )
+}
+
+function Fact({ icon: Icon, label, children }) {
+  return (
+    <div className="flex gap-4 py-4">
+      <Icon size={20} aria-hidden="true" style={{ color: C.inkFaint, flexShrink: 0, marginTop: 2 }} />
+      <div>
+        <p className="font-ui text-xs" style={{ color: C.inkFaint }}>{label}</p>
+        <p className="font-ui text-base font-medium" style={{ color: C.ink }}>{children}</p>
+      </div>
+    </div>
+  )
+}
+
+// The page's one bold moment: where registration stands right now, with a
+// live countdown to the next change, and the action that goes with it.
+function RegistrationPanel({ event, now, auth, registration, onRegister, registering, error }) {
+  const navigate = useNavigate()
+  const { state, status } = describeRegistration(event, now)
+  const countdown = registrationCountdown(event, now)
+  const isAttendee = auth.status === 'authenticated' && auth.user?.role === 'attendee'
+  const signedOut = auth.status === 'unauthenticated'
+
+  let action = null
+  if (registration?.registered) {
+    action = (
+      <p className="flex items-center gap-2 font-ui text-base" style={{ color: C.paper }}>
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.green }} aria-hidden="true" />
+        You&apos;re registered for this event.
+      </p>
+    )
+  } else if (state === 'open' && (signedOut || isAttendee)) {
+    action = (
+      <button
+        type="button"
+        onClick={signedOut ? () => navigate('/login') : onRegister}
+        disabled={registering}
+        className="csp-primary inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium transition-transform duration-200 disabled:opacity-70"
+        style={{ backgroundColor: C.teal, color: C.paper }}
+      >
+        {registering && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+        {registering ? 'Registering…' : 'Register'}
+      </button>
+    )
+  } else if (state === 'open' && auth.status === 'authenticated') {
+    action = (
+      <p className="font-ui text-sm" style={{ color: C.paper }}>
+        Only attendee accounts can register for events.
+      </p>
+    )
+  }
+
+  return (
+    <section
+      aria-label="Registration"
+      className="rise-in rounded-sm p-7 sm:p-8"
+      style={{ backgroundColor: C.ink, animationDelay: '120ms' }}
+    >
+      <p className="font-ui text-sm mb-2" style={{ color: C.paperDim }}>{status}</p>
+      {countdown && (
+        <p className="mb-6" aria-live="polite">
+          <span className="block font-ui text-xs" style={{ color: C.paperDim }}>{countdown.label}</span>
+          <span className="block text-4xl font-display" style={{ color: C.paper }}>
+            {countdown.remaining}
+          </span>
+        </p>
+      )}
+      {action}
+      {error && (
+        <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.paper }}>
+          {error}
+        </p>
+      )}
+    </section>
+  )
+}
+
+export default function PublicEvent() {
+  const { id } = useParams()
+  const auth = useAuth()
+  const now = useNow()
+  const [load, setLoad] = useState({ status: 'loading', event: null, error: null })
+  const [registration, setRegistration] = useState(null)
+  const [registering, setRegistering] = useState(false)
+  const [registerError, setRegisterError] = useState(null)
+  const isAttendee = auth.status === 'authenticated' && auth.user?.role === 'attendee'
+
+  useEffect(() => {
+    let active = true
+    getPublicEvent(id)
+      .then((event) => { if (active) setLoad({ status: 'ready', event, error: null }) })
+      .catch((error) => {
+        if (!active) return
+        setLoad({
+          status: 'error',
+          event: null,
+          error: error.status === 404
+            ? "This event isn't open to the public. It may not be confirmed yet."
+            : error.message,
+        })
+      })
+    return () => { active = false }
+  }, [id])
+
+  useEffect(() => {
+    let active = true
+    if (!isAttendee || load.event?.registration_required !== true) return undefined
+    getMyRegistration(id)
+      .then((found) => { if (active) setRegistration(found) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [id, isAttendee, load.event])
+
+  async function handleRegister() {
+    setRegistering(true)
+    setRegisterError(null)
+    try {
+      setRegistration(await registerForEvent(id))
+    } catch (error) {
+      setRegisterError(error.message)
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  const event = load.event
+  const { period } = event ? describeRegistration(event, now) : { period: null }
+
+  return (
+    <div className="font-ui min-h-screen" style={{ backgroundColor: C.paper }}>
+      <style>{`
+        @keyframes riseIn {
+          from { opacity: 0; transform: translateY(14px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .rise-in { animation: riseIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        .csp-primary:hover:not(:disabled) { transform: translateY(-2px); }
+        .csp-primary:focus-visible, .csp-ghost:focus-visible, .csp-back:focus-visible {
+          outline: 2px solid ${C.tealBright};
+          outline-offset: 2px;
+        }
+        .csp-back { transition: color 0.2s; }
+        .csp-back:hover { color: ${C.teal}; }
+        @media (prefers-reduced-motion: reduce) {
+          .rise-in { animation: none; }
+          .csp-primary:hover:not(:disabled) { transform: none; }
+        }
+      `}</style>
+
+      <Header signedIn={auth.status === 'authenticated'} />
+
+      <main className="max-w-6xl mx-auto px-6 pb-20">
+        <Link
+          to="/public/events"
+          className="csp-back inline-flex items-center gap-1 font-ui text-sm mb-8"
+          style={{ color: C.inkFaint }}
+        >
+          <ChevronLeft size={16} aria-hidden="true" />
+          Back to events
+        </Link>
+
+        {load.status === 'loading' && (
+          <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading the event…</p>
+        )}
+
+        {load.status === 'error' && (
+          <p role="alert" className="font-ui text-base max-w-md" style={{ color: C.rose }}>
+            {load.error}
+          </p>
+        )}
+
+        {event && (
+          <div className="grid md:grid-cols-[1.4fr_1fr] gap-10 items-start">
+            <div>
+              <h1 className="text-4xl sm:text-5xl font-display leading-tight mb-4" style={{ color: C.ink }}>
+                {event.name}
+              </h1>
+              <p className="font-ui text-base leading-relaxed max-w-md mb-8" style={{ color: C.inkFaint }}>
+                {event.purpose}
+              </p>
+              <div className="border-t border-b divide-y" style={{ borderColor: C.line }}>
+                <Fact icon={CalendarDays} label="When">{formatEventWhen(event)}</Fact>
+                <Fact icon={MapPin} label="Venue">
+                  {event.venues.length ? event.venues.join(', ') : 'Venue to be confirmed'}
+                </Fact>
+                <Fact icon={Ticket} label="Registration">
+                  {period ?? "This event doesn't need registration."}
+                </Fact>
+              </div>
+            </div>
+
+            <RegistrationPanel
+              event={event}
+              now={now}
+              auth={auth}
+              registration={registration}
+              onRegister={handleRegister}
+              registering={registering}
+              error={registerError}
+            />
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}

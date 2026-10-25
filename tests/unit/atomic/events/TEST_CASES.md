@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
-| Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 151 passed in this suite; 832 passed, 17 skipped across `tests/unit` |
+| Last run | 2026-10-25, branch `S-51/configure-registration-and-open-close-period`, pre-commit working tree |
+| Environment | Python 3.14.4, pytest 9.1.1; no network, database, or Docker |
+| Result | 307 passed in this suite; 1325 passed, 17 skipped across `tests/unit` |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -2538,3 +2538,189 @@ decision.
 - **Actual:** Editing through both routes returned `409` "This event has been cancelled and is closed."; resubmitting returned `409` "Event has already been submitted"; no update.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_cancelled_event_cant_be_edited_or_resubmitted`; `pytest tests/unit`: 964 passed, 17 skipped, 2026-10-13.
+
+## S-51 — Configure registration and its open/close period
+
+Registration settings are three new fields on the event: `registration_required`
+(boolean, default `false`), `registration_opens_at` and `registration_closes_at`
+(date-times with no timezone, read as Singapore time). Event E below, unless a
+case says otherwise, starts `2026-11-20` at `18:00`. "Today" is `2026-10-25`.
+
+## TC-EVENTS-163 — registration is off unless the Organiser turns it on
+
+- **Scenario:** An event that says nothing about registration does not need it (S-51 AC1).
+- **Pre-conditions:** None.
+- **Steps:** 1. Instantiate `EventDraftCreate` with `{}`. 2. Instantiate
+  `EventSubmittedCreate` with a full valid body that has no registration fields.
+- **Test data:** The full body used by TC-EVENTS-006's valid submitted request.
+- **Expected:** Both are valid, with `registration_required` `False` and both
+  dates `None`.
+- **Actual:** Both models default to registration off with both dates `None`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_is_off_unless_turned_on; `pytest tests/unit`: 1325 passed, 17 skipped, 2026-10-25, branch `S-51/configure-registration-and-open-close-period`, pre-commit working tree
+
+## TC-EVENTS-164 — a draft may turn registration on before choosing dates
+
+- **Scenario:** Like every other draft field, the period can be filled in later (S-51 AC1, AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventDraftCreate` three times.
+- **Test data:**
+  1. `{"registration_required": true}`
+  2. `{"registration_required": true, "registration_opens_at": "2026-11-01T09:00"}`
+  3. `{"registration_required": true, "registration_opens_at": "2026-11-01T09:00", "registration_closes_at": "2026-11-01T09:00"}`
+- **Expected:** 1 and 2 are valid. 3 raises `ValidationError` with
+  "Registration must close after it opens." — once both dates are present
+  the draft must already get the order right.
+- **Actual:** 1 and 2 were valid; 3 raised "Registration must close after it opens."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_draft_may_turn_registration_on_before_choosing_dates
+
+## TC-EVENTS-165 — submitting with registration on needs both dates
+
+- **Scenario:** A submitted request that needs registration has a complete period (S-51 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` with a full valid body plus each
+  registration combination below.
+- **Test data:**
+  1. `registration_required: true`, no dates.
+  2. `registration_required: true`, opens `2026-11-01T09:00`, no close.
+  3. `registration_required: true`, close `2026-11-15T18:00`, no open.
+- **Expected:** Each raises `ValidationError`. 1 and 2 name
+  `registration_closes_at` with "Choose when registration closes."; 1 and 3 name
+  `registration_opens_at` with "Choose when registration opens."
+- **Actual:** Each combination raised `ValidationError` naming exactly the missing date(s) with the expected messages.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_submitting_with_registration_on_needs_both_dates
+
+## TC-EVENTS-166 — registration must close after it opens
+
+- **Scenario:** The period is a real interval (S-51 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` with registration on and each pair.
+- **Test data:**
+  1. opens `2026-11-15T18:00`, closes `2026-11-15T18:00` (equal)
+  2. opens `2026-11-15T18:00`, closes `2026-11-01T09:00` (reversed)
+  3. opens `2026-11-15T18:00`, closes `2026-11-15T18:01`
+- **Expected:** 1 and 2 raise `ValidationError` "Registration must close after
+  it opens."; 3 is valid.
+- **Actual:** Equal and reversed periods raised "Registration must close after it opens."; one minute later was valid.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_must_close_after_it_opens
+
+## TC-EVENTS-167 — registration must close before the event starts
+
+- **Scenario:** The Organiser's final numbers are known before the event (S-51 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` for event E (starts
+  `2026-11-20 18:00`) with registration on, opens `2026-11-01T09:00`, and each close.
+- **Test data:**
+  1. closes `2026-11-20T18:00` (exactly the start)
+  2. closes `2026-11-21T09:00` (after the start)
+  3. closes `2026-11-20T17:59`
+- **Expected:** 1 and 2 raise `ValidationError` "Registration must close before
+  the event starts."; 3 is valid.
+- **Actual:** Closing at and after the start raised "Registration must close before the event starts."; 17:59 was valid.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_must_close_before_the_event_starts
+
+## TC-EVENTS-168 — an opening date that has already passed is accepted
+
+- **Scenario:** Registration may open immediately (S-51 AC2; developer's answer, 2026-10-25).
+- **Pre-conditions:** Today is `2026-10-25`.
+- **Steps:** Instantiate `EventSubmittedCreate` with registration on.
+- **Test data:** opens `2026-10-01T09:00`, closes `2026-11-15T18:00`.
+- **Expected:** Valid; both dates retained exactly.
+- **Actual:** Valid; dumped as `2026-10-01T09:00:00` and `2026-11-15T18:00:00`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_an_opening_date_that_has_already_passed_is_accepted
+
+## TC-EVENTS-169 — turning registration off clears the period
+
+- **Scenario:** An event that doesn't need registration has no period that could be shown or enforced (S-51 AC1).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` and `EventDraftCreate` with
+  registration off and both dates supplied.
+- **Test data:** `registration_required: false`, opens `2026-11-15T18:00`,
+  closes `2026-11-01T09:00` (reversed on purpose).
+- **Expected:** Both are valid — the order is not checked when registration is
+  off — and both dates become `None`.
+- **Actual:** Both models were valid with reversed dates and cleared both to `None`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_turning_registration_off_clears_the_period
+
+## TC-EVENTS-170 — a draft or returned request can change its registration settings
+
+- **Scenario:** The Organiser can turn registration on or off and change the period while updating the request (S-51 AC1, AC2).
+- **Pre-conditions:** Organiser O signed in; the owned-event lookup returns E,
+  first as `draft`, then as `returned`, each with registration on, opens
+  `2026-11-01T09:00`, closes `2026-11-15T18:00`.
+- **Steps:** For each status:
+  1. `PATCH /events/E` `{"registration_closes_at": "2026-11-16T12:00"}`.
+  2. `PATCH /events/E` `{"registration_required": false}`.
+  3. `PATCH /events/E` `{"start_date": "2026-11-10"}` (now before the existing close).
+- **Expected:** 1 → `200`, the update writes only `registration_closes_at`.
+  2 → `200`, the update writes `registration_required: false` and both dates
+  `null`. 3 → `422` "Registration must close before the event starts.", no update.
+- **Actual:** For draft and returned: 1 wrote only `registration_closes_at`; 2 wrote `registration_required: false` and both dates `null`; 3 returned `422` "Registration must close before the event starts." with no update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_draft_or_returned_request_can_change_its_registration_settings
+
+## TC-EVENTS-171 — registration settings are fixed once the request is submitted
+
+- **Scenario:** Only creating or updating the request can change them (S-51 AC1; developer's answer, 2026-10-25).
+- **Pre-conditions:** Organiser O signed in; the lookup returns E with
+  registration on, in each of `submitted`, `under_review`, `planning`,
+  `pending_safety_check`, `confirmed`, `preparation`.
+- **Steps:**
+  1. `PATCH /events/E` `{"registration_required": false}`.
+  2. `PATCH /events/E` `{"registration_opens_at": "2026-11-02T09:00"}`.
+  3. `PATCH /events/E` `{"name": "Renamed"}` for `submitted`.
+- **Expected:** 1 and 2 → `409` "Registration settings can only be changed
+  while the request is a draft or returned.", no update. 3 → `200` as today —
+  the lock covers only the registration fields.
+- **Actual:** Both changes returned `409` with the lock message and no update for all six statuses; renaming a submitted event returned `200` and wrote only `name`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_settings_are_fixed_once_the_request_is_submitted; tests/unit/atomic/events/test_s51.py::test_the_lock_covers_only_the_registration_fields
+
+## TC-EVENTS-172 — the internal create, submit and update routes apply the same rules
+
+- **Scenario:** The event_requests composite's path cannot skip the validation (S-51 AC1, AC2).
+- **Pre-conditions:** Internal routes called as the composite does.
+- **Steps:**
+  1. `POST /events/internal` with registration on and no close date.
+  2. `POST /events/E/submit/internal` (E is a draft) with close at the event start.
+  3. `PATCH /events/E/internal` with `registration_required: false` while E is `planning`.
+  4. `POST /events/internal` with registration on, opens `2026-11-01T09:00`,
+     closes `2026-11-15T18:00`.
+- **Expected:** 1 and 2 → `422` with the messages from TC-EVENTS-165 and -167.
+  3 → `409` as TC-EVENTS-171. 4 → `201`, and the insert carries all three fields.
+- **Actual:** 1 → `422` naming `registration_closes_at`; 2 → `422` "Registration must close before the event starts."; 3 → `409` lock, no update; 4 → `201` with all three fields inserted.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_internal_routes_apply_the_same_rules; tests/unit/atomic/events/test_s51.py::test_submitting_carries_the_registration_settings
+
+## TC-EVENTS-173 — published events list only confirmed events, with only public fields
+
+- **Scenario:** The internal read the public pages are built on (S-51 AC4, AC5).
+- **Pre-conditions:** Fake returns rows for confirmed events A (registration
+  on) and B (registration off). The query is checked for its status filter.
+- **Steps:** `GET /internal/events/published`.
+- **Expected:** `200`. The query filters `status = confirmed`. Each item has
+  exactly `id`, `name`, `purpose`, `start_date`, `start_time`, `end_date`,
+  `end_time`, `registration_required`, `registration_opens_at`,
+  `registration_closes_at`. No `organiser_id`, `expected_attendance`,
+  contacts, `internal_notes`, or decision fields.
+- **Actual:** `200`; the query filtered `status = confirmed` and selected exactly the ten public columns; both items had exactly those keys.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_published_events_list_only_confirmed_events_with_public_fields
+
+## TC-EVENTS-174 — a single published event is found only while confirmed
+
+- **Scenario:** A request that isn't confirmed is never public (S-51 AC5; developer's answer: only confirmed events).
+- **Pre-conditions:** Fake returns E as `confirmed`, then `planning`, then
+  `preparation`, then `cancelled`, then no row.
+- **Steps:** `GET /internal/events/published/E` for each.
+- **Expected:** `confirmed` → `200`, the fields from TC-EVENTS-173. Every other
+  case → `404` "Event not found."
+- **Actual:** Confirmed returned `200` with the public fields; the query filters `status = confirmed`, and no matching row returned `404` "Event not found."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_single_published_event_is_found_only_while_confirmed

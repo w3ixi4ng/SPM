@@ -8,7 +8,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_prevent_overlapping_confirmation.py`, `test_filter_venues.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
 `test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
-`test_operational_safety_check.py`, and `test_book_multiple_venues.py`.
+`test_operational_safety_check.py`, and `test_book_multiple_venues.py`,
+and S-51's `test_set_registration_period.py` and `test_register_for_event.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -1256,3 +1257,52 @@ Confirmed by the developer on 2026-10-11.
 - **Actual:** Chromium: the Events tab showed "Cancellation requested" on E; the reason was shown; the panel said "1 venue booking will be removed and its time freed."; Keep event changed nothing; Cancel event showed "Event cancelled. 1 venue booking was released."; after a reload the badge read "Cancelled", the venue requests list was empty and no decision buttons remained, with E `cancelled` and no bookings stored; the Organiser's row read "Cancelled" with no tag.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_approve_cancellation.py::test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled[chromium]`; `.env.test` stack recreated immediately before (events and bookings containers verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-61/review-and-approve-cancellation-request`; S-61 SQL applied to dev and test. The first run failed in the test, not the feature: the Coordinator dashboard opens on its Venues tab, so the test now selects Events first. Rerun with `test_request_event_cancellation.py` and `test_coordinator_overview.py`: 3 passed. Rerun 2026-10-11 after fixing the empty banner and the editable form on a cancelled event: one run failed waiting 5 s for the venue list to load (now 20 s, as every other wait in the test); then, with `test_request_event_cancellation.py` and `test_respond_to_return.py`, 3 passed. Re-verified 2026-10-21 after merging sprint3 (S-17, S-18, S-24, S-78, S-80, S-87) into this branch and re-applying the S-61 `events_decision_matches_status` rule (with S-87's `pending_safety_check`) to dev and test: with the S-62, S-80 and safety-check journeys, 5 passed. An earlier batch run timed out waiting for S-62's Request cancellation button under load; it passed alone in 30 s and in the full rerun.
+
+## TC-E2E-246 — Organiser sets a registration period, and it's fixed once submitted
+
+- **Scenario:** The Organiser can turn registration on and set the period while creating the request, and can't change it after submitting (S-51 AC1, AC2).
+- **Pre-conditions:** The whole `.env.test` stack recreated immediately
+  before; S-51 SQL applied; Chromium. Organiser O; at least one Coordinator.
+- **Steps:**
+  1. O signs in, starts a new event request starting `2026-12-10 18:00`,
+     turns **Registration** on.
+  2. Sets closing `2026-12-10 19:00` and opening `2026-11-01 09:00`; clicks
+     **Submit request**.
+  3. Changes closing to `2026-12-05 18:00`; submits.
+  4. Opens the submitted request.
+- **Expected:** 2 shows "Registration must close before the event starts." and
+  nothing is submitted. 3 submits. 4 shows "Registration opens 1 Nov 2026,
+  9:00 am and closes 5 Dec 2026, 6:00 pm." with no control to change it.
+- **Actual:** Chromium: closing at 7:00 pm on the start day showed "Registration must close before the event starts." and stayed on `/events/new`; closing 5 Dec submitted; after a reload the period read "Registration opens 1 Nov 2026, 9:00 am and closes 5 Dec 2026, 6:00 pm." with no toggle or pickers.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_set_registration_period.py::test_organiser_sets_a_registration_period_fixed_once_submitted`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+
+## TC-E2E-247 — a visitor reads a confirmed event, then registers as an Attendee
+
+- **Scenario:** Public details without signing in; a place only once registered (S-51 AC4, AC5).
+- **Pre-conditions:** As TC-E2E-246. Through the admin client: confirmed event
+  P with a confirmed booking, registration open from yesterday to next week;
+  Attendee account A.
+- **Steps:**
+  1. Signed out, open `/public/events/P`.
+  2. Click **Register**.
+  3. Sign in as A; open `/public/events/P` again, click **Register**.
+  4. Reload the page.
+- **Expected:** 1 shows P's name, purpose, dates and times, venue, and its
+  registration period. 2 goes to sign-in. 3 shows "You're registered for
+  this event." 4 still shows it.
+- **Actual:** Chromium: signed out, the page showed the name, purpose, booked venue and period; Register went to `/login`; as the Attendee, Register showed "You're registered for this event.", which survived a reload with no Register button.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_a_visitor_reads_a_confirmed_event_then_registers_as_an_attendee`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+
+## TC-E2E-248 — an Attendee is told registration hasn't opened yet
+
+- **Scenario:** Attempts outside the period are blocked with a message (S-51 AC3).
+- **Pre-conditions:** As TC-E2E-247, plus confirmed event Q whose registration
+  opens in 7 days.
+- **Steps:** As A, open `/public/events/Q`.
+- **Expected:** "Registration opens on {Q's opening, e.g. 1 Nov 2026, 9:00 am}."
+  is shown and there is no enabled **Register** button.
+- **Actual:** Chromium: the page showed "Registration opens on …" with Q's opening and no Register button.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s

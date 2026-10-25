@@ -50,6 +50,8 @@ services:
         condition: service_healthy
       safety_checks:
         condition: service_healthy
+      event_registrations:
+        condition: service_healthy
       frontend:
         condition: service_healthy
     healthcheck:
@@ -343,6 +345,64 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8103/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  # S-51: who holds a place at which event. Only event_registrations calls
+  # it; no Kong route.
+  registrations:
+    build: ./backend/services/atomic/registrations
+    ports:
+      - "${REGISTRATIONS_SERVICE_PORT:-8007}:8007"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8007/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+  # S-51: confirmed events' public pages, and Attendees registering for
+  # them inside the registration period.
+  event_registrations:
+    build: ./backend/services/composite/event_registrations
+    ports:
+      - "${EVENT_REGISTRATIONS_SERVICE_PORT:-8104}:8104"
+    environment:
+      USERS_SERVICE_URL: ${USERS_SERVICE_URL}
+      EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
+      VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
+      BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
+      REGISTRATIONS_SERVICE_URL: ${REGISTRATIONS_SERVICE_URL:-http://registrations:8007}
+    depends_on:
+      users:
+        condition: service_healthy
+      events:
+        condition: service_healthy
+      venues:
+        condition: service_healthy
+      bookings:
+        condition: service_healthy
+      registrations:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8104/health').read()",
         ]
       interval: 10s
       timeout: 5s

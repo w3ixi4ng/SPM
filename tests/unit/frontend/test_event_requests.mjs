@@ -73,6 +73,9 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
     room_layout: null,
     required_facilities: [],
     required_accessibility: [],
+    registration_required: false,
+    registration_opens_at: null,
+    registration_closes_at: null,
   })
 
   assert.deepEqual(eventFormToPayload({
@@ -89,6 +92,7 @@ test('form mapping uses the backend contract and omits server-owned fields', () 
   }, { omitEmpty: true }), {
     required_facilities: [],
     required_accessibility: [],
+    registration_required: false,
   })
 })
 
@@ -111,6 +115,11 @@ test('API responses populate the existing React state shape', () => {
     contactEmail: '',
     contactPhone: '',
     internalNotes: '',
+    registrationRequired: false,
+    registrationOpensDate: '',
+    registrationOpensTime: '',
+    registrationClosesDate: '',
+    registrationClosesTime: '',
   })
 })
 
