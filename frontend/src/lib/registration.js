@@ -72,10 +72,13 @@ export function describeRegistration(event, now = new Date()) {
   }
   const opens = formatRegistrationMoment(event.registration_opens_at)
   const closes = formatRegistrationMoment(event.registration_closes_at)
+  // S-48: outside the period the status states the whole window, in the
+  // service's own words for a blocked attempt.
+  const window = `from ${opens} to ${closes}`
   const status = {
-    not_open: `Registration opens on ${opens}.`,
+    not_open: `Registration hasn't opened yet. It's open ${window}.`,
     open: `Registration is open until ${closes}.`,
-    closed: `Registration closed on ${closes}.`,
+    closed: `Registration has closed. It was open ${window}.`,
   }[state]
   return { state, period: `Registration opens ${opens} and closes ${closes}.`, status }
 }
@@ -129,4 +132,19 @@ export function registerForEvent(id) {
   return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/registration`, {
     method: 'POST',
   })
+}
+
+// S-48: the events the signed-in Attendee holds a place at.
+export function listMyRegistrations() {
+  return requestJSON('/event-registrations/me/registrations')
+}
+
+// S-48: who has registered for one of the signed-in Organiser's events.
+export function listEventAttendees(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/attendees`)
+}
+
+export function attendeeCountLabel(count) {
+  if (!count) return 'No one has registered yet.'
+  return `${count} ${count === 1 ? 'attendee' : 'attendees'} registered`
 }

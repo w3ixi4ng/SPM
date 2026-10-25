@@ -2451,17 +2451,18 @@ Confirmed by the developer on 2026-10-11.
 
 ## TC-FRONTEND-146 — the period is described in words Attendees can read
 
-- **Scenario:** The configured period is visible and the blocked messages match the service's (S-51 AC3, AC4).
+- **Scenario:** The configured period is visible and the blocked messages match the service's (S-51 AC3, AC4; S-48 AC2).
 - **Pre-conditions:** As TC-FRONTEND-144.
 - **Steps:** Call `describeRegistration(event, now)` for each state.
 - **Expected:**
   - Period → "Registration opens 1 Nov 2026, 9:00 am and closes 15 Nov 2026, 6:00 pm."
-  - `not_open` status line → "Registration opens on 1 Nov 2026, 9:00 am."
-  - `closed` status line → "Registration closed on 15 Nov 2026, 6:00 pm."
+  - `not_open` status line → "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
+  - `closed` status line → "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
   - `not_required` → "This event doesn't need registration." and no period line.
-- **Actual:** The period, both status lines and the no-registration text matched exactly.
+- **Actual:** The period, the whole-window not-open and closed status lines, and the no-registration text matched exactly.
 - **Status:** Pass
-- **Evidence:** test_registration.mjs::the period is described in words Attendees can read
+- **Evidence:** test_registration.mjs::the period is described in words Attendees can read; 2026-10-25, branch `S-48/register-for-event`
+
 ## S-88 confirmed specification — reassignment request UI
 
 Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted; Node unit suite and Chromium browser checks.
@@ -2504,3 +2505,31 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Expected:** The browser sends the state and expected version and reports success or a specific failure.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.mjs::venue preparation calls use the gateway and optimistic version`; `test_venue_preparation.mjs::venue preparation labels and failures stay specific`; `test_access.mjs::only venue staff update venue preparation`.
+
+## S-48 — Register for Event
+
+Specification confirmed by the developer before code. Covers `test_registration.mjs`.
+
+## TC-FRONTEND-254 — the registration lists are read from the composite
+
+- **Scenario:** The dashboard and the Organiser's event page read the S-48 lists (S-48 AC3).
+- **Pre-conditions:** `fetch` is faked.
+- **Steps:** Call `listMyRegistrations()` and `listEventAttendees(id)`.
+- **Test data:** id `22222222-2222-4222-8222-222222222222`.
+- **Expected:** `GET /api/event-registrations/me/registrations` and
+  `GET /api/event-registrations/events/22222222-2222-4222-8222-222222222222/attendees`,
+  each with `credentials: "include"`; the parsed body is returned.
+- **Actual:** Both helpers called the expected `/api/event-registrations/...` paths with `credentials: "include"` and returned the parsed body.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the registration lists are read from the composite; 2026-10-25, branch `S-48/register-for-event`
+
+## TC-FRONTEND-255 — the attendee count reads as a sentence
+
+- **Scenario:** The Organiser's list states how many have registered.
+- **Pre-conditions:** None.
+- **Steps:** Call `attendeeCountLabel(n)`.
+- **Test data / Expected:** `0` → "No one has registered yet."; `1` → "1
+  attendee registered"; `2` → "2 attendees registered".
+- **Actual:** "No one has registered yet.", "1 attendee registered", "2 attendees registered".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the attendee count reads as a sentence; 2026-10-25, branch `S-48/register-for-event`

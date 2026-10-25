@@ -98,3 +98,29 @@ def get_registration(event_id: UUID, attendee_id: UUID, db: Client = Depends(get
     if not result.data:
         raise HTTPException(status_code=404, detail=NOT_REGISTERED)
     return result.data[0]
+
+
+# S-48: a place is recorded against both the event and the Attendee, so it
+# can be read back from either side. An empty list is an answer, not a 404.
+@app.get("/registrations/events/{event_id}", response_model=list[RegistrationRead])
+def list_event_registrations(event_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("event_id", str(event_id))
+        .order("created_at")
+    )
+    return _execute(operation).data
+
+
+@app.get("/registrations/attendees/{attendee_id}", response_model=list[RegistrationRead])
+def list_attendee_registrations(attendee_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .eq("attendee_id", str(attendee_id))
+        .order("created_at")
+    )
+    return _execute(operation).data

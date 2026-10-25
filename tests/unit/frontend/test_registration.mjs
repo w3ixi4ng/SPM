@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  attendeeCountLabel,
   describeRegistration,
+  listEventAttendees,
+  listMyRegistrations,
   registrationWindow,
   validateRegistrationSettings,
 } from '../../../frontend/src/lib/registration.js'
@@ -61,11 +64,17 @@ test('the period is described in words Attendees can read', () => {
 
   const before = describeRegistration(EVENT, new Date('2026-10-25T02:00:00Z'))
   assert.equal(before.period, period)
-  assert.equal(before.status, 'Registration opens on 1 Nov 2026, 9:00 am.')
+  assert.equal(
+    before.status,
+    "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm.",
+  )
 
   const after = describeRegistration(EVENT, new Date('2026-11-16T00:00:00Z'))
   assert.equal(after.period, period)
-  assert.equal(after.status, 'Registration closed on 15 Nov 2026, 6:00 pm.')
+  assert.equal(
+    after.status,
+    'Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm.',
+  )
 
   const off = describeRegistration({ registration_required: false }, new Date())
   assert.equal(off.period, null)
@@ -102,4 +111,32 @@ test('the form sends the period as one date-time, and can leave it out', () => {
       registrationClosesDate: 'Registration must close before the event starts.',
     },
   )
+})
+
+// --- TC-FRONTEND-254 -------------------------------------------------------
+test('the registration lists are read from the composite', async (t) => {
+  const calls = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify([{ event_id: 'e' }]), { status: 200 })
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  assert.deepEqual(await listMyRegistrations(), [{ event_id: 'e' }])
+  await listEventAttendees('22222222-2222-4222-8222-222222222222')
+
+  assert.equal(calls[0].url, '/api/event-registrations/me/registrations')
+  assert.equal(
+    calls[1].url,
+    '/api/event-registrations/events/22222222-2222-4222-8222-222222222222/attendees',
+  )
+  for (const call of calls) assert.equal(call.options.credentials, 'include')
+})
+
+// --- TC-FRONTEND-255 -------------------------------------------------------
+test('the attendee count reads as a sentence', () => {
+  assert.equal(attendeeCountLabel(0), 'No one has registered yet.')
+  assert.equal(attendeeCountLabel(1), '1 attendee registered')
+  assert.equal(attendeeCountLabel(2), '2 attendees registered')
 })

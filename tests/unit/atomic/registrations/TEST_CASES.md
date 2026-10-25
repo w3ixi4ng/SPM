@@ -10,9 +10,9 @@ attendee_id)` is unique, so one account holds at most one place per event.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/registrations` |
-| Last run | 2026-10-25, branch `S-51/configure-registration-and-open-close-period`, pre-commit working tree |
+| Last run | 2026-10-25, branch `S-48/register-for-event`, pre-commit working tree |
 | Environment | Python 3.14.4, pytest 9.1.1; no network, database, or Docker |
-| Result | 5 cases, 7 tests passed in this suite; 1325 passed, 17 skipped across `tests/unit` |
+| Result | 7 cases, 11 tests passed in this suite; 1364 passed, 17 skipped across `tests/unit` |
 
 Test data used throughout: event E `22222222-2222-4222-8222-222222222222`,
 Attendee A `33333333-3333-4333-8333-333333333333`, Attendee B
@@ -78,3 +78,36 @@ Attendee A `33333333-3333-4333-8333-333333333333`, Attendee B
 - **Actual:** A's row → `200`; B → `404` "You're not registered for this event."; both filtered by event and attendee.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/registrations/test_app.py::test_reading_whether_an_attendee_holds_a_place
+
+## TC-REGISTRATIONS-006 — every place at one event
+
+- **Scenario:** A registration can be read back against its event (S-48 AC3).
+- **Pre-conditions:** Fake returns A's row (created `2026-11-05T04:00:00Z`)
+  and B's row (created `2026-11-06T04:00:00Z`) for E, then `[]` for event
+  `66666666-6666-4666-8666-666666666666`.
+- **Steps:**
+  1. `GET /registrations/events/E`
+  2. `GET /registrations/events/66666666-6666-4666-8666-666666666666`
+- **Test data:** As pre-conditions.
+- **Expected:** 1 → `200`, a list of A's row then B's row, filtered
+  `event_id = E` and ordered by `created_at` ascending. 2 → `200` `[]` (never
+  `404`). `GET /registrations/events/not-a-uuid` → `422`, no query made.
+- **Actual:** A then B, filtered by event and ordered by `created_at`; an event with none → `200` `[]`; `not-a-uuid` → `422` with no query.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_every_place_at_one_event; tests/unit/atomic/registrations/test_app.py::test_listing_an_events_places_needs_a_uuid
+
+## TC-REGISTRATIONS-007 — every place one Attendee holds
+
+- **Scenario:** A registration can be read back against its Attendee (S-48 AC3).
+- **Pre-conditions:** Fake returns A's rows for E and for event
+  `66666666-6666-4666-8666-666666666666`, then `[]` for B.
+- **Steps:**
+  1. `GET /registrations/attendees/A`
+  2. `GET /registrations/attendees/B`
+- **Test data:** As pre-conditions.
+- **Expected:** 1 → `200`, both of A's rows, filtered `attendee_id = A` and
+  ordered by `created_at` ascending. 2 → `200` `[]`.
+  `GET /registrations/attendees/not-a-uuid` → `422`, no query made.
+- **Actual:** Both of A's rows, filtered by attendee and ordered by `created_at`; B → `200` `[]`; `not-a-uuid` → `422` with no query.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_every_place_one_attendee_holds; tests/unit/atomic/registrations/test_app.py::test_listing_an_attendees_places_needs_a_uuid

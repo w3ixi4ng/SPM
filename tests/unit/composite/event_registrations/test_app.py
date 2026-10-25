@@ -1,6 +1,6 @@
 """S-51: public event pages and Attendees registering inside the period.
 
-TC-EVENTREGISTRATIONS-001..012.
+TC-EVENTREGISTRATIONS-001..012; S-48 adds 013..018 and the window wording.
 """
 
 from datetime import datetime, timezone
@@ -32,8 +32,9 @@ E_PUBLIC = {
     "registration_closes_at": "2026-11-15T18:00:00",
 }
 REGISTER_E = f"/event-registrations/events/{EVENT_E}/registration"
-NOT_OPEN = "Registration opens on 1 Nov 2026, 9:00 am."
-CLOSED = "Registration closed on 15 Nov 2026, 6:00 pm."
+WINDOW = "from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm"
+NOT_OPEN = f"Registration hasn't opened yet. It's open {WINDOW}."
+CLOSED = f"Registration has closed. It was open {WINDOW}."
 
 
 # --- TC-EVENTREGISTRATIONS-001 --------------------------------------------
@@ -213,3 +214,173 @@ def test_a_service_it_depends_on_is_down(client, services):
     result = client.post(REGISTER_E)
     assert result.status_code == 502
     assert result.json()["detail"] == "Registrations service unavailable"
+
+
+# --- S-48 ------------------------------------------------------------------
+ATTENDEE_B = "44444444-4444-4444-8444-444444444444"
+EVENT_G = "88888888-8888-4888-8888-888888888888"
+ATTENDEES_E = f"/event-registrations/events/{EVENT_E}/attendees"
+MINE = "/event-registrations/me/registrations"
+
+
+def _row(event_id, attendee_id, created_at):
+    return {"id": "r", "event_id": event_id, "attendee_id": attendee_id, "created_at": created_at}
+
+
+def _organiser_owns_e(services, answer=None):
+    async def events_get(path, **kwargs):
+        if path == f"/events/{EVENT_E}":
+            return answer or response(200, {"id": EVENT_E})
+        return response(404, {"detail": "Event not found."})
+
+    services["events"].get.side_effect = events_get
+
+
+def _registrations_answer(services, rows):
+    services["registrations"].get.return_value = response(200, rows)
+
+
+# --- TC-EVENTREGISTRATIONS-013 --------------------------------------------
+def test_the_organiser_sees_who_registered_for_their_event(client, services):
+    _organiser_owns_e(services)
+    _registrations_answer(
+        services,
+        [
+            _row(EVENT_E, ATTENDEE_A, "2026-11-05T04:00:00Z"),
+            _row(EVENT_E, ATTENDEE_B, "2026-11-06T04:00:00Z"),
+        ],
+    )
+    services["users"].post.return_value = response(
+        200,
+        [
+            {"id": ATTENDEE_B, "name": "Ben Lim", "email": "ben@example.com"},
+            {"id": ATTENDEE_A, "name": "Ada Tan", "email": "ada@example.com"},
+        ],
+    )
+
+    client.cookies.set("sb-access-token", "organiser")
+    result = client.get(ATTENDEES_E)
+
+    assert result.status_code == 200
+    assert result.json() == {
+        "event_id": EVENT_E,
+        "count": 2,
+        "attendees": [
+            {"attendee_id": ATTENDEE_A, "name": "Ada Tan", "email": "ada@example.com",
+             "registered_at": "2026-11-05T04:00:00Z"},
+            {"attendee_id": ATTENDEE_B, "name": "Ben Lim", "email": "ben@example.com",
+             "registered_at": "2026-11-06T04:00:00Z"},
+        ],
+    }
+    path = services["events"].get.call_args.args[0]
+    assert path == f"/events/{EVENT_E}"
+    assert services["events"].get.call_args.kwargs["cookies"] == {"sb-access-token": "organiser"}
+    services["registrations"].get.assert_called_once_with(f"/registrations/events/{EVENT_E}")
+    services["users"].post.assert_called_once_with(
+        "/internal/users/profiles", json={"ids": [ATTENDEE_A, ATTENDEE_B]}
+    )
+
+
+# --- TC-EVENTREGISTRATIONS-014 --------------------------------------------
+def test_an_event_no_one_has_registered_for_yet(client, services):
+    _organiser_owns_e(services)
+    _registrations_answer(services, [])
+
+    result = client.get(ATTENDEES_E)
+
+    assert result.status_code == 200
+    assert result.json() == {"event_id": EVENT_E, "count": 0, "attendees": []}
+    services["users"].post.assert_not_called()
+
+
+# --- TC-EVENTREGISTRATIONS-015 --------------------------------------------
+@pytest.mark.parametrize(
+    "answer, status, detail",
+    [
+        (response(401, {"detail": "Not authenticated"}), 401, "Sign in to see who has registered."),
+        (response(403, {"detail": "Insufficient permissions"}), 403, "Insufficient permissions"),
+        (response(404, {"detail": "Event not found"}), 404, "Event not found"),
+    ],
+)
+def test_only_the_events_own_organiser_sees_its_attendees(client, services, answer, status, detail):
+    _organiser_owns_e(services, answer)
+
+    result = client.get(ATTENDEES_E)
+
+    assert result.status_code == status
+    assert result.json()["detail"] == detail
+    services["registrations"].get.assert_not_called()
+    services["users"].post.assert_not_called()
+
+
+# --- TC-EVENTREGISTRATIONS-016 --------------------------------------------
+def test_an_attendee_sees_the_events_they_registered_for(client, services):
+    _registrations_answer(
+        services,
+        [
+            _row(EVENT_E, ATTENDEE_A, "2026-11-05T04:00:00Z"),
+            _row(EVENT_G, ATTENDEE_A, "2026-11-02T04:00:00Z"),
+        ],
+    )
+    base = services["events"].get.side_effect
+
+    async def events_get(path, **kwargs):
+        if path == f"/internal/events/published/{EVENT_G}":
+            return response(200, {**E_PUBLIC, "id": EVENT_G, "name": "Careers fair",
+                                  "start_date": "2026-11-10", "start_time": "10:00:00",
+                                  "end_date": "2026-11-10", "end_time": "16:00:00"})
+        return await base(path, **kwargs)
+
+    services["events"].get.side_effect = events_get
+
+    # The attendee id comes from the session; nothing in the request names one.
+    result = client.get(MINE)
+
+    assert result.status_code == 200
+    g, e = result.json()
+    assert g["event_id"] == EVENT_G
+    assert g["registered_at"] == "2026-11-02T04:00:00Z"
+    assert e == {
+        "event_id": EVENT_E,
+        "name": "Alumni networking evening",
+        "start_date": "2026-11-20",
+        "start_time": "18:00:00",
+        "end_date": "2026-11-20",
+        "end_time": "21:00:00",
+        "registered_at": "2026-11-05T04:00:00Z",
+    }
+    services["registrations"].get.assert_called_once_with(f"/registrations/attendees/{ATTENDEE_A}")
+
+
+# --- TC-EVENTREGISTRATIONS-017 --------------------------------------------
+def test_an_attendee_with_no_public_registrations(client, services):
+    _registrations_answer(services, [])
+    result = client.get(MINE)
+    assert result.status_code == 200
+    assert result.json() == []
+    services["events"].get.assert_not_called()
+
+    _registrations_answer(services, [_row(EVENT_E, ATTENDEE_A, REGISTERED_AT)])
+    services["events"].get.side_effect = None
+    services["events"].get.return_value = response(404, {"detail": "Event not found."})
+    result = client.get(MINE)
+    assert result.status_code == 200
+    assert result.json() == []
+
+
+# --- TC-EVENTREGISTRATIONS-018 --------------------------------------------
+@pytest.mark.parametrize(
+    "answer, status, detail",
+    [
+        (response(401, {"detail": "Not authenticated"}), 401, "Sign in to register for this event."),
+        (response(200, me(role="event_organiser")), 403, "Only attendee accounts can register for events."),
+    ],
+)
+def test_the_attendees_list_needs_a_signed_in_attendee(client, services, answer, status, detail):
+    services["users"].get.return_value = answer
+
+    result = client.get(MINE)
+
+    assert result.status_code == status
+    assert result.json()["detail"] == detail
+    services["registrations"].get.assert_not_called()

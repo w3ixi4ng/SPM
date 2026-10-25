@@ -1,4 +1,5 @@
 """S-51: confirmed events' public pages, and Attendees registering for them.
+S-48: each registration read back by its Attendee and by the event's Organiser.
 
 Anyone may read a confirmed event's public details. Registering needs a
 signed-in Attendee, an event that asks for registration, and a moment inside
@@ -24,7 +25,7 @@ from clients import (
     get_users_client,
     get_venues_client,
 )
-from schemas import PublicEvent, RegistrationStatus
+from schemas import EventAttendees, MyRegistration, PublicEvent, RegistrationStatus
 
 app = FastAPI(title="Event Registrations Service")
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ SINGAPORE = timezone(timedelta(hours=8))
 SIGN_IN_TO_REGISTER = "Sign in to register for this event."
 ATTENDEES_ONLY = "Only attendee accounts can register for events."
 NOT_REQUIRED = "This event doesn't need registration."
+SIGN_IN_TO_SEE_ATTENDEES = "Sign in to see who has registered."
 
 
 @app.exception_handler(RequestValidationError)
@@ -137,10 +139,16 @@ def _check_period(event: dict, now: datetime) -> None:
     local_now = now.astimezone(SINGAPORE).replace(tzinfo=None)
     opens = datetime.fromisoformat(event["registration_opens_at"])
     closes = datetime.fromisoformat(event["registration_closes_at"])
+    # S-48: a blocked attempt states the whole window, not only one end.
+    window = f"from {_when(opens)} to {_when(closes)}"
     if local_now < opens:
-        raise HTTPException(status_code=409, detail=f"Registration opens on {_when(opens)}.")
+        raise HTTPException(
+            status_code=409, detail=f"Registration hasn't opened yet. It's open {window}."
+        )
     if local_now >= closes:
-        raise HTTPException(status_code=409, detail=f"Registration closed on {_when(closes)}.")
+        raise HTTPException(
+            status_code=409, detail=f"Registration has closed. It was open {window}."
+        )
 
 
 @app.get("/event-registrations/events", response_model=list[PublicEvent])
@@ -220,3 +228,81 @@ async def get_my_registration(
         "registered": True,
         "registered_at": response.json()["created_at"],
     }
+
+
+async def _owned_event(event_id: UUID, request: Request, events: httpx.AsyncClient) -> None:
+    """The events service decides ownership: it answers 404 for another
+    Organiser's event and 403 for any other role."""
+    response = await _call(
+        "Events", events.get(f"/events/{event_id}", cookies=request.cookies)
+    )
+    if response.status_code == 401:
+        raise HTTPException(status_code=401, detail=SIGN_IN_TO_SEE_ATTENDEES)
+    if response.status_code in (403, 404):
+        detail = (response.json() or {}).get("detail", "Event not found")
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    if response.status_code != 200:
+        raise _unavailable("Events")
+
+
+@app.get("/event-registrations/events/{event_id}/attendees", response_model=EventAttendees)
+async def list_event_attendees(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+):
+    await _owned_event(event_id, request, events)
+    rows = await _json("Registrations", registrations.get(f"/registrations/events/{event_id}"))
+    profiles = {}
+    if rows:
+        found = await _json(
+            "Users",
+            users.post(
+                "/internal/users/profiles", json={"ids": [row["attendee_id"] for row in rows]}
+            ),
+        )
+        profiles = {profile["id"]: profile for profile in found}
+    attendees = [
+        {
+            "attendee_id": row["attendee_id"],
+            "name": profiles.get(row["attendee_id"], {}).get("name"),
+            "email": profiles.get(row["attendee_id"], {}).get("email"),
+            "registered_at": row["created_at"],
+        }
+        for row in rows
+    ]
+    return {"event_id": event_id, "count": len(attendees), "attendees": attendees}
+
+
+async def _still_public(event_id: str, events: httpx.AsyncClient) -> dict | None:
+    """An event that is no longer confirmed drops out of the Attendee's list."""
+    response = await _call("Events", events.get(f"/internal/events/published/{event_id}"))
+    if response.status_code == 404:
+        return None
+    if response.status_code != 200:
+        raise _unavailable("Events")
+    return response.json()
+
+
+@app.get("/event-registrations/me/registrations", response_model=list[MyRegistration])
+async def list_my_registrations(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+):
+    user = await _attendee(request, users)
+    rows = await _json("Registrations", registrations.get(f'/registrations/attendees/{user["id"]}'))
+    found = await asyncio.gather(*(_still_public(row["event_id"], events) for row in rows))
+    listed = [
+        {**event, "event_id": event["id"], "registered_at": row["created_at"]}
+        for row, event in zip(rows, found)
+        if event is not None
+    ]
+    # Soonest event first; an event without dates yet sorts last.
+    return sorted(
+        listed,
+        key=lambda item: (item["start_date"] or "9999-12-31", item["start_time"] or ""),
+    )

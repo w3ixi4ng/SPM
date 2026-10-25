@@ -1,7 +1,8 @@
 # Event registrations composite
 
 S-51. Serves confirmed events' public pages, and lets Attendees register for
-them while registration is open. Owns no storage: event details and
+them while registration is open. S-48: each registration can be read back by
+the Attendee who holds it and by the Organiser who owns the event. Owns no storage: event details and
 registration settings come from `events`, venue names from `bookings` and
 `venues`, the signed-in user from `users`, and places are written to
 `registrations`.
@@ -16,12 +17,15 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `GET` | `/event-registrations/events/{event_id}` | none | One confirmed event's public details. |
 | `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open. |
 | `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered. |
+| `GET` | `/event-registrations/me/registrations` | Attendee | The confirmed events the signed-in Attendee is registered for, soonest first. |
+| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
 ## Request
 
-No body on any route. The event id is in the path; the Attendee is whoever
-the `sb_access_token` cookie belongs to, never anything in the request.
+No body or query parameters on any route. The event id is in the path; the
+Attendee or Organiser is whoever the `sb_access_token` cookie belongs to,
+never anything in the request.
 
 ## Response
 
@@ -63,13 +67,59 @@ Attendee holds no place.
 | `403` | Signed in, but not an `attendee` | "Only attendee accounts can register for events." |
 | `404` | The event is missing or not `confirmed` | "Event not found." |
 | `409` | The event doesn't use registration | "This event doesn't need registration." |
-| `409` | Before the period opens | "Registration opens on 1 Nov 2026, 9:00 am." |
-| `409` | At or after the period closes | "Registration closed on 15 Nov 2026, 6:00 pm." |
+| `409` | Before the period opens | "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm." |
+| `409` | At or after the period closes | "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm." |
 | `409` | Already registered | "You're already registered for this event." |
 | `502` | A service it depends on did not answer | "Events service unavailable" (or Users, Bookings, Venues, Registrations) |
 
 The period is Singapore time. "Now" is read in Singapore time whatever the
 server's clock, opening is inclusive and closing is exclusive.
+
+**My registrations** (`200` from `GET /me/registrations`; `[]` when none):
+
+```json
+[
+  {
+    "event_id": "22222222-2222-4222-8222-222222222222",
+    "name": "Alumni networking evening",
+    "start_date": "2026-11-20",
+    "start_time": "18:00:00",
+    "end_date": "2026-11-20",
+    "end_time": "21:00:00",
+    "registered_at": "2026-11-05T04:00:00Z"
+  }
+]
+```
+
+Only events that are still `confirmed` are listed. Answers `401` and `403`
+exactly as registering does.
+
+**Event attendees** (`200` from `GET /events/{event_id}/attendees`):
+
+```json
+{
+  "event_id": "22222222-2222-4222-8222-222222222222",
+  "count": 1,
+  "attendees": [
+    {
+      "attendee_id": "33333333-3333-4333-8333-333333333333",
+      "name": "Ada Tan",
+      "email": "ada@example.com",
+      "registered_at": "2026-11-05T04:00:00Z"
+    }
+  ]
+}
+```
+
+With no registrations, `count` is `0` and `attendees` is `[]`. Ownership is
+the events service's to decide; its answer is passed on:
+
+| Status | When | `detail` |
+| --- | --- | --- |
+| `401` | Not signed in | "Sign in to see who has registered." |
+| `403` | Signed in, but not an Event Organiser | "Insufficient permissions" |
+| `404` | Missing, or another Organiser's event | "Event not found" |
+| `502` | A service it depends on did not answer | "Events service unavailable" (or Users, Registrations) |
 
 ## Configuration
 

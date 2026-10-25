@@ -1297,15 +1297,21 @@ Confirmed by the developer on 2026-10-11.
 
 ## TC-E2E-248 — an Attendee is told registration hasn't opened yet
 
-- **Scenario:** Attempts outside the period are blocked with a message (S-51 AC3).
+- **Scenario:** Attempts outside the period are blocked with a message (S-51 AC3; S-48 AC1, AC2).
 - **Pre-conditions:** As TC-E2E-247, plus confirmed event Q whose registration
   opens in 7 days.
 - **Steps:** As A, open `/public/events/Q`.
-- **Expected:** "Registration opens on {Q's opening, e.g. 1 Nov 2026, 9:00 am}."
+- **Expected:** "Registration hasn't opened yet. It's open from {Q's opening} to {Q's closing}."
+  (e.g. "… from 1 Nov 2026, 9:00 am to 10 Nov 2026, 5:00 pm.")
   is shown and there is no enabled **Register** button.
-- **Actual:** Chromium: the page showed "Registration opens on …" with Q's opening and no Register button.
+- **Actual:** Chromium: the page showed "Registration hasn't opened yet. It's open from {opening} to {closing}." and no Register button.
 - **Status:** Pass
+<<<<<<< HEAD
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
+
+=======
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+>>>>>>> origin/sprint4
 ## S-88 confirmed specification — Coordinator request to Lead action
 
 Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted, Chromium against fresh `.env.test` stack.
@@ -1332,9 +1338,32 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states[chromium]`; 2026-10-25.
 
+<<<<<<< HEAD
+## S-48 — Register for Event
+
+## TC-E2E-252 — an Attendee's registration shows on their dashboard and on the Organiser's event
+
+- **Scenario:** One registration in the browser is recorded against both the Attendee and the event (S-48 AC3).
+- **Pre-conditions:** As TC-E2E-247, plus Organiser O who owns P. A has the
+  name "S-48 E2E Attendee".
+- **Steps:**
+  1. As A, open `/dashboard`.
+  2. Open `/public/events/P`, click **Register**.
+  3. Open `/dashboard` again.
+  4. Sign out; sign in as O; open `/events/P`.
+- **Test data:** As above; emails `spm-e2e-*`.
+- **Expected:** 1 shows "Your registrations" with "You haven't registered for
+  any events yet." 3 lists P by name, with its date and a link to
+  `/public/events/P`. 4 shows "Registered attendees" with "1 attendee
+  registered" and a row with A's name and email.
+- **Actual:** Chromium: the dashboard first said "You haven't registered for any events yet."; after registering it linked the event to `/public/events/P` with its date; the Organiser's `/events/P` showed "1 attendee registered" with A's name and email.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_a_registration_shows_on_the_attendees_dashboard_and_the_organisers_event[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
+=======
 ## TC-E2E-251 - Venue Staff prepare two venues and readiness updates
 - **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
 - **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
 - **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
 - **Status:** Pass.
 - **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
+>>>>>>> origin/sprint4
