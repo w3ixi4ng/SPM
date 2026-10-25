@@ -2533,3 +2533,67 @@ Specification confirmed by the developer before code. Covers `test_registration.
 - **Actual:** "No one has registered yet.", "1 attendee registered", "2 attendees registered".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the attendee count reads as a sentence; 2026-10-25, branch `S-48/register-for-event`
+
+## S-50 — Cap Registration at Capacity
+
+All in `frontend/src/lib/registration.js`, tested in `test_registration.mjs`.
+Event E: registration on, opens `2026-11-01T09:00`, closes `2026-11-15T18:00`;
+"now" `2026-11-05T04:00:00Z` (12:00 SGT) unless stated.
+
+## TC-FRONTEND-256 — a full event's status offers the waiting list
+
+- **Scenario:** The page says the event is full and points to the waiting list (S-50 AC1, AC2).
+- **Steps:** `describeRegistration({...E, is_full: true, registration_closed_by_organiser: false}, now)` and `registrationCountdown(...)` on the same.
+- **Expected:** `state` `"full"`, `status` "This event is full. You can join
+  the waiting list."; countdown `null`.
+- **Actual:** `full`, the full message, no countdown.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a full event's status offers the waiting list; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-257 — registration closed by the Organiser, and which message wins
+
+- **Scenario:** An Organiser's close shows its own message, with no waiting list offered (S-50 AC4; developer's answer, 2026-10-26).
+- **Steps / Expected:** `describeRegistration(event, now)`:
+  1. E closed by the Organiser, not full → `state` `"closed_by_organiser"`, `status` "The organiser has closed registration for this event."; countdown `null`.
+  2. E closed by the Organiser **and** full → the same as 1 (no waiting list).
+  3. E closed by the Organiser, now `2026-11-16T04:00:00Z` (period over) → `state` `"closed"`, "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
+  4. E full, now `2026-10-30T04:00:00Z` (not open yet) → `state` `"not_open"`.
+- **Actual:** 1 and 2 → `closed_by_organiser` with its message; 3 → `closed` with the window; 4 → `not_open`.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::registration closed by the Organiser, and which message wins; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-258 — when the Organiser can close or reopen, and what it says
+
+- **Scenario:** The Organiser's control appears only where it means something (S-50 AC4).
+- **Steps / Expected:** `registrationClosureControl(event, now)`:
+  1. E `confirmed`, not closed → `{ action: "close", status: null }`.
+  2. E `confirmed`, `registration_closed_at` `2026-11-03T06:15:00+00:00` →
+     `{ action: "reopen", status: "You closed registration on 3 Nov 2026, 2:15 pm. Attendees can't register until you reopen it." }`
+     (the stamp shown in Singapore time).
+  3. E `planning` → `null`. 4. E with registration off → `null`.
+  5. E `confirmed`, now `2026-11-16T04:00:00Z` (period over) → `null`.
+- **Actual:** 1 → close; 2 → reopen with "You closed registration on 3 Nov 2026, 2:15 pm. …"; 3–5 → `null`.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::when the Organiser can close or reopen, and what it says; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-259 — the waiting list and close/reopen calls go to the right services
+
+- **Scenario:** Each new helper calls its gateway path.
+- **Steps / Expected:** with `fetch` stubbed:
+  `joinWaitingList("E")` → `POST /api/event-registrations/events/E/waiting-list`;
+  `closeRegistration("E")` → `PUT /api/events/E/registration-closure`;
+  `reopenRegistration("E")` → `DELETE /api/events/E/registration-closure`;
+  each with `credentials: "include"`, returning the parsed body.
+- **Actual:** POST …/waiting-list, PUT and DELETE /api/events/E/registration-closure, all with credentials.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the waiting list and close/reopen calls go to the right services; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-260 — the waiting-list count reads as a sentence
+
+- **Scenario:** The Organiser's waiting list states how many are waiting.
+- **Steps:** `waitingListLabel(n)`.
+- **Test data / Expected:** `0` → "No one is on the waiting list."; `1` → "1
+  person on the waiting list"; `3` → "3 people on the waiting list".
+- **Actual:** "No one is on the waiting list.", "1 person on the waiting list", "3 people on the waiting list".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the waiting-list count reads as a sentence; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree

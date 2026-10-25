@@ -1,4 +1,4 @@
-"""TC-EVENTREGISTRATIONS-101..102. Run with the whole .env.test stack up."""
+"""TC-EVENTREGISTRATIONS-101..103. Run with the whole .env.test stack up."""
 
 import uuid
 from datetime import timedelta
@@ -92,3 +92,67 @@ def test_a_registration_shows_for_the_attendee_and_for_the_events_organiser(admi
         events.delete().eq("id", event_id).execute()
     assert events.select("id").eq("id", event_id).execute().data == []
     assert registrations.select("id").eq("event_id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-103 --------------------------------------------
+def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-50 organiser")
+    first = make_account("attendee", "S-50 First Attendee")
+    second = make_account("attendee", "S-50 Second Attendee")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1),
+        expected_attendance=1,
+    )
+    events = admin.schema("events").table("events")
+    registrations = admin.schema("registrations").table("registrations")
+    waiting = admin.schema("registrations").table("waiting_list")
+    base = f"{GATEWAY_BASE_URL}/event-registrations"
+    register = f"{base}/events/{event_id}/registration"
+    try:
+        taken = httpx.post(register, headers=first["headers"], timeout=20)
+        assert taken.status_code == 201, taken.text
+
+        public = httpx.get(f"{base}/events/{event_id}", timeout=20)
+        assert public.status_code == 200, public.text
+        assert public.json()["is_full"] is True
+        assert "expected_attendance" not in public.json()
+
+        refused = httpx.post(register, headers=second["headers"], timeout=20)
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"] == "This event is full. You can join the waiting list."
+
+        joined = httpx.post(
+            f"{base}/events/{event_id}/waiting-list", headers=second["headers"], timeout=20
+        )
+        assert joined.status_code == 201, joined.text
+
+        status = httpx.get(register, headers=second["headers"], timeout=20)
+        assert status.json()["waitlisted"] is True, status.text
+
+        seen = httpx.get(
+            f"{base}/events/{event_id}/attendees", headers=organiser["headers"], timeout=20
+        )
+        assert seen.status_code == 200, seen.text
+        assert seen.json()["count"] == 1
+        assert [row["attendee_id"] for row in seen.json()["attendees"]] == [first["id"]]
+        assert [row["attendee_id"] for row in seen.json()["waiting_list"]] == [second["id"]]
+
+        closed = httpx.put(
+            f"{GATEWAY_BASE_URL}/events/{event_id}/registration-closure",
+            headers=organiser["headers"],
+            timeout=20,
+        )
+        assert closed.status_code == 200, closed.text
+        after_close = httpx.post(register, headers=second["headers"], timeout=20)
+        assert after_close.status_code == 409, after_close.text
+        assert after_close.json()["detail"] == (
+            "The organiser has closed registration for this event."
+        )
+    finally:
+        registrations.delete().eq("event_id", event_id).execute()
+        waiting.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    assert events.select("id").eq("id", event_id).execute().data == []
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
+    assert waiting.select("id").eq("event_id", event_id).execute().data == []

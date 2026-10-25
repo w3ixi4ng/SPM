@@ -53,3 +53,29 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; A's list held P with its name and `registered_at`; O saw `count` 1 with A's id, name and email; O2 → `404`; no rows remained.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_a_registration_shows_for_the_attendee_and_for_the_events_organiser`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`
+
+## TC-EVENTREGISTRATIONS-103 — a full event turns the next Attendee to the waiting list (S-50)
+
+- **Scenario:** End to end through Kong: the cap is the event's expected attendance, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack; S-50 SQL (events and
+  registrations) applied and `registrations` exposed. Through the admin
+  client: Organiser O; confirmed event P owned by O with
+  `expected_attendance` 1 and registration open from yesterday to tomorrow
+  (SGT); Attendees A and B.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. Anonymously, `GET /api/event-registrations/events/P`.
+  3. As B, `POST /api/event-registrations/events/P/registration`.
+  4. As B, `POST /api/event-registrations/events/P/waiting-list`.
+  5. As B, `GET /api/event-registrations/events/P/registration`.
+  6. As O, `GET /api/event-registrations/events/P/attendees`.
+  7. As O, `PUT /api/events/P/registration-closure`; as B, `POST .../registration` again.
+  8. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `"is_full": true`. 3 → `409` "This event is
+  full. You can join the waiting list.". 4 → `201`. 5 → `"waitlisted": true`.
+  6 → `count` 1 (A), `waiting_list` holding B. 7 → `200`, then `409` "The
+  organiser has closed registration for this event.". 8 leaves no rows.
+- **Actual:** `201`; `is_full` true; `409` full message; waiting list `201`; `waitlisted` true; O saw A as the one attendee and B on the waiting list; close `200` then `409` closed message; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree

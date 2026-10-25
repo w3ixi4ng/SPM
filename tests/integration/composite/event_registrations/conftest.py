@@ -52,7 +52,9 @@ def sgt_now() -> datetime:
     return datetime.now(SGT).replace(tzinfo=None, second=0, microsecond=0)
 
 
-def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: datetime) -> str:
+def confirmed_event(
+    admin, organiser_id: str, *, opens: datetime, closes: datetime, expected_attendance: int = 40
+) -> str:
     """A confirmed event starting ten days out, with the given period."""
     start = sgt_now() + timedelta(days=10)
     return admin.schema("events").table("events").insert({
@@ -64,7 +66,7 @@ def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: dateti
         "start_time": "18:00",
         "end_date": start.date().isoformat(),
         "end_time": "21:00",
-        "expected_attendance": 40,
+        "expected_attendance": expected_attendance,
         "submitted_at": "2026-10-01T00:00:00Z",
         "decision": "approved",
         "decided_at": "2026-10-02T00:00:00Z",
@@ -132,6 +134,9 @@ def make_account(admin, auth_client):
     yield make
     for user_id in made:
         admin.schema("registrations").table("registrations").delete().eq(
+            "attendee_id", user_id
+        ).execute()
+        admin.schema("registrations").table("waiting_list").delete().eq(
             "attendee_id", user_id
         ).execute()
         admin.auth.admin.delete_user(user_id)

@@ -54,6 +54,17 @@ export function registrationWindow(event, now = new Date()) {
   return 'open'
 }
 
+// S-50: the period first, then -- inside it -- the Organiser's own close,
+// then whether a place is left. The same order the service refuses in, so a
+// closed event never offers the waiting list.
+export function registrationState(event, now = new Date()) {
+  const state = registrationWindow(event, now)
+  if (state !== 'open') return state
+  if (event.registration_closed_by_organiser) return 'closed_by_organiser'
+  if (event.is_full) return 'full'
+  return 'open'
+}
+
 // "1 Nov 2026, 9:00 am" -- the service's wording for the same moment.
 export function formatRegistrationMoment(value) {
   const [date, time] = minutePrecision(value).split('T')
@@ -66,7 +77,7 @@ export function formatRegistrationMoment(value) {
 
 // The period in words, and a one-line status for right now.
 export function describeRegistration(event, now = new Date()) {
-  const state = registrationWindow(event, now)
+  const state = registrationState(event, now)
   if (state === 'not_required') {
     return { state, period: null, status: "This event doesn't need registration." }
   }
@@ -79,6 +90,8 @@ export function describeRegistration(event, now = new Date()) {
     not_open: `Registration hasn't opened yet. It's open ${window}.`,
     open: `Registration is open until ${closes}.`,
     closed: `Registration has closed. It was open ${window}.`,
+    closed_by_organiser: 'The organiser has closed registration for this event.',
+    full: 'This event is full. You can join the waiting list.',
   }[state]
   return { state, period: `Registration opens ${opens} and closes ${closes}.`, status }
 }
@@ -98,7 +111,7 @@ export function formatEventWhen(event) {
 // The moment the current state ends -- opening while not yet open, closing
 // while open -- and how far off it is, for the live countdown.
 export function registrationCountdown(event, now = new Date()) {
-  const state = registrationWindow(event, now)
+  const state = registrationState(event, now)
   const target = { not_open: event?.registration_opens_at, open: event?.registration_closes_at }[state]
   if (!target) return null
   // The target is Singapore wall-clock time; as an instant it is 8h earlier in UTC.
@@ -142,6 +155,47 @@ export function listMyRegistrations() {
 // S-48: who has registered for one of the signed-in Organiser's events.
 export function listEventAttendees(id) {
   return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/attendees`)
+}
+
+// S-50: join the waiting list of a full event.
+export function joinWaitingList(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/waiting-list`, {
+    method: 'POST',
+  })
+}
+
+// S-50: the Organiser closes registration early, or reopens it. The events
+// service owns the event, so these go there rather than to the composite.
+export function closeRegistration(id) {
+  return requestJSON(`/events/${encodeURIComponent(id)}/registration-closure`, { method: 'PUT' })
+}
+
+export function reopenRegistration(id) {
+  return requestJSON(`/events/${encodeURIComponent(id)}/registration-closure`, { method: 'DELETE' })
+}
+
+// An instant ("2026-11-03T06:15:00+00:00") as Singapore wall-clock text.
+function singaporeWallClock(instant) {
+  return new Date(Date.parse(instant) + SINGAPORE_OFFSET_MS).toISOString().slice(0, 16)
+}
+
+// S-50: whether the Organiser can close or reopen registration on their own
+// event right now, and what to say when it is closed. Nothing once the
+// period is over: there is nothing left to close.
+export function registrationClosureControl(event, now = new Date()) {
+  if (event?.status !== 'confirmed' || !event.registration_required) return null
+  if (registrationWindow(event, now) === 'closed') return null
+  if (!event.registration_closed_at) return { action: 'close', status: null }
+  const when = formatRegistrationMoment(singaporeWallClock(event.registration_closed_at))
+  return {
+    action: 'reopen',
+    status: `You closed registration on ${when}. Attendees can't register until you reopen it.`,
+  }
+}
+
+export function waitingListLabel(count) {
+  if (!count) return 'No one is on the waiting list.'
+  return `${count} ${count === 1 ? 'person' : 'people'} on the waiting list`
 }
 
 export function attendeeCountLabel(count) {

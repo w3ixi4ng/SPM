@@ -1,5 +1,8 @@
 """S-51: confirmed events' public pages, and Attendees registering for them.
 S-48: each registration read back by its Attendee and by the event's Organiser.
+S-50: registration capped at the event's expected attendance -- the figure the
+S-35 venue check uses -- with a waiting list once it is full, and the
+Organiser's own decision to close registration early.
 
 Anyone may read a confirmed event's public details. Registering needs a
 signed-in Attendee, an event that asks for registration, and a moment inside
@@ -25,7 +28,13 @@ from clients import (
     get_users_client,
     get_venues_client,
 )
-from schemas import EventAttendees, MyRegistration, PublicEvent, RegistrationStatus
+from schemas import (
+    EventAttendees,
+    MyRegistration,
+    PublicEvent,
+    RegistrationStatus,
+    WaitingListStatus,
+)
 
 app = FastAPI(title="Event Registrations Service")
 logger = logging.getLogger(__name__)
@@ -36,6 +45,13 @@ SIGN_IN_TO_REGISTER = "Sign in to register for this event."
 ATTENDEES_ONLY = "Only attendee accounts can register for events."
 NOT_REQUIRED = "This event doesn't need registration."
 SIGN_IN_TO_SEE_ATTENDEES = "Sign in to see who has registered."
+# S-50
+FULL = "This event is full. You can join the waiting list."
+CLOSED_BY_ORGANISER = "The organiser has closed registration for this event."
+STILL_HAS_PLACES = "This event still has places. Register instead."
+ALREADY_REGISTERED = "You're already registered for this event."
+# The registrations service's own word for a full event.
+REGISTRATIONS_FULL = "This event is full."
 
 
 @app.exception_handler(RequestValidationError)
@@ -120,8 +136,27 @@ async def _venue_names(
     return list(dict.fromkeys(venue["name"] for venue in found))
 
 
-async def _public(event: dict, bookings, venues) -> dict:
-    return {**event, "venues": await _venue_names(str(event["id"]), bookings, venues)}
+async def _places_taken(event_id: str, registrations: httpx.AsyncClient) -> int:
+    rows = await _json("Registrations", registrations.get(f"/registrations/events/{event_id}"))
+    return len(rows)
+
+
+def _is_full(event: dict, taken: int) -> bool:
+    capacity = event.get("expected_attendance")
+    return bool(capacity) and taken >= capacity
+
+
+async def _public(event: dict, bookings, venues, registrations) -> dict:
+    event_id = str(event["id"])
+    full = False
+    if event.get("registration_required"):
+        full = _is_full(event, await _places_taken(event_id, registrations))
+    return {
+        **event,
+        "venues": await _venue_names(event_id, bookings, venues),
+        "registration_closed_by_organiser": bool(event.get("registration_closed_at")),
+        "is_full": full,
+    }
 
 
 def _when(moment: datetime) -> str:
@@ -149,6 +184,9 @@ def _check_period(event: dict, now: datetime) -> None:
         raise HTTPException(
             status_code=409, detail=f"Registration has closed. It was open {window}."
         )
+    # S-50: inside the period, the Organiser's own close comes next.
+    if event.get("registration_closed_at"):
+        raise HTTPException(status_code=409, detail=CLOSED_BY_ORGANISER)
 
 
 @app.get("/event-registrations/events", response_model=list[PublicEvent])
@@ -156,9 +194,12 @@ async def list_public_events(
     events: httpx.AsyncClient = Depends(get_events_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     rows = await _json("Events", events.get("/internal/events/published"))
-    return await asyncio.gather(*(_public(row, bookings, venues) for row in rows))
+    return await asyncio.gather(
+        *(_public(row, bookings, venues, registrations) for row in rows)
+    )
 
 
 @app.get("/event-registrations/events/{event_id}", response_model=PublicEvent)
@@ -167,9 +208,10 @@ async def get_public_event(
     events: httpx.AsyncClient = Depends(get_events_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     event = await _published_event(event_id, events)
-    return await _public(event, bookings, venues)
+    return await _public(event, bookings, venues, registrations)
 
 
 @app.post(
@@ -189,15 +231,25 @@ async def register(
     event = await _published_event(event_id, events)
     _check_period(event, now)
 
-    # The attendee is whoever the session says, never the request.
+    # The attendee is whoever the session says, never the request. S-50: the
+    # cap is the event's expected attendance; the registrations service
+    # counts and inserts in one step so the last place goes to one person.
     response = await _call(
         "Registrations",
         registrations.post(
-            "/registrations", json={"event_id": str(event_id), "attendee_id": user["id"]}
+            "/registrations",
+            json={
+                "event_id": str(event_id),
+                "attendee_id": user["id"],
+                "capacity": event["expected_attendance"],
+            },
         ),
     )
     if response.status_code == 409:
-        raise HTTPException(status_code=409, detail=response.json()["detail"])
+        detail = response.json()["detail"]
+        raise HTTPException(
+            status_code=409, detail=FULL if detail == REGISTRATIONS_FULL else detail
+        )
     if response.status_code != 201:
         raise _unavailable("Registrations")
     row = response.json()
@@ -215,19 +267,70 @@ async def get_my_registration(
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     user = await _attendee(request, users)
-    response = await _call(
-        "Registrations",
-        registrations.get(f'/registrations/events/{event_id}/attendees/{user["id"]}'),
+    place = await _entry(registrations, f'/registrations/events/{event_id}/attendees/{user["id"]}')
+    if place is not None:
+        return {
+            "event_id": event_id,
+            "registered": True,
+            "registered_at": place["created_at"],
+        }
+    waiting = await _entry(
+        registrations, f'/registrations/waiting-list/events/{event_id}/attendees/{user["id"]}'
     )
-    if response.status_code == 404:
-        return {"event_id": event_id, "registered": False, "registered_at": None}
-    if response.status_code != 200:
-        raise _unavailable("Registrations")
     return {
         "event_id": event_id,
-        "registered": True,
-        "registered_at": response.json()["created_at"],
+        "registered": False,
+        "registered_at": None,
+        "waitlisted": waiting is not None,
+        "joined_at": waiting["created_at"] if waiting else None,
     }
+
+
+async def _entry(registrations: httpx.AsyncClient, path: str) -> dict | None:
+    """One row the registrations service holds, or None on its 404."""
+    response = await _call("Registrations", registrations.get(path))
+    if response.status_code == 404:
+        return None
+    if response.status_code != 200:
+        raise _unavailable("Registrations")
+    return response.json()
+
+
+@app.post(
+    "/event-registrations/events/{event_id}/waiting-list",
+    response_model=WaitingListStatus,
+    status_code=201,
+)
+async def join_waiting_list(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    now: datetime = Depends(get_now),
+):
+    """S-50: offered once the event is full, and only while registration
+    would otherwise be open."""
+    user = await _attendee(request, users)
+    event = await _published_event(event_id, events)
+    _check_period(event, now)
+    if await _entry(registrations, f'/registrations/events/{event_id}/attendees/{user["id"]}'):
+        raise HTTPException(status_code=409, detail=ALREADY_REGISTERED)
+    if not _is_full(event, await _places_taken(str(event_id), registrations)):
+        raise HTTPException(status_code=409, detail=STILL_HAS_PLACES)
+
+    response = await _call(
+        "Registrations",
+        registrations.post(
+            "/registrations/waiting-list",
+            json={"event_id": str(event_id), "attendee_id": user["id"]},
+        ),
+    )
+    if response.status_code == 409:
+        raise HTTPException(status_code=409, detail=response.json()["detail"])
+    if response.status_code != 201:
+        raise _unavailable("Registrations")
+    return {"event_id": event_id, "waitlisted": True, "joined_at": response.json()["created_at"]}
 
 
 async def _owned_event(event_id: UUID, request: Request, events: httpx.AsyncClient) -> None:
@@ -254,15 +357,14 @@ async def list_event_attendees(
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     await _owned_event(event_id, request, events)
-    rows = await _json("Registrations", registrations.get(f"/registrations/events/{event_id}"))
+    rows, waiting = await asyncio.gather(
+        _json("Registrations", registrations.get(f"/registrations/events/{event_id}")),
+        _json("Registrations", registrations.get(f"/registrations/waiting-list/events/{event_id}")),
+    )
     profiles = {}
-    if rows:
-        found = await _json(
-            "Users",
-            users.post(
-                "/internal/users/profiles", json={"ids": [row["attendee_id"] for row in rows]}
-            ),
-        )
+    ids = list(dict.fromkeys(row["attendee_id"] for row in [*rows, *waiting]))
+    if ids:
+        found = await _json("Users", users.post("/internal/users/profiles", json={"ids": ids}))
         profiles = {profile["id"]: profile for profile in found}
     attendees = [
         {
@@ -273,7 +375,21 @@ async def list_event_attendees(
         }
         for row in rows
     ]
-    return {"event_id": event_id, "count": len(attendees), "attendees": attendees}
+    waiting_list = [
+        {
+            "attendee_id": row["attendee_id"],
+            "name": profiles.get(row["attendee_id"], {}).get("name"),
+            "email": profiles.get(row["attendee_id"], {}).get("email"),
+            "joined_at": row["created_at"],
+        }
+        for row in waiting
+    ]
+    return {
+        "event_id": event_id,
+        "count": len(attendees),
+        "attendees": attendees,
+        "waiting_list": waiting_list,
+    }
 
 
 async def _still_public(event_id: str, events: httpx.AsyncClient) -> dict | None:

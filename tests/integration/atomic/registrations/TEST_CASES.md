@@ -12,7 +12,7 @@ on port 8007 against the test Supabase project.
 
 ## TC-REGISTRATIONS-101 — register, refuse a duplicate, read it back
 
-- **Scenario:** The table, grants, exposure and unique constraint all work together (S-51 AC5).
+- **Scenario:** The table, grants, exposure and unique constraint all work together (S-51 AC5). Revised for S-50: every registration carries `"capacity": 50`.
 - **Pre-conditions:** Fresh `.env.test` stack; `backend/sql/registrations.sql`
   applied, `registrations` exposed and granted.
 - **Steps:**
@@ -28,7 +28,7 @@ on port 8007 against the test Supabase project.
 
 ## TC-REGISTRATIONS-102 — a place reads back by event and by Attendee
 
-- **Scenario:** The real table serves both new reads (S-48 AC3).
+- **Scenario:** The real table serves both new reads (S-48 AC3). Revised for S-50: every registration carries `"capacity": 50`.
 - **Pre-conditions:** As TC-REGISTRATIONS-101.
 - **Steps:**
   1. `POST /registrations` for random event E1 and Attendee A, then E1 and
@@ -43,3 +43,39 @@ on port 8007 against the test Supabase project.
 - **Actual:** Three `201`s; by event E1 → A's and B's rows in order; by Attendee A → E1 then E2; no rows remained.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/registrations/test_app.py::test_a_place_reads_back_by_event_and_by_attendee`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`
+
+## S-50 — Cap Registration at Capacity
+
+Needs the S-50 additions to `backend/sql/registrations.sql` (the
+`waiting_list` table and the `register` function) applied to the test
+project. Blocked until they are.
+
+## TC-REGISTRATIONS-103 — the cap holds, even under simultaneous registrations
+
+- **Scenario:** The database gives out exactly `capacity` places, never one more (S-50 AC1).
+- **Pre-conditions:** Fresh `.env.test` stack; S-50 SQL applied and `registrations` exposed and granted.
+- **Steps:**
+  1. `POST /registrations` for event E1 and attendees A1, A2, A3 in turn, each with `"capacity": 2`.
+  2. For event E2, send 6 `POST /registrations` at once (6 distinct attendee ids, `"capacity": 3`).
+  3. Read both events' rows through the admin client; delete them.
+- **Test data:** Random uuids for E1, E2 and every attendee.
+- **Expected:** 1 → `201`, `201`, `409` "This event is full.". 2 → exactly 3
+  `201` and 3 `409`. 3 → E1 has 2 rows, E2 has 3.
+- **Actual:** In turn: `201`, `201`, `409` "This event is full."; 6 at once: three `201`, three `409`; E1 held 2 rows, E2 held 3; rows removed.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_the_cap_holds_even_under_simultaneous_registrations; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-104 — a waiting-list entry is saved and read back
+
+- **Scenario:** The waiting list table, its grants and its uniqueness work for real (S-50 AC2).
+- **Pre-conditions:** As TC-REGISTRATIONS-103.
+- **Steps:**
+  1. `POST /registrations/waiting-list` for E and B; repeat it.
+  2. `GET /registrations/waiting-list/events/E`.
+  3. `GET /registrations/waiting-list/events/E/attendees/B`.
+  4. Delete the row through the admin client.
+- **Test data:** Random uuids for E and B.
+- **Expected:** 1 → `201`, then `409`. 2 → one row for B. 3 → `200`. 4 leaves no rows.
+- **Actual:** `201`, then `409`; the list held B; the single read `200`; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_a_waiting_list_entry_is_saved_and_read_back; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree

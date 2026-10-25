@@ -535,6 +535,62 @@ def get_published_event(event_id: UUID, db: Client = Depends(get_db)):
     return result.data[0]
 
 
+# S-50: the Organiser may close registration before the event fills, and
+# reopen it -- the decision is theirs, so only the owning Organiser can make
+# it, and only where registration exists: a confirmed event that takes it.
+_CLOSURE_NOT_APPLICABLE = (
+    "Registration can only be closed or reopened on a confirmed event that takes registrations."
+)
+
+
+def _closable_event(event_id: UUID, organiser_id: str, db: Client) -> dict:
+    event = _get_owned_event(event_id, organiser_id, db)
+    if event["status"] != "confirmed" or not event.get("registration_required"):
+        raise HTTPException(status_code=409, detail=_CLOSURE_NOT_APPLICABLE)
+    return event
+
+
+def _write_closure(event_id: UUID, organiser_id: str, closed_at: str | None, db: Client) -> dict:
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({"registration_closed_at": closed_at})
+        .eq("id", str(event_id))
+        .eq("organiser_id", organiser_id)
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
+
+
+@app.put("/events/{event_id}/registration-closure", response_model=EventRead)
+def close_registration(
+    event_id: UUID,
+    user=Depends(require_permission("events:close_registration")),
+    db: Client = Depends(get_db),
+):
+    organiser_id = str(user.id)
+    event = _closable_event(event_id, organiser_id, db)
+    # Closing twice keeps the first time it was closed.
+    if event.get("registration_closed_at"):
+        return event
+    return _write_closure(event_id, organiser_id, datetime.now(timezone.utc).isoformat(), db)
+
+
+@app.delete("/events/{event_id}/registration-closure", response_model=EventRead)
+def reopen_registration(
+    event_id: UUID,
+    user=Depends(require_permission("events:close_registration")),
+    db: Client = Depends(get_db),
+):
+    organiser_id = str(user.id)
+    event = _closable_event(event_id, organiser_id, db)
+    if not event.get("registration_closed_at"):
+        return event
+    return _write_closure(event_id, organiser_id, None, db)
+
+
 @app.get("/internal/events/unassigned", response_model=list[EventRead])
 def list_unassigned_events(db: Client = Depends(get_db)):
     operation = (

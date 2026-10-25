@@ -14,6 +14,7 @@ from .conftest import (
     EVENT_F,
     REGISTERED_AT,
     me,
+    published,
     response,
     sgt,
 )
@@ -30,6 +31,9 @@ E_PUBLIC = {
     "registration_required": True,
     "registration_opens_at": "2026-11-01T09:00:00",
     "registration_closes_at": "2026-11-15T18:00:00",
+    # S-50
+    "registration_closed_by_organiser": False,
+    "is_full": False,
 }
 REGISTER_E = f"/event-registrations/events/{EVENT_E}/registration"
 WINDOW = "from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm"
@@ -144,9 +148,11 @@ def test_registering_inside_the_period_takes_a_place(client, services):
         "event_id": EVENT_E,
         "registered": True,
         "registered_at": REGISTERED_AT,
+        "waitlisted": False,
+        "joined_at": None,
     }
     services["registrations"].post.assert_awaited_once_with(
-        "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A}
+        "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2}
     )
 
 
@@ -188,7 +194,10 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     )
     result = client.get(REGISTER_E)
     assert result.status_code == 200
-    assert result.json() == {"event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT}
+    assert result.json() == {
+        "event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT,
+        "waitlisted": False, "joined_at": None,
+    }
     services["registrations"].get.assert_awaited_with(
         f"/registrations/events/{EVENT_E}/attendees/{ATTENDEE_A}"
     )
@@ -198,7 +207,10 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     )
     result = client.get(REGISTER_E)
     assert result.status_code == 200
-    assert result.json() == {"event_id": EVENT_E, "registered": False, "registered_at": None}
+    assert result.json() == {
+        "event_id": EVENT_E, "registered": False, "registered_at": None,
+        "waitlisted": False, "joined_at": None,
+    }
 
 
 # --- TC-EVENTREGISTRATIONS-012 --------------------------------------------
@@ -209,7 +221,7 @@ def test_a_service_it_depends_on_is_down(client, services):
     assert result.json()["detail"] == "Events service unavailable"
 
     services["events"].get.side_effect = None
-    services["events"].get.return_value = response(200, E_PUBLIC)
+    services["events"].get.return_value = response(200, published())
     services["registrations"].post.side_effect = httpx.ConnectError("registrations down")
     result = client.post(REGISTER_E)
     assert result.status_code == 502
@@ -271,11 +283,12 @@ def test_the_organiser_sees_who_registered_for_their_event(client, services):
             {"attendee_id": ATTENDEE_B, "name": "Ben Lim", "email": "ben@example.com",
              "registered_at": "2026-11-06T04:00:00Z"},
         ],
+        "waiting_list": [],
     }
     path = services["events"].get.call_args.args[0]
     assert path == f"/events/{EVENT_E}"
     assert services["events"].get.call_args.kwargs["cookies"] == {"sb-access-token": "organiser"}
-    services["registrations"].get.assert_called_once_with(f"/registrations/events/{EVENT_E}")
+    services["registrations"].get.assert_any_call(f"/registrations/events/{EVENT_E}")
     services["users"].post.assert_called_once_with(
         "/internal/users/profiles", json={"ids": [ATTENDEE_A, ATTENDEE_B]}
     )
@@ -289,7 +302,7 @@ def test_an_event_no_one_has_registered_for_yet(client, services):
     result = client.get(ATTENDEES_E)
 
     assert result.status_code == 200
-    assert result.json() == {"event_id": EVENT_E, "count": 0, "attendees": []}
+    assert result.json() == {"event_id": EVENT_E, "count": 0, "attendees": [], "waiting_list": []}
     services["users"].post.assert_not_called()
 
 

@@ -8,6 +8,7 @@ import {
   formatEventWhen,
   getMyRegistration,
   getPublicEvent,
+  joinWaitingList,
   registerForEvent,
   registrationCountdown,
 } from '../lib/registration.js'
@@ -78,7 +79,9 @@ function Fact({ icon: Icon, label, children }) {
 
 // The page's one bold moment: where registration stands right now, with a
 // live countdown to the next change, and the action that goes with it.
-function RegistrationPanel({ event, now, auth, registration, onRegister, registering, error }) {
+function RegistrationPanel({
+  event, now, auth, registration, onRegister, onJoinWaitingList, registering, error,
+}) {
   const navigate = useNavigate()
   const { state, status } = describeRegistration(event, now)
   const countdown = registrationCountdown(event, now)
@@ -93,6 +96,27 @@ function RegistrationPanel({ event, now, auth, registration, onRegister, registe
         You&apos;re registered for this event.
       </p>
     )
+  } else if (registration?.waitlisted) {
+    // S-50
+    action = (
+      <p className="flex items-center gap-2 font-ui text-base" style={{ color: C.paper }}>
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+        You&apos;re on the waiting list.
+      </p>
+    )
+  } else if (state === 'full' && (signedOut || isAttendee)) {
+    action = (
+      <button
+        type="button"
+        onClick={signedOut ? () => navigate('/login') : onJoinWaitingList}
+        disabled={registering}
+        className="csp-primary inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium transition-transform duration-200 disabled:opacity-70"
+        style={{ backgroundColor: C.teal, color: C.paper }}
+      >
+        {registering && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+        {registering ? 'Joining…' : 'Join the waiting list'}
+      </button>
+    )
   } else if (state === 'open' && (signedOut || isAttendee)) {
     action = (
       <button
@@ -106,7 +130,7 @@ function RegistrationPanel({ event, now, auth, registration, onRegister, registe
         {registering ? 'Registering…' : 'Register'}
       </button>
     )
-  } else if (state === 'open' && auth.status === 'authenticated') {
+  } else if ((state === 'open' || state === 'full') && auth.status === 'authenticated') {
     action = (
       <p className="font-ui text-sm" style={{ color: C.paper }}>
         Only attendee accounts can register for events.
@@ -182,9 +206,32 @@ export default function PublicEvent() {
       setRegistration(await registerForEvent(id))
     } catch (error) {
       setRegisterError(error.message)
+      // S-50: the last place went while the page was open; show the
+      // waiting list instead of a stale Register button.
+      if (error.status === 409) refreshEvent()
     } finally {
       setRegistering(false)
     }
+  }
+
+  async function handleJoinWaitingList() {
+    setRegistering(true)
+    setRegisterError(null)
+    try {
+      const joined = await joinWaitingList(id)
+      setRegistration({ registered: false, waitlisted: true, joined_at: joined.joined_at })
+    } catch (error) {
+      setRegisterError(error.message)
+      if (error.status === 409) refreshEvent()
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  function refreshEvent() {
+    getPublicEvent(id)
+      .then((event) => setLoad({ status: 'ready', event, error: null }))
+      .catch(() => {})
   }
 
   const event = load.event
@@ -259,6 +306,7 @@ export default function PublicEvent() {
               auth={auth}
               registration={registration}
               onRegister={handleRegister}
+              onJoinWaitingList={handleJoinWaitingList}
               registering={registering}
               error={registerError}
             />

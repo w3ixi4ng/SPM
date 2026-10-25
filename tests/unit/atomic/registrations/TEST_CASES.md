@@ -31,7 +31,7 @@ Attendee A `33333333-3333-4333-8333-333333333333`, Attendee B
 
 ## TC-REGISTRATIONS-002 — an Attendee takes a place
 
-- **Scenario:** A registration is saved (S-51 AC5).
+- **Scenario:** A registration is saved (S-51 AC5). Revised for S-50: the body also carries `"capacity": 50` and the place is taken through `rpc("register", ...)` rather than a plain insert (see TC-REGISTRATIONS-008).
 - **Pre-conditions:** The insert returns the new row.
 - **Steps:** `POST /registrations`.
 - **Test data:** `{"event_id": E, "attendee_id": A}`.
@@ -44,7 +44,7 @@ Attendee A `33333333-3333-4333-8333-333333333333`, Attendee B
 
 ## TC-REGISTRATIONS-003 — one account registers once
 
-- **Scenario:** A second registration by the same account is refused (S-51 AC5; developer's answer, 2026-10-25).
+- **Scenario:** A second registration by the same account is refused (S-51 AC5; developer's answer, 2026-10-25). Revised for S-50: the body carries `"capacity": 50`; the duplicate comes back from `rpc("register", ...)`.
 - **Pre-conditions:** The insert raises a Postgres unique violation (`23505`).
 - **Steps:** `POST /registrations` with the body from TC-REGISTRATIONS-002.
 - **Expected:** `409` "You're already registered for this event."
@@ -54,7 +54,7 @@ Attendee A `33333333-3333-4333-8333-333333333333`, Attendee B
 
 ## TC-REGISTRATIONS-004 — malformed registration requests
 
-- **Scenario:** Bad input never reaches the database.
+- **Scenario:** Bad input never reaches the database. Revised for S-50: each malformed body otherwise carries `"capacity": 50`, so only the named fault is under test.
 - **Pre-conditions:** None.
 - **Steps:** `POST /registrations` with each body.
 - **Test data:**
@@ -111,3 +111,84 @@ Attendee A `33333333-3333-4333-8333-333333333333`, Attendee B
 - **Actual:** Both of A's rows, filtered by attendee and ordered by `created_at`; B → `200` `[]`; `not-a-uuid` → `422` with no query.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/registrations/test_app.py::test_every_place_one_attendee_holds; tests/unit/atomic/registrations/test_app.py::test_listing_an_attendees_places_needs_a_uuid
+
+## S-50 — Cap Registration at Capacity
+
+The cap is enforced in Postgres, not in Python: `POST /registrations` now
+carries the event's `capacity` and calls the `registrations.register(...)`
+function, which locks the event, counts its places and inserts only if one is
+left. The fake below stands in for that function's answers.
+
+## TC-REGISTRATIONS-008 — a place is taken while the event has room
+
+- **Scenario:** Registering under the cap stores the place through the capped insert (S-50 AC1, AC3).
+- **Pre-conditions:** The fake's `rpc("register", ...)` returns one row
+  `{"id": "R", "event_id": E, "attendee_id": A, "created_at": "2026-11-02T01:00:00+00:00"}`.
+- **Steps:** `POST /registrations`.
+- **Test data:** `{"event_id": E, "attendee_id": A, "capacity": 50}`.
+- **Expected:** `201` with that row. The fake was called on schema
+  `registrations` with `rpc("register", {"p_event_id": E, "p_attendee_id": A, "p_capacity": 50})`.
+  No plain `.table(...).insert(...)` was made.
+- **Actual:** `201` with the row; `rpc("register", {p_event_id: E, p_attendee_id: A, p_capacity: 50})` on schema `registrations`; no plain insert.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_a_place_is_taken_while_the_event_has_room; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-009 — a full event refuses the place
+
+- **Scenario:** Once registered Attendees reach capacity, registration is blocked (S-50 AC1).
+- **Pre-conditions:** The fake's `rpc` raises `APIError` with code `SP050`
+  (what `registrations.register` raises when the count has reached capacity).
+- **Steps:** `POST /registrations`.
+- **Test data:** `{"event_id": E, "attendee_id": B, "capacity": 1}`.
+- **Expected:** `409` `{"detail": "This event is full."}`.
+- **Actual:** `409` `{"detail": "This event is full."}`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_a_full_event_refuses_the_place; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-010 — a registration without a usable capacity is rejected
+
+- **Scenario:** Every place is taken against a cap; an uncapped insert is impossible.
+- **Pre-conditions:** None. The fake is never called.
+- **Steps:** `POST /registrations` once per payload.
+- **Test data:** `{"event_id": E, "attendee_id": A}`; the same with `"capacity": 0`; with `"capacity": -5`.
+- **Expected:** Each → `422` with `errors.capacity` present. `rpc` not called.
+- **Actual:** All three → `422` with `errors.capacity`; `rpc` not called.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_a_registration_without_a_usable_capacity_is_rejected; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-011 — joining the waiting list, once
+
+- **Scenario:** An Attendee is recorded on an event's waiting list (S-50 AC2).
+- **Pre-conditions:** First insert into `registrations.waiting_list` returns
+  `{"id": "W", "event_id": E, "attendee_id": B, "created_at": "2026-11-02T02:00:00+00:00"}`;
+  second raises `APIError` code `23505`.
+- **Steps:** `POST /registrations/waiting-list` twice.
+- **Test data:** `{"event_id": E, "attendee_id": B}`.
+- **Expected:** First → `201` with that row, written to schema
+  `registrations`, table `waiting_list`. Second → `409`
+  `{"detail": "You're already on the waiting list for this event."}`.
+- **Actual:** `201` with the row written to `registrations.waiting_list`; repeat → `409` "You're already on the waiting list for this event."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_joining_the_waiting_list_once; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-012 — an event's waiting list, in join order
+
+- **Scenario:** The waiting list reads back oldest first.
+- **Pre-conditions:** The fake returns two rows for E (B joined `02:00`, A joined `03:00`), then `[]` for event F.
+- **Steps:** `GET /registrations/waiting-list/events/E`; `GET /registrations/waiting-list/events/F`.
+- **Expected:** E → `200`, B's row then A's; the query filtered `event_id = E`
+  and ordered by `created_at`. F → `200` `[]`, not `404`.
+- **Actual:** E → B then A, filtered on `event_id` and ordered by `created_at`; F → `[]`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_an_events_waiting_list_in_join_order; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-013 — one Attendee's waiting-list entry
+
+- **Scenario:** Whether an Attendee is on an event's waiting list.
+- **Pre-conditions:** The fake returns B's row, then `[]`.
+- **Steps:** `GET /registrations/waiting-list/events/E/attendees/B`, then `.../attendees/A`.
+- **Expected:** B → `200` with the row. A → `404`
+  `{"detail": "You're not on the waiting list for this event."}`.
+- **Actual:** B → `200` with the row; A → `404` "You're not on the waiting list for this event."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_one_attendees_waiting_list_entry; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree

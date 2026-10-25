@@ -1367,3 +1367,42 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass.
 - **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
 >>>>>>> origin/sprint4
+
+## S-50 — Cap Registration at Capacity
+
+## TC-E2E-253 — a full event turns the next Attendee to the waiting list
+
+- **Scenario:** In a real browser: the event fills, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin
+  client: Organiser O; confirmed event P owned by O, `expected_attendance` 1,
+  registration open yesterday to tomorrow (SGT); Attendees A and B.
+- **Steps:**
+  1. As A, open `/public/events/P` and click **Register**.
+  2. As B, open `/public/events/P`.
+  3. Click **Join the waiting list**; reload.
+  4. As O, open `/events/P`.
+- **Expected:** 1 → "You're registered for this event.". 2 → the status
+  reads "This event is full. You can join the waiting list.", there is no
+  **Register** button, and a **Join the waiting list** button is shown. 3 →
+  "You're on the waiting list." both before and after the reload. 4 → the
+  Registered attendees section lists A and the Waiting list section lists B.
+- **Actual:** A registered; B saw the full message, no Register, joined and stayed on the waiting list after reload; O saw A registered and B on the waiting list.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_cap_registration.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-E2E-254 — the Organiser closes registration early and reopens it
+
+- **Scenario:** The close decision is the Organiser's and takes effect for Attendees at once (S-50 AC4).
+- **Pre-conditions:** As TC-E2E-253, but `expected_attendance` 50 and only Attendee A.
+- **Steps:**
+  1. As O, open `/events/P`, click **Close registration**, then confirm with **Close registration** in the confirmation that appears.
+  2. As A, open `/public/events/P`.
+  3. As O, click **Reopen registration**.
+  4. As A, reload `/public/events/P`.
+- **Expected:** 1 → "You closed registration on {today}, {time}. Attendees
+  can't register until you reopen it." and a **Reopen registration** button.
+  2 → "The organiser has closed registration for this event.", no
+  **Register** and no **Join the waiting list**. 4 → **Register** is back.
+- **Actual:** O closed after confirming and saw the closed line with Reopen; A saw the closed message with no Register or waiting list; after reopening A saw Register.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_cap_registration.py::test_the_organiser_closes_registration_early_and_reopens_it; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree

@@ -15,10 +15,11 @@ Browser-facing through Kong at `/api/event-registrations`.
 | --- | --- | --- | --- |
 | `GET` | `/event-registrations/events` | none | Every confirmed event's public details, by start. |
 | `GET` | `/event-registrations/events/{event_id}` | none | One confirmed event's public details. |
-| `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open. |
-| `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered. |
+| `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open, the Organiser hasn't closed it, and a place is left (S-50). |
+| `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered, or on the waiting list. |
+| `POST` | `/event-registrations/events/{event_id}/waiting-list` | Attendee | S-50: join a full event's waiting list. |
 | `GET` | `/event-registrations/me/registrations` | Attendee | The confirmed events the signed-in Attendee is registered for, soonest first. |
-| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first. |
+| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
 ## Request
@@ -43,9 +44,16 @@ never anything in the request.
   "venues": ["Seminar Room 2-1"],
   "registration_required": true,
   "registration_opens_at": "2026-11-01T09:00:00",
-  "registration_closes_at": "2026-11-15T18:00:00"
+  "registration_closes_at": "2026-11-15T18:00:00",
+  "registration_closed_by_organiser": false,
+  "is_full": false
 }
 ```
+
+S-50: `is_full` is true once the registered Attendees reach the event's
+expected attendance -- the same figure the S-35 venue check uses. The figure
+itself is never shown. `registration_closed_by_organiser` is true while the
+Organiser has closed registration early.
 
 `venues` lists the names of the event's confirmed bookings, and is `[]` until
 one is confirmed. With registration off, `registration_required` is `false`
@@ -55,11 +63,22 @@ attendance, contacts or internal notes is ever included.
 **Registration** (`201` from `POST`, `200` from `GET`):
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z"}
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null}
 ```
 
-`GET` answers `{"registered": false, "registered_at": null}` when the
-Attendee holds no place.
+`GET` answers `{"registered": false, "registered_at": null, ...}` when the
+Attendee holds no place, with `"waitlisted": true` and `joined_at` if they
+are on the waiting list.
+
+**Waiting list** (`201` from `POST /events/{event_id}/waiting-list`):
+
+```json
+{"event_id": "22222222-2222-4222-8222-222222222222", "waitlisted": true, "joined_at": "2026-11-05T04:00:00Z"}
+```
+
+It is refused with the same `401`/`403`/`404` and period `409`s as
+registering, plus the S-50 rows below. Where several apply, the first wins:
+registration off, then the period, then the Organiser's close, then full.
 
 | Status | When | `detail` |
 | --- | --- | --- |
@@ -70,6 +89,10 @@ Attendee holds no place.
 | `409` | Before the period opens | "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm." |
 | `409` | At or after the period closes | "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm." |
 | `409` | Already registered | "You're already registered for this event." |
+| `409` | The Organiser closed registration (register or waiting list) | "The organiser has closed registration for this event." |
+| `409` | Registering once the event is full | "This event is full. You can join the waiting list." |
+| `409` | Joining the waiting list while places are left | "This event still has places. Register instead." |
+| `409` | Joining the waiting list twice | "You're already on the waiting list for this event." |
 | `502` | A service it depends on did not answer | "Events service unavailable" (or Users, Bookings, Venues, Registrations) |
 
 The period is Singapore time. "Now" is read in Singapore time whatever the
@@ -107,11 +130,20 @@ exactly as registering does.
       "email": "ada@example.com",
       "registered_at": "2026-11-05T04:00:00Z"
     }
+  ],
+  "waiting_list": [
+    {
+      "attendee_id": "44444444-4444-4444-8444-444444444444",
+      "name": "Ben Lim",
+      "email": "ben@example.com",
+      "joined_at": "2026-11-06T04:00:00Z"
+    }
   ]
 }
 ```
 
-With no registrations, `count` is `0` and `attendees` is `[]`. Ownership is
+With no registrations, `count` is `0` and `attendees` is `[]`; `waiting_list`
+is oldest first and `[]` when no one is waiting. Ownership is
 the events service's to decide; its answer is passed on:
 
 | Status | When | `detail` |

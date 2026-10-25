@@ -1,6 +1,7 @@
-"""TC-REGISTRATIONS-101..102. Run after backend/sql/registrations.sql on .env.test."""
+"""TC-REGISTRATIONS-101..104. Run after backend/sql/registrations.sql on .env.test."""
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
@@ -14,7 +15,7 @@ def test_register_refuse_a_duplicate_and_read_it_back(admin):
     event_id = str(uuid.uuid4())
     attendee_id = str(uuid.uuid4())
     table = admin.schema("registrations").table("registrations")
-    body = {"event_id": event_id, "attendee_id": attendee_id}
+    body = {"event_id": event_id, "attendee_id": attendee_id, "capacity": 50}
     try:
         created = httpx.post(f"{BASE_URL}/registrations", json=body, timeout=20)
         assert created.status_code == 201, created.text
@@ -45,7 +46,7 @@ def test_a_place_reads_back_by_event_and_by_attendee(admin):
         ):
             response = httpx.post(
                 f"{BASE_URL}/registrations",
-                json={"event_id": event_id, "attendee_id": attendee_id},
+                json={"event_id": event_id, "attendee_id": attendee_id, "capacity": 50},
                 timeout=20,
             )
             assert response.status_code == 201, response.text
@@ -61,3 +62,56 @@ def test_a_place_reads_back_by_event_and_by_attendee(admin):
     finally:
         table.delete().in_("event_id", [first_event, second_event]).execute()
     assert table.select("id").in_("event_id", [first_event, second_event]).execute().data == []
+
+
+def _register(event_id, attendee_id, capacity):
+    return httpx.post(
+        f"{BASE_URL}/registrations",
+        json={"event_id": event_id, "attendee_id": attendee_id, "capacity": capacity},
+        timeout=20,
+    )
+
+
+# --- TC-REGISTRATIONS-103 -------------------------------------------------
+def test_the_cap_holds_even_under_simultaneous_registrations(admin):
+    in_turn, at_once = str(uuid.uuid4()), str(uuid.uuid4())
+    table = admin.schema("registrations").table("registrations")
+    try:
+        statuses = [_register(in_turn, str(uuid.uuid4()), 2) for _ in range(3)]
+        assert [r.status_code for r in statuses] == [201, 201, 409], [r.text for r in statuses]
+        assert statuses[2].json()["detail"] == "This event is full."
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            racing = list(pool.map(lambda _: _register(at_once, str(uuid.uuid4()), 3), range(6)))
+        codes = sorted(r.status_code for r in racing)
+        assert codes == [201, 201, 201, 409, 409, 409], [r.text for r in racing]
+
+        assert len(table.select("id").eq("event_id", in_turn).execute().data) == 2
+        assert len(table.select("id").eq("event_id", at_once).execute().data) == 3
+    finally:
+        table.delete().in_("event_id", [in_turn, at_once]).execute()
+
+
+# --- TC-REGISTRATIONS-104 -------------------------------------------------
+def test_a_waiting_list_entry_is_saved_and_read_back(admin):
+    event_id, attendee_id = str(uuid.uuid4()), str(uuid.uuid4())
+    table = admin.schema("registrations").table("waiting_list")
+    body = {"event_id": event_id, "attendee_id": attendee_id}
+    try:
+        joined = httpx.post(f"{BASE_URL}/registrations/waiting-list", json=body, timeout=20)
+        assert joined.status_code == 201, joined.text
+        again = httpx.post(f"{BASE_URL}/registrations/waiting-list", json=body, timeout=20)
+        assert again.status_code == 409, again.text
+
+        listed = httpx.get(f"{BASE_URL}/registrations/waiting-list/events/{event_id}", timeout=20)
+        assert listed.status_code == 200, listed.text
+        assert [row["attendee_id"] for row in listed.json()] == [attendee_id]
+
+        one = httpx.get(
+            f"{BASE_URL}/registrations/waiting-list/events/{event_id}/attendees/{attendee_id}",
+            timeout=20,
+        )
+        assert one.status_code == 200, one.text
+    finally:
+        table.delete().eq("event_id", event_id).execute()
+    assert table.select("id").eq("event_id", event_id).execute().data == []

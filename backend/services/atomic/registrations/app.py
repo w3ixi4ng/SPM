@@ -14,16 +14,22 @@ from postgrest.exceptions import APIError
 from supabase import Client
 
 from database import get_db
-from schemas import RegistrationCreate, RegistrationRead
+from schemas import RegistrationCreate, RegistrationRead, WaitingListCreate, WaitingListRead
 
 app = FastAPI(title="Registrations Service")
 logger = logging.getLogger(__name__)
 
 SCHEMA = "registrations"
 TABLE = "registrations"
+WAITING_LIST = "waiting_list"
 UNIQUE_VIOLATION = "23505"
+# Raised by registrations.register when the event has no place left.
+EVENT_FULL = "SP050"
 ALREADY_REGISTERED = "You're already registered for this event."
 NOT_REGISTERED = "You're not registered for this event."
+FULL = "This event is full."
+ALREADY_WAITING = "You're already on the waiting list for this event."
+NOT_WAITING = "You're not on the waiting list for this event."
 
 
 @app.exception_handler(RequestValidationError)
@@ -44,14 +50,16 @@ async def unhandled_error(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-def _execute(operation):
+def _execute(operation, *, duplicate: str = ALREADY_REGISTERED):
     try:
         return operation.execute()
     except APIError as exc:
         # One place per account per event: the table's unique constraint is
         # what makes a second registration, even a simultaneous one, fail.
         if exc.code == UNIQUE_VIOLATION:
-            raise HTTPException(status_code=409, detail=ALREADY_REGISTERED) from exc
+            raise HTTPException(status_code=409, detail=duplicate) from exc
+        if exc.code == EVENT_FULL:
+            raise HTTPException(status_code=409, detail=FULL) from exc
         logger.exception("Registration storage operation failed", exc_info=exc)
         raise _storage_unavailable() from exc
     except Exception as exc:
@@ -74,8 +82,18 @@ def health():
 
 @app.post("/registrations", response_model=RegistrationRead, status_code=201)
 def create_registration(payload: RegistrationCreate, db: Client = Depends(get_db)):
+    # S-50: counted and inserted in one locked step in Postgres, so the last
+    # place can't go to two people registering at the same moment.
+    params = payload.model_dump(mode="json")
     result = _execute(
-        db.schema(SCHEMA).table(TABLE).insert(payload.model_dump(mode="json"))
+        db.schema(SCHEMA).rpc(
+            "register",
+            {
+                "p_event_id": params["event_id"],
+                "p_attendee_id": params["attendee_id"],
+                "p_capacity": params["capacity"],
+            },
+        )
     )
     if not result.data:
         raise _storage_unavailable()
@@ -124,3 +142,47 @@ def list_attendee_registrations(attendee_id: UUID, db: Client = Depends(get_db))
         .order("created_at")
     )
     return _execute(operation).data
+
+
+# S-50: Attendees waiting for a place at a full event, in the order they joined.
+@app.post("/registrations/waiting-list", response_model=WaitingListRead, status_code=201)
+def join_waiting_list(payload: WaitingListCreate, db: Client = Depends(get_db)):
+    result = _execute(
+        db.schema(SCHEMA).table(WAITING_LIST).insert(payload.model_dump(mode="json")),
+        duplicate=ALREADY_WAITING,
+    )
+    if not result.data:
+        raise _storage_unavailable()
+    return result.data[0]
+
+
+@app.get(
+    "/registrations/waiting-list/events/{event_id}", response_model=list[WaitingListRead]
+)
+def list_waiting_list(event_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(WAITING_LIST)
+        .select("*")
+        .eq("event_id", str(event_id))
+        .order("created_at")
+    )
+    return _execute(operation).data
+
+
+@app.get(
+    "/registrations/waiting-list/events/{event_id}/attendees/{attendee_id}",
+    response_model=WaitingListRead,
+)
+def get_waiting_list_entry(event_id: UUID, attendee_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(WAITING_LIST)
+        .select("*")
+        .eq("event_id", str(event_id))
+        .eq("attendee_id", str(attendee_id))
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail=NOT_WAITING)
+    return result.data[0]

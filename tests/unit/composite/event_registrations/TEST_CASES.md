@@ -43,8 +43,11 @@ is the venue "Seminar Room 2-1".
   {"id": "E", "name": "Alumni networking evening", "purpose": "Reconnect alumni with current students",
    "start_date": "2026-11-20", "start_time": "18:00:00", "end_date": "2026-11-20", "end_time": "21:00:00",
    "venues": ["Seminar Room 2-1"], "registration_required": true,
-   "registration_opens_at": "2026-11-01T09:00:00", "registration_closes_at": "2026-11-15T18:00:00"}
+   "registration_opens_at": "2026-11-01T09:00:00", "registration_closes_at": "2026-11-15T18:00:00",
+   "registration_closed_by_organiser": false, "is_full": false}
   ```
+  (Revised for S-50: the last two fields are new; the registrations fake
+  holds no places for E.)
   F's has `"registration_required": false`, both dates `null`, `"venues": []`.
   No item has `organiser_id`, `expected_attendance`, or contact fields. The
   users service is never called.
@@ -116,7 +119,7 @@ is the venue "Seminar Room 2-1".
 
 ## TC-EVENTREGISTRATIONS-008 — registering inside the period takes a place
 
-- **Scenario:** A registered Attendee holds a place (S-51 AC5).
+- **Scenario:** A registered Attendee holds a place (S-51 AC5). Revised for S-50: the registrations call also carries `"capacity": 2` (E's expected attendance), and the response adds `"waitlisted": false, "joined_at": null`.
 - **Pre-conditions:** Signed-in Attendee A (id `33333333-…`); clock
   `2026-11-05 12:00` SGT; registrations fake returns a new row.
 - **Steps:** `POST /event-registrations/events/E/registration`.
@@ -153,7 +156,7 @@ is the venue "Seminar Room 2-1".
 
 ## TC-EVENTREGISTRATIONS-011 — an Attendee sees whether they hold a place
 
-- **Scenario:** The event page can show "You're registered" (S-51 AC5).
+- **Scenario:** The event page can show "You're registered" (S-51 AC5). Revised for S-50: both answers also carry `waitlisted` and `joined_at` (false / null here; see TC-EVENTREGISTRATIONS-025).
 - **Pre-conditions:** Signed-in Attendee A. Registrations fake returns A's
   row, then `404`.
 - **Steps:** `GET /event-registrations/events/E/registration` twice.
@@ -190,7 +193,7 @@ Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
 
 ## TC-EVENTREGISTRATIONS-013 — the Organiser sees who registered for their event
 
-- **Scenario:** A registration is recorded against the event and its Organiser sees it (S-48 AC3).
+- **Scenario:** A registration is recorded against the event and its Organiser sees it (S-48 AC3). Revised for S-50: the body also carries `"waiting_list": []`, and the waiting list is read alongside the places.
 - **Pre-conditions:** O's session cookie. Events fake answers
   `GET /events/E` (with O's cookie forwarded) `200`. Registrations fake
   returns A's and B's rows for E. Users fake answers
@@ -210,7 +213,7 @@ Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
 
 ## TC-EVENTREGISTRATIONS-014 — an event no one has registered for yet
 
-- **Scenario:** The Organiser's list is empty rather than an error.
+- **Scenario:** The Organiser's list is empty rather than an error. Revised for S-50: the body also carries `"waiting_list": []`.
 - **Pre-conditions:** As TC-EVENTREGISTRATIONS-013, but the registrations fake returns `[]`.
 - **Steps:** `GET /event-registrations/events/E/attendees`.
 - **Test data:** As above.
@@ -283,3 +286,123 @@ Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
 - **Actual:** `401` "Sign in to register for this event.", then `403` "Only attendee accounts can register for events."; registrations never called.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_the_attendees_list_needs_a_signed_in_attendee
+
+## S-50 — Cap Registration at Capacity
+
+The cap is the event's `expected_attendance` -- the figure the S-35 venue
+check compares against a venue's capacity (developer's answer, 2026-10-26).
+The figure itself is never shown publicly; the public page gets only
+`is_full`. Clock `2026-11-05 12:00` SGT (inside E's period) unless stated.
+E has `expected_attendance` 2 and `registration_closed_at` null unless stated.
+Attendee A is signed in unless stated.
+
+Where several things block registration, the message shown is the first that
+applies: registration off → period not yet open or already over → closed by
+the Organiser → full.
+
+## TC-EVENTREGISTRATIONS-019 — the public event says when it is full or closed
+
+- **Scenario:** Anyone viewing the event can see it is full or closed, without seeing the attendance figure (S-50 AC1, AC4).
+- **Pre-conditions:** No cookie. Registrations fake returns 2 places for E;
+  for event G (`expected_attendance` 50, `registration_closed_at`
+  `2026-11-03T06:15:00+00:00`) it returns 1 place.
+- **Steps:** `GET /event-registrations/events/E`; `GET /event-registrations/events/G`; `GET /event-registrations/events`.
+- **Expected:** E → `200` with `"is_full": true, "registration_closed_by_organiser": false`.
+  G → `"is_full": false, "registration_closed_by_organiser": true`. The list
+  carries the same two values per event. No body contains `expected_attendance`
+  or `registration_closed_at`.
+- **Actual:** E full/not closed, G not full/closed, the list agreed; no body had `expected_attendance` or `registration_closed_at`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_the_public_event_says_when_it_is_full_or_closed; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-020 — registering is capped at the event's expected attendance
+
+- **Scenario:** The cap passed to the registrations service is exactly the S-35 figure (S-50 AC1, AC3).
+- **Pre-conditions:** E has `expected_attendance` 2; registrations fake answers `201`.
+- **Steps:** `POST /event-registrations/events/E/registration`.
+- **Expected:** `201` `{"event_id": E, "registered": true, ...}`. The
+  registrations fake received `{"event_id": E, "attendee_id": A, "capacity": 2}`.
+- **Actual:** `201`; registrations received `capacity` 2.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_registering_is_capped_at_the_events_expected_attendance; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-021 — a full event offers the waiting list instead
+
+- **Scenario:** An Attendee registering once capacity is reached is blocked and offered the waiting list (S-50 AC1, AC2).
+- **Pre-conditions:** Registrations fake answers `409` "This event is full.".
+- **Steps:** `POST /event-registrations/events/E/registration`.
+- **Expected:** `409` `{"detail": "This event is full. You can join the waiting list."}`.
+- **Actual:** `409` "This event is full. You can join the waiting list."
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_a_full_event_offers_the_waiting_list_instead; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-022 — registration closed by the Organiser is refused
+
+- **Scenario:** Once the Organiser closes registration, nobody registers, with or without places left (S-50 AC4).
+- **Pre-conditions:** E has `registration_closed_at` `2026-11-03T06:15:00+00:00`, 0 places taken.
+- **Steps:** `POST /event-registrations/events/E/registration`.
+- **Expected:** `409` `{"detail": "The organiser has closed registration for this event."}`.
+  The registrations service is never called.
+- **Actual:** `409` "The organiser has closed registration for this event."; registrations not called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_registration_closed_by_the_organiser_is_refused; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-023 — joining the waiting list of a full event
+
+- **Scenario:** The offered waiting list can be joined (S-50 AC2).
+- **Pre-conditions:** Registrations fake: 2 places for E (full), A not
+  registered, waiting-list insert answers `201` with `created_at` `2026-11-05T04:00:00+00:00`.
+- **Steps:** `POST /event-registrations/events/E/waiting-list`.
+- **Expected:** `201` `{"event_id": E, "waitlisted": true, "joined_at": "2026-11-05T04:00:00Z"}`
+  (any equivalent ISO form). The fake received `{"event_id": E, "attendee_id": A}` -- the
+  attendee is the session's, never the body's.
+- **Actual:** `201` `{waitlisted: true, joined_at}`; the insert carried the session's attendee, not the body's.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_joining_the_waiting_list_of_a_full_event; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-024 — when the waiting list is refused
+
+- **Scenario:** The waiting list is only offered when the event is full and otherwise open (S-50 AC2, AC4).
+- **Steps:** `POST /event-registrations/events/E/waiting-list`, once per row.
+- **Test data / Expected:**
+  | Situation | Expected |
+  | --- | --- |
+  | No session | `401` "Sign in to register for this event." |
+  | Signed in as an Event Organiser | `403` "Only attendee accounts can register for events." |
+  | E has 1 place taken (not full) | `409` "This event still has places. Register instead." |
+  | Clock `2026-11-16 12:00` SGT (period over), E full | `409` "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm." |
+  | E full and closed by the Organiser | `409` "The organiser has closed registration for this event." |
+  | E full, A already holds a place | `409` "You're already registered for this event." |
+  | E full, waiting-list insert answers `409` | `409` "You're already on the waiting list for this event." |
+  | E has registration off | `409` "This event doesn't need registration." |
+
+  The waiting-list insert is never called in rows 1--6 and 8.
+- **Actual:** All eight rows returned the stated status and message; the insert was only reached for the already-waiting row.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_when_the_waiting_list_is_refused; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-025 — the Attendee's status shows the waiting list
+
+- **Scenario:** An Attendee who joined can see they're on the waiting list (S-50 AC2).
+- **Pre-conditions:** Registrations fake: A holds no place for E; A's waiting-list entry exists, `created_at` `2026-11-05T04:00:00+00:00`. Then neither exists.
+- **Steps:** `GET /event-registrations/events/E/registration` twice.
+- **Expected:** First → `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": true, "joined_at": "2026-11-05T04:00:00Z"}`.
+  Second → `"registered": false, "waitlisted": false, "joined_at": null`. A
+  registered Attendee gets `"waitlisted": false` without a waiting-list lookup.
+- **Actual:** Waitlisted → `waitlisted: true` with `joined_at`; not waiting → false/null; registered → no waiting-list lookup.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_the_attendees_status_shows_the_waiting_list; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-026 — the Organiser sees the waiting list in join order
+
+- **Scenario:** The Organiser sees who is waiting for a full event (S-50 AC2, per developer's answer).
+- **Pre-conditions:** Signed in as the owning Organiser. Registrations fake:
+  places for A1, A2; waiting list B (joined `04:00`) then C (joined `05:00`).
+  Users fake returns names and emails for all four.
+- **Steps:** `GET /event-registrations/events/E/attendees`.
+- **Expected:** `200`; `count` 2 and `attendees` as before (S-48), plus
+  `"waiting_list": [{"attendee_id": B, "name": ..., "email": ..., "joined_at": ...}, {... C ...}]`
+  in that order. With no one waiting, `"waiting_list": []`. Another Organiser → `404` as before.
+- **Actual:** `count` 2; `waiting_list` C then D with names, emails, `joined_at`; empty → `[]`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s50.py::test_the_organiser_sees_the_waiting_list_in_join_order; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree

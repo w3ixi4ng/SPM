@@ -229,3 +229,20 @@ developer on 2026-10-19. Not yet implemented or executed.
 - **Actual:** All three values read back unchanged; the reversed period was refused with `23514`; the published read returned the period without `organiser_id`; the PATCH was refused with `409`; no row remained.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/events/test_s51.py::test_registration_columns_round_trip_and_are_constrained`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project
+
+## TC-EVENTS-184 — closing and reopening registration is saved (S-50)
+
+- **Scenario:** The `registration_closed_at` column exists, is granted, and round-trips (S-50 AC4).
+- **Pre-conditions:** Fresh `.env.test` stack; the S-50 line of `backend/sql/events.sql` applied to the test project.
+- **Steps:**
+  1. Through the admin client, create Organiser O and a confirmed event C owned by O with registration on.
+  2. As O, `PUT /events/C/registration-closure`.
+  3. `GET /internal/events/published/C`.
+  4. As O, `DELETE /events/C/registration-closure`; repeat step 3.
+  5. Delete C and O.
+- **Test data:** Email `spm-test-*`; C's period opens yesterday, closes tomorrow (SGT).
+- **Expected:** 2 → `200`. 3 → `registration_closed_at` not null. 4 → `200`,
+  then `registration_closed_at` null. 5 leaves no rows.
+- **Actual:** `200`; published read showed `registration_closed_at` set and `expected_attendance` 40; reopen `200`, then null; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s50.py::test_closing_and_reopening_registration_is_saved; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
