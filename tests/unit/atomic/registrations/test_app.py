@@ -1,7 +1,7 @@
 """S-51: the registrations service records who holds a place.
 
 TC-REGISTRATIONS-001..005; S-48 adds 006..007; S-50 adds 008..013 and
-routes 002..004 through the capped insert.
+routes 002..004 through the capped insert; S-52 adds 014..015.
 """
 
 from types import SimpleNamespace
@@ -221,6 +221,11 @@ def waiting_row(**changes):
     return row
 
 
+def _waiting(db):
+    """S-52: an event's waiting list is ordered by join time, then id."""
+    return _listed(db).order.return_value
+
+
 # --- TC-REGISTRATIONS-011 -------------------------------------------------
 def test_joining_the_waiting_list_once(client, db):
     _insert(db).return_value.execute.side_effect = [
@@ -251,7 +256,7 @@ def test_an_events_waiting_list_in_join_order(client, db):
             created_at="2026-11-02T03:00:00Z",
         ),
     ]
-    _listed(db).execute.return_value = SimpleNamespace(data=rows)
+    _waiting(db).execute.return_value = SimpleNamespace(data=rows)
     response = client.get(f"/registrations/waiting-list/events/{EVENT_ID}")
     assert response.status_code == 200
     assert response.json() == rows
@@ -260,7 +265,7 @@ def test_an_events_waiting_list_in_join_order(client, db):
     select.return_value.eq.assert_called_with("event_id", EVENT_ID)
     select.return_value.eq.return_value.order.assert_called_with("created_at")
 
-    _listed(db).execute.return_value = SimpleNamespace(data=[])
+    _waiting(db).execute.return_value = SimpleNamespace(data=[])
     response = client.get(f"/registrations/waiting-list/events/{OTHER_EVENT}")
     assert response.status_code == 200
     assert response.json() == []
@@ -278,3 +283,49 @@ def test_one_attendees_waiting_list_entry(client, db):
     response = client.get(f"/registrations/waiting-list/events/{EVENT_ID}/attendees/{ATTENDEE_A}")
     assert response.status_code == 404
     assert response.json() == {"detail": "You're not on the waiting list for this event."}
+
+
+C_ATTENDEE = "55555555-5555-4555-8555-555555555555"
+
+
+# --- TC-REGISTRATIONS-014 -------------------------------------------------
+def test_an_attendees_waiting_list_entries(client, db):
+    rows = [
+        waiting_row(created_at="2026-11-05T04:00:00Z"),
+        waiting_row(
+            id="99999999-9999-4999-8999-999999999999",
+            event_id=OTHER_EVENT,
+            created_at="2026-11-06T04:00:00Z",
+        ),
+    ]
+    _listed(db).execute.return_value = SimpleNamespace(data=rows)
+    response = client.get(f"/registrations/waiting-list/attendees/{ATTENDEE_B}")
+    assert response.status_code == 200
+    assert response.json() == rows
+    db.schema.assert_called_with("registrations")
+    db.schema.return_value.table.assert_called_with("waiting_list")
+    select = db.schema.return_value.table.return_value.select
+    select.return_value.eq.assert_called_with("attendee_id", ATTENDEE_B)
+    select.return_value.eq.return_value.order.assert_called_with("created_at")
+
+    _listed(db).execute.return_value = SimpleNamespace(data=[])
+    response = client.get(f"/registrations/waiting-list/attendees/{ATTENDEE_A}")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+# --- TC-REGISTRATIONS-015 -------------------------------------------------
+def test_an_events_waiting_list_is_first_come_first_served(client, db):
+    rows = [
+        waiting_row(),
+        waiting_row(id="99999999-9999-4999-8999-999999999999", attendee_id=C_ATTENDEE),
+    ]
+    _waiting(db).execute.return_value = SimpleNamespace(data=rows)
+    response = client.get(f"/registrations/waiting-list/events/{EVENT_ID}")
+    assert response.status_code == 200
+    assert response.json() == rows
+    select = db.schema.return_value.table.return_value.select
+    select.return_value.eq.assert_called_with("event_id", EVENT_ID)
+    by_join_time = select.return_value.eq.return_value.order
+    by_join_time.assert_called_once_with("created_at")
+    by_join_time.return_value.order.assert_called_once_with("id")

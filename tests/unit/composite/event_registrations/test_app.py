@@ -150,6 +150,7 @@ def test_registering_inside_the_period_takes_a_place(client, services):
         "registered_at": REGISTERED_AT,
         "waitlisted": False,
         "joined_at": None,
+        "position": None,
     }
     services["registrations"].post.assert_awaited_once_with(
         "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2}
@@ -196,7 +197,7 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT,
-        "waitlisted": False, "joined_at": None,
+        "waitlisted": False, "joined_at": None, "position": None,
     }
     services["registrations"].get.assert_awaited_with(
         f"/registrations/events/{EVENT_E}/attendees/{ATTENDEE_A}"
@@ -209,7 +210,7 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": False, "joined_at": None,
+        "waitlisted": False, "joined_at": None, "position": None,
     }
 
 
@@ -360,9 +361,13 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
         "start_time": "18:00:00",
         "end_date": "2026-11-20",
         "end_time": "21:00:00",
+        # S-52: every row says whether it is a place or a waiting-list entry.
+        "status": "confirmed",
         "registered_at": "2026-11-05T04:00:00Z",
+        "joined_at": None,
+        "position": None,
     }
-    services["registrations"].get.assert_called_once_with(f"/registrations/attendees/{ATTENDEE_A}")
+    services["registrations"].get.assert_any_call(f"/registrations/attendees/{ATTENDEE_A}")
 
 
 # --- TC-EVENTREGISTRATIONS-017 --------------------------------------------

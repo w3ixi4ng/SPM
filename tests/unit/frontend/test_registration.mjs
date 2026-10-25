@@ -9,11 +9,13 @@ import {
   listEventAttendees,
   listMyRegistrations,
   registrationClosureControl,
+  registrationStatusLabel,
   registrationCountdown,
   registrationWindow,
   reopenRegistration,
   validateRegistrationSettings,
   waitingListLabel,
+  waitingListPlace,
 } from '../../../frontend/src/lib/registration.js'
 import {
   eventFieldErrorsToForm,
@@ -234,4 +236,33 @@ test('the waiting-list count reads as a sentence', () => {
   assert.equal(waitingListLabel(0), 'No one is on the waiting list.')
   assert.equal(waitingListLabel(1), '1 person on the waiting list')
   assert.equal(waitingListLabel(3), '3 people on the waiting list')
+})
+
+// --- TC-FRONTEND-261 -------------------------------------------------------
+test('the place in line reads as a sentence', () => {
+  const cases = {
+    1: "You're next in line.",
+    2: "You're 2nd in line.",
+    3: "You're 3rd in line.",
+    4: "You're 4th in line.",
+    11: "You're 11th in line.",
+    12: "You're 12th in line.",
+    13: "You're 13th in line.",
+    21: "You're 21st in line.",
+    22: "You're 22nd in line.",
+    23: "You're 23rd in line.",
+    111: "You're 111th in line.",
+  }
+  for (const [n, expected] of Object.entries(cases)) {
+    assert.equal(waitingListPlace(Number(n)), expected)
+  }
+  assert.equal(waitingListPlace(null), '')
+})
+
+// --- TC-FRONTEND-262 -------------------------------------------------------
+test('a dashboard row says confirmed or waiting', () => {
+  assert.equal(registrationStatusLabel({ status: 'confirmed' }), 'Confirmed')
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 1 }), 'Waiting list · next in line')
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 3 }), 'Waiting list · 3rd in line')
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: null }), 'Waiting list')
 })

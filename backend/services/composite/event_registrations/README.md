@@ -18,7 +18,7 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open, the Organiser hasn't closed it, and a place is left (S-50). |
 | `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered, or on the waiting list. |
 | `POST` | `/event-registrations/events/{event_id}/waiting-list` | Attendee | S-50: join a full event's waiting list. |
-| `GET` | `/event-registrations/me/registrations` | Attendee | The confirmed events the signed-in Attendee is registered for, soonest first. |
+| `GET` | `/event-registrations/me/registrations` | Attendee | The confirmed events the signed-in Attendee is registered for or waiting for (S-52), soonest first. |
 | `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
@@ -63,17 +63,18 @@ attendance, contacts or internal notes is ever included.
 **Registration** (`201` from `POST`, `200` from `GET`):
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null}
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null, "position": null}
 ```
 
 `GET` answers `{"registered": false, "registered_at": null, ...}` when the
-Attendee holds no place, with `"waitlisted": true` and `joined_at` if they
-are on the waiting list.
+Attendee holds no place, with `"waitlisted": true`, `joined_at` and
+`position` if they are on the waiting list. `position` (S-52) is their place
+in line, first come, first served: `1` is next.
 
 **Waiting list** (`201` from `POST /events/{event_id}/waiting-list`):
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "waitlisted": true, "joined_at": "2026-11-05T04:00:00Z"}
+{"event_id": "22222222-2222-4222-8222-222222222222", "waitlisted": true, "joined_at": "2026-11-05T04:00:00Z", "position": 2}
 ```
 
 It is refused with the same `401`/`403`/`404` and period `409`s as
@@ -109,12 +110,29 @@ server's clock, opening is inclusive and closing is exclusive.
     "start_time": "18:00:00",
     "end_date": "2026-11-20",
     "end_time": "21:00:00",
-    "registered_at": "2026-11-05T04:00:00Z"
+    "status": "confirmed",
+    "registered_at": "2026-11-05T04:00:00Z",
+    "joined_at": null,
+    "position": null
+  },
+  {
+    "event_id": "88888888-8888-4888-8888-888888888888",
+    "name": "Careers fair",
+    "start_date": "2026-11-25",
+    "start_time": "10:00:00",
+    "end_date": "2026-11-25",
+    "end_time": "16:00:00",
+    "status": "waitlisted",
+    "registered_at": null,
+    "joined_at": "2026-11-06T04:00:00Z",
+    "position": 2
   }
 ]
 ```
 
-Only events that are still `confirmed` are listed. Answers `401` and `403`
+S-52: `status` is `confirmed` for a place and `waitlisted` for a waiting-list
+entry, which has `joined_at` and its place in line instead of
+`registered_at`. Only events that are still `confirmed` are listed. Answers `401` and `403`
 exactly as registering does.
 
 **Event attendees** (`200` from `GET /events/{event_id}/attendees`):

@@ -283,7 +283,18 @@ async def get_my_registration(
         "registered_at": None,
         "waitlisted": waiting is not None,
         "joined_at": waiting["created_at"] if waiting else None,
+        "position": await _place_in_line(event_id, user["id"], registrations) if waiting else None,
     }
+
+
+async def _place_in_line(event_id, attendee_id: str, registrations: httpx.AsyncClient) -> int | None:
+    """S-52: 1-based, in the first-come, first-served order the
+    registrations service keeps the waiting list in."""
+    rows = await _json(
+        "Registrations", registrations.get(f"/registrations/waiting-list/events/{event_id}")
+    )
+    ids = [row["attendee_id"] for row in rows]
+    return ids.index(attendee_id) + 1 if attendee_id in ids else None
 
 
 async def _entry(registrations: httpx.AsyncClient, path: str) -> dict | None:
@@ -330,7 +341,12 @@ async def join_waiting_list(
         raise HTTPException(status_code=409, detail=response.json()["detail"])
     if response.status_code != 201:
         raise _unavailable("Registrations")
-    return {"event_id": event_id, "waitlisted": True, "joined_at": response.json()["created_at"]}
+    return {
+        "event_id": event_id,
+        "waitlisted": True,
+        "joined_at": response.json()["created_at"],
+        "position": await _place_in_line(event_id, user["id"], registrations),
+    }
 
 
 async def _owned_event(event_id: UUID, request: Request, events: httpx.AsyncClient) -> None:
@@ -410,11 +426,28 @@ async def list_my_registrations(
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     user = await _attendee(request, users)
-    rows = await _json("Registrations", registrations.get(f'/registrations/attendees/{user["id"]}'))
-    found = await asyncio.gather(*(_still_public(row["event_id"], events) for row in rows))
+    places, waiting = await asyncio.gather(
+        _json("Registrations", registrations.get(f'/registrations/attendees/{user["id"]}')),
+        _json("Registrations", registrations.get(f'/registrations/waiting-list/attendees/{user["id"]}')),
+    )
+    held = {row["event_id"] for row in places}
+    # S-52: a confirmed place wins should both ever exist for one event.
+    waiting = [row for row in waiting if row["event_id"] not in held]
+    found, positions = await asyncio.gather(
+        asyncio.gather(*(_still_public(row["event_id"], events) for row in [*places, *waiting])),
+        asyncio.gather(
+            *(_place_in_line(row["event_id"], user["id"], registrations) for row in waiting)
+        ),
+    )
+    entries = [
+        *({"status": "confirmed", "registered_at": row["created_at"], "joined_at": None,
+           "position": None} for row in places),
+        *({"status": "waitlisted", "registered_at": None, "joined_at": row["created_at"],
+           "position": position} for row, position in zip(waiting, positions)),
+    ]
     listed = [
-        {**event, "event_id": event["id"], "registered_at": row["created_at"]}
-        for row, event in zip(rows, found)
+        {**event, "event_id": event["id"], **entry}
+        for entry, event in zip(entries, found)
         if event is not None
     ]
     # Soonest event first; an event without dates yet sorts last.

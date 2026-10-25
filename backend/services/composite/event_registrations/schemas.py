@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -32,12 +33,16 @@ class RegistrationStatus(BaseModel):
     # S-50: on the waiting list of a full event.
     waitlisted: bool = False
     joined_at: datetime | None = None
+    # S-52: place in line, 1 = next; null unless waitlisted.
+    position: int | None = None
 
 
 class WaitingListStatus(BaseModel):
     event_id: UUID
     waitlisted: bool
     joined_at: datetime
+    # S-52
+    position: int
 
 
 class EventAttendee(BaseModel):
@@ -67,7 +72,11 @@ class EventAttendees(BaseModel):
 
 
 class MyRegistration(BaseModel):
-    """S-48: one event the signed-in Attendee holds a place at."""
+    """S-48: one event the signed-in Attendee holds a place at.
+
+    S-52: or is waiting for. A confirmed place has `registered_at`; a
+    waiting-list entry has `joined_at` and its place in line instead.
+    """
 
     event_id: UUID
     name: str | None
@@ -75,4 +84,7 @@ class MyRegistration(BaseModel):
     start_time: time | None
     end_date: date | None
     end_time: time | None
-    registered_at: datetime
+    status: Literal["confirmed", "waitlisted"]
+    registered_at: datetime | None
+    joined_at: datetime | None
+    position: int | None

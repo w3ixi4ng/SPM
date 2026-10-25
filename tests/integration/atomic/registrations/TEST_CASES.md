@@ -79,3 +79,18 @@ project. Blocked until they are.
 - **Actual:** `201`, then `409`; the list held B; the single read `200`; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/registrations/test_app.py::test_a_waiting_list_entry_is_saved_and_read_back; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-REGISTRATIONS-105 — waiting-list order and an Attendee's entries, for real (S-52)
+
+- **Scenario:** Join order holds against the real table, and an Attendee's entries across events can be read back (S-52 AC2, AC3).
+- **Pre-conditions:** As TC-REGISTRATIONS-103. No SQL change for S-52; the S-50 `registrations.waiting_list` table is enough.
+- **Steps:**
+  1. `POST /registrations/waiting-list` for E and B, then for E and C, then for F and B.
+  2. `GET /registrations/waiting-list/events/E`.
+  3. `GET /registrations/waiting-list/attendees/B`.
+  4. Delete the rows through the admin client.
+- **Test data:** Random uuids for E, F, B and C.
+- **Expected:** 1 → three `201`s. 2 → B's row, then C's. 3 → B's two rows, E's then F's. 4 leaves no rows.
+- **Actual:** Three `201`s; E's list read B then C; B's entries read E then F; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_waiting_list_order_and_an_attendees_entries; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree

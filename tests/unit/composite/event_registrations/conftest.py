@@ -146,6 +146,12 @@ def services():
 
     async def registrations_get(path, **kwargs):
         parts = path.strip("/").split("/")
+        if parts[1] == "waiting-list" and parts[2] == "attendees":
+            # S-52: one Attendee's entries across every event.
+            return response(200, [
+                row for rows in registrations.waiting.values()
+                for row in rows if row["attendee_id"] == parts[3]
+            ])
         if parts[1] == "waiting-list":
             rows = registrations.waiting.get(parts[3], [])
             if len(parts) == 4:

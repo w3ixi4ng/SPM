@@ -1,4 +1,4 @@
-"""TC-EVENTREGISTRATIONS-101..103. Run with the whole .env.test stack up."""
+"""TC-EVENTREGISTRATIONS-101..104. Run with the whole .env.test stack up."""
 
 import uuid
 from datetime import timedelta
@@ -149,6 +149,58 @@ def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(admin, make_ac
         assert after_close.json()["detail"] == (
             "The organiser has closed registration for this event."
         )
+    finally:
+        registrations.delete().eq("event_id", event_id).execute()
+        waiting.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    assert events.select("id").eq("id", event_id).execute().data == []
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
+    assert waiting.select("id").eq("event_id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-104 --------------------------------------------
+def test_waitlisted_attendees_see_their_place_in_line(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-52 organiser")
+    first = make_account("attendee", "S-52 First Attendee")
+    second = make_account("attendee", "S-52 Second Attendee")
+    third = make_account("attendee", "S-52 Third Attendee")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1),
+        expected_attendance=1,
+    )
+    events = admin.schema("events").table("events")
+    registrations = admin.schema("registrations").table("registrations")
+    waiting = admin.schema("registrations").table("waiting_list")
+    base = f"{GATEWAY_BASE_URL}/event-registrations"
+    register = f"{base}/events/{event_id}/registration"
+    wait = f"{base}/events/{event_id}/waiting-list"
+    try:
+        taken = httpx.post(register, headers=first["headers"], timeout=20)
+        assert taken.status_code == 201, taken.text
+
+        for account, place in [(second, 1), (third, 2)]:
+            joined = httpx.post(wait, headers=account["headers"], timeout=20)
+            assert joined.status_code == 201, joined.text
+            assert joined.json()["position"] == place
+
+        for account, place in [(second, 1), (third, 2)]:
+            status = httpx.get(register, headers=account["headers"], timeout=20)
+            assert status.status_code == 200, status.text
+            assert status.json()["waitlisted"] is True
+            assert status.json()["position"] == place
+
+        waiting_rows = httpx.get(f"{base}/me/registrations", headers=third["headers"], timeout=20)
+        assert waiting_rows.status_code == 200, waiting_rows.text
+        assert [(row["event_id"], row["status"], row["position"]) for row in waiting_rows.json()] == [
+            (event_id, "waitlisted", 2)
+        ]
+
+        confirmed_rows = httpx.get(f"{base}/me/registrations", headers=first["headers"], timeout=20)
+        assert confirmed_rows.status_code == 200, confirmed_rows.text
+        assert [(row["event_id"], row["status"], row["position"]) for row in confirmed_rows.json()] == [
+            (event_id, "confirmed", None)
+        ]
     finally:
         registrations.delete().eq("event_id", event_id).execute()
         waiting.delete().eq("event_id", event_id).execute()

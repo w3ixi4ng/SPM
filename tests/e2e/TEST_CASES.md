@@ -1406,3 +1406,16 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** O closed after confirming and saw the closed line with Reopen; A saw the closed message with no Register or waiting list; after reopening A saw Register.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_cap_registration.py::test_the_organiser_closes_registration_early_and_reopens_it; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-E2E-255 — a waitlisted Attendee sees their place in line, not a confirmation
+
+- **Scenario:** In a real browser: an Attendee joins a full event's waiting list behind someone else, sees their place on the event page, and their dashboard marks the event as waiting, not confirmed (S-52 AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT); Attendees A, B and C; A holds P's one place; B is on P's waiting list.
+- **Steps:**
+  1. As C, open `/public/events/P` and click **Join the waiting list**; reload.
+  2. As C, open the dashboard.
+  3. As A, open the dashboard.
+- **Expected:** 1 → "You're on the waiting list. You're 2nd in line." both before and after the reload, and no **Register** or "You're registered for this event.". 2 → the "Your registrations" row for P reads "Waiting list · 2nd in line" and not "Confirmed". 3 → the row for P reads "Confirmed".
+- **Actual:** C joined and saw "You're on the waiting list. You're 2nd in line." before and after reload, with no Register or registered line; C's dashboard row read "Waiting list · 2nd in line" with no "Confirmed"; A's row read "Confirmed".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_join_waiting_list.py::test_a_waitlisted_attendee_sees_their_place_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree

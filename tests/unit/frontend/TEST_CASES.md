@@ -2597,3 +2597,43 @@ Event E: registration on, opens `2026-11-01T09:00`, closes `2026-11-15T18:00`;
 - **Actual:** "No one is on the waiting list.", "1 person on the waiting list", "3 people on the waiting list".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the waiting-list count reads as a sentence; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## S-52 — Join Waiting List
+
+Developer's answers, 2026-10-26: the event page reads "You're on the waiting
+list. You're 3rd in line." (1st reads "You're next in line."); the dashboard
+row reads "Confirmed" (green dot) or "Waiting list · 3rd in line" (amber dot).
+
+## TC-FRONTEND-261 — the place in line reads as a sentence
+
+- **Scenario:** The waitlisted Attendee's place is stated plainly on the event page (S-52 AC2, AC3).
+- **Steps:** `waitingListPlace(n)`.
+- **Test data / Expected:**
+  | `n` | Result |
+  | --- | --- |
+  | `1` | "You're next in line." |
+  | `2` | "You're 2nd in line." |
+  | `3` | "You're 3rd in line." |
+  | `4` | "You're 4th in line." |
+  | `11`, `12`, `13` | "You're 11th in line.", "You're 12th in line.", "You're 13th in line." |
+  | `21`, `22`, `23` | "You're 21st in line.", "You're 22nd in line.", "You're 23rd in line." |
+  | `111` | "You're 111th in line." |
+  | `null` | "" |
+- **Actual:** Every row matched; `null` → "".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the place in line reads as a sentence; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## TC-FRONTEND-262 — a dashboard row says confirmed or waiting
+
+- **Scenario:** Each "Your registrations" row says whether the place is confirmed or on the waiting list (S-52 AC3).
+- **Steps:** `registrationStatusLabel(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{status: "confirmed"}` | "Confirmed" |
+  | `{status: "waitlisted", position: 1}` | "Waiting list · next in line" |
+  | `{status: "waitlisted", position: 3}` | "Waiting list · 3rd in line" |
+  | `{status: "waitlisted", position: null}` | "Waiting list" |
+- **Actual:** "Confirmed", "Waiting list · next in line", "Waiting list · 3rd in line", "Waiting list".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a dashboard row says confirmed or waiting; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree

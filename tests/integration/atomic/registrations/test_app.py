@@ -1,4 +1,4 @@
-"""TC-REGISTRATIONS-101..104. Run after backend/sql/registrations.sql on .env.test."""
+"""TC-REGISTRATIONS-101..105. Run after backend/sql/registrations.sql on .env.test."""
 
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -115,3 +115,29 @@ def test_a_waiting_list_entry_is_saved_and_read_back(admin):
     finally:
         table.delete().eq("event_id", event_id).execute()
     assert table.select("id").eq("event_id", event_id).execute().data == []
+
+
+# --- TC-REGISTRATIONS-105 -------------------------------------------------
+def test_waiting_list_order_and_an_attendees_entries(admin):
+    event_e, event_f = str(uuid.uuid4()), str(uuid.uuid4())
+    attendee_b, attendee_c = str(uuid.uuid4()), str(uuid.uuid4())
+    table = admin.schema("registrations").table("waiting_list")
+    try:
+        for event_id, attendee_id in [(event_e, attendee_b), (event_e, attendee_c), (event_f, attendee_b)]:
+            joined = httpx.post(
+                f"{BASE_URL}/registrations/waiting-list",
+                json={"event_id": event_id, "attendee_id": attendee_id},
+                timeout=20,
+            )
+            assert joined.status_code == 201, joined.text
+
+        listed = httpx.get(f"{BASE_URL}/registrations/waiting-list/events/{event_e}", timeout=20)
+        assert listed.status_code == 200, listed.text
+        assert [row["attendee_id"] for row in listed.json()] == [attendee_b, attendee_c]
+
+        mine = httpx.get(f"{BASE_URL}/registrations/waiting-list/attendees/{attendee_b}", timeout=20)
+        assert mine.status_code == 200, mine.text
+        assert [row["event_id"] for row in mine.json()] == [event_e, event_f]
+    finally:
+        table.delete().in_("event_id", [event_e, event_f]).execute()
+    assert table.select("id").in_("event_id", [event_e, event_f]).execute().data == []

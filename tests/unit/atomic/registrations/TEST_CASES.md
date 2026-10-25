@@ -192,3 +192,33 @@ left. The fake below stands in for that function's answers.
 - **Actual:** B → `200` with the row; A → `404` "You're not on the waiting list for this event."
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/registrations/test_app.py::test_one_attendees_waiting_list_entry; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## S-52 — Join Waiting List
+
+The waiting list is first-come, first-served: an entry's place is its order
+by `created_at`, with `id` breaking a tie so two entries never share a place
+(developer's answers, 2026-10-26). Attendee C is
+`55555555-5555-4555-8555-555555555555`; event F is
+`66666666-6666-4666-8666-666666666666`.
+
+## TC-REGISTRATIONS-014 — an Attendee's waiting-list entries
+
+- **Scenario:** Every event an Attendee is waiting for can be read in one call, for their dashboard (S-52 AC3).
+- **Pre-conditions:** The fake returns B's rows for E (`created_at` `2026-11-05T04:00:00+00:00`) and F (`2026-11-06T04:00:00+00:00`), then `[]`.
+- **Steps:** `GET /registrations/waiting-list/attendees/B`, then `GET /registrations/waiting-list/attendees/A`.
+- **Test data:** As above.
+- **Expected:** B → `200`, both rows, E then F, each `{"id", "event_id", "attendee_id", "created_at"}`. The query is on `registrations.waiting_list`, filtered `attendee_id = B`, ordered by `created_at`. A → `200` `[]` (not a 404).
+- **Actual:** B → `200`, E's row then F's, queried on `waiting_list` by `attendee_id` ordered by `created_at`; A → `200` `[]`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_an_attendees_waiting_list_entries; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## TC-REGISTRATIONS-015 — an event's waiting list is first-come, first-served
+
+- **Scenario:** The waiting list is returned in the order people joined, with a fixed tie-break (S-52 AC2).
+- **Pre-conditions:** The fake returns B's and C's rows for E.
+- **Steps:** `GET /registrations/waiting-list/events/E`.
+- **Test data:** As above.
+- **Expected:** `200` with both rows in the order the fake returned them. The query is filtered `event_id = E` and ordered by `created_at` and then by `id`, both ascending.
+- **Actual:** `200` with both rows; ordered by `created_at` then `id`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_an_events_waiting_list_is_first_come_first_served; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree

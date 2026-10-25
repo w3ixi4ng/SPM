@@ -165,6 +165,24 @@ def list_waiting_list(event_id: UUID, db: Client = Depends(get_db)):
         .table(WAITING_LIST)
         .select("*")
         .eq("event_id", str(event_id))
+        # S-52: first come, first served; id breaks a tie so no two entries
+        # ever share a place in line.
+        .order("created_at")
+        .order("id")
+    )
+    return _execute(operation).data
+
+
+# S-52: every event an Attendee is waiting for, for their dashboard.
+@app.get(
+    "/registrations/waiting-list/attendees/{attendee_id}", response_model=list[WaitingListRead]
+)
+def list_attendee_waiting_list(attendee_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(WAITING_LIST)
+        .select("*")
+        .eq("attendee_id", str(attendee_id))
         .order("created_at")
     )
     return _execute(operation).data

@@ -11,6 +11,7 @@ import {
   joinWaitingList,
   registerForEvent,
   registrationCountdown,
+  waitingListPlace,
 } from '../lib/registration.js'
 
 const C = {
@@ -101,7 +102,7 @@ function RegistrationPanel({
     action = (
       <p className="flex items-center gap-2 font-ui text-base" style={{ color: C.paper }}>
         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
-        You&apos;re on the waiting list.
+        You&apos;re on the waiting list. {waitingListPlace(registration.position)}
       </p>
     )
   } else if (state === 'full' && (signedOut || isAttendee)) {
@@ -219,7 +220,9 @@ export default function PublicEvent() {
     setRegisterError(null)
     try {
       const joined = await joinWaitingList(id)
-      setRegistration({ registered: false, waitlisted: true, joined_at: joined.joined_at })
+      setRegistration({
+        registered: false, waitlisted: true, joined_at: joined.joined_at, position: joined.position,
+      })
     } catch (error) {
       setRegisterError(error.message)
       if (error.status === 409) refreshEvent()

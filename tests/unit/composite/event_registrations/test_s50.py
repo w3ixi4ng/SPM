@@ -115,11 +115,15 @@ def test_joining_the_waiting_list_of_a_full_event(client, services):
     services["registrations"].post.return_value = response(
         201, {"id": "w1", "event_id": EVENT_E, "attendee_id": ATTENDEE_A, "created_at": JOINED_AT}
     )
+    # S-52: the list as it reads straight after the insert.
+    _waiting(services, EVENT_E, _row(ATTENDEE_A, JOINED_AT))
 
     result = client.post(WAIT_E, json={"attendee_id": ATTENDEE_B})
 
     assert result.status_code == 201
-    assert result.json() == {"event_id": EVENT_E, "waitlisted": True, "joined_at": JOINED_AT}
+    assert result.json() == {
+        "event_id": EVENT_E, "waitlisted": True, "joined_at": JOINED_AT, "position": 1,
+    }
     services["registrations"].post.assert_awaited_once_with(
         "/registrations/waiting-list", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A}
     )
@@ -177,7 +181,7 @@ def test_the_attendees_status_shows_the_waiting_list(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": True, "joined_at": JOINED_AT,
+        "waitlisted": True, "joined_at": JOINED_AT, "position": 1,
     }
 
     _waiting(services, EVENT_E)

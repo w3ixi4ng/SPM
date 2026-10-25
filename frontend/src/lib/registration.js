@@ -147,7 +147,8 @@ export function registerForEvent(id) {
   })
 }
 
-// S-48: the events the signed-in Attendee holds a place at.
+// S-48: the events the signed-in Attendee holds a place at; S-52: and the
+// ones they are waiting for.
 export function listMyRegistrations() {
   return requestJSON('/event-registrations/me/registrations')
 }
@@ -196,6 +197,29 @@ export function registrationClosureControl(event, now = new Date()) {
 export function waitingListLabel(count) {
   if (!count) return 'No one is on the waiting list.'
   return `${count} ${count === 1 ? 'person' : 'people'} on the waiting list`
+}
+
+// S-52: 1st, 2nd, 3rd, 4th ... 11th, 12th, 13th ... 21st.
+function ordinal(n) {
+  const teen = n % 100 >= 11 && n % 100 <= 13
+  const suffix = teen ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'
+  return `${n}${suffix}`
+}
+
+function placeInLine(position) {
+  return position === 1 ? 'next in line' : `${ordinal(position)} in line`
+}
+
+// S-52: a waitlisted Attendee's place, first come, first served.
+export function waitingListPlace(position) {
+  if (!position) return ''
+  return `You're ${placeInLine(position)}.`
+}
+
+// S-52: whether a "Your registrations" row is a place or a waiting-list entry.
+export function registrationStatusLabel(row) {
+  if (row?.status !== 'waitlisted') return 'Confirmed'
+  return row.position ? `Waiting list · ${placeInLine(row.position)}` : 'Waiting list'
 }
 
 export function attendeeCountLabel(count) {

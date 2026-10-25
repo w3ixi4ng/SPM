@@ -18,7 +18,8 @@ registration period is open. Its port, 8007, is published for testing.
 | `GET` | `/registrations/events/{event_id}` | Every registration for the event, earliest first. |
 | `GET` | `/registrations/attendees/{attendee_id}` | Every registration the Attendee holds, earliest first. |
 | `POST` | `/registrations/waiting-list` | S-50: put an Attendee on an event's waiting list. |
-| `GET` | `/registrations/waiting-list/events/{event_id}` | S-50: the event's waiting list, in join order. |
+| `GET` | `/registrations/waiting-list/events/{event_id}` | S-50: the event's waiting list, first come, first served (by `created_at`, then `id`). |
+| `GET` | `/registrations/waiting-list/attendees/{attendee_id}` | S-52: every waiting-list entry the Attendee holds, oldest first. |
 | `GET` | `/registrations/waiting-list/events/{event_id}/attendees/{attendee_id}` | S-50: that Attendee's waiting-list entry, if any. |
 | `GET` | `/health` | Liveness check. |
 | `GET` | `/registrations/health` | Gateway-compatible liveness alias. |
