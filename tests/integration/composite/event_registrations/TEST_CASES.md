@@ -54,7 +54,7 @@ venues, users and registrations services against the test Supabase project.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_a_registration_shows_for_the_attendee_and_for_the_events_organiser`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`
 
-## TC-EVENTREGISTRATIONS-103 — a full event turns the next Attendee to the waiting list (S-50)
+## TC-EVENTREGISTRATIONS-104 — a full event turns the next Attendee to the waiting list (S-50)
 
 - **Scenario:** End to end through Kong: the cap is the event's expected attendance, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2, AC3).
 - **Pre-conditions:** Fresh `.env.test` stack; S-50 SQL (events and

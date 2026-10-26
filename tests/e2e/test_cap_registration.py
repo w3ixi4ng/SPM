@@ -1,4 +1,4 @@
-"""TC-E2E-253, TC-E2E-254 -- S-50: registration capped at the event's
+"""TC-E2E-254, TC-E2E-255 -- S-50: registration capped at the event's
 expected attendance, with a waiting list once it is full, and the
 Organiser's own decision to close registration early.
 
@@ -56,7 +56,7 @@ def _sign_out(page):
     page.wait_for_url(re.compile(r"/login$"), timeout=20000)
 
 
-# --- TC-E2E-253 -----------------------------------------------------------
+# --- TC-E2E-254 -----------------------------------------------------------
 def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(
     admin, page, make_user, sign_in
 ):
@@ -100,7 +100,7 @@ def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(
     expect(waiting.get_by_text("S-50 Second Attendee")).to_be_visible()
 
 
-# --- TC-E2E-254 -----------------------------------------------------------
+# --- TC-E2E-255 -----------------------------------------------------------
 def test_the_organiser_closes_registration_early_and_reopens_it(
     admin, page, make_user, sign_in
 ):

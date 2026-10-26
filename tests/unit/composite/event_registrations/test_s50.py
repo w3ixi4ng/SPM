@@ -1,6 +1,6 @@
 """S-50: registration capped at the event's expected attendance.
 
-TC-EVENTREGISTRATIONS-019..026. Once full, an Attendee is offered the
+TC-EVENTREGISTRATIONS-024..031. Once full, an Attendee is offered the
 waiting list; the Organiser can close registration early, and that close
 wins over the waiting list.
 """
@@ -48,7 +48,7 @@ def _event_e(services, **changes):
     services["events"].get.side_effect = events_get
 
 
-# --- TC-EVENTREGISTRATIONS-019 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-024 --------------------------------------------
 def test_the_public_event_says_when_it_is_full_or_closed(client, services):
     _places(services, EVENT_E, ATTENDEE_A, ATTENDEE_B)
     _places(services, EVENT_G, ATTENDEE_A)
@@ -77,7 +77,7 @@ def test_the_public_event_says_when_it_is_full_or_closed(client, services):
         assert not {"expected_attendance", "registration_closed_at"} & body.keys()
 
 
-# --- TC-EVENTREGISTRATIONS-020 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-025 --------------------------------------------
 def test_registering_is_capped_at_the_events_expected_attendance(client, services):
     result = client.post(REGISTER_E)
 
@@ -88,7 +88,7 @@ def test_registering_is_capped_at_the_events_expected_attendance(client, service
     )
 
 
-# --- TC-EVENTREGISTRATIONS-021 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-026 --------------------------------------------
 def test_a_full_event_offers_the_waiting_list_instead(client, services):
     services["registrations"].post.return_value = response(409, {"detail": "This event is full."})
 
@@ -98,7 +98,7 @@ def test_a_full_event_offers_the_waiting_list_instead(client, services):
     assert result.json() == {"detail": FULL}
 
 
-# --- TC-EVENTREGISTRATIONS-022 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-027 --------------------------------------------
 def test_registration_closed_by_the_organiser_is_refused(client, services):
     _event_e(services, registration_closed_at=CLOSED_AT)
 
@@ -109,7 +109,7 @@ def test_registration_closed_by_the_organiser_is_refused(client, services):
     services["registrations"].post.assert_not_called()
 
 
-# --- TC-EVENTREGISTRATIONS-023 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-028 --------------------------------------------
 def test_joining_the_waiting_list_of_a_full_event(client, services):
     _places(services, EVENT_E, ATTENDEE_B, ATTENDEE_C)
     services["registrations"].post.return_value = response(
@@ -125,7 +125,7 @@ def test_joining_the_waiting_list_of_a_full_event(client, services):
     )
 
 
-# --- TC-EVENTREGISTRATIONS-024 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-029 --------------------------------------------
 @pytest.mark.parametrize(
     "situation, status, detail",
     [
@@ -170,7 +170,7 @@ def test_when_the_waiting_list_is_refused(client, services, clock, situation, st
         services["registrations"].post.assert_not_called()
 
 
-# --- TC-EVENTREGISTRATIONS-025 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-030 --------------------------------------------
 def test_the_attendees_status_shows_the_waiting_list(client, services):
     _waiting(services, EVENT_E, _row(ATTENDEE_A, JOINED_AT))
     result = client.get(REGISTER_E)
@@ -194,7 +194,7 @@ def test_the_attendees_status_shows_the_waiting_list(client, services):
     assert not any("waiting-list" in path for path in paths)
 
 
-# --- TC-EVENTREGISTRATIONS-026 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-031 --------------------------------------------
 def test_the_organiser_sees_the_waiting_list_in_join_order(client, services):
     async def events_get(path, **kwargs):
         if path == f"/events/{EVENT_E}":

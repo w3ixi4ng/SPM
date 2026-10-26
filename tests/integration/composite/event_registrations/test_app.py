@@ -94,7 +94,7 @@ def test_a_registration_shows_for_the_attendee_and_for_the_events_organiser(admi
     assert registrations.select("id").eq("event_id", event_id).execute().data == []
 
 
-# --- TC-EVENTREGISTRATIONS-103 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-104 --------------------------------------------
 def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(admin, make_account):
     organiser = make_account("event_organiser", "spm-test S-50 organiser")
     first = make_account("attendee", "S-50 First Attendee")

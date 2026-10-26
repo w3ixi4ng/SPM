@@ -1370,7 +1370,7 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 
 ## S-50 — Cap Registration at Capacity
 
-## TC-E2E-253 — a full event turns the next Attendee to the waiting list
+## TC-E2E-254 — a full event turns the next Attendee to the waiting list
 
 - **Scenario:** In a real browser: the event fills, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2).
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin
@@ -1390,10 +1390,10 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_cap_registration.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
 
-## TC-E2E-254 — the Organiser closes registration early and reopens it
+## TC-E2E-255 — the Organiser closes registration early and reopens it
 
 - **Scenario:** The close decision is the Organiser's and takes effect for Attendees at once (S-50 AC4).
-- **Pre-conditions:** As TC-E2E-253, but `expected_attendance` 50 and only Attendee A.
+- **Pre-conditions:** As TC-E2E-254, but `expected_attendance` 50 and only Attendee A.
 - **Steps:**
   1. As O, open `/events/P`, click **Close registration**, then confirm with **Close registration** in the confirmation that appears.
   2. As A, open `/public/events/P`.
