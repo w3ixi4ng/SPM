@@ -704,10 +704,17 @@ async def reassign_event_request(
             f"/internal/events/{event_id}/assignment-scope", cookies=request.cookies,
         )
     except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
         raise HTTPException(status_code=502, detail="Events service unavailable") from exc
     if scope_response.status_code in (404, 409):
         raise HTTPException(status_code=scope_response.status_code, detail=scope_response.json().get("detail"))
     if scope_response.status_code != 200:
+        # The 502 hides whether events refused the session (401/403) or failed
+        # (5xx); the log keeps the real answer.
+        logger.error(
+            "Events assignment-scope answered %s: %s",
+            scope_response.status_code, scope_response.text,
+        )
         raise HTTPException(status_code=502, detail="Events service unavailable")
     scope = scope_response.json()
     if not scope.get("assigning_lead_id"):
@@ -729,6 +736,10 @@ async def reassign_event_request(
             detail=event_response.json().get("detail"),
         )
     if event_response.status_code != status.HTTP_200_OK:
+        logger.error(
+            "Events reassignment answered %s: %s",
+            event_response.status_code, event_response.text,
+        )
         raise HTTPException(status_code=502, detail="Events service unavailable")
 
     event = event_response.json()
