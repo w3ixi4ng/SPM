@@ -577,3 +577,109 @@ id `88888888-8888-4888-8888-888888888888`; the clock is
 - **Actual:** All three `201` with the registration body; notifications not called in run 3.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_a_confirmation_that_isnt_stored_keeps_the_registration; tests/unit/composite/event_registrations/test_app.py::test_an_unreachable_notifications_service_keeps_the_registration; tests/unit/composite/event_registrations/test_app.py::test_unreadable_venues_keep_the_registration_and_send_nothing
+
+## S-53 — Withdraw Registration
+
+Developer decisions (2026-10-26): a registered Attendee can withdraw until
+the event starts (`start_date` + `start_time`, Singapore time), even after the
+registration period has closed or the Organiser has closed registration. At
+the start time itself, withdrawing is refused. Withdrawing removes the place, so
+the Attendee is back to not registered. The registrations service then gives
+the freed place to the first Attendee on the waiting list in the same step
+(capacity = the event's `expected_attendance`), whether or not registration is
+still open. The promoted Attendee gets one in-app notification of kind
+`waiting_list_promotion`, worded like the S-49 confirmation. The withdrawing
+Attendee gets none. As with S-49, a notification that can't be built or stored
+is logged and the withdrawal still answers `200`.
+
+Route: `DELETE /event-registrations/events/{id}/registration`. Clock
+`2026-11-05 12:00` SGT unless stated; E starts `2026-11-20 18:00`. Attendee A
+(Ada Lovelace, `ada@example.com`) is signed in unless stated. The
+registrations fake answers `POST /registrations/withdrawals` with `200`
+`{"withdrawn": <A's row>, "promoted": null}` unless stated. Attendee B is
+`44444444-4444-4444-8444-444444444444`, "Ben Lee", `ben@example.com`; B's
+promoted row id is `99999999-9999-4999-8999-999999999999`.
+
+## TC-EVENTREGISTRATIONS-036 — a registered Attendee withdraws
+
+- **Scenario:** Withdrawing before the event removes A's place and A is no longer registered (S-53 AC1, AC2).
+- **Pre-conditions:** As above; no one is promoted.
+- **Steps:** `DELETE /event-registrations/events/E/registration`.
+- **Test data:** As above.
+- **Expected:** `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null}`. The registrations service gets exactly one `POST /registrations/withdrawals` with `{"event_id": E, "attendee_id": A, "capacity": 2}`: A is taken from the session, and capacity is E's `expected_attendance`. No notification is sent.
+- **Actual:** `200` with the not-registered body; one `POST /registrations/withdrawals` `{E, A, capacity 2}`; no notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_a_registered_attendee_withdraws; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-037 — withdrawing is open until the event starts
+
+- **Scenario:** The cutoff is the event's start in Singapore time, not the registration period (S-53 AC1).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-036, with the clock and E as in each row.
+- **Steps:** `DELETE /event-registrations/events/E/registration`.
+- **Test data / Expected:**
+  | Clock (SGT) | E | Result |
+  | --- | --- | --- |
+  | `2026-11-16 12:00` (after registration closed) | as above | `200`; registrations called |
+  | `2026-11-05 12:00` | `registration_closed_at` `2026-11-04T02:00:00+00:00` (Organiser closed) | `200`; registrations called |
+  | `2026-11-20 17:59` | as above | `200`; registrations called |
+  | `2026-11-20 18:00` | as above | `409` "This event has already started. You can no longer withdraw."; registrations not called |
+  | `2026-11-21 09:00` | as above | `409`, same detail; registrations not called |
+  | `2026-11-20 17:59` given as the UTC instant `2026-11-20T09:59Z` | as above | `200` (the comparison is in SGT whatever the server's clock zone) |
+- **Actual:** After the period, after an Organiser close, and at 17:59 → `200` with registrations called; 18:00 and the next morning → `409` with the started message, registrations not called; the UTC instant `09:59Z` → `200`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_withdrawing_is_open_until_the_event_starts, ::test_withdrawing_is_refused_once_the_event_starts, ::test_the_cutoff_is_read_in_singapore_time; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-038 — who may withdraw, and from what
+
+- **Scenario:** Only a signed-in Attendee who holds a place at a public event can withdraw (S-53 AC1).
+- **Pre-conditions:** As in each row.
+- **Steps:** `DELETE /event-registrations/events/{id}/registration`.
+- **Test data / Expected:**
+  | Situation | Result |
+  | --- | --- |
+  | Users `/users/me` answers `401` | `401` "Sign in to withdraw your registration."; registrations not called |
+  | Signed in as an `event_organiser` | `403` "Only attendee accounts can register for events."; registrations not called |
+  | Event id not public (events answers `404` "Event not found.") | `404` "Event not found."; registrations not called |
+  | Registrations answers `404` "You're not registered for this event." | `404` "You're not registered for this event." |
+  | A is only on E's waiting list (registrations answers `404`) | `404` "You're not registered for this event."; A stays on the waiting list |
+- **Actual:** `401` "Sign in to withdraw your registration."; `403` "Only attendee accounts can register for events."; unknown event `404` "Event not found."; no place `404` "You're not registered for this event." with the waiting list untouched; registrations not called in the first three.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_withdrawing_needs_a_signed_in_attendee, ::test_withdrawing_from_an_event_that_isnt_public, ::test_withdrawing_without_a_place; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-039 — the promoted Attendee is notified
+
+- **Scenario:** When the freed place goes to the next Attendee in line, they get one notification with the event and entry details (S-53 AC3, AC4).
+- **Pre-conditions:** Registrations answers `200` with `promoted` = B's row for E (id `9999…9999`). Users `POST /internal/users/profiles` `{"ids": [B]}` answers B's profile.
+- **Steps:** `DELETE /event-registrations/events/E/registration`.
+- **Test data:** As above. E's one confirmed venue is "Seminar Room 2-1".
+- **Expected:** `200`, the same body as TC-EVENTREGISTRATIONS-036. Exactly one `POST /internal/notifications` with one row: `recipient_id` B, `event_id` E, `event_name` "Alumni networking evening", `kind` `waiting_list_promotion`, `deduplication_key` `waiting_list_promotion:99999999-9999-4999-8999-999999999999`, `message` "A place opened up: you're now registered for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ben Lee. Email: ben@example.com.". No row is addressed to A. With no confirmed venue, the message reads "…9:00 pm, venue to be confirmed. Name: …". It also works when promotion happens after registration has closed (clock `2026-11-16 12:00`).
+- **Actual:** `200`; one profile lookup for B; exactly one row to B with kind `waiting_list_promotion`, the expected message and key; none to A; no-venue wording "venue to be confirmed"; also sent after registration closed.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_the_promoted_attendee_is_notified, ::test_a_promotion_without_a_confirmed_venue, ::test_a_promotion_after_registration_has_closed; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-040 — a failed notification doesn't undo the withdrawal
+
+- **Scenario:** The place has already moved, so a notification that can't be built or stored is logged and the withdrawal still succeeds.
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-039, except as in each row.
+- **Steps:** `DELETE /event-registrations/events/E/registration`.
+- **Test data / Expected:**
+  | Failure | Result |
+  | --- | --- |
+  | Notifications answers `500` | `200`, same body as TC-EVENTREGISTRATIONS-036 |
+  | Notifications unreachable (`ConnectError`) | `200`, same body |
+  | Users profiles answers `500` | `200`, same body; no notification sent |
+  | Bookings answers `500` (venues unreadable) | `200`, same body; no notification sent |
+- **Actual:** All four failures → `200` with the same body; notifications attempted for the first two, not sent for the last two.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_a_failed_notification_keeps_the_withdrawal; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-041 — the registrations service fails
+
+- **Scenario:** A withdrawal that may not have been recorded is not reported as done.
+- **Pre-conditions:** Registrations answers `500`, or is unreachable.
+- **Steps:** `DELETE /event-registrations/events/E/registration` for each.
+- **Test data:** As above.
+- **Expected:** Both → `502` "Registrations service unavailable"; no notification sent.
+- **Actual:** Both → `502` "Registrations service unavailable"; no notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_the_registrations_service_fails; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

@@ -226,3 +226,22 @@ export function attendeeCountLabel(count) {
   if (!count) return 'No one has registered yet.'
   return `${count} ${count === 1 ? 'attendee' : 'attendees'} registered`
 }
+
+// S-53: a place can be given up until the event starts, Singapore time --
+// even after registration has closed. Outside that the button is hidden.
+export function canWithdraw(event, now = new Date()) {
+  const start = eventStart(event)
+  return !start || singaporeNow(now) < start
+}
+
+export function withdrawPrompt(event) {
+  return `Withdraw from ${event.name}? Your place goes to the next person on the waiting list.`
+}
+
+// S-53: gives up the signed-in Attendee's place; the next person waiting
+// takes it.
+export function withdrawRegistration(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/registration`, {
+    method: 'DELETE',
+  })
+}

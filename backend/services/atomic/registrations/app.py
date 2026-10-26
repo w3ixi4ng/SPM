@@ -14,7 +14,14 @@ from postgrest.exceptions import APIError
 from supabase import Client
 
 from database import get_db
-from schemas import RegistrationCreate, RegistrationRead, WaitingListCreate, WaitingListRead
+from schemas import (
+    RegistrationCreate,
+    RegistrationRead,
+    WaitingListCreate,
+    WaitingListRead,
+    WithdrawalCreate,
+    WithdrawalRead,
+)
 
 app = FastAPI(title="Registrations Service")
 logger = logging.getLogger(__name__)
@@ -25,6 +32,8 @@ WAITING_LIST = "waiting_list"
 UNIQUE_VIOLATION = "23505"
 # Raised by registrations.register when the event has no place left.
 EVENT_FULL = "SP050"
+# Raised by registrations.withdraw when the Attendee holds no place.
+NOT_HELD = "SP053"
 ALREADY_REGISTERED = "You're already registered for this event."
 NOT_REGISTERED = "You're not registered for this event."
 FULL = "This event is full."
@@ -60,6 +69,8 @@ def _execute(operation, *, duplicate: str = ALREADY_REGISTERED):
             raise HTTPException(status_code=409, detail=duplicate) from exc
         if exc.code == EVENT_FULL:
             raise HTTPException(status_code=409, detail=FULL) from exc
+        if exc.code == NOT_HELD:
+            raise HTTPException(status_code=404, detail=NOT_REGISTERED) from exc
         logger.exception("Registration storage operation failed", exc_info=exc)
         raise _storage_unavailable() from exc
     except Exception as exc:
@@ -98,6 +109,26 @@ def create_registration(payload: RegistrationCreate, db: Client = Depends(get_db
     if not result.data:
         raise _storage_unavailable()
     return result.data[0]
+
+
+# S-53: the place is given up and, in the same locked step, handed to the
+# Attendee who has waited longest.
+@app.post("/registrations/withdrawals", response_model=WithdrawalRead)
+def withdraw(payload: WithdrawalCreate, db: Client = Depends(get_db)):
+    params = payload.model_dump(mode="json")
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "withdraw",
+            {
+                "p_event_id": params["event_id"],
+                "p_attendee_id": params["attendee_id"],
+                "p_capacity": params["capacity"],
+            },
+        )
+    )
+    if not result.data:
+        raise _storage_unavailable()
+    return result.data
 
 
 @app.get(

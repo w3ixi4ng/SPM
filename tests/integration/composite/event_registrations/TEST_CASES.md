@@ -122,3 +122,22 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; second attempt `409` "You're already registered for this event."; the inbox held exactly one `registration_confirmation` for P, starting "Registration confirmed: {P's name}, " with "venue to be confirmed", A's name and email; no rows remained.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_registering_puts_one_confirmation_in_the_attendees_notifications`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; S-49 SQL applied to dev and test; full `tests/integration`: 79 passed, 5 skipped
+
+## TC-EVENTREGISTRATIONS-106 — withdrawing frees the place for the next in line (S-53)
+
+- **Scenario:** Through Kong against the test project: a registered Attendee withdraws, is no longer registered, and the first Attendee waiting gets the place and a notification, first come, first served (S-53 AC1–AC4). Also proves the `waiting_list_promotion` kind is allowed by the real `notifications.notifications` constraint.
+- **Pre-conditions:** Fresh `.env.test` stack; the S-53 blocks of `registrations.sql` and `notifications.sql` applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT), starting ten days out, no confirmed venue; Attendees A, B ("S-53 Test Attendee B") and C.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As B, then as C, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As A, `DELETE /api/event-registrations/events/P/registration`.
+  4. As A, `GET /api/event-registrations/events/P/registration`, then `GET /api/event-registrations/me/registrations`.
+  5. As B, `GET /api/event-registrations/events/P/registration`; as C, the same.
+  6. As B, `GET /api/notifications`; as A, the same.
+  7. As A, `DELETE /api/event-registrations/events/P/registration` again.
+  8. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `201` twice (positions 1 and 2). 3 → `200`, `"registered": false`. 4 → `"registered": false, "waitlisted": false`, and no row for P in A's list. 5 → B `"registered": true`; C `"waitlisted": true, "position": 1`. 6 → B's inbox has exactly one `waiting_list_promotion` row for P, with a message starting "A place opened up: you're now registered for {P's name}," and containing "venue to be confirmed", "Name: S-53 Test Attendee B." and "Email: {B's email}."; A's inbox has no `waiting_list_promotion` row. 7 → `404` "You're not registered for this event.". 8 leaves no rows.
+- **Actual:** `201`; B and C joined at 1 and 2; A's withdrawal `200` `registered` false; A's status not registered or waiting and P gone from A's list; B registered, C waiting at 1; B's inbox held exactly one `waiting_list_promotion` for P with the expected opening, "venue to be confirmed", B's name and email; A's held none; second withdrawal `404`; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_withdrawing_frees_the_place_for_the_next_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

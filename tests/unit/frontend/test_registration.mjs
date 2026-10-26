@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   attendeeCountLabel,
+  canWithdraw,
   closeRegistration,
   describeRegistration,
   joinWaitingList,
@@ -16,6 +17,8 @@ import {
   validateRegistrationSettings,
   waitingListLabel,
   waitingListPlace,
+  withdrawPrompt,
+  withdrawRegistration,
 } from '../../../frontend/src/lib/registration.js'
 import {
   eventFieldErrorsToForm,
@@ -265,4 +268,38 @@ test('a dashboard row says confirmed or waiting', () => {
   assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 1 }), 'Waiting list · next in line')
   assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 3 }), 'Waiting list · 3rd in line')
   assert.equal(registrationStatusLabel({ status: 'waitlisted', position: null }), 'Waiting list')
+})
+
+// --- TC-FRONTEND-263 -------------------------------------------------------
+test('withdrawing is offered until the event starts', () => {
+  const event = { start_date: '2026-11-20', start_time: '18:00:00' }
+  assert.equal(canWithdraw(event, new Date('2026-11-20T09:59:00Z')), true)
+  assert.equal(canWithdraw(event, new Date('2026-11-20T10:00:00Z')), false)
+  assert.equal(canWithdraw(event, new Date('2026-11-21T01:00:00Z')), false)
+  assert.equal(canWithdraw(event, new Date('2026-11-16T04:00:00Z')), true)
+  assert.equal(canWithdraw({ start_date: null, start_time: null }, new Date('2026-11-21T01:00:00Z')), true)
+})
+
+test('withdrawing goes to the composite', async (t) => {
+  const calls = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ registered: false }), { status: 200 })
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  assert.deepEqual(await withdrawRegistration('E'), { registered: false })
+  assert.deepEqual(
+    calls.map((call) => [call.options.method, call.url]),
+    [['DELETE', '/api/event-registrations/events/E/registration']],
+  )
+})
+
+// --- TC-FRONTEND-264 -------------------------------------------------------
+test('the withdraw confirmation says what happens', () => {
+  assert.equal(
+    withdrawPrompt({ name: 'Alumni networking evening' }),
+    'Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list.',
+  )
 })

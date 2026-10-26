@@ -2637,3 +2637,31 @@ row reads "Confirmed" (green dot) or "Waiting list · 3rd in line" (amber dot).
 - **Actual:** "Confirmed", "Waiting list · next in line", "Waiting list · 3rd in line", "Waiting list".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::a dashboard row says confirmed or waiting; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## S-53 — Withdraw Registration
+
+## TC-FRONTEND-263 — withdrawing is offered until the event starts
+
+- **Scenario:** The event page offers **Withdraw registration** only before the event's start in Singapore time, the same cutoff the service enforces (S-53 AC1). Outside it, the button is hidden rather than disabled.
+- **Steps:** `canWithdraw(event, now)`.
+- **Test data / Expected:** `event` starts `2026-11-20` `18:00:00`.
+  | `now` (UTC instant) | Result |
+  | --- | --- |
+  | `2026-11-20T09:59:00Z` (17:59 SGT) | `true` |
+  | `2026-11-20T10:00:00Z` (18:00 SGT) | `false` |
+  | `2026-11-21T01:00:00Z` | `false` |
+  | `2026-11-16T04:00:00Z` (after registration closed) | `true` |
+  | Event with no `start_date` / `start_time` yet | `true` |
+- **Actual:** `true`, `false`, `false`, `true`, `true`; `withdrawRegistration` sends `DELETE /api/event-registrations/events/E/registration`.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::withdrawing is offered until the event starts; ::withdrawing goes to the composite; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-FRONTEND-264 — the withdraw confirmation says what happens
+
+- **Scenario:** Before withdrawing, the inline confirmation names the event and says where the place goes (S-53 AC3).
+- **Steps:** `withdrawPrompt(event)`.
+- **Test data:** `{name: "Alumni networking evening"}`.
+- **Expected:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
+- **Actual:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the withdraw confirmation says what happens; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

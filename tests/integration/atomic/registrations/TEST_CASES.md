@@ -94,3 +94,22 @@ project. Blocked until they are.
 - **Actual:** Three `201`s; E's list read B then C; B's entries read E then F; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/registrations/test_app.py::test_waiting_list_order_and_an_attendees_entries; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## TC-REGISTRATIONS-106 — withdrawing promotes the first in line, for real (S-53)
+
+- **Scenario:** Against the real table and function: a withdrawal frees the place, the first Attendee waiting takes it, the rest move up, and no one is promoted while no place is free (S-53 AC1–AC4).
+- **Pre-conditions:** As TC-REGISTRATIONS-103, plus the S-53 block of `backend/sql/registrations.sql` applied to the test project (the `registrations.withdraw` function and its grant).
+- **Steps:**
+  1. `POST /registrations` for E and A, capacity 1.
+  2. `POST /registrations/waiting-list` for E and B, then for E and C.
+  3. `POST /registrations/withdrawals` `{E, A, capacity 1}`.
+  4. `GET /registrations/events/E`; `GET /registrations/waiting-list/events/E`.
+  5. `POST /registrations/withdrawals` `{E, A, capacity 1}` again.
+  6. `POST /registrations/withdrawals` `{E, B, capacity 0}`.
+  7. `GET /registrations/waiting-list/events/E`.
+  8. Delete the rows through the admin client.
+- **Test data:** Random uuids for E, A, B and C.
+- **Expected:** 1 → `201`. 2 → two `201`s. 3 → `200`, `withdrawn.attendee_id` A, `promoted.attendee_id` B. 4 → the places list holds only B; the waiting list holds only C. 5 → `404` "You're not registered for this event.". 6 → `200`, `promoted` `null`. 7 → still only C. 8 leaves no rows.
+- **Actual:** `201`; two `201`s; withdrawal `200` with A withdrawn and B promoted; places held only B, waiting list only C; second withdrawal `404` "You're not registered for this event."; B with capacity 0 → `200`, `promoted` null, C still waiting; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_withdrawing_promotes_the_first_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

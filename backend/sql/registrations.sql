@@ -103,3 +103,71 @@ alter table registrations.waiting_list enable row level security;
 
 notify pgrst, 'reload schema';
 -- END S-50 CAPACITY AND WAITING LIST
+
+-- BEGIN S-53 WITHDRAW REGISTRATION
+-- Existing installations: run through END S-53 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving. Needs the S-50 block above.
+
+-- Gives up an Attendee's place and, in the same step, hands it to whoever has
+-- waited longest (join time, then id -- the S-52 order). Takes the same
+-- per-event lock as registrations.register, so a withdrawal and a
+-- registration can't both claim the freed place. At most one Attendee is
+-- promoted, and only while a place is genuinely free: an event whose expected
+-- attendance was lowered below its places promotes no one.
+--   SP053 -- this Attendee holds no place at this event
+-- Returns {"withdrawn": <row>, "promoted": <row> | null}.
+create or replace function registrations.withdraw(
+  p_event_id    uuid,
+  p_attendee_id uuid,
+  p_capacity    integer
+)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_withdrawn registrations.registrations;
+  v_next      registrations.waiting_list;
+  v_promoted  registrations.registrations;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  delete from registrations.registrations
+  where event_id = p_event_id and attendee_id = p_attendee_id
+  returning * into v_withdrawn;
+
+  if v_withdrawn.id is null then
+    raise exception 'not registered' using errcode = 'SP053';
+  end if;
+
+  if (
+    select count(*) from registrations.registrations where event_id = p_event_id
+  ) < p_capacity then
+    delete from registrations.waiting_list
+    where id = (
+      select id from registrations.waiting_list
+      where event_id = p_event_id
+      order by created_at, id
+      limit 1
+    )
+    returning * into v_next;
+
+    if v_next.id is not null then
+      insert into registrations.registrations (event_id, attendee_id)
+      values (p_event_id, v_next.attendee_id)
+      returning * into v_promoted;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'withdrawn', to_jsonb(v_withdrawn),
+    'promoted', case when v_promoted.id is null then null else to_jsonb(v_promoted) end
+  );
+end;
+$$;
+
+revoke all on function registrations.withdraw(uuid, uuid, integer) from public, anon, authenticated;
+grant execute on function registrations.withdraw(uuid, uuid, integer) to service_role;
+
+notify pgrst, 'reload schema';
+-- END S-53 WITHDRAW REGISTRATION
