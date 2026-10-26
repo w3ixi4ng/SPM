@@ -95,6 +95,50 @@ def test_a_registration_shows_for_the_attendee_and_for_the_events_organiser(admi
 
 
 # --- TC-EVENTREGISTRATIONS-103 --------------------------------------------
+def test_registering_puts_one_confirmation_in_the_attendees_notifications(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-49 organiser")
+    attendee = make_account("attendee", "S-49 Test Attendee")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1)
+    )
+    events = admin.schema("events").table("events")
+    registrations = admin.schema("registrations").table("registrations")
+    notifications = admin.schema("notifications").table("notifications")
+    name = events.select("name").eq("id", event_id).execute().data[0]["name"]
+    register = f"{GATEWAY_BASE_URL}/event-registrations/events/{event_id}/registration"
+    try:
+        taken = httpx.post(register, headers=attendee["headers"], timeout=20)
+        assert taken.status_code == 201, taken.text
+
+        again = httpx.post(register, headers=attendee["headers"], timeout=20)
+        assert again.status_code == 409, again.text
+        assert again.json()["detail"] == "You're already registered for this event."
+
+        inbox = httpx.get(f"{GATEWAY_BASE_URL}/notifications", headers=attendee["headers"], timeout=20)
+        assert inbox.status_code == 200, inbox.text
+        confirmations = [
+            row for row in inbox.json() if row["kind"] == "registration_confirmation"
+        ]
+        assert len(confirmations) == 1, (
+            f"{inbox.json()} -- check notifications.sql's S-49 kind is applied to the test project"
+        )
+        (row,) = confirmations
+        assert row["event_id"] == event_id
+        assert row["message"].startswith(f"Registration confirmed: {name}, ")
+        assert "venue to be confirmed" in row["message"]
+        assert "Name: S-49 Test Attendee." in row["message"]
+        assert f"Email: {attendee['email']}." in row["message"]
+    finally:
+        notifications.delete().eq("event_id", event_id).execute()
+        registrations.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    assert notifications.select("id").eq("event_id", event_id).execute().data == []
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
+    assert events.select("id").eq("id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-104 --------------------------------------------
 def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(admin, make_account):
     organiser = make_account("event_organiser", "spm-test S-50 organiser")
     first = make_account("attendee", "S-50 First Attendee")

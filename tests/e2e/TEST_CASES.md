@@ -1306,12 +1306,8 @@ Confirmed by the developer on 2026-10-11.
   is shown and there is no enabled **Register** button.
 - **Actual:** Chromium: the page showed "Registration hasn't opened yet. It's open from {opening} to {closing}." and no Register button.
 - **Status:** Pass
-<<<<<<< HEAD
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
 
-=======
-- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_is_told_registration_hasnt_opened_yet`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
->>>>>>> origin/sprint4
 ## S-88 confirmed specification — Coordinator request to Lead action
 
 Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted, Chromium against fresh `.env.test` stack.
@@ -1338,7 +1334,13 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states[chromium]`; 2026-10-25.
 
-<<<<<<< HEAD
+## TC-E2E-251 - Venue Staff prepare two venues and readiness updates
+- **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
+- **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
+- **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
+- **Status:** Pass.
+- **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
+
 ## S-48 — Register for Event
 
 ## TC-E2E-252 — an Attendee's registration shows on their dashboard and on the Organiser's event
@@ -1359,18 +1361,31 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** Chromium: the dashboard first said "You haven't registered for any events yet."; after registering it linked the event to `/public/events/P` with its date; the Organiser's `/events/P` showed "1 attendee registered" with A's name and email.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_a_registration_shows_on_the_attendees_dashboard_and_the_organisers_event[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
-=======
-## TC-E2E-251 - Venue Staff prepare two venues and readiness updates
-- **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
-- **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
-- **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
-- **Status:** Pass.
-- **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
->>>>>>> origin/sprint4
+
+## S-49 — Registration Confirmation Notification
+
+## TC-E2E-253 — an Attendee sees the confirmation on their dashboard after registering
+
+- **Scenario:** Registering in the browser leaves a confirmation on the
+  Attendee dashboard with the event and entry details (S-49 AC1, AC2).
+- **Pre-conditions:** As TC-E2E-252, with the S-49 `notifications.sql`
+  applied to the test project. A has the name "S-49 E2E Attendee".
+- **Steps:**
+  1. As A, open `/dashboard`.
+  2. Open `/public/events/P`, click **Register**.
+  3. Open `/dashboard` again.
+- **Test data:** As above; emails `spm-e2e-*`.
+- **Expected:** 1 shows a "Notifications" section with "No notifications
+  yet." 3 shows one notification reading "Registration confirmed: {P's
+  name}, {P's date and time}, venue to be confirmed. Name: S-49 E2E Attendee.
+  Email: {A's email}."
+- **Actual:** Chromium: the dashboard first showed "No notifications yet."; after registering it showed the confirmation with P's name, date and time, "venue to be confirmed", A's name and email.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; with the rest of `test_register_for_event.py`: 4 passed in 62 s
 
 ## S-50 — Cap Registration at Capacity
 
-## TC-E2E-253 — a full event turns the next Attendee to the waiting list
+## TC-E2E-254 — a full event turns the next Attendee to the waiting list
 
 - **Scenario:** In a real browser: the event fills, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2).
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin
@@ -1390,10 +1405,10 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_cap_registration.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
 
-## TC-E2E-254 — the Organiser closes registration early and reopens it
+## TC-E2E-255 — the Organiser closes registration early and reopens it
 
 - **Scenario:** The close decision is the Organiser's and takes effect for Attendees at once (S-50 AC4).
-- **Pre-conditions:** As TC-E2E-253, but `expected_attendance` 50 and only Attendee A.
+- **Pre-conditions:** As TC-E2E-254, but `expected_attendance` 50 and only Attendee A.
 - **Steps:**
   1. As O, open `/events/P`, click **Close registration**, then confirm with **Close registration** in the confirmation that appears.
   2. As A, open `/public/events/P`.

@@ -102,6 +102,10 @@ def attendee(admin, auth_client):
         admin.schema("registrations").table("registrations").delete().eq(
             "attendee_id", user_id
         ).execute()
+        # S-49: registering leaves a confirmation in the Attendee's inbox.
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user_id
+        ).execute()
         admin.auth.admin.delete_user(user_id)
 
 
@@ -138,5 +142,9 @@ def make_account(admin, auth_client):
         ).execute()
         admin.schema("registrations").table("waiting_list").delete().eq(
             "attendee_id", user_id
+        ).execute()
+        # S-49: registering leaves a confirmation in the Attendee's inbox.
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user_id
         ).execute()
         admin.auth.admin.delete_user(user_id)

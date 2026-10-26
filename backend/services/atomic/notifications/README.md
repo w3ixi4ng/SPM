@@ -5,14 +5,15 @@ Atomic FastAPI service for persistent in-app notifications. It owns
 
 Stories: S-83 Assign Event Requests from Unassigned Queue, S-84 Reassign
 Event Coordinator, S-77 Mark Venue Temporarily Unavailable, and S-81 Place
-Tentative Venue Hold with Expiry.
+Tentative Venue Hold with Expiry, and S-49 Registration Confirmation
+Notification.
 
 ## Endpoints
 
 | Method | Path | Caller | Does |
 | --- | --- | --- | --- |
 | `GET` | `/notifications` | Authenticated browser | Lists only the signed-in user's notifications, newest first. |
-| `POST` | `/internal/notifications` | `event_requests` and `venue_bookings` composites | Idempotently persists a batch using each row's deduplication key. Not routed through Kong. |
+| `POST` | `/internal/notifications` | `event_requests`, `venue_bookings` and `event_registrations` composites | Idempotently persists a batch using each row's deduplication key. Not routed through Kong. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
 ## Request
@@ -37,8 +38,9 @@ Tentative Venue Hold with Expiry.
 All fields are required. The batch contains 1–20 rows and cannot repeat a
 deduplication key. Supported kinds are `event_assignment`,
 `event_reassignment`, `venue_unavailable` (a Coordinator's booking needs
-alternative arrangements), and `venue_hold_expiry` (the time a tentative hold
-will be released). S-84 sends a three-row reassignment batch whose keys
+alternative arrangements), `venue_hold_expiry` (the time a tentative hold
+will be released), and `registration_confirmation` (an Attendee's place at an
+event was recorded). S-84 sends a three-row reassignment batch whose keys
 include the event's monotonic assignment version.
 
 ## Response
