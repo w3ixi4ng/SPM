@@ -1,4 +1,4 @@
-"""TC-E2E-255 -- S-52: an Attendee on a full event's waiting list sees their
+"""TC-E2E-256 -- S-52: an Attendee on a full event's waiting list sees their
 place in line, and their dashboard marks the event as waiting, not confirmed.
 
 What only a browser proves: the place survives a reload through Kong, and the
@@ -22,7 +22,7 @@ def _dashboard_row(page, name):
     return registrations.get_by_role("listitem").filter(has_text=name)
 
 
-# --- TC-E2E-255 -----------------------------------------------------------
+# --- TC-E2E-256 -----------------------------------------------------------
 def test_a_waitlisted_attendee_sees_their_place_in_line(admin, page, make_user, sign_in):
     organiser = make_user("event_organiser")
     first = make_user("attendee")

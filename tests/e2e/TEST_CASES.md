@@ -1407,7 +1407,7 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_cap_registration.py::test_the_organiser_closes_registration_early_and_reopens_it; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
 
-## TC-E2E-255 — a waitlisted Attendee sees their place in line, not a confirmation
+## TC-E2E-256 — a waitlisted Attendee sees their place in line, not a confirmation
 
 - **Scenario:** In a real browser: an Attendee joins a full event's waiting list behind someone else, sees their place on the event page, and their dashboard marks the event as waiting, not confirmed (S-52 AC1, AC2, AC3).
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT); Attendees A, B and C; A holds P's one place; B is on P's waiting list.

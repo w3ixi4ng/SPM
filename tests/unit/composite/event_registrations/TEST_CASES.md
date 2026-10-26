@@ -240,7 +240,7 @@ Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
 
 ## TC-EVENTREGISTRATIONS-016 — an Attendee sees the events they registered for
 
-- **Scenario:** A registration is recorded against the Attendee and they see it (S-48 AC3). Revised for S-52: each row also carries `"status": "confirmed"`, `"joined_at": null` and `"position": null` (see TC-EVENTREGISTRATIONS-029).
+- **Scenario:** A registration is recorded against the Attendee and they see it (S-48 AC3). Revised for S-52: each row also carries `"status": "confirmed"`, `"joined_at": null` and `"position": null` (see TC-EVENTREGISTRATIONS-034).
 - **Pre-conditions:** Signed-in Attendee A. Registrations fake answers
   `GET /registrations/attendees/A` with A's rows for E (registered
   `2026-11-05T04:00:00Z`) and for event G (registered `2026-11-02T04:00:00Z`),
@@ -420,7 +420,7 @@ are not promoted automatically: no cancellation exists yet.
 Event E's waiting list below is B (joined `2026-11-05T04:00:00Z`), then A
 (`2026-11-05T05:00:00Z`), then C (`2026-11-05T06:00:00Z`) unless stated.
 
-## TC-EVENTREGISTRATIONS-027 — the Attendee's status gives their place in line
+## TC-EVENTREGISTRATIONS-032 — the Attendee's status gives their place in line
 
 - **Scenario:** A waitlisted Attendee sees where they stand, not a confirmation (S-52 AC2, AC3).
 - **Pre-conditions:** Signed-in Attendee A. Registrations fake: A holds no place for E; A's waiting-list entry exists; `GET /registrations/waiting-list/events/E` returns B, A, C. Then: A on no waiting list. Then: A holds a place.
@@ -431,10 +431,10 @@ Event E's waiting list below is B (joined `2026-11-05T04:00:00Z`), then A
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s52.py::test_the_attendees_status_gives_their_place_in_line; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-028 — joining the waiting list answers with the place in line
+## TC-EVENTREGISTRATIONS-033 — joining the waiting list answers with the place in line
 
 - **Scenario:** Straight after joining, the Attendee is told their place (S-52 AC1, AC2).
-- **Pre-conditions:** As TC-EVENTREGISTRATIONS-023 (E full, A not registered, insert answers `201` with `created_at` `2026-11-05T05:00:00+00:00`); afterwards the event's waiting list reads B, A.
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-028 (E full, A not registered, insert answers `201` with `created_at` `2026-11-05T05:00:00+00:00`); afterwards the event's waiting list reads B, A.
 - **Steps:** `POST /event-registrations/events/E/waiting-list`.
 - **Test data:** As above.
 - **Expected:** `201` `{"event_id": E, "waitlisted": true, "joined_at": "2026-11-05T05:00:00Z", "position": 2}`.
@@ -442,7 +442,7 @@ Event E's waiting list below is B (joined `2026-11-05T04:00:00Z`), then A
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s52.py::test_joining_the_waiting_list_answers_with_the_place_in_line; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-029 — the Attendee's dashboard list includes the waiting list
+## TC-EVENTREGISTRATIONS-034 — the Attendee's dashboard list includes the waiting list
 
 - **Scenario:** The dashboard list shows confirmed places and waiting-list entries, and tells them apart (S-52 AC3). Revises the row shape of TC-EVENTREGISTRATIONS-016.
 - **Pre-conditions:** Signed-in Attendee A. Registrations fake: A holds a place at G (registered `2026-11-02T04:00:00Z`; G confirmed, starts `2026-11-10 10:00`); `GET /registrations/waiting-list/attendees/A` returns A's entry for E, plus one for event H, which the events fake answers `404` (no longer public). E's waiting list reads B, A, C.
@@ -457,7 +457,7 @@ Event E's waiting list below is B (joined `2026-11-05T04:00:00Z`), then A
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s52.py::test_the_attendees_dashboard_list_includes_the_waiting_list; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-030 — the waiting list can't be read
+## TC-EVENTREGISTRATIONS-035 — the waiting list can't be read
 
 - **Scenario:** A failure reading the waiting list is reported, not shown as "not waiting".
 - **Pre-conditions:** Signed-in Attendee A, on E's waiting list. The registrations fake answers `GET /registrations/waiting-list/events/E` with `500`; then `GET /registrations/waiting-list/attendees/A` with `500`.

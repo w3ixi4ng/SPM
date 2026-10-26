@@ -80,10 +80,10 @@ venues, users and registrations services against the test Supabase project.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-104 — waitlisted Attendees see their place in line (S-52)
+## TC-EVENTREGISTRATIONS-105 — waitlisted Attendees see their place in line (S-52)
 
 - **Scenario:** Through Kong against the test project: two Attendees join a full event's waiting list in turn, each sees their place, and the dashboard list tells waiting from confirmed (S-52 AC1, AC2, AC3).
-- **Pre-conditions:** As TC-EVENTREGISTRATIONS-103: fresh `.env.test` stack; Organiser O; confirmed event P owned by O with `expected_attendance` 1 and registration open yesterday to tomorrow (SGT); Attendees A, B and C. No SQL change for S-52.
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-104: fresh `.env.test` stack; Organiser O; confirmed event P owned by O with `expected_attendance` 1 and registration open yesterday to tomorrow (SGT); Attendees A, B and C. No SQL change for S-52.
 - **Steps:**
   1. As A, `POST /api/event-registrations/events/P/registration`.
   2. As B, then as C, `POST /api/event-registrations/events/P/waiting-list`.

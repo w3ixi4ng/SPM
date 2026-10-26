@@ -1,6 +1,6 @@
 """S-52: an Attendee on a full event's waiting list sees their place in line.
 
-TC-EVENTREGISTRATIONS-027..030. The place is the Attendee's 1-based index in
+TC-EVENTREGISTRATIONS-032..035. The place is the Attendee's 1-based index in
 the event's waiting list, as the registrations service orders it: first come,
 first served. The dashboard list shows places and waiting-list entries
 together, each marked as one or the other.
@@ -44,7 +44,7 @@ def _failing(services, path):
     services["registrations"].get.side_effect = registrations_get
 
 
-# --- TC-EVENTREGISTRATIONS-027 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-032 --------------------------------------------
 def test_the_attendees_status_gives_their_place_in_line(client, services):
     _e_waiting_list(services)
     result = client.get(REGISTER_E)
@@ -70,7 +70,7 @@ def test_the_attendees_status_gives_their_place_in_line(client, services):
     assert not [path for path in paths if "waiting-list" in path]
 
 
-# --- TC-EVENTREGISTRATIONS-028 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-033 --------------------------------------------
 def test_joining_the_waiting_list_answers_with_the_place_in_line(client, services):
     services["registrations"].places[EVENT_E] = [
         _row(ATTENDEE_B, "2026-11-04T04:00:00Z"), _row(ATTENDEE_C, "2026-11-04T05:00:00Z"),
@@ -91,7 +91,7 @@ def test_joining_the_waiting_list_answers_with_the_place_in_line(client, service
     }
 
 
-# --- TC-EVENTREGISTRATIONS-029 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-034 --------------------------------------------
 def test_the_attendees_dashboard_list_includes_the_waiting_list(client, services):
     services["registrations"].places[EVENT_G] = [_row(ATTENDEE_A, "2026-11-02T04:00:00Z", EVENT_G)]
     base_registrations = services["registrations"].get.side_effect
@@ -137,7 +137,7 @@ def test_the_attendees_dashboard_list_includes_the_waiting_list(client, services
     )
 
 
-# --- TC-EVENTREGISTRATIONS-030 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-035 --------------------------------------------
 def test_the_waiting_list_cant_be_read(client, services):
     _e_waiting_list(services)
     _failing(services, f"/registrations/waiting-list/events/{EVENT_E}")

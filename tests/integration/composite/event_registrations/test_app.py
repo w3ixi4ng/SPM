@@ -1,4 +1,4 @@
-"""TC-EVENTREGISTRATIONS-101..104. Run with the whole .env.test stack up."""
+"""TC-EVENTREGISTRATIONS-101..105. Run with the whole .env.test stack up."""
 
 import uuid
 from datetime import timedelta
@@ -158,7 +158,7 @@ def test_a_full_event_turns_the_next_attendee_to_the_waiting_list(admin, make_ac
     assert waiting.select("id").eq("event_id", event_id).execute().data == []
 
 
-# --- TC-EVENTREGISTRATIONS-104 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-105 --------------------------------------------
 def test_waitlisted_attendees_see_their_place_in_line(admin, make_account):
     organiser = make_account("event_organiser", "spm-test S-52 organiser")
     first = make_account("attendee", "S-52 First Attendee")
