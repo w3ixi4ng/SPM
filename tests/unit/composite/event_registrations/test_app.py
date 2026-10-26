@@ -1,6 +1,7 @@
 """S-51: public event pages and Attendees registering inside the period.
 
-TC-EVENTREGISTRATIONS-001..012; S-48 adds 013..018 and the window wording.
+TC-EVENTREGISTRATIONS-001..012; S-48 adds 013..018 and the window wording;
+S-49 adds 031..035, the registration confirmation.
 """
 
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from .conftest import (
     EVENT_E,
     EVENT_F,
     REGISTERED_AT,
+    VENUE_ID,
     me,
     published,
     response,
@@ -402,3 +404,222 @@ def test_the_attendees_list_needs_a_signed_in_attendee(client, services, answer,
     assert result.status_code == status
     assert result.json()["detail"] == detail
     services["registrations"].get.assert_not_called()
+
+
+# --- S-49: registration confirmation --------------------------------------
+
+REGISTRATION_ID = "88888888-8888-4888-8888-888888888888"
+CONFIRMED_E = (
+    "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+    "at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
+)
+
+
+@pytest.fixture
+def ada(services):
+    """Attendee A as the S-49 cases name her, and the id her place is given."""
+    services["users"].get.return_value = response(200, {**me(), "name": "Ada Tan"})
+    services["registrations"].post.return_value = response(
+        201,
+        {"id": REGISTRATION_ID, "event_id": EVENT_E, "attendee_id": ATTENDEE_A,
+         "created_at": REGISTERED_AT},
+    )
+    return services
+
+
+def _sent_rows(services):
+    calls = services["notifications"].post.call_args_list
+    assert len(calls) == 1
+    path = calls[0].args[0]
+    assert path == "/internal/notifications"
+    return calls[0].kwargs["json"]["notifications"]
+
+
+def _event_e_is(services, **changes):
+    async def events_get(path, **kwargs):
+        if path == f"/internal/events/published/{EVENT_E}":
+            return response(200, published(**changes))
+        return response(404, {"detail": "Event not found."})
+
+    services["events"].get.side_effect = events_get
+
+
+def _bookings_are(services, rows):
+    services["bookings"].get.side_effect = None
+    services["bookings"].get.return_value = response(200, rows)
+
+
+# --- TC-EVENTREGISTRATIONS-031 --------------------------------------------
+def test_a_successful_registration_sends_the_attendee_one_confirmation(client, ada):
+    order = []
+    registered = ada["registrations"].post.return_value
+    ada["registrations"].post.side_effect = lambda *a, **k: order.append("registrations") or registered
+    ada["notifications"].post.side_effect = (
+        lambda *a, **k: order.append("notifications") or response(201, [])
+    )
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert _sent_rows(ada) == [
+        {
+            "recipient_id": ATTENDEE_A,
+            "event_id": EVENT_E,
+            "event_name": "Alumni networking evening",
+            "kind": "registration_confirmation",
+            "message": CONFIRMED_E,
+            "deduplication_key": f"registration_confirmation:{REGISTRATION_ID}",
+        }
+    ]
+    assert order == ["registrations", "notifications"]
+
+
+# --- TC-EVENTREGISTRATIONS-032 --------------------------------------------
+def test_an_event_spanning_days_shows_both_dates(client, ada):
+    _event_e_is(ada, start_time="12:00:00", end_date="2026-11-21", end_time="00:30:00")
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert _sent_rows(ada)[0]["message"] == (
+        "Registration confirmed: Alumni networking evening, 20 Nov 2026, 12:00 pm – "
+        "21 Nov 2026, 12:30 am, at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
+    )
+
+
+# --- TC-EVENTREGISTRATIONS-033 --------------------------------------------
+def test_no_confirmed_venue_reads_to_be_confirmed(client, ada):
+    _bookings_are(ada, [{"id": "b1", "venue_id": VENUE_ID, "status": "pending"}])
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert _sent_rows(ada)[0]["message"] == (
+        "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+        "venue to be confirmed. Name: Ada Tan. Email: ada@example.com."
+    )
+
+
+def test_several_confirmed_venues_are_joined(client, ada):
+    hall = "99999999-9999-4999-8999-999999999999"
+    _bookings_are(ada, [
+        {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed"},
+        {"id": "b2", "venue_id": hall, "status": "confirmed"},
+    ])
+    names = {VENUE_ID: "Seminar Room 2-1", hall: "Hall A"}
+
+    async def venues_get(path, **kwargs):
+        venue_id = path.rsplit("/", 1)[-1]
+        return response(200, {"id": venue_id, "name": names[venue_id]})
+
+    ada["venues"].get.side_effect = venues_get
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert _sent_rows(ada)[0]["message"] == (
+        "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+        "at Seminar Room 2-1, Hall A. Name: Ada Tan. Email: ada@example.com."
+    )
+
+
+# --- TC-EVENTREGISTRATIONS-034 --------------------------------------------
+def _signed_out(services, clock):
+    services["users"].get.return_value = response(401, {"detail": "Not authenticated"})
+
+
+def _organiser(services, clock):
+    services["users"].get.return_value = response(200, me(role="event_organiser"))
+
+
+def _missing_event(services, clock):
+    services["events"].get.side_effect = None
+    services["events"].get.return_value = response(404, {"detail": "Event not found."})
+
+
+def _registration_off(services, clock):
+    _event_e_is(services, registration_required=False,
+                registration_opens_at=None, registration_closes_at=None)
+
+
+def _before_opening(services, clock):
+    clock.now = sgt("2026-10-31T12:00")
+
+
+def _at_closing(services, clock):
+    clock.now = sgt("2026-11-15T18:00")
+
+
+def _already_registered(services, clock):
+    services["registrations"].post.return_value = response(
+        409, {"detail": "You're already registered for this event."}
+    )
+
+
+def _registrations_down(services, clock):
+    services["registrations"].post.return_value = response(500, {"detail": "boom"})
+
+
+@pytest.mark.parametrize(
+    ("setup", "status", "detail"),
+    [
+        (_signed_out, 401, "Sign in to register for this event."),
+        (_organiser, 403, "Only attendee accounts can register for events."),
+        (_missing_event, 404, "Event not found."),
+        (_registration_off, 409, "This event doesn't need registration."),
+        (_before_opening, 409, NOT_OPEN),
+        (_at_closing, 409, CLOSED),
+        (_already_registered, 409, "You're already registered for this event."),
+        (_registrations_down, 502, "Registrations service unavailable"),
+    ],
+)
+def test_no_confirmation_when_the_registration_did_not_succeed(
+    client, ada, clock, setup, status, detail
+):
+    setup(ada, clock)
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == status
+    assert result.json()["detail"] == detail
+    ada["notifications"].post.assert_not_called()
+
+
+# --- TC-EVENTREGISTRATIONS-035 --------------------------------------------
+REGISTERED_E = {
+    "event_id": EVENT_E,
+    "registered": True,
+    "registered_at": REGISTERED_AT,
+    "waitlisted": False,
+    "joined_at": None,
+    "position": None,
+}
+
+
+def test_a_confirmation_that_isnt_stored_keeps_the_registration(client, ada):
+    ada["notifications"].post.return_value = response(500, {"detail": "Internal server error"})
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert result.json() == REGISTERED_E
+
+
+def test_an_unreachable_notifications_service_keeps_the_registration(client, ada):
+    ada["notifications"].post.side_effect = httpx.ConnectError("down")
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert result.json() == REGISTERED_E
+
+
+def test_unreadable_venues_keep_the_registration_and_send_nothing(client, ada):
+    ada["bookings"].get.side_effect = None
+    ada["bookings"].get.return_value = response(500, {"detail": "boom"})
+
+    result = client.post(REGISTER_E)
+
+    assert result.status_code == 201
+    assert result.json() == REGISTERED_E
+    ada["notifications"].post.assert_not_called()

@@ -376,7 +376,7 @@ export default function Dashboard({ role }) {
           </p>
         </div>
 
-        {role === 'event_organiser' && <NotificationPanel />}
+        {(role === 'event_organiser' || role === 'attendee') && <NotificationPanel />}
 
         {hasPermission(role, PERMISSIONS.CREATE_EVENT) ? (
           <div className="space-y-6">
