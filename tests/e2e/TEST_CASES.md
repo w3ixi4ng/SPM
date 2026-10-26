@@ -1335,6 +1335,13 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states[chromium]`; 2026-10-25.
 
+## TC-E2E-251 - Venue Staff prepare two venues and readiness updates
+- **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
+- **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
+- **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
+- **Status:** Pass.
+- **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
+
 ## S-48 — Register for Event
 
 ## TC-E2E-252 — an Attendee's registration shows on their dashboard and on the Organiser's event
@@ -1382,3 +1389,23 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** Chromium: both buttons started `aria-pressed="false"`; submitting without a role stayed on `/signup` with the role message; after choosing Attendee the browser ended on `/dashboard/attendee`.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_sign_up.py::test_an_attendee_sign_up_lands_on_the_attendee_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+## S-49 — Registration Confirmation Notification
+
+## TC-E2E-253 — an Attendee sees the confirmation on their dashboard after registering
+
+- **Scenario:** Registering in the browser leaves a confirmation on the
+  Attendee dashboard with the event and entry details (S-49 AC1, AC2).
+- **Pre-conditions:** As TC-E2E-252, with the S-49 `notifications.sql`
+  applied to the test project. A has the name "S-49 E2E Attendee".
+- **Steps:**
+  1. As A, open `/dashboard`.
+  2. Open `/public/events/P`, click **Register**.
+  3. Open `/dashboard` again.
+- **Test data:** As above; emails `spm-e2e-*`.
+- **Expected:** 1 shows a "Notifications" section with "No notifications
+  yet." 3 shows one notification reading "Registration confirmed: {P's
+  name}, {P's date and time}, venue to be confirmed. Name: S-49 E2E Attendee.
+  Email: {A's email}."
+- **Actual:** Chromium: the dashboard first showed "No notifications yet."; after registering it showed the confirmation with P's name, date and time, "venue to be confirmed", A's name and email.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; with the rest of `test_register_for_event.py`: 4 passed in 62 s

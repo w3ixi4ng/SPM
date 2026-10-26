@@ -1,5 +1,6 @@
 """S-51: confirmed events' public pages, and Attendees registering for them.
 S-48: each registration read back by its Attendee and by the event's Organiser.
+S-49: a recorded registration sends the Attendee an in-app confirmation.
 
 Anyone may read a confirmed event's public details. Registering needs a
 signed-in Attendee, an event that asks for registration, and a moment inside
@@ -9,7 +10,7 @@ is read in Singapore whatever the server's own clock says.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 import httpx
@@ -20,6 +21,7 @@ from fastapi.responses import JSONResponse
 from clients import (
     get_bookings_client,
     get_events_client,
+    get_notifications_client,
     get_now,
     get_registrations_client,
     get_users_client,
@@ -124,11 +126,19 @@ async def _public(event: dict, bookings, venues) -> dict:
     return {**event, "venues": await _venue_names(str(event["id"]), bookings, venues)}
 
 
-def _when(moment: datetime) -> str:
-    """1 Nov 2026, 9:00 am -- the same wording the event page uses."""
+def _day(moment: date) -> str:
+    return f"{moment.day} {moment:%b %Y}"
+
+
+def _clock(moment: time) -> str:
     hour = moment.hour % 12 or 12
     meridiem = "am" if moment.hour < 12 else "pm"
-    return f"{moment.day} {moment:%b %Y}, {hour}:{moment:%M} {meridiem}"
+    return f"{hour}:{moment:%M} {meridiem}"
+
+
+def _when(moment: datetime) -> str:
+    """1 Nov 2026, 9:00 am -- the same wording the event page uses."""
+    return f"{_day(moment)}, {_clock(moment)}"
 
 
 def _check_period(event: dict, now: datetime) -> None:
@@ -148,6 +158,52 @@ def _check_period(event: dict, now: datetime) -> None:
     if local_now >= closes:
         raise HTTPException(
             status_code=409, detail=f"Registration has closed. It was open {window}."
+        )
+
+
+def _confirmation_message(event: dict, venues: list[str], user: dict) -> str:
+    """S-49 wording: one sentence naming the event, its date and time, its
+    venue, and the Attendee's name and email."""
+    start_date = date.fromisoformat(event["start_date"])
+    end_date = date.fromisoformat(event["end_date"])
+    starts = f"{_day(start_date)}, {_clock(time.fromisoformat(event['start_time']))}"
+    ends = _clock(time.fromisoformat(event["end_time"]))
+    if end_date != start_date:
+        ends = f"{_day(end_date)}, {ends}"
+    where = f"at {', '.join(venues)}" if venues else "venue to be confirmed"
+    return (
+        f"Registration confirmed: {event['name']}, {starts} – {ends}, {where}. "
+        f"Name: {user['name']}. Email: {user['email']}."
+    )
+
+
+async def _send_confirmation(
+    event: dict, user: dict, registration: dict, bookings, venues, notifications
+) -> None:
+    """Best effort: the place is already recorded, so a confirmation that
+    can't be built or stored is logged rather than failing the registration."""
+    try:
+        names = await _venue_names(str(event["id"]), bookings, venues)
+        row = {
+            "recipient_id": user["id"],
+            "event_id": str(event["id"]),
+            "event_name": event["name"],
+            "kind": "registration_confirmation",
+            "message": _confirmation_message(event, names, user),
+            "deduplication_key": f"registration_confirmation:{registration['id']}",
+        }
+        response = await notifications.post(
+            "/internal/notifications", json={"notifications": [row]}
+        )
+        if response.status_code != 201:
+            logger.error(
+                "Registration confirmation not stored for %s: %s",
+                registration["id"],
+                response.status_code,
+            )
+    except Exception as exc:
+        logger.exception(
+            "Registration confirmation not sent for %s", registration["id"], exc_info=exc
         )
 
 
@@ -183,6 +239,9 @@ async def register(
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
     now: datetime = Depends(get_now),
 ):
     user = await _attendee(request, users)
@@ -201,6 +260,9 @@ async def register(
     if response.status_code != 201:
         raise _unavailable("Registrations")
     row = response.json()
+    # S-49: only reached once the place is recorded, so a refused or failed
+    # registration never sends a confirmation.
+    await _send_confirmation(event, user, row, bookings, venues, notifications)
     return {"event_id": event_id, "registered": True, "registered_at": row["created_at"]}
 
 

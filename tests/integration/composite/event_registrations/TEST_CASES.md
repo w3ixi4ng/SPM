@@ -53,3 +53,30 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; A's list held P with its name and `registered_at`; O saw `count` 1 with A's id, name and email; O2 → `404`; no rows remained.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_a_registration_shows_for_the_attendee_and_for_the_events_organiser`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`
+
+## TC-EVENTREGISTRATIONS-103 — registering puts one confirmation in the Attendee's notifications
+
+- **Scenario:** A registration through Kong stores a confirmation the
+  Attendee can read, and a refused second attempt adds none (S-49 AC1–AC3).
+  Also proves the `registration_confirmation` kind is allowed by the real
+  `notifications.notifications` constraint.
+- **Pre-conditions:** Fresh `.env.test` stack, as TC-EVENTREGISTRATIONS-101,
+  with the S-49 `backend/sql/notifications.sql` applied to the test project.
+  Through the admin client: temporary Organiser O; confirmed event P owned by
+  O, registration open from yesterday to tomorrow (SGT), no confirmed venue;
+  temporary Attendee A with name "S-49 Test Attendee".
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As A, `POST` the same again.
+  3. As A, `GET /api/notifications`.
+  4. Delete the notification, registration, event and accounts.
+- **Test data:** As above; emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `409` "You're already registered for this
+  event." 3 → `200`, exactly one row with `kind`
+  `registration_confirmation`, `event_id` P, and a `message` starting
+  "Registration confirmed: {P's name}," and containing "venue to be
+  confirmed", "Name: S-49 Test Attendee." and "Email: {A's email}.". 4 leaves
+  no rows.
+- **Actual:** `201`; second attempt `409` "You're already registered for this event."; the inbox held exactly one `registration_confirmation` for P, starting "Registration confirmed: {P's name}, " with "venue to be confirmed", A's name and email; no rows remained.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_registering_puts_one_confirmation_in_the_attendees_notifications`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; S-49 SQL applied to dev and test; full `tests/integration`: 79 passed, 5 skipped
