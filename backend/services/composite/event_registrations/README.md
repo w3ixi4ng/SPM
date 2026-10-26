@@ -2,10 +2,11 @@
 
 S-51. Serves confirmed events' public pages, and lets Attendees register for
 them while registration is open. S-48: each registration can be read back by
-the Attendee who holds it and by the Organiser who owns the event. Owns no storage: event details and
+the Attendee who holds it and by the Organiser who owns the event. S-49: a
+recorded registration sends the Attendee an in-app confirmation. Owns no storage: event details and
 registration settings come from `events`, venue names from `bookings` and
 `venues`, the signed-in user from `users`, and places are written to
-`registrations`.
+`registrations`, and confirmations to `notifications`.
 
 Browser-facing through Kong at `/api/event-registrations`.
 
@@ -79,6 +80,22 @@ are on the waiting list.
 It is refused with the same `401`/`403`/`404` and period `409`s as
 registering, plus the S-50 rows below. Where several apply, the first wins:
 registration off, then the period, then the Organiser's close, then full.
+
+**Confirmation (S-49).** Once a `POST` has recorded the place, the composite
+stores one `registration_confirmation` notification for the Attendee through
+the notifications service (`POST /internal/notifications`, deduplicated on
+`registration_confirmation:{registration id}`). The Attendee reads it on their
+dashboard via `GET /api/notifications`:
+
+```text
+Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com.
+```
+
+An event ending on a later day reads `20 Nov 2026, 6:00 pm – 21 Nov 2026,
+12:30 am`; several confirmed venues are joined (`at Seminar Room 2-1, Hall
+A`); none reads `venue to be confirmed`. Any refused or failed `POST` sends
+nothing. If the confirmation can't be built or stored after the place is
+recorded, the `POST` still answers `201` and the failure is only logged.
 
 | Status | When | `detail` |
 | --- | --- | --- |
@@ -156,7 +173,8 @@ the events service's to decide; its answer is passed on:
 ## Configuration
 
 `USERS_SERVICE_URL`, `EVENTS_SERVICE_URL`, `BOOKINGS_SERVICE_URL`,
-`VENUES_SERVICE_URL` and `REGISTRATIONS_SERVICE_URL`. Every outbound client
+`VENUES_SERVICE_URL`, `REGISTRATIONS_SERVICE_URL` and
+`NOTIFICATIONS_SERVICE_URL`. Every outbound client
 has a bounded timeout.
 
 ## Running
@@ -178,7 +196,8 @@ pytest tests/unit/composite/event_registrations
 Integration and browser tests need the S-51 block of
 [`events.sql`](../../../sql/events.sql) and
 [`registrations.sql`](../../../sql/registrations.sql) applied and exposed in
-the test project, and the whole stack started immediately before:
+the test project, plus the S-49 `registration_confirmation` kind in
+[`notifications.sql`](../../../sql/notifications.sql), and the whole stack started immediately before:
 
 ```bash
 docker compose --env-file .env.test down -v

@@ -13,9 +13,9 @@ open; at exactly the closing time it is closed.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_registrations` |
-| Last run | 2026-10-25, branch `S-48/register-for-event`, pre-commit working tree |
+| Last run | 2026-10-25, branch `S-49/registration-confirmation-notification`, pre-commit working tree |
 | Environment | Python 3.14.4, pytest 9.1.1; no network, database, or Docker |
-| Result | 18 cases, 26 tests passed in this suite; 1364 passed, 17 skipped across `tests/unit` |
+| Result | 23 cases, 41 tests passed in this suite; 1407 passed, 17 skipped across `tests/unit` |
 
 Event E below is `confirmed`, starts `2026-11-20 18:00`, registration on,
 opens `2026-11-01T09:00`, closes `2026-11-15T18:00`. Its one confirmed booking
@@ -286,6 +286,117 @@ Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
 - **Actual:** `401` "Sign in to register for this event.", then `403` "Only attendee accounts can register for events."; registrations never called.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_the_attendees_list_needs_a_signed_in_attendee
+
+## S-49 — Registration Confirmation Notification
+
+Developer decisions (2026-10-25): the confirmation is an in-app notification
+only (no email), stored by the `notifications` service with kind
+`registration_confirmation` and shown on the Attendee dashboard. "Entry
+details" are the Attendee's name and email. A confirmed-venue list that is
+empty reads "venue to be confirmed"; several are joined with ", ". If the
+place is recorded but the confirmation cannot be built or stored, the
+registration still answers `201`; the failure is only logged.
+
+For these cases Attendee A is `33333333-3333-4333-8333-333333333333`, name
+"Ada Tan", email `ada@example.com`; the registrations fake answers `201` with
+id `88888888-8888-4888-8888-888888888888`; the clock is
+`2026-11-05 12:00` SGT (inside E's period).
+
+## TC-EVENTREGISTRATIONS-019 — a successful registration sends the Attendee one confirmation
+
+- **Scenario:** Once the place is recorded, a confirmation naming the event,
+  date, time, venue and the Attendee's name and email is sent to that
+  Attendee (S-49 AC1, AC2).
+- **Pre-conditions:** Users fake returns A as `attendee`; events fake returns
+  E (20 Nov 2026, 18:00–21:00); bookings fake returns one `confirmed` booking
+  at venue "Seminar Room 2-1"; registrations fake answers `201`;
+  notifications fake answers `201`.
+- **Steps:** `POST /event-registrations/events/E/registration`.
+- **Test data:** As above.
+- **Expected:** `201` as before. The notifications fake received exactly one
+  `POST /internal/notifications` with one row:
+  `recipient_id` A, `event_id` E, `event_name` "Alumni networking evening",
+  `kind` `registration_confirmation`, `deduplication_key`
+  `registration_confirmation:88888888-8888-4888-8888-888888888888`,
+  `message`
+  "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
+  The registrations call happened before the notifications call.
+- **Actual:** `201`; exactly one row sent to `/internal/notifications` with recipient A, event E, kind `registration_confirmation`, key `registration_confirmation:8888…8888` and the expected message; registrations called before notifications.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_a_successful_registration_sends_the_attendee_one_confirmation
+
+## TC-EVENTREGISTRATIONS-020 — an event spanning days shows both dates
+
+- **Scenario:** The confirmation's date/time covers an event that ends on a
+  later day, and 12-hour times read correctly at noon and midnight (S-49 AC2).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-019, but E runs
+  `2026-11-20 12:00` to `2026-11-21 00:30`.
+- **Steps:** `POST /event-registrations/events/E/registration`.
+- **Test data:** As above.
+- **Expected:** `201`; the message is
+  "Registration confirmed: Alumni networking evening, 20 Nov 2026, 12:00 pm – 21 Nov 2026, 12:30 am, at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
+- **Actual:** `201`; message read "… 20 Nov 2026, 12:00 pm – 21 Nov 2026, 12:30 am, at Seminar Room 2-1. …" as expected.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_an_event_spanning_days_shows_both_dates
+
+## TC-EVENTREGISTRATIONS-021 — no confirmed venue, or several
+
+- **Scenario:** The venue part still reads correctly when no venue is
+  confirmed yet, or more than one is (S-49 AC2).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-019, run twice:
+  1. bookings fake returns only a `pending` booking;
+  2. bookings fake returns two `confirmed` bookings, venues "Seminar Room 2-1"
+     and "Hall A".
+- **Steps:** `POST /event-registrations/events/E/registration` in each setup.
+- **Test data:** As above.
+- **Expected:** Both `201`. Messages:
+  1. "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, venue to be confirmed. Name: Ada Tan. Email: ada@example.com."
+  2. "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1, Hall A. Name: Ada Tan. Email: ada@example.com."
+- **Actual:** Both `201`; messages read "…, venue to be confirmed. …" and "…, at Seminar Room 2-1, Hall A. …" as expected.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_no_confirmed_venue_reads_to_be_confirmed; tests/unit/composite/event_registrations/test_app.py::test_several_confirmed_venues_are_joined
+
+## TC-EVENTREGISTRATIONS-022 — no confirmation when the registration did not succeed
+
+- **Scenario:** Every way a registration can fail sends nothing (S-49 AC3).
+- **Pre-conditions:** Notifications fake records calls. One run per row:
+
+  | Setup | Expected status |
+  | --- | --- |
+  | Users fake `401` | `401` |
+  | Users fake returns an `event_organiser` | `403` |
+  | Events fake `404` | `404` |
+  | E with registration off | `409` "This event doesn't need registration." |
+  | Clock `2026-10-31 12:00` SGT | `409` "Registration hasn't opened yet. …" |
+  | Clock `2026-11-15 18:00` SGT | `409` "Registration has closed. …" |
+  | Registrations fake `409` "You're already registered for this event." | `409`, same detail |
+  | Registrations fake `500` | `502` "Registrations service unavailable" |
+
+- **Steps:** `POST /event-registrations/events/E/registration` in each setup.
+- **Test data:** As above.
+- **Expected:** Each answers the status in its row, and the notifications
+  fake was never called.
+- **Actual:** All eight setups answered their status and detail; notifications never called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_no_confirmation_when_the_registration_did_not_succeed (8 parametrised)
+
+## TC-EVENTREGISTRATIONS-023 — a failed confirmation does not undo the registration
+
+- **Scenario:** The place is secured even if the confirmation cannot be built
+  or stored (developer decision). Revised for S-50: the body also carries
+  `"waitlisted": false, "joined_at": null` (see TC-EVENTREGISTRATIONS-030).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-019, one run per row:
+  1. notifications fake answers `500`;
+  2. notifications fake raises `httpx.ConnectError`;
+  3. bookings fake answers `500` (venue names can't be read).
+- **Steps:** `POST /event-registrations/events/E/registration` in each setup.
+- **Test data:** As above.
+- **Expected:** Each answers `201`
+  `{"event_id": E, "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null}`.
+  In run 3 the notifications fake was never called.
+- **Actual:** All three `201` with the registration body; notifications not called in run 3.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_app.py::test_a_confirmation_that_isnt_stored_keeps_the_registration; tests/unit/composite/event_registrations/test_app.py::test_an_unreachable_notifications_service_keeps_the_registration; tests/unit/composite/event_registrations/test_app.py::test_unreadable_venues_keep_the_registration_and_send_nothing
 
 ## S-50 — Cap Registration at Capacity
 
