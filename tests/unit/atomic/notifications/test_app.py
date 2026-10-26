@@ -197,3 +197,31 @@ def test_an_unknown_kind_is_still_refused(client, db):
 
     assert response.status_code == 422
     db.schema.assert_not_called()
+
+
+REGISTRATION_CONFIRMATION = {
+    "recipient_id": "33333333-3333-4333-8333-333333333333",
+    "event_id": "22222222-2222-4222-8222-222222222222",
+    "event_name": "Alumni networking evening",
+    "kind": "registration_confirmation",
+    "message": (
+        "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+        "at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
+    ),
+    "deduplication_key": "registration_confirmation:88888888-8888-4888-8888-888888888888",
+}
+
+
+def test_a_registration_confirmation_is_accepted(client, db):
+    db.schema.return_value.table.return_value.upsert.return_value.execute.return_value = (
+        SimpleNamespace(
+            data=[{**REGISTRATION_CONFIRMATION, "id": 1, "created_at": "2026-11-05T04:00:00Z"}]
+        )
+    )
+
+    response = client.post(
+        "/internal/notifications", json={"notifications": [REGISTRATION_CONFIRMATION]}
+    )
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == "registration_confirmation"
