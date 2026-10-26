@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CalendarDays, ChevronLeft, Loader2, MapPin, Ticket } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
@@ -171,6 +171,9 @@ export default function PublicEvent() {
   const [registration, setRegistration] = useState(null)
   const [registering, setRegistering] = useState(false)
   const [registerError, setRegisterError] = useState(null)
+  // Bumped by Register / Join the waiting list, so a status lookup that
+  // started before the click can't overwrite what the click returned.
+  const actions = useRef(0)
   const isAttendee = auth.status === 'authenticated' && auth.user?.role === 'attendee'
 
   useEffect(() => {
@@ -193,13 +196,15 @@ export default function PublicEvent() {
   useEffect(() => {
     let active = true
     if (!isAttendee || load.event?.registration_required !== true) return undefined
+    const startedAt = actions.current
     getMyRegistration(id)
-      .then((found) => { if (active) setRegistration(found) })
+      .then((found) => { if (active && actions.current === startedAt) setRegistration(found) })
       .catch(() => {})
     return () => { active = false }
   }, [id, isAttendee, load.event])
 
   async function handleRegister() {
+    actions.current += 1
     setRegistering(true)
     setRegisterError(null)
     try {
@@ -215,6 +220,7 @@ export default function PublicEvent() {
   }
 
   async function handleJoinWaitingList() {
+    actions.current += 1
     setRegistering(true)
     setRegisterError(null)
     try {
