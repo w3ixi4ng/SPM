@@ -471,3 +471,58 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** The returned pool contained exactly the two trusted Coordinator IDs; the profiled name remained Alex and the missing-profile account displayed its Auth email, including when that account was on Auth page 2. Every other trusted role and the editable-metadata impostor was excluded.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_listing_keeps_trusted_auth_users_without_profiles`, `test_app.py::test_coordinator_listing_includes_profileless_auth_user_on_later_page`; local Python 3.14 unit run, 2026-10-18.
+
+## Session check: a rejected token vs no answer
+
+`get_current_user` used to treat every error from Supabase Auth as a dead
+session. A dropped connection, a timeout, a 5xx or a 429 then became a `401`
+and cleared the browser's cookies, which signed working users out and failed
+CI at random (e.g. S-88's concurrent submissions got `[401, 401]`). Only a 4xx
+other than 429 is now a verdict on the token. Anything else is retried twice
+(after 0.2 s and 0.5 s), then answers `503` and leaves the cookies alone.
+The tests patch out the pauses.
+
+## TC-USERS-035 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403; no refresh cookie.
+- **Steps:** `GET /users/me` with `sb_access_token=revoked-token`.
+- **Expected:** `401`; `get_user` called once; both session cookies cleared.
+- **Actual:** `401`, one call, both cookies cleared.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_rejected_token_is_401_without_retrying; 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree
+
+## TC-USERS-036 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error in the table, then returns the user; the profile row exists.
+- **Steps:** `GET /users/me` with `sb_access_token=access-token`.
+- **Test data / Expected:**
+  | First attempt | Result |
+  | --- | --- |
+  | `httpx.RemoteProtocolError` "Server disconnected" | `200` with the profile; `get_user` called twice |
+  | `httpx.ReadTimeout` | `200` with the profile; `get_user` called twice |
+- **Actual:** Both `200` after two calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_retries_a_session_check_that_got_no_answer (2 params); 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree
+
+## TC-USERS-037 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as in the table; both cookies are sent.
+- **Steps:** `GET /users/me`.
+- **Test data:** `httpx.RemoteProtocolError`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each → `503` "Authentication service unavailable"; `get_user` called 3 times; `refresh_session` not called; no `Set-Cookie`.
+- **Actual:** Each `503` after 3 calls, no refresh, no cookies set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_is_503_and_keeps_the_cookies_when_auth_never_answers (3 params); 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree
+
+## TC-USERS-038 — a refresh that got no answer is retried
+
+- **Scenario:** The same applies to renewing an expired session.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "token is expired", 401. `refresh_session` first raises `httpx.RemoteProtocolError`, then returns a new session (`new-access` / `new-refresh`).
+- **Steps:** `GET /users/me` with both cookies.
+- **Expected:** `200`; `refresh_session` called twice; the response sets `sb_access_token=new-access`.
+- **Actual:** `200`, two refresh calls, new access cookie set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_retries_a_refresh_that_got_no_answer; 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree

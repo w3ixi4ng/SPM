@@ -139,6 +139,7 @@ is not returned.
 | `401` | Wrong credentials, or no usable session. Login never says which half was wrong; a form that distinguishes "no such account" from "wrong password" is a way to enumerate addresses. |
 | `429` | Supabase is rate-limiting that address. |
 | `502` | Supabase Auth could not be reached or made no sense. |
+| `503` | `/users/me` (and every route that checks the session) got no verdict on the token from Supabase Auth after two retries: a dropped connection, a timeout, a 5xx or a 429. The cookies are left alone. |
 
 Every error has the same shape, so a caller reads `detail` once and is done:
 
@@ -182,6 +183,11 @@ not the headers, because CORS with credentials would also force the weaker
 The access token lasts about an hour, so `/users/me` refreshes it from the
 refresh cookie when it has expired and writes the renewed pair back on the same
 response. An idle tab is not logged out.
+
+Only Supabase rejecting a token (a 4xx other than 429) makes it a dead
+session: `401`, with the cookies cleared. A check that got no answer is
+retried after 0.2 s and 0.5 s, and then answers `503`, so a network blip never
+signs a working user out.
 
 ## Configuration
 
