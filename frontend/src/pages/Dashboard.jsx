@@ -12,7 +12,7 @@ import {
   organiserStatusMeta,
   organiserTabs,
 } from '../lib/eventRequests.js'
-import { formatEventWhen, listMyRegistrations } from '../lib/registration.js'
+import { formatEventWhen, listMyRegistrations, registrationStatusLabel } from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -34,7 +34,8 @@ const ORGANISER_CAPABILITIES = [
   [PERMISSIONS.REQUEST_EVENT_CANCELLATION, 'Request cancellation of your events'],
 ]
 
-// S-48: the events this Attendee holds a place at, soonest first.
+// S-48: the events this Attendee holds a place at, soonest first. S-52: and
+// the ones they are waiting for, each marked as one or the other.
 function MyRegistrations() {
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [state, setState] = useState({ status: 'loading', registrations: [] })
@@ -96,6 +97,14 @@ function MyRegistrations() {
               </Link>
               <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
                 {formatEventWhen(registration)}
+              </p>
+              <p className="mt-1 flex items-center gap-2 font-ui text-xs" style={{ color: C.inkFaint }}>
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: registration.status === 'waitlisted' ? C.amber : C.green }}
+                  aria-hidden="true"
+                />
+                {registrationStatusLabel(registration)}
               </p>
             </li>
           ))}

@@ -13,10 +13,15 @@ registration period is open. Its port, 8007, is published for testing.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/registrations` | Record one Attendee's place at one event. |
+| `POST` | `/registrations` | Record one Attendee's place at one event, while the event has one left (S-50). |
 | `GET` | `/registrations/events/{event_id}/attendees/{attendee_id}` | Return that Attendee's registration for the event, if any. |
 | `GET` | `/registrations/events/{event_id}` | Every registration for the event, earliest first. |
 | `GET` | `/registrations/attendees/{attendee_id}` | Every registration the Attendee holds, earliest first. |
+| `POST` | `/registrations/waiting-list` | S-50: put an Attendee on an event's waiting list. |
+| `GET` | `/registrations/waiting-list/events/{event_id}` | S-50: the event's waiting list, first come, first served (by `created_at`, then `id`). |
+| `GET` | `/registrations/waiting-list/attendees/{attendee_id}` | S-52: every waiting-list entry the Attendee holds, oldest first. |
+| `GET` | `/registrations/waiting-list/events/{event_id}/attendees/{attendee_id}` | S-50: that Attendee's waiting-list entry, if any. |
+| `POST` | `/registrations/withdrawals` | S-53: give up an Attendee's place; the Attendee who has waited longest takes it, if a place is free. |
 | `GET` | `/health` | Liveness check. |
 | `GET` | `/registrations/health` | Gateway-compatible liveness alias. |
 
@@ -28,18 +33,43 @@ registration period is open. Its port, 8007, is published for testing.
 | --- | --- | --- | --- |
 | `event_id` | UUID | yes | |
 | `attendee_id` | UUID | yes | |
+| `capacity` | integer | yes | `> 0`. The event's expected attendance; the events service owns it, so the caller passes it. |
+
+`POST /registrations/waiting-list` takes `event_id` and `attendee_id` only.
+
+`POST /registrations/withdrawals` takes the same three fields as
+`POST /registrations`, except `capacity` is `>= 0`: someone is promoted only
+while the places left after the withdrawal number fewer than `capacity`, so
+`0` promotes no one.
 
 No other field is accepted. The `GET` routes take their ids (UUIDs) in the
 path and no query parameters.
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "attendee_id": "33333333-3333-4333-8333-333333333333"}
+{"event_id": "22222222-2222-4222-8222-222222222222", "attendee_id": "33333333-3333-4333-8333-333333333333", "capacity": 50}
+```
+
+The place is taken by the `registrations.register` Postgres function, which
+locks the event, counts its places and inserts only if one is left -- so two
+people registering for the last place at once cannot both get it.
+
+**Withdrawal** (`200` from `POST /registrations/withdrawals`): the place given
+up, and the place the next Attendee waiting took, or `null`. Both happen in one
+step in the `registrations.withdraw` Postgres function, under the same lock as
+`registrations.register`, and the promoted Attendee leaves the waiting list.
+
+```json
+{
+  "withdrawn": {"id": "55555555-5555-4555-8555-555555555555", "event_id": "22222222-2222-4222-8222-222222222222", "attendee_id": "33333333-3333-4333-8333-333333333333", "created_at": "2026-11-05T04:00:00Z"},
+  "promoted": {"id": "99999999-9999-4999-8999-999999999999", "event_id": "22222222-2222-4222-8222-222222222222", "attendee_id": "44444444-4444-4444-8444-444444444444", "created_at": "2026-11-06T04:00:00Z"}
+}
 ```
 
 ## Response
 
-`201` from `POST`, `200` from the single `GET`; the two list routes answer
-`200` with an array of these, `[]` when there are none:
+`201` from either `POST`, `200` from the single `GET`s; the list routes answer
+`200` with an array of these, `[]` when there are none. A waiting-list entry
+has the same shape:
 
 ```json
 {
@@ -53,8 +83,11 @@ path and no query parameters.
 | Status | When |
 | --- | --- |
 | `409` | `POST` for an Attendee already registered for that event: `{"detail": "You're already registered for this event."}`. The table's unique `(event_id, attendee_id)` constraint enforces it, so two simultaneous requests still produce one place. |
-| `404` | `GET` when the Attendee is not registered: `{"detail": "You're not registered for this event."}` |
-| `422` | Missing or malformed ids (body or path), or an unexpected field: `{"detail": "Please check the registration", "errors": {...}}` |
+| `409` | `POST /registrations` once the event's places reach `capacity`: `{"detail": "This event is full."}` |
+| `409` | `POST /registrations/waiting-list` a second time: `{"detail": "You're already on the waiting list for this event."}` |
+| `404` | `POST /registrations/withdrawals` when the Attendee holds no place: `{"detail": "You're not registered for this event."}` |
+| `404` | `GET` when the Attendee is not registered: `{"detail": "You're not registered for this event."}`; or not waiting: `{"detail": "You're not on the waiting list for this event."}` |
+| `422` | Missing or malformed ids (body or path), a missing or non-positive `capacity`, or an unexpected field: `{"detail": "Please check the registration", "errors": {...}}` |
 | `500` | Storage failed: `{"detail": "Registration storage unavailable"}` |
 
 `GET /health` returns `{"status": "ok"}`.
@@ -64,7 +97,7 @@ path and no query parameters.
 | Variable | Purpose |
 | --- | --- |
 | `SUPABASE_URL` | Supabase project URL. |
-| `SUPABASE_SERVICE_KEY` | Backend-only access to `registrations.registrations`. |
+| `SUPABASE_SERVICE_KEY` | Backend-only access to `registrations.registrations`, `registrations.waiting_list`, `registrations.register` and `registrations.withdraw`. |
 
 ## Database setup
 

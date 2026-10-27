@@ -5,7 +5,7 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import DEFAULT, AsyncMock
 
 import httpx
 import pytest
@@ -67,6 +67,9 @@ def published(event_id=EVENT_E, **changes):
         "registration_required": True,
         "registration_opens_at": "2026-11-01T09:00:00",
         "registration_closes_at": "2026-11-15T18:00:00",
+        # S-50: the cap, and the Organiser's close decision.
+        "expected_attendance": 2,
+        "registration_closed_at": None,
     }
     row.update(changes)
     return row
@@ -136,6 +139,38 @@ def services():
         201,
         {"id": "r1", "event_id": EVENT_E, "attendee_id": ATTENDEE_A, "created_at": REGISTERED_AT},
     )
+    # S-50: places and waiting lists by event, so a route can read both. A
+    # test that sets `registrations.get.return_value` to a response still
+    # gets it for every read except the waiting list's.
+    registrations.places = {}
+    registrations.waiting = {}
+
+    async def registrations_get(path, **kwargs):
+        parts = path.strip("/").split("/")
+        if parts[1] == "waiting-list" and parts[2] == "attendees":
+            # S-52: one Attendee's entries across every event.
+            return response(200, [
+                row for rows in registrations.waiting.values()
+                for row in rows if row["attendee_id"] == parts[3]
+            ])
+        if parts[1] == "waiting-list":
+            rows = registrations.waiting.get(parts[3], [])
+            if len(parts) == 4:
+                return response(200, rows)
+            found = [row for row in rows if row["attendee_id"] == parts[5]]
+            return response(200, found[0]) if found else response(404, {"detail": "not waiting"})
+        if isinstance(registrations.get.return_value, httpx.Response):
+            return DEFAULT
+        if parts[1] == "events":
+            rows = registrations.places.get(parts[2], [])
+            if len(parts) == 3:
+                return response(200, rows)
+            found = [row for row in rows if row["attendee_id"] == parts[4]]
+            return response(200, found[0]) if found else response(404, {"detail": "not registered"})
+        return response(200, [])
+
+    registrations.get.side_effect = registrations_get
+
     notifications = AsyncMock()
     notifications.post.return_value = response(201, [])
     return {

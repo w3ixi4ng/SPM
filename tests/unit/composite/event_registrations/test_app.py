@@ -1,7 +1,7 @@
 """S-51: public event pages and Attendees registering inside the period.
 
 TC-EVENTREGISTRATIONS-001..012; S-48 adds 013..018 and the window wording;
-S-49 adds 019..023, the registration confirmation.
+S-49 adds 031..035, the registration confirmation.
 """
 
 from datetime import datetime, timezone
@@ -33,6 +33,9 @@ E_PUBLIC = {
     "registration_required": True,
     "registration_opens_at": "2026-11-01T09:00:00",
     "registration_closes_at": "2026-11-15T18:00:00",
+    # S-50
+    "registration_closed_by_organiser": False,
+    "is_full": False,
 }
 REGISTER_E = f"/event-registrations/events/{EVENT_E}/registration"
 WINDOW = "from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm"
@@ -147,9 +150,12 @@ def test_registering_inside_the_period_takes_a_place(client, services):
         "event_id": EVENT_E,
         "registered": True,
         "registered_at": REGISTERED_AT,
+        "waitlisted": False,
+        "joined_at": None,
+        "position": None,
     }
     services["registrations"].post.assert_awaited_once_with(
-        "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A}
+        "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2}
     )
 
 
@@ -191,7 +197,10 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     )
     result = client.get(REGISTER_E)
     assert result.status_code == 200
-    assert result.json() == {"event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT}
+    assert result.json() == {
+        "event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT,
+        "waitlisted": False, "joined_at": None, "position": None,
+    }
     services["registrations"].get.assert_awaited_with(
         f"/registrations/events/{EVENT_E}/attendees/{ATTENDEE_A}"
     )
@@ -201,7 +210,10 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     )
     result = client.get(REGISTER_E)
     assert result.status_code == 200
-    assert result.json() == {"event_id": EVENT_E, "registered": False, "registered_at": None}
+    assert result.json() == {
+        "event_id": EVENT_E, "registered": False, "registered_at": None,
+        "waitlisted": False, "joined_at": None, "position": None,
+    }
 
 
 # --- TC-EVENTREGISTRATIONS-012 --------------------------------------------
@@ -212,7 +224,7 @@ def test_a_service_it_depends_on_is_down(client, services):
     assert result.json()["detail"] == "Events service unavailable"
 
     services["events"].get.side_effect = None
-    services["events"].get.return_value = response(200, E_PUBLIC)
+    services["events"].get.return_value = response(200, published())
     services["registrations"].post.side_effect = httpx.ConnectError("registrations down")
     result = client.post(REGISTER_E)
     assert result.status_code == 502
@@ -274,11 +286,12 @@ def test_the_organiser_sees_who_registered_for_their_event(client, services):
             {"attendee_id": ATTENDEE_B, "name": "Ben Lim", "email": "ben@example.com",
              "registered_at": "2026-11-06T04:00:00Z"},
         ],
+        "waiting_list": [],
     }
     path = services["events"].get.call_args.args[0]
     assert path == f"/events/{EVENT_E}"
     assert services["events"].get.call_args.kwargs["cookies"] == {"sb-access-token": "organiser"}
-    services["registrations"].get.assert_called_once_with(f"/registrations/events/{EVENT_E}")
+    services["registrations"].get.assert_any_call(f"/registrations/events/{EVENT_E}")
     services["users"].post.assert_called_once_with(
         "/internal/users/profiles", json={"ids": [ATTENDEE_A, ATTENDEE_B]}
     )
@@ -292,7 +305,7 @@ def test_an_event_no_one_has_registered_for_yet(client, services):
     result = client.get(ATTENDEES_E)
 
     assert result.status_code == 200
-    assert result.json() == {"event_id": EVENT_E, "count": 0, "attendees": []}
+    assert result.json() == {"event_id": EVENT_E, "count": 0, "attendees": [], "waiting_list": []}
     services["users"].post.assert_not_called()
 
 
@@ -350,9 +363,13 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
         "start_time": "18:00:00",
         "end_date": "2026-11-20",
         "end_time": "21:00:00",
+        # S-52: every row says whether it is a place or a waiting-list entry.
+        "status": "confirmed",
         "registered_at": "2026-11-05T04:00:00Z",
+        "joined_at": None,
+        "position": None,
     }
-    services["registrations"].get.assert_called_once_with(f"/registrations/attendees/{ATTENDEE_A}")
+    services["registrations"].get.assert_any_call(f"/registrations/attendees/{ATTENDEE_A}")
 
 
 # --- TC-EVENTREGISTRATIONS-017 --------------------------------------------
@@ -432,7 +449,7 @@ def _bookings_are(services, rows):
     services["bookings"].get.return_value = response(200, rows)
 
 
-# --- TC-EVENTREGISTRATIONS-019 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-031 --------------------------------------------
 def test_a_successful_registration_sends_the_attendee_one_confirmation(client, ada):
     order = []
     registered = ada["registrations"].post.return_value
@@ -457,7 +474,7 @@ def test_a_successful_registration_sends_the_attendee_one_confirmation(client, a
     assert order == ["registrations", "notifications"]
 
 
-# --- TC-EVENTREGISTRATIONS-020 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-032 --------------------------------------------
 def test_an_event_spanning_days_shows_both_dates(client, ada):
     _event_e_is(ada, start_time="12:00:00", end_date="2026-11-21", end_time="00:30:00")
 
@@ -470,7 +487,7 @@ def test_an_event_spanning_days_shows_both_dates(client, ada):
     )
 
 
-# --- TC-EVENTREGISTRATIONS-021 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-033 --------------------------------------------
 def test_no_confirmed_venue_reads_to_be_confirmed(client, ada):
     _bookings_are(ada, [{"id": "b1", "venue_id": VENUE_ID, "status": "pending"}])
 
@@ -506,7 +523,7 @@ def test_several_confirmed_venues_are_joined(client, ada):
     )
 
 
-# --- TC-EVENTREGISTRATIONS-022 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-034 --------------------------------------------
 def _signed_out(services, clock):
     services["users"].get.return_value = response(401, {"detail": "Not authenticated"})
 
@@ -568,8 +585,15 @@ def test_no_confirmation_when_the_registration_did_not_succeed(
     ada["notifications"].post.assert_not_called()
 
 
-# --- TC-EVENTREGISTRATIONS-023 --------------------------------------------
-REGISTERED_E = {"event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT}
+# --- TC-EVENTREGISTRATIONS-035 --------------------------------------------
+REGISTERED_E = {
+    "event_id": EVENT_E,
+    "registered": True,
+    "registered_at": REGISTERED_AT,
+    "waitlisted": False,
+    "joined_at": None,
+    "position": None,
+}
 
 
 def test_a_confirmation_that_isnt_stored_keeps_the_registration(client, ada):

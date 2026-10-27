@@ -47,6 +47,8 @@ LOCKED_STATUSES = [
 PUBLIC_FIELDS = {
     "id", "name", "purpose", "start_date", "start_time", "end_date", "end_time",
     "registration_required", "registration_opens_at", "registration_closes_at",
+    # S-50: for the composite only; it never passes the attendance figure on.
+    "expected_attendance", "registration_closed_at",
 }
 
 
@@ -328,6 +330,8 @@ def _published(**changes):
         "end_date": "2026-11-20",
         "end_time": "21:00:00",
         **REGISTRATION,
+        "expected_attendance": 120,
+        "registration_closed_at": None,
     }
     row.update(changes)
     return row

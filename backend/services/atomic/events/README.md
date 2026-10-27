@@ -15,6 +15,8 @@ queries another service's tables.
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
 | `GET` | `/events/booking-status/{event_id}` | `events:view_booking_status` | Return only the event id and authoritative status so Venue Staff can release a terminal event's tentative hold. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
+| `PUT` | `/events/{event_id}/registration-closure` | `events:close_registration` | S-50: close registration early on an owned, `confirmed` event that takes registrations. See [Closing registration early (S-50)](#closing-registration-early-s-50). |
+| `DELETE` | `/events/{event_id}/registration-closure` | `events:close_registration` | S-50: reopen it. |
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
@@ -383,7 +385,9 @@ return only `confirmed` events, and only their public fields:
   "end_time": "21:00:00",
   "registration_required": true,
   "registration_opens_at": "2026-11-01T09:00:00",
-  "registration_closes_at": "2026-11-15T18:00:00"
+  "registration_closes_at": "2026-11-15T18:00:00",
+  "expected_attendance": 120,
+  "registration_closed_at": null
 }
 ```
 
@@ -391,6 +395,26 @@ A missing event, or one in any other status, is `404` "Event not found.".
 Registrations themselves are stored by the
 [registrations service](../registrations/README.md); this service only holds
 the settings.
+
+S-50: `expected_attendance` (the registration cap) and `registration_closed_at`
+are here for the composite only. It turns them into `is_full` and
+`registration_closed_by_organiser` and never shows the figure publicly.
+
+## Closing registration early (S-50)
+
+`PUT /events/{event_id}/registration-closure` and `DELETE` on the same path,
+no body. Only the owning Event Organiser, only on a `confirmed` event with
+registration on. Both answer `200` with the event (as `GET /events/{event_id}`),
+whose `registration_closed_at` is the time it was closed, or `null` once
+reopened. Closing an already-closed event keeps the first time; reopening an
+open one changes nothing.
+
+| Status | When | `detail` |
+| --- | --- | --- |
+| `401` | Not signed in | |
+| `403` | Not an Event Organiser | "Insufficient permissions" |
+| `404` | Missing, or another Organiser's event | "Event not found" |
+| `409` | Not `confirmed`, or registration is off | "Registration can only be closed or reopened on a confirmed event that takes registrations." |
 
 ## Status model (S-14, S-36, S-43, S-17, S-86, S-87)
 

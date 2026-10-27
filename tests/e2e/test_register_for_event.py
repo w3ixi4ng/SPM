@@ -1,7 +1,7 @@
 """TC-E2E-247, TC-E2E-248 -- S-51: anyone reads a confirmed event's public
 page; an Attendee registers while registration is open, and is told when it
 isn't. TC-E2E-252 -- S-48: the registration then shows on the Attendee's
-dashboard and on the Organiser's own event page. TC-E2E-253 -- S-49: the
+dashboard and on the Organiser's own event page. TC-E2E-256 -- S-49: the
 Attendee's dashboard shows a confirmation of the registration.
 
 What only a browser proves: the public routes need no session, Kong serves
@@ -190,7 +190,7 @@ def test_a_registration_shows_on_the_attendees_dashboard_and_the_organisers_even
     expect(attendees.get_by_text(attendee["email"])).to_be_visible()
 
 
-# --- TC-E2E-253 -----------------------------------------------------------
+# --- TC-E2E-256 -----------------------------------------------------------
 def test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering(
     admin, page, make_user, sign_in
 ):
