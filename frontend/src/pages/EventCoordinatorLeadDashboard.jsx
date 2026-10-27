@@ -191,7 +191,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
           {state.status === 'ready' && state.coordinatorGroups.length > 0 && (
             <div className="space-y-6">
               {state.coordinatorGroups.map((group) => (
-                <article key={group.coordinator.id} aria-label={`${group.coordinator.name} coordinator overview`} className="rounded-sm p-5" style={{ backgroundColor: C.paperDim }}>
+                <article key={group.coordinator.id} data-coordinator-id={group.coordinator.id} aria-label={`${group.coordinator.name} coordinator overview`} className="rounded-sm p-5" style={{ backgroundColor: C.paperDim }}>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
                     <h3 className="font-display text-xl" style={{ color: C.ink }}>{group.coordinator.name}</h3>
                     <p className="font-ui text-sm" style={{ color: C.teal }}>{group.active_assignment_count} active {group.active_assignment_count === 1 ? 'assignment' : 'assignments'}</p>

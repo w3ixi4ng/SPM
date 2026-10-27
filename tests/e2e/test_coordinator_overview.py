@@ -3,9 +3,21 @@
 import re
 import uuid
 
+from playwright.sync_api import expect
+
 from .conftest import requires_env
 
 pytestmark = requires_env
+
+
+def coordinator_group(page, user: dict, name: str):
+    """Names can repeat across accounts in the shared test project; IDs cannot."""
+    group = page.locator(f'article[data-coordinator-id="{user["id"]}"]')
+    # The oversight list loads after the heading; on a cold stack that can
+    # take longer than Playwright's 5 s default.
+    expect(group).to_have_count(1, timeout=20000)
+    expect(group).to_have_attribute("aria-label", f"{name} coordinator overview")
+    return group
 
 
 def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
@@ -51,12 +63,8 @@ def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
         timeout=20000
     )
 
-    former_group = page.get_by_role(
-        "article", name="Alex Coordinator coordinator overview"
-    )
-    new_group = page.get_by_role(
-        "article", name="Blair Coordinator coordinator overview"
-    )
+    former_group = coordinator_group(page, former, "Alex Coordinator")
+    new_group = coordinator_group(page, new, "Blair Coordinator")
     former_group.get_by_text("1 active assignment", exact=True).wait_for(
         timeout=20000
     )
@@ -89,16 +97,14 @@ def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
     moved.get_by_text("Current Coordinator: Blair Coordinator", exact=True).wait_for()
 
     page.reload()
-    refreshed_new_group = page.get_by_role(
-        "article", name="Blair Coordinator coordinator overview"
-    )
+    refreshed_new_group = coordinator_group(page, new, "Blair Coordinator")
     refreshed_new_group.get_by_text("1 active assignment", exact=True).wait_for(
         timeout=20000
     )
     refreshed_new_group.get_by_text(event_name, exact=True).wait_for()
-    page.get_by_role(
-        "article", name="Alex Coordinator coordinator overview"
-    ).get_by_text("0 active assignments", exact=True).wait_for()
+    coordinator_group(page, former, "Alex Coordinator").get_by_text(
+        "0 active assignments", exact=True
+    ).wait_for()
 
 
 def test_lead_sees_profileless_coordinator_and_invalid_assignment_separately(
@@ -146,7 +152,7 @@ def test_lead_sees_profileless_coordinator_and_invalid_assignment_separately(
     sign_in(lead)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator-lead$"), timeout=20000)
 
-    former_group = page.get_by_role("article", name="Alex Coordinator coordinator overview")
+    former_group = coordinator_group(page, former, "Alex Coordinator")
     new_group = page.get_by_role(
         "article", name=f"{profileless['email']} coordinator overview"
     )
