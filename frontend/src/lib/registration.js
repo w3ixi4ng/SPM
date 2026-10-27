@@ -222,6 +222,18 @@ export function registrationStatusLabel(row) {
   return row.position ? `Waiting list · ${placeInLine(row.position)}` : 'Waiting list'
 }
 
+// S-56: what a "Your registrations" row shows under the event's name. A held
+// place shows when and where; a waiting-list entry shows when only. While a
+// significant change is re-checked, the details are withheld until confirmed.
+export const DETAILS_PENDING =
+  'Details to be confirmed. The date, time and venue will show here once the event is confirmed again.'
+
+export function registrationDetails(row) {
+  if (row?.details_confirmed === false) return { when: null, venue: null, pending: DETAILS_PENDING }
+  const venue = row?.status === 'waitlisted' ? null : row?.venue || 'Venue to be confirmed'
+  return { when: formatEventWhen(row), venue, pending: null }
+}
+
 export function attendeeCountLabel(count) {
   if (!count) return 'No one has registered yet.'
   return `${count} ${count === 1 ? 'attendee' : 'attendees'} registered`

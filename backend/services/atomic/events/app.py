@@ -49,6 +49,7 @@ from schemas import (
     OverlappingEvent,
     OverlappingEventsRequest,
     PublishedEventRead,
+    AttendeeEventRead,
     REGISTRATION_FIELDS,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
@@ -523,6 +524,30 @@ def get_published_event(event_id: UUID, db: Client = Depends(get_db)):
         .select(_PUBLISHED_COLUMNS)
         .eq("id", str(event_id))
         .eq("status", "confirmed")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found.")
+    return result.data[0]
+
+
+# S-56: what an event's registered Attendees see. Confirmed details are shown;
+# an event a significant S-18 change sent back for re-checking stays on their
+# list as "to be confirmed". Anything else is not theirs to see.
+ATTENDEE_VISIBLE_STATUSES = [
+    "confirmed", "planning", "pending_safety_check", "safety_changes_requested",
+]
+_ATTENDEE_COLUMNS = ",".join(AttendeeEventRead.model_fields)
+
+
+@app.get("/internal/events/attendee-view/{event_id}", response_model=AttendeeEventRead)
+def get_attendee_event(event_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(_ATTENDEE_COLUMNS)
+        .eq("id", str(event_id))
+        .in_("status", ATTENDEE_VISIBLE_STATUSES)
     )
     result = _execute(operation)
     if not result.data:

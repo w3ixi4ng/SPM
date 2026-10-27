@@ -76,7 +76,7 @@ def test_an_attendee_withdraws_and_the_next_in_line_gets_the_place(
     row = page.get_by_role("region", name="Your registrations").get_by_role(
         "listitem"
     ).filter(has_text=name)
-    expect(row.get_by_text("Confirmed")).to_be_visible(timeout=20000)
+    expect(row.get_by_text("Confirmed", exact=True)).to_be_visible(timeout=20000)
     inbox = page.get_by_role("region", name="Notifications")
     expect(inbox.get_by_text(
         f"A place opened up: you're now registered for {name}, "

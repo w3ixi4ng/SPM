@@ -141,3 +141,18 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; B and C joined at 1 and 2; A's withdrawal `200` `registered` false; A's status not registered or waiting and P gone from A's list; B registered, C waiting at 1; B's inbox held exactly one `waiting_list_promotion` for P with the expected opening, "venue to be confirmed", B's name and email; A's held none; second withdrawal `404`; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_withdrawing_frees_the_place_for_the_next_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-107 — the Attendee's list shows the primary venue, and hides details while re-checked
+
+- **Scenario:** Every service and the gateway agree on what a registered Attendee sees (S-56 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack; the S-51 to S-53 SQL already applied (no new SQL for S-56). Through the admin client: Organiser O; confirmed event P owned by O, registration open yesterday to tomorrow (SGT), starting ten days out; two venues, V1 and V2; a confirmed booking of V2 for P submitted `2026-10-03`, and a confirmed booking of V1 for P submitted `2026-10-01`; Attendee A.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As A, `GET /api/event-registrations/me/registrations`.
+  3. Set P to `planning`; repeat step 2.
+  4. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`; venue names `spm-test S56 V1 <hex>` and `spm-test S56 V2 <hex>`.
+- **Expected:** 1 → `201`. 2 → P's row has `"details_confirmed": true`, P's start and end dates and times, and `"venue"` V1's name. 3 → P's row is still listed with `"details_confirmed": false`, and its dates, times and `venue` all `null`. 4 leaves no rows.
+- **Actual:** `201`; P's row confirmed with its dates, 18:00:00–21:00:00 and V1's name; after `planning`, still listed with `details_confirmed` false and dates, times and venue null; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_the_attendees_list_shows_the_primary_venue_and_hides_details_while_rechecked; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; with the rest of this suite and `tests/integration/atomic/events`: 18 passed; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree

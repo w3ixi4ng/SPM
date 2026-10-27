@@ -66,6 +66,7 @@ because service ports are published for direct testing. See
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event without changing Coordinator assignment. |
 | `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
 | `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
+| `GET` | `/internal/events/attendee-view/{event_id}` | S-56: one event's public details plus its `status`, for its registered Attendees' list. `confirmed`, or `planning` / `pending_safety_check` / `safety_changes_requested` after a significant change; any other status is `404`. |
 
 Public event endpoints and the S-83/S-84/S-85/S-88 Lead routes authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
@@ -373,6 +374,13 @@ converted to Singapore time first.
 The rules apply to the record a `PATCH` produces, so moving the event's start
 before an existing closing date is refused too. Registration being off clears
 both dates, and the order of dates is not checked while it is off.
+
+S-56: `GET /internal/events/attendee-view/{id}` returns the same fields plus
+`"status"`, for an event that is `confirmed` or is being re-checked after a
+significant S-18 change (`planning`, `pending_safety_check`,
+`safety_changes_requested`). The `event_registrations` composite shows the
+details only while it is `confirmed`. Any other status is `404`
+"Event not found.".
 
 `GET /internal/events/published` and `GET /internal/events/published/{id}`
 return only `confirmed` events, and only their public fields:

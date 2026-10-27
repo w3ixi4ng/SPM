@@ -6,10 +6,12 @@ import {
   canWithdraw,
   closeRegistration,
   describeRegistration,
+  formatEventWhen,
   joinWaitingList,
   listEventAttendees,
   listMyRegistrations,
   registrationClosureControl,
+  registrationDetails,
   registrationStatusLabel,
   registrationCountdown,
   registrationWindow,
@@ -302,4 +304,49 @@ test('the withdraw confirmation says what happens', () => {
     withdrawPrompt({ name: 'Alumni networking evening' }),
     'Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list.',
   )
+})
+
+// --- S-56 -----------------------------------------------------------------
+
+const HELD = {
+  status: 'confirmed',
+  details_confirmed: true,
+  start_date: '2026-11-20',
+  start_time: '18:00:00',
+  end_date: '2026-11-20',
+  end_time: '21:00:00',
+  venue: 'Hall A',
+}
+
+// TC-FRONTEND-267
+test('a held place shows when and where', () => {
+  assert.deepEqual(registrationDetails(HELD), {
+    when: formatEventWhen(HELD), venue: 'Hall A', pending: null,
+  })
+  const unbooked = { ...HELD, venue: null }
+  assert.deepEqual(registrationDetails(unbooked), {
+    when: formatEventWhen(unbooked), venue: 'Venue to be confirmed', pending: null,
+  })
+})
+
+// TC-FRONTEND-268
+test('details being re-checked read to be confirmed', () => {
+  const row = {
+    status: 'confirmed', details_confirmed: false,
+    start_date: null, start_time: null, end_date: null, end_time: null, venue: null,
+  }
+  assert.deepEqual(registrationDetails(row), {
+    when: null,
+    venue: null,
+    pending:
+      'Details to be confirmed. The date, time and venue will show here once the event is confirmed again.',
+  })
+})
+
+// TC-FRONTEND-269
+test('a waiting-list entry shows no venue', () => {
+  const row = { ...HELD, status: 'waitlisted', position: 2, venue: null }
+  assert.deepEqual(registrationDetails(row), {
+    when: formatEventWhen(row), venue: null, pending: null,
+  })
 })

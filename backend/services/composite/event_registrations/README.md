@@ -5,7 +5,8 @@ them while registration is open. S-48: each registration can be read back by
 the Attendee who holds it and by the Organiser who owns the event. S-49: a
 recorded registration sends the Attendee an in-app confirmation. Owns no storage: event details and
 registration settings come from `events`, venue names from `bookings` and
-`venues`, the signed-in user from `users`, and places are written to
+`venues` (S-56: the Attendee's own list reads the primary venue's name from
+its booking), the signed-in user from `users`, and places are written to
 `registrations`, and confirmations to `notifications`.
 
 Browser-facing through Kong at `/api/event-registrations`.
@@ -20,7 +21,7 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered, or on the waiting list. |
 | `DELETE` | `/event-registrations/events/{event_id}/registration` | Attendee | S-53: withdraw the signed-in Attendee's place, until the event starts. The next Attendee waiting takes it and is notified. |
 | `POST` | `/event-registrations/events/{event_id}/waiting-list` | Attendee | S-50: join a full event's waiting list. |
-| `GET` | `/event-registrations/me/registrations` | Attendee | The confirmed events the signed-in Attendee is registered for or waiting for (S-52), soonest first. |
+| `GET` | `/event-registrations/me/registrations` | Attendee | The events the signed-in Attendee is registered for or waiting for (S-52), soonest first, with each held place's confirmed date, time and primary venue (S-56). |
 | `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
@@ -131,7 +132,9 @@ server's clock, opening is inclusive and closing is exclusive.
     "status": "confirmed",
     "registered_at": "2026-11-05T04:00:00Z",
     "joined_at": null,
-    "position": null
+    "position": null,
+    "details_confirmed": true,
+    "venue": "Seminar Room 2-1"
   },
   {
     "event_id": "88888888-8888-4888-8888-888888888888",
@@ -143,15 +146,30 @@ server's clock, opening is inclusive and closing is exclusive.
     "status": "waitlisted",
     "registered_at": null,
     "joined_at": "2026-11-06T04:00:00Z",
-    "position": 2
+    "position": 2,
+    "details_confirmed": true,
+    "venue": null
   }
 ]
 ```
 
 S-52: `status` is `confirmed` for a place and `waitlisted` for a waiting-list
 entry, which has `joined_at` and its place in line instead of
-`registered_at`. Only events that are still `confirmed` are listed. Answers `401` and `403`
-exactly as registering does.
+`registered_at`.
+
+S-56: `details_confirmed` is `true` while the event is `confirmed`. If a
+significant change sends it back for re-checking (`planning`,
+`pending_safety_check`, `safety_changes_requested`), a held place stays listed
+with `details_confirmed: false` and its dates, times and `venue` all `null`;
+a waiting-list entry is listed only while the event is `confirmed`. Cancelled
+and other events are not listed. `venue` is the primary venue, for a held
+place only: the confirmed booking made first (by `submitted_at`) until S-91
+records one, where a replacement booking (S-78) takes the place of the one it
+replaced. It is `null` while no booking is confirmed. Nothing else about the
+event or its bookings is included.
+
+Answers `401` and `403` exactly as registering does, and `502` "Bookings
+service unavailable" if the venue can't be read.
 
 **Withdrawal** (`200` from `DELETE /events/{event_id}/registration`): the
 Attendee's status afterwards, the same shape as the `GET`:

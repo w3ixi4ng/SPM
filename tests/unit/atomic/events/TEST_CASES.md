@@ -2886,3 +2886,31 @@ a terminal exclusion for any future lifecycle addition.
 - **Actual:** Missing and forged service credentials were denied; older internal create, submit and patch paths could not change Coordinator ownership. Expanded open states transferred with version checks, while stale and unrelated-Lead operations stayed blocked.
 - **Status:** Pass
 - **Evidence:** test_s93.py::test_direct_assignment_writes_require_service_credential; test_s93.py::test_older_internal_routes_cannot_change_coordinator_assignment; test_s93.py::test_reassignment_accepts_open_lifecycle_with_version_guard; test_s84.py::test_internal_reassignment_rejects_stale_or_same_owner_requests
+
+## S-56 — View Confirmed Event Details
+
+Developer decisions (2026-10-27): an event's date, time and venue are shown
+to its Attendees only while it is `confirmed`. An event a significant S-18
+change sent back for re-checking (`planning`, `pending_safety_check`, `safety_changes_requested`)
+stays on its Attendees' list as "Details to be confirmed". The composite reads
+that through a separate internal route that also says the status, so the
+public routes still show only confirmed events.
+
+## TC-EVENTS-187 — the Attendee read says whether the details are confirmed
+
+- **Scenario:** The composite can tell a settled event from one being re-checked, without seeing internal planning fields (S-56 AC2, AC4, AC5).
+- **Pre-conditions:** The fake returns event C as each status in the table.
+- **Steps:** `GET /internal/events/attendee-view/C`.
+- **Test data / Expected:**
+  | Status | Result |
+  | --- | --- |
+  | `confirmed`, `planning`, `pending_safety_check`, `safety_changes_requested` | `200` with the published fields plus `"status"` |
+  | `draft`, `submitted`, `under_review`, `preparation`, `rejected`, `returned`, `safety_rejected`, `cancelled` | `404` "Event not found." |
+  | No such event | `404` "Event not found." |
+
+  The `200` body has the same keys as `/internal/events/published/C`, plus
+  `status`. It has no `organiser_id`, `assigned_coordinator_id`,
+  `safety_decision_reason`, `edit_history` or other internal columns.
+- **Actual:** `planning` row → `200` with the published keys plus `status`; select lists exactly those columns, no internal ones; filtered on `id` and `status in` the four statuses. No row → `404` "Event not found.".
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s56.py::test_the_attendee_read_says_whether_the_details_are_confirmed, ::test_an_event_attendees_may_not_see_is_not_found; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree

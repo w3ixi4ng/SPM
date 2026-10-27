@@ -341,10 +341,11 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
     base = services["events"].get.side_effect
 
     async def events_get(path, **kwargs):
-        if path == f"/internal/events/published/{EVENT_G}":
+        if path == f"/internal/events/attendee-view/{EVENT_G}":
             return response(200, {**E_PUBLIC, "id": EVENT_G, "name": "Careers fair",
                                   "start_date": "2026-11-10", "start_time": "10:00:00",
-                                  "end_date": "2026-11-10", "end_time": "16:00:00"})
+                                  "end_date": "2026-11-10", "end_time": "16:00:00",
+                                  "status": "confirmed"})
         return await base(path, **kwargs)
 
     services["events"].get.side_effect = events_get
@@ -368,6 +369,9 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
         "registered_at": "2026-11-05T04:00:00Z",
         "joined_at": None,
         "position": None,
+        # S-56: the details are confirmed, and the place shows its venue.
+        "details_confirmed": True,
+        "venue": "Seminar Room 2-1",
     }
     services["registrations"].get.assert_any_call(f"/registrations/attendees/{ATTENDEE_A}")
 

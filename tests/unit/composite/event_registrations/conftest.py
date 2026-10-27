@@ -112,6 +112,11 @@ def services():
             return response(200, published())
         if path == f"/internal/events/published/{EVENT_F}":
             return response(200, EVENT_F_ROW)
+        # S-56: the Attendee's own list reads the event with its status.
+        if path == f"/internal/events/attendee-view/{EVENT_E}":
+            return response(200, {**published(), "status": "confirmed"})
+        if path == f"/internal/events/attendee-view/{EVENT_F}":
+            return response(200, {**EVENT_F_ROW, "status": "confirmed"})
         return response(404, {"detail": "Event not found."})
 
     events.get.side_effect = events_get
@@ -123,8 +128,10 @@ def services():
             return response(
                 200,
                 [
-                    {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed"},
-                    {"id": "b2", "venue_id": "rejected-venue", "status": "rejected"},
+                    {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed",
+                     "venue_name": "Seminar Room 2-1", "submitted_at": "2026-10-01T02:00:00Z"},
+                    {"id": "b2", "venue_id": "rejected-venue", "status": "rejected",
+                     "venue_name": "Rejected Room", "submitted_at": "2026-09-01T02:00:00Z"},
                 ],
             )
         return response(200, [])

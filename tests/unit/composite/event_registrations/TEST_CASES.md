@@ -683,3 +683,123 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
 - **Actual:** Both → `502` "Registrations service unavailable"; no notification.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_the_registrations_service_fails; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## S-56 — View Confirmed Event Details
+
+Developer decisions (2026-10-27): the details show on each card in "Your
+registrations" on the Attendee's dashboard (`GET /me/registrations`), not on a
+new page. Only an Attendee holding a place sees the venue. A waiting-list
+entry stays as S-52 left it: name, date and time, and its place in line, with
+no venue. The details are shown while the event is `confirmed`. If a
+significant change sends it back for re-checking
+(`planning`, `pending_safety_check`, `safety_changes_requested`), the place
+stays listed with `details_confirmed: false` and no date, time or venue,
+until it is confirmed again. A cancelled event is not listed, as before.
+
+The primary venue, until S-91 records one: the confirmed booking made first
+(earliest `submitted_at`). A booking that has been replaced (S-78) passes its
+place to the booking that replaced it. While a replacement is still being
+arranged, the original booking is still `confirmed`, so it is the one shown,
+with no warning. The public page keeps listing every confirmed venue.
+
+TC-EVENTREGISTRATIONS-016 and -029's expected rows gain `details_confirmed`
+and `venue`. Their tests were updated to match and still pass. TC-EVENTREGISTRATIONS-043
+was dropped before it was run (`preparation` is out of scope); the ID stays unused.
+
+Route: `GET /event-registrations/me/registrations`. Attendee A is signed in
+and holds a place at event E unless stated. The events fake answers
+`/internal/events/attendee-view/E` with E as `confirmed`. The bookings fake
+answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
+"Hall A", submitted `2026-10-01T02:00:00Z`.
+
+## TC-EVENTREGISTRATIONS-042 — a held place at a confirmed event shows date, time and venue
+
+- **Scenario:** The Attendee sees when and where to go (S-56 AC1).
+- **Pre-conditions:** As above.
+- **Steps:** `GET /event-registrations/me/registrations`.
+- **Expected:** `200`, one row: `"event_id": E`, `"start_date": "2026-11-20"`, `"start_time": "18:00:00"`, `"end_date": "2026-11-20"`, `"end_time": "21:00:00"`, `"status": "confirmed"`, `"details_confirmed": true`, `"venue": "Hall A"`.
+- **Actual:** `200`, one row for E with the 2026-11-20 18:00–21:00 dates and times, `details_confirmed` true, `venue` "Hall A"; bookings read once by `event_id`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_a_held_place_at_a_confirmed_event_shows_when_and_where; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-044 — an event sent back for re-checking shows "to be confirmed"
+
+- **Scenario:** Details that may be about to change are hidden until confirmed again, and the place stays listed (S-56 AC2, AC4).
+- **Pre-conditions:** As above, with E as each of `planning`, `pending_safety_check`, `safety_changes_requested`.
+- **Steps:** As TC-EVENTREGISTRATIONS-042, once per status.
+- **Expected:** Each → `200`, one row for E with `"status": "confirmed"`, `"details_confirmed": false`, and `start_date`, `start_time`, `end_date`, `end_time` and `venue` all `null`. `name` is still E's name.
+- **Actual:** All three statuses → the row stays listed with E's name, `details_confirmed` false, dates, times and `venue` null.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_an_event_being_rechecked_shows_details_to_be_confirmed (3 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-045 — the primary venue is the confirmed booking made first
+
+- **Scenario:** A multi-venue event shows one venue (S-56 AC3).
+- **Pre-conditions:** As above, with the bookings in each row, in the order given.
+- **Steps:** As TC-EVENTREGISTRATIONS-042, once per row.
+- **Test data / Expected:**
+  | Bookings for E | `venue` |
+  | --- | --- |
+  | "Room B" confirmed, submitted `2026-10-03`; "Hall A" confirmed, submitted `2026-10-01` | "Hall A" |
+  | "Room P" pending, submitted `2026-09-01`; "Room Q" held, submitted `2026-09-02`; "Room R" rejected, submitted `2026-09-03`; "Hall A" confirmed, submitted `2026-10-01` | "Hall A" |
+  | "Room P" pending only | `null`, still `"details_confirmed": true` |
+  | None | `null`, still `"details_confirmed": true` |
+- **Actual:** "Hall A", "Hall A", `null`, `null`; `details_confirmed` true in every row.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_primary_venue_is_the_confirmed_booking_made_first (4 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-046 — a venue issue shows only once the change is confirmed
+
+- **Scenario:** An unresolved venue issue is not shown; a confirmed replacement is (S-56 AC4).
+- **Pre-conditions:** As above, with the bookings in each row.
+- **Steps:** As TC-EVENTREGISTRATIONS-042, once per row.
+- **Test data / Expected:**
+  | Bookings for E | `venue` |
+  | --- | --- |
+  | H1 "Hall A" `confirmed`, submitted `2026-10-01` (an unavailable period overlaps it); H3 "Hall C" `pending`, `replaces_booking_id` H1, submitted `2026-10-10` | "Hall A" |
+  | H1 "Hall A" `replaced`, `replaced_by_booking_id` H3, submitted `2026-10-01`; H2 "Room B" `confirmed`, submitted `2026-10-03`; H3 "Hall C" `confirmed`, `replaces_booking_id` H1, submitted `2026-10-10` | "Hall C" (it took H1's place, ahead of H2) |
+
+  Neither row says anything about the unavailable period or the replacement.
+- **Actual:** Replacement pending → "Hall A"; replacement confirmed → "Hall C". Row keys unchanged, nothing about the issue.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_a_venue_issue_shows_only_once_the_change_is_confirmed (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-047 — a waiting-list entry shows no venue
+
+- **Scenario:** Only an Attendee holding a place sees the venue; a waiting Attendee sees they're waiting (S-56 developer decision).
+- **Pre-conditions:** A holds no place at E and is 2nd on its waiting list; E is `confirmed` with H1.
+- **Steps:** As TC-EVENTREGISTRATIONS-042.
+- **Expected:** `200`, one row for E with `"status": "waitlisted"`, `"position": 2`, E's dates and times as in TC-EVENTREGISTRATIONS-042, and `"venue": null`.
+- **Actual:** `waitlisted`, position 2, E's dates and times, `venue` null; bookings not read.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_a_waiting_list_entry_shows_no_venue; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-048 — no internal planning information
+
+- **Scenario:** The Attendee's list carries only what the card shows (S-56 AC5).
+- **Pre-conditions:** As above, with the events fake's E also carrying `purpose`, `expected_attendance` 120, `registration_closed_at` and `registration_required`, and H1 carrying `coordinator_name`, `coordinator_email`, `notes` and `special_requirements`.
+- **Steps:** As TC-EVENTREGISTRATIONS-042.
+- **Expected:** The row's keys are exactly `event_id`, `name`, `start_date`, `start_time`, `end_date`, `end_time`, `status`, `registered_at`, `joined_at`, `position`, `details_confirmed` and `venue`. None of the extra event or booking fields appear.
+- **Actual:** Exactly the twelve keys; none of the purpose, attendance, organiser, coordinator or booking notes in the row.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_list_carries_no_internal_planning_information; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-049 — a cancelled or closed event is not listed
+
+- **Scenario:** The list keeps its S-48 behaviour for events that are over (S-56 developer decision).
+- **Pre-conditions:** As above, with the events fake answering `404` for E (cancelled, rejected or otherwise not shown to Attendees).
+- **Steps:** As TC-EVENTREGISTRATIONS-042.
+- **Expected:** `200` `[]`.
+- **Actual:** `200` `[]`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_a_cancelled_or_closed_event_is_not_listed; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-050 — the bookings service fails
+
+- **Scenario:** A venue that can't be read is reported, not shown as "to be confirmed".
+- **Pre-conditions:** As above, with bookings answering `500`, then unreachable.
+- **Steps:** As TC-EVENTREGISTRATIONS-042, for each.
+- **Expected:** Both → `502` "Bookings service unavailable".
+- **Actual:** Both → `502` "Bookings service unavailable".
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_bookings_service_fails (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
