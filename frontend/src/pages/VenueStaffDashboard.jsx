@@ -11,9 +11,13 @@ import {
   clashReviewHeading,
   getClashesToReview,
   listPendingVenueBookings,
+  listVenuePreparationBookings,
   pendingListErrorMessage,
   pendingRequestPath,
   pendingRequestSummary,
+  updateVenuePreparation,
+  VENUE_PREPARATION_OPTIONS,
+  venuePreparationErrorMessage,
 } from '../lib/venueBookings.js'
 
 const C = {
@@ -58,6 +62,85 @@ function usePendingBookings(enabled) {
 
   const reload = useCallback(() => { load().then(setState) }, [load])
   return { ...state, reload }
+}
+
+function usePreparationBookings(enabled) {
+  const [state, setState] = useState({ bookings: [], loading: enabled, error: null })
+  const load = useCallback(() => listVenuePreparationBookings().then(
+    (bookings) => ({ bookings, loading: false, error: null }),
+    (error) => ({ bookings: [], loading: false, error: pendingListErrorMessage(error) }),
+  ), [])
+  useEffect(() => {
+    if (!enabled) return undefined
+    let active = true
+    load().then((next) => { if (active) setState(next) })
+    return () => { active = false }
+  }, [enabled, load])
+  const reload = useCallback(() => {
+    setState((current) => ({ ...current, loading: true, error: null }))
+    load().then(setState)
+  }, [load])
+  return { ...state, reload, setState }
+}
+
+function PreparationBookings({ state }) {
+  const [saving, setSaving] = useState(null)
+  async function change(booking, nextStatus) {
+    setSaving(booking.id)
+    try {
+      const updated = await updateVenuePreparation(
+        booking.id, nextStatus, booking.venue_preparation_version ?? 0,
+      )
+      state.setState((current) => ({
+        ...current,
+        error: null,
+        bookings: current.bookings.map((item) => item.id === updated.id ? updated : item),
+      }))
+    } catch (error) {
+      state.setState((current) => ({ ...current, error: venuePreparationErrorMessage(error) }))
+    } finally {
+      setSaving(null)
+    }
+  }
+  return (
+    <section className="max-w-3xl mb-12" aria-labelledby="preparation-heading">
+      <h2 id="preparation-heading" className="font-display text-3xl mb-2" style={{ color: C.ink }}>
+        Venue preparation
+      </h2>
+      <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>
+        Update each confirmed venue after its event reaches Preparation.
+      </p>
+      {state.loading && <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venue preparationâ€¦</p>}
+      {state.error && <p role="alert" className="font-ui text-sm mb-3" style={{ color: C.rose }}>{state.error}</p>}
+      {!state.loading && state.bookings.length === 0 && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venues currently need preparation.</p>
+      )}
+      <ul className="divide-y" aria-label="Venue preparation bookings">
+        {state.bookings.map((booking) => (
+          <li key={booking.id} className="py-4 flex flex-wrap items-center justify-between gap-4" style={{ borderColor: C.line }}>
+            <span>
+              <strong className="block font-ui text-sm" style={{ color: C.ink }}>{booking.venue_name}</strong>
+              <span className="block font-ui text-xs" style={{ color: C.inkFaint }}>{booking.event_name} {' / '} {booking.booking_date}</span>
+            </span>
+            <label className="font-ui text-xs" style={{ color: C.inkFaint }}>
+              <span className="sr-only">Preparation status for {booking.venue_name}, {booking.event_name}</span>
+              <select
+                value={booking.venue_preparation_status ?? 'not_started'}
+                disabled={saving === booking.id}
+                onChange={(event) => change(booking, event.target.value)}
+                className="border rounded-sm px-3 py-2 bg-white"
+                style={{ borderColor: C.line, color: C.ink }}
+              >
+                {VENUE_PREPARATION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 // S-75: one row per request. The details, hold and decision are on the
@@ -220,7 +303,9 @@ export default function VenueStaffDashboard({ role }) {
   const access = getRoleAccess(role)
   const canAdd = hasPermission(role, PERMISSIONS.CREATE_VENUE)
   const canSeePending = hasPermission(role, PERMISSIONS.VIEW_PENDING_VENUE_BOOKINGS)
+  const canPrepare = hasPermission(role, PERMISSIONS.UPDATE_VENUE_PREPARATION)
   const pending = usePendingBookings(canSeePending)
+  const preparation = usePreparationBookings(canPrepare)
   const review = useClashesToReview(canSeePending)
   const { venues, loading, error, reload } = useVenueList()
   const location = useLocation()
@@ -320,6 +405,8 @@ export default function VenueStaffDashboard({ role }) {
             />
           </section>
         )}
+
+        {canPrepare && <PreparationBookings state={preparation} />}
 
         {canSeePending && !review.loading && (review.error || review.venues.length > 0) && (
           <ClashesToReview venues={review.venues} error={review.error} onRetry={review.reload} />

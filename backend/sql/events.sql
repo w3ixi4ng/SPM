@@ -136,6 +136,10 @@ create table if not exists events.events (
   registration_required      boolean not null default false,
   registration_opens_at      timestamp without time zone,
   registration_closes_at     timestamp without time zone,
+  -- S-50: set when the Organiser closes registration early, cleared when
+  -- they reopen it. A real instant (timestamptz), unlike the period above:
+  -- it records when they did it, not a time on the event's own calendar.
+  registration_closed_at     timestamptz,
 
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
@@ -1121,3 +1125,19 @@ create index if not exists events_events_status_idx on events.events (status);
 notify pgrst, 'reload schema';
 commit;
 -- END S-51 REGISTRATION PERIOD
+
+-- BEGIN S-50 CLOSE REGISTRATION EARLY
+-- Existing installations: run through END S-50 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving: every existing event stays open.
+begin;
+alter table events.events
+  add column if not exists registration_closed_at timestamptz;
+
+-- Only an event that takes registrations can have it closed.
+alter table events.events drop constraint if exists events_registration_closed_needs_registration;
+alter table events.events add constraint events_registration_closed_needs_registration
+  check (registration_closed_at is null or registration_required);
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-50 CLOSE REGISTRATION EARLY

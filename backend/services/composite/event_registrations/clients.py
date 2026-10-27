@@ -32,6 +32,10 @@ def get_registrations_client() -> httpx.AsyncClient:
     return _client("REGISTRATIONS_SERVICE_URL")
 
 
+def get_notifications_client() -> httpx.AsyncClient:
+    return _client("NOTIFICATIONS_SERVICE_URL")
+
+
 def get_now() -> datetime:
     """The current instant, as a dependency so tests can fix the clock."""
     return datetime.now(timezone.utc)

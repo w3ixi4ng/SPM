@@ -7,9 +7,9 @@ Supabase clients mocked. They use no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Last run | 2026-10-27, S-93 merge tree of `5aed635` and `origin/sprint4` `0d143d7` |
 | Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
-| Result | 327 passed in this folder; 1,373 passed, 17 skipped across Python unit. |
+| Result | 343 passed in this folder; 1,503 passed, 17 skipped across Python unit. |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -2711,8 +2711,10 @@ case says otherwise, starts `2026-11-20` at `18:00`. "Today" is `2026-10-25`.
 - **Expected:** `200`. The query filters `status = confirmed`. Each item has
   exactly `id`, `name`, `purpose`, `start_date`, `start_time`, `end_date`,
   `end_time`, `registration_required`, `registration_opens_at`,
-  `registration_closes_at`. No `organiser_id`, `expected_attendance`,
-  contacts, `internal_notes`, or decision fields.
+  `registration_closes_at`, `expected_attendance`, `registration_closed_at`.
+  No `organiser_id`, contacts, `internal_notes`, or decision fields.
+  (Revised for S-50: the last two fields are added for the composite, which
+  never passes `expected_attendance` on -- see TC-EVENTS-183.)
 - **Actual:** `200`; the query filtered `status = confirmed` and selected exactly the ten public columns; both items had exactly those keys.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s51.py::test_published_events_list_only_confirmed_events_with_public_fields
@@ -2780,6 +2782,66 @@ Shared data: event `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, current Coordinator
 - **Actual:** A stale S-84 attempt returned 409; the pending row, owner and version remained unchanged.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## S-50 — Cap Registration at Capacity
+
+Event C below is owned by Organiser O, `confirmed`, registration on, opens
+`2026-11-01T09:00`, closes `2026-11-15T18:00`, `expected_attendance` 50,
+`registration_closed_at` null. Close and reopen live on the events service
+because it owns the event and its ownership check; Kong already routes
+`/api/events/...` there.
+
+## TC-EVENTS-180 — the Organiser closes registration early
+
+- **Scenario:** The Organiser can close registration before capacity is reached (S-50 AC4).
+- **Pre-conditions:** Signed in as O; the fake returns C, then C with the stamp written.
+- **Steps:** `PUT /events/C/registration-closure`.
+- **Test data:** No body.
+- **Expected:** `200`, the event with `registration_closed_at` set to the
+  current UTC time. The update wrote only `registration_closed_at`, filtered
+  on `id = C` and `organiser_id = O`. A second `PUT` on an already-closed
+  event → `200` with the original stamp unchanged (nothing written).
+- **Actual:** `200` with `registration_closed_at` set to now (UTC); only that column written, filtered on `id` and `organiser_id`; a second close returned the original stamp and wrote nothing.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py::test_the_organiser_closes_registration_early, ::test_closing_an_already_closed_event_keeps_the_first_time; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTS-181 — the Organiser reopens registration
+
+- **Scenario:** The close decision is the Organiser's, so they can undo it (S-50 AC4).
+- **Pre-conditions:** Signed in as O; C has `registration_closed_at` `2026-11-03T06:15:00+00:00`.
+- **Steps:** `DELETE /events/C/registration-closure`.
+- **Expected:** `200`, the event with `registration_closed_at` `null`; the
+  update wrote `{"registration_closed_at": null}` filtered on `id` and `organiser_id`.
+- **Actual:** `200` with `registration_closed_at` null; wrote `{"registration_closed_at": null}` on `id` and `organiser_id`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py::test_the_organiser_reopens_registration; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTS-182 — only the owning Organiser, and only on a confirmed event that takes registrations
+
+- **Scenario:** Nobody else makes the close decision, and it only applies where registration exists (S-50 AC4).
+- **Pre-conditions / Steps / Expected:** each of `PUT` and `DELETE /events/C/registration-closure`:
+  1. No session → `401`.
+  2. Signed in as an Attendee or an Event Coordinator → `403`.
+  3. Signed in as Organiser O2 (the fake finds no event for O2) → `404` "Event not found".
+  4. As O, C is `planning` → `409` "Registration can only be closed or reopened on a confirmed event that takes registrations."
+  5. As O, C is confirmed with `registration_required` false → the same `409`.
+  Nothing is written in any of them.
+- **Actual:** PUT and DELETE alike: `401`, `403` for Attendee and Coordinator, `404` for O2, `409` with the stated message for `planning` and for registration off; nothing written.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py (the four TC-EVENTS-182 tests); 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTS-183 — the internal published read carries what the cap needs
+
+- **Scenario:** The composite gets the cap and the close decision from the same event record (S-50 AC3).
+- **Pre-conditions:** The fake returns C with `registration_closed_at` `2026-11-03T06:15:00+00:00`.
+- **Steps:** `GET /internal/events/published/C`; `GET /internal/events/published`.
+- **Expected:** Both include `"expected_attendance": 50` and
+  `"registration_closed_at": "2026-11-03T06:15:00Z"` (any equivalent ISO form),
+  and the select lists both columns. Still no `organiser_id`.
+- **Actual:** Both reads carried `expected_attendance` 50 and the closed stamp; both columns selected; no `organiser_id`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py::test_the_published_read_carries_the_cap_and_the_close_decision; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
 ## S-93 confirmed specification — selected Coordinator event inventory
 
 Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
@@ -2792,7 +2854,7 @@ responsible-Lead write rule. Open assignment states are `submitted`,
 `completed` is not currently an Events schema value; it is specified here as
 a terminal exclusion for any future lifecycle addition.
 
-## TC-EVENTS-180 — selected Coordinator inventory has the complete open lifecycle
+## TC-EVENTS-184 — selected Coordinator inventory has the complete open lifecycle
 
 - **Scenario:** A Lead's S-93 selected-Coordinator inventory finds every assigned open event and excludes terminal work.
 - **Pre-conditions:** Fake Events storage has one row in each listed open state and one each in `draft`, `completed`, `cancelled`, and `rejected`; every row except the draft belongs to Coordinator A.
@@ -2803,7 +2865,7 @@ a terminal exclusion for any future lifecycle addition.
 - **Status:** Pass
 - **Evidence:** test_s93.py::test_selected_coordinator_inventory_uses_all_open_states_and_limited_fields
 
-## TC-EVENTS-181 — cross-Lead inventory is read-only and ordinary scope stays narrow
+## TC-EVENTS-185 — cross-Lead inventory is read-only and ordinary scope stays narrow
 
 - **Scenario:** The S-93 cross-Lead summary does not grant cross-Lead event access or reassignment authority.
 - **Pre-conditions:** Coordinator A owns Event 1 assigned by Lead A and Event 2 assigned by Lead B; Event 3 is legacy with no `assigning_lead_id`.
@@ -2814,7 +2876,7 @@ a terminal exclusion for any future lifecycle addition.
 - **Status:** Pass
 - **Evidence:** test_s93.py::test_selected_inventory_denies_non_leads_and_anonymous_callers; test_s85.py::test_internal_oversight_uses_all_open_active_statuses; test_s84.py::test_internal_reassignment_rejects_unrelated_lead_and_legacy_event
 
-## TC-EVENTS-182 — S-84 can transfer every open lifecycle state safely
+## TC-EVENTS-186 — S-84 can transfer every open lifecycle state safely
 
 - **Scenario:** The existing versioned S-84 write handles the open states newly needed by S-93.
 - **Pre-conditions:** Event 1 is assigned to A by Lead A at version 2 in each eligible state; fake storage models one compare-and-set winner and a stale loser.

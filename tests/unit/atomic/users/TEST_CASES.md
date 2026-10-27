@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Last run | 2026-10-27, S-93 merge tree of `5aed635` and `origin/sprint4` `0d143d7` |
 | Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
-| Result | 38 passed in this folder; 1,373 passed, 17 skipped across Python unit. |
+| Result | 38 passed in this folder; 1,503 passed, 17 skipped across Python unit. |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.

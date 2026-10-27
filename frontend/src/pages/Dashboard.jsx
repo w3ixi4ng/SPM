@@ -12,6 +12,7 @@ import {
   organiserStatusMeta,
   organiserTabs,
 } from '../lib/eventRequests.js'
+import { formatEventWhen, listMyRegistrations, registrationStatusLabel } from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -32,6 +33,86 @@ const ORGANISER_CAPABILITIES = [
   [PERMISSIONS.SUBMIT_OWN_EVENT, 'Submit your own requests'],
   [PERMISSIONS.REQUEST_EVENT_CANCELLATION, 'Request cancellation of your events'],
 ]
+
+// S-48: the events this Attendee holds a place at, soonest first. S-52: and
+// the ones they are waiting for, each marked as one or the other.
+function MyRegistrations() {
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [state, setState] = useState({ status: 'loading', registrations: [] })
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading', registrations: [] })
+    listMyRegistrations()
+      .then((registrations) => {
+        if (active) setState({ status: 'ready', registrations })
+      })
+      .catch((error) => {
+        if (active) setState({ status: 'error', registrations: [], message: error.message })
+      })
+    return () => {
+      active = false
+    }
+  }, [loadAttempt])
+
+  return (
+    <section aria-labelledby="my-registrations-heading" className="mt-10 max-w-2xl">
+      <h2 id="my-registrations-heading" className="font-display text-2xl mb-4" style={{ color: C.ink }}>
+        Your registrations
+      </h2>
+      {state.status === 'loading' && (
+        <p className="flex items-center gap-2 font-ui text-sm" style={{ color: C.inkFaint }}>
+          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+          Loading your registrations…
+        </p>
+      )}
+      {state.status === 'error' && (
+        <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          <p role="alert">We couldn&apos;t load your registrations. {state.message}</p>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt((n) => n + 1)}
+            className="mt-3 px-4 py-2 rounded-sm border font-medium"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {state.status === 'ready' && state.registrations.length === 0 && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          You haven&apos;t registered for any events yet.
+        </p>
+      )}
+      {state.status === 'ready' && state.registrations.length > 0 && (
+        <ul className="divide-y border-t border-b" style={{ borderColor: C.line }}>
+          {state.registrations.map((registration) => (
+            <li key={registration.event_id} className="py-4" style={{ borderColor: C.line }}>
+              <Link
+                to={`/public/events/${registration.event_id}`}
+                className="font-ui text-base font-medium underline-offset-2 hover:underline"
+                style={{ color: C.ink }}
+              >
+                {registration.name || 'Untitled event'}
+              </Link>
+              <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+                {formatEventWhen(registration)}
+              </p>
+              <p className="mt-1 flex items-center gap-2 font-ui text-xs" style={{ color: C.inkFaint }}>
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: registration.status === 'waitlisted' ? C.amber : C.green }}
+                  aria-hidden="true"
+                />
+                {registrationStatusLabel(registration)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
 
 function EventRequestList({ refreshAuth }) {
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -295,7 +376,7 @@ export default function Dashboard({ role }) {
           </p>
         </div>
 
-        {role === 'event_organiser' && <NotificationPanel />}
+        {(role === 'event_organiser' || role === 'attendee') && <NotificationPanel />}
 
         {hasPermission(role, PERMISSIONS.CREATE_EVENT) ? (
           <div className="space-y-6">
@@ -336,22 +417,25 @@ export default function Dashboard({ role }) {
             <EventRequestList refreshAuth={refresh} />
           </div>
         ) : role === 'attendee' ? (
-          <section className="border rounded-sm p-8 max-w-2xl" style={{ borderColor: C.line }}>
-            <h2 className="font-display text-2xl mb-3" style={{ color: C.ink }}>
-              Events you can attend
-            </h2>
-            <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
-              See every confirmed event and register while its registration is open.
-            </p>
-            <Link
-              to="/public/events"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui text-sm font-medium text-white"
-              style={{ backgroundColor: C.teal }}
-            >
-              Browse events
-              <ArrowRight size={16} aria-hidden="true" />
-            </Link>
-          </section>
+          <>
+            <section className="border rounded-sm p-8 max-w-2xl" style={{ borderColor: C.line }}>
+              <h2 className="font-display text-2xl mb-3" style={{ color: C.ink }}>
+                Events you can attend
+              </h2>
+              <p className="font-ui text-sm leading-relaxed mb-6" style={{ color: C.inkFaint }}>
+                See every confirmed event and register while its registration is open.
+              </p>
+              <Link
+                to="/public/events"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui text-sm font-medium text-white"
+                style={{ backgroundColor: C.teal }}
+              >
+                Browse events
+                <ArrowRight size={16} aria-hidden="true" />
+              </Link>
+            </section>
+            <MyRegistrations />
+          </>
         ) : (
           <section className="border rounded-sm p-8 max-w-2xl" style={{ borderColor: C.line }}>
             <h2 className="font-display text-2xl mb-3" style={{ color: C.ink }}>

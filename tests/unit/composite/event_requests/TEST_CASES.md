@@ -7,9 +7,9 @@ clients are faked; no network, database, or Docker.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Last run | 2026-10-27, S-93 merge tree of `5aed635` and `origin/sprint4` `0d143d7` |
 | Environment | Python 3.14.8, pytest 9.1.1; mocked HTTP services; no network, database or Docker. |
-| Result | 128 passed, 17 skipped in this folder; 1,373 passed, 17 skipped across Python unit. |
+| Result | 128 passed, 17 skipped in this folder; 1,503 passed, 17 skipped across Python unit. |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the

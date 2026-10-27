@@ -2011,3 +2011,24 @@ submission can be cleared. Everything else about S-78 is unchanged.
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_one_waiting_replacement_for_rejected_booking`
+## S-25 - Update Venue Preparation Status
+
+### TC-VENUEBOOKINGS-117 - staff update a confirmed booking in Preparation
+- **Expected:** Verified Venue Staff can save a valid state when the event is `preparation` and the booking is `confirmed`.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_staff_updates_confirmed_booking_during_preparation`.
+
+### TC-VENUEBOOKINGS-118 - updates are limited to the Preparation stage
+- **Expected:** Attempts before or after `preparation` return `409` and do not write.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_update_is_limited_to_event_preparation`.
+
+### TC-VENUEBOOKINGS-119 - only Venue Staff can update preparation
+- **Expected:** No session returns `401`; every other role returns `403`.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_only_venue_staff_can_update`.
+
+### TC-VENUEBOOKINGS-120 - only live confirmed bookings can be prepared
+- **Expected:** Pending, held, rejected, replaced, and missing bookings cannot be updated.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_nonconfirmed_bookings_are_refused`.

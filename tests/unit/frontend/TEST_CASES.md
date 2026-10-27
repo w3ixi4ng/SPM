@@ -14,9 +14,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Last run | 2026-10-27, S-93 merge tree of `5aed635` and `origin/sprint4` `0d143d7` |
 | Environment | Node 22; local source imports; no browser or network. |
-| Result | 178 passed across frontend unit. |
+| Result | 194 passed across frontend unit. |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -2451,17 +2451,17 @@ Confirmed by the developer on 2026-10-11.
 
 ## TC-FRONTEND-146 — the period is described in words Attendees can read
 
-- **Scenario:** The configured period is visible and the blocked messages match the service's (S-51 AC3, AC4).
+- **Scenario:** The configured period is visible and the blocked messages match the service's (S-51 AC3, AC4; S-48 AC2).
 - **Pre-conditions:** As TC-FRONTEND-144.
 - **Steps:** Call `describeRegistration(event, now)` for each state.
 - **Expected:**
   - Period → "Registration opens 1 Nov 2026, 9:00 am and closes 15 Nov 2026, 6:00 pm."
-  - `not_open` status line → "Registration opens on 1 Nov 2026, 9:00 am."
-  - `closed` status line → "Registration closed on 15 Nov 2026, 6:00 pm."
+  - `not_open` status line → "Registration hasn't opened yet. It's open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
+  - `closed` status line → "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
   - `not_required` → "This event doesn't need registration." and no period line.
-- **Actual:** The period, both status lines and the no-registration text matched exactly.
+- **Actual:** The period, the whole-window not-open and closed status lines, and the no-registration text matched exactly.
 - **Status:** Pass
-- **Evidence:** test_registration.mjs::the period is described in words Attendees can read
+- **Evidence:** test_registration.mjs::the period is described in words Attendees can read; 2026-10-25, branch `S-48/register-for-event`
 
 ## S-88 confirmed specification — reassignment request UI
 
@@ -2489,6 +2489,183 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_reassignment_requests.mjs; tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states`; 2026-10-25.
 
+## S-25 - Update Venue Preparation Status
+
+### TC-FRONTEND-251 - readiness shows every confirmed venue's status
+- **Expected:** Each confirmed booking is listed separately as Not Started, In Progress, or Ready.
+- **Status:** Pass.
+- **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
+
+### TC-FRONTEND-252 - venue readiness requires every confirmed venue
+- **Expected:** Venue is complete only when at least one confirmed booking exists and all are Ready.
+- **Status:** Pass.
+- **Evidence:** `test_event_readiness.mjs::venue readiness lists every confirmed venue and waits for all to be ready`.
+
+### TC-FRONTEND-253 - staff preparation updates use the gateway
+- **Expected:** The browser sends the state and expected version and reports success or a specific failure.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.mjs::venue preparation calls use the gateway and optimistic version`; `test_venue_preparation.mjs::venue preparation labels and failures stay specific`; `test_access.mjs::only venue staff update venue preparation`.
+
+## S-48 — Register for Event
+
+Specification confirmed by the developer before code. Covers `test_registration.mjs`.
+
+## TC-FRONTEND-254 — the registration lists are read from the composite
+
+- **Scenario:** The dashboard and the Organiser's event page read the S-48 lists (S-48 AC3).
+- **Pre-conditions:** `fetch` is faked.
+- **Steps:** Call `listMyRegistrations()` and `listEventAttendees(id)`.
+- **Test data:** id `22222222-2222-4222-8222-222222222222`.
+- **Expected:** `GET /api/event-registrations/me/registrations` and
+  `GET /api/event-registrations/events/22222222-2222-4222-8222-222222222222/attendees`,
+  each with `credentials: "include"`; the parsed body is returned.
+- **Actual:** Both helpers called the expected `/api/event-registrations/...` paths with `credentials: "include"` and returned the parsed body.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the registration lists are read from the composite; 2026-10-25, branch `S-48/register-for-event`
+
+## TC-FRONTEND-255 — the attendee count reads as a sentence
+
+- **Scenario:** The Organiser's list states how many have registered.
+- **Pre-conditions:** None.
+- **Steps:** Call `attendeeCountLabel(n)`.
+- **Test data / Expected:** `0` → "No one has registered yet."; `1` → "1
+  attendee registered"; `2` → "2 attendees registered".
+- **Actual:** "No one has registered yet.", "1 attendee registered", "2 attendees registered".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the attendee count reads as a sentence; 2026-10-25, branch `S-48/register-for-event`
+
+## S-50 — Cap Registration at Capacity
+
+All in `frontend/src/lib/registration.js`, tested in `test_registration.mjs`.
+Event E: registration on, opens `2026-11-01T09:00`, closes `2026-11-15T18:00`;
+"now" `2026-11-05T04:00:00Z` (12:00 SGT) unless stated.
+
+## TC-FRONTEND-256 — a full event's status offers the waiting list
+
+- **Scenario:** The page says the event is full and points to the waiting list (S-50 AC1, AC2).
+- **Steps:** `describeRegistration({...E, is_full: true, registration_closed_by_organiser: false}, now)` and `registrationCountdown(...)` on the same.
+- **Expected:** `state` `"full"`, `status` "This event is full. You can join
+  the waiting list."; countdown `null`.
+- **Actual:** `full`, the full message, no countdown.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a full event's status offers the waiting list; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-257 — registration closed by the Organiser, and which message wins
+
+- **Scenario:** An Organiser's close shows its own message, with no waiting list offered (S-50 AC4; developer's answer, 2026-10-26).
+- **Steps / Expected:** `describeRegistration(event, now)`:
+  1. E closed by the Organiser, not full → `state` `"closed_by_organiser"`, `status` "The organiser has closed registration for this event."; countdown `null`.
+  2. E closed by the Organiser **and** full → the same as 1 (no waiting list).
+  3. E closed by the Organiser, now `2026-11-16T04:00:00Z` (period over) → `state` `"closed"`, "Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm."
+  4. E full, now `2026-10-30T04:00:00Z` (not open yet) → `state` `"not_open"`.
+- **Actual:** 1 and 2 → `closed_by_organiser` with its message; 3 → `closed` with the window; 4 → `not_open`.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::registration closed by the Organiser, and which message wins; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-258 — when the Organiser can close or reopen, and what it says
+
+- **Scenario:** The Organiser's control appears only where it means something (S-50 AC4).
+- **Steps / Expected:** `registrationClosureControl(event, now)`:
+  1. E `confirmed`, not closed → `{ action: "close", status: null }`.
+  2. E `confirmed`, `registration_closed_at` `2026-11-03T06:15:00+00:00` →
+     `{ action: "reopen", status: "You closed registration on 3 Nov 2026, 2:15 pm. Attendees can't register until you reopen it." }`
+     (the stamp shown in Singapore time).
+  3. E `planning` → `null`. 4. E with registration off → `null`.
+  5. E `confirmed`, now `2026-11-16T04:00:00Z` (period over) → `null`.
+- **Actual:** 1 → close; 2 → reopen with "You closed registration on 3 Nov 2026, 2:15 pm. …"; 3–5 → `null`.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::when the Organiser can close or reopen, and what it says; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-259 — the waiting list and close/reopen calls go to the right services
+
+- **Scenario:** Each new helper calls its gateway path.
+- **Steps / Expected:** with `fetch` stubbed:
+  `joinWaitingList("E")` → `POST /api/event-registrations/events/E/waiting-list`;
+  `closeRegistration("E")` → `PUT /api/events/E/registration-closure`;
+  `reopenRegistration("E")` → `DELETE /api/events/E/registration-closure`;
+  each with `credentials: "include"`, returning the parsed body.
+- **Actual:** POST …/waiting-list, PUT and DELETE /api/events/E/registration-closure, all with credentials.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the waiting list and close/reopen calls go to the right services; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-FRONTEND-260 — the waiting-list count reads as a sentence
+
+- **Scenario:** The Organiser's waiting list states how many are waiting.
+- **Steps:** `waitingListLabel(n)`.
+- **Test data / Expected:** `0` → "No one is on the waiting list."; `1` → "1
+  person on the waiting list"; `3` → "3 people on the waiting list".
+- **Actual:** "No one is on the waiting list.", "1 person on the waiting list", "3 people on the waiting list".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the waiting-list count reads as a sentence; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## S-52 — Join Waiting List
+
+Developer's answers, 2026-10-26: the event page reads "You're on the waiting
+list. You're 3rd in line." (1st reads "You're next in line."); the dashboard
+row reads "Confirmed" (green dot) or "Waiting list · 3rd in line" (amber dot).
+
+## TC-FRONTEND-261 — the place in line reads as a sentence
+
+- **Scenario:** The waitlisted Attendee's place is stated plainly on the event page (S-52 AC2, AC3).
+- **Steps:** `waitingListPlace(n)`.
+- **Test data / Expected:**
+  | `n` | Result |
+  | --- | --- |
+  | `1` | "You're next in line." |
+  | `2` | "You're 2nd in line." |
+  | `3` | "You're 3rd in line." |
+  | `4` | "You're 4th in line." |
+  | `11`, `12`, `13` | "You're 11th in line.", "You're 12th in line.", "You're 13th in line." |
+  | `21`, `22`, `23` | "You're 21st in line.", "You're 22nd in line.", "You're 23rd in line." |
+  | `111` | "You're 111th in line." |
+  | `null` | "" |
+- **Actual:** Every row matched; `null` → "".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the place in line reads as a sentence; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## TC-FRONTEND-262 — a dashboard row says confirmed or waiting
+
+- **Scenario:** Each "Your registrations" row says whether the place is confirmed or on the waiting list (S-52 AC3).
+- **Steps:** `registrationStatusLabel(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{status: "confirmed"}` | "Confirmed" |
+  | `{status: "waitlisted", position: 1}` | "Waiting list · next in line" |
+  | `{status: "waitlisted", position: 3}` | "Waiting list · 3rd in line" |
+  | `{status: "waitlisted", position: null}` | "Waiting list" |
+- **Actual:** "Confirmed", "Waiting list · next in line", "Waiting list · 3rd in line", "Waiting list".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a dashboard row says confirmed or waiting; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## S-53 — Withdraw Registration
+
+## TC-FRONTEND-263 — withdrawing is offered until the event starts
+
+- **Scenario:** The event page offers **Withdraw registration** only before the event's start in Singapore time, the same cutoff the service enforces (S-53 AC1). Outside it, the button is hidden rather than disabled.
+- **Steps:** `canWithdraw(event, now)`.
+- **Test data / Expected:** `event` starts `2026-11-20` `18:00:00`.
+  | `now` (UTC instant) | Result |
+  | --- | --- |
+  | `2026-11-20T09:59:00Z` (17:59 SGT) | `true` |
+  | `2026-11-20T10:00:00Z` (18:00 SGT) | `false` |
+  | `2026-11-21T01:00:00Z` | `false` |
+  | `2026-11-16T04:00:00Z` (after registration closed) | `true` |
+  | Event with no `start_date` / `start_time` yet | `true` |
+- **Actual:** `true`, `false`, `false`, `true`, `true`; `withdrawRegistration` sends `DELETE /api/event-registrations/events/E/registration`.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::withdrawing is offered until the event starts; ::withdrawing goes to the composite; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-FRONTEND-264 — the withdraw confirmation says what happens
+
+- **Scenario:** Before withdrawing, the inline confirmation names the event and says where the place goes (S-53 AC3).
+- **Steps:** `withdrawPrompt(event)`.
+- **Test data:** `{name: "Alumni networking evening"}`.
+- **Expected:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
+- **Actual:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the withdraw confirmation says what happens; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
 ## S-93 confirmed specification — leaving Coordinator Lead view
 
 Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
@@ -2496,7 +2673,7 @@ Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
 existing Lead dashboard. Only the selected-Coordinator summary may cross
 Lead boundaries; ordinary oversight and S-84 controls remain scoped.
 
-## TC-FRONTEND-251 — selection, counts, warning and data-loading states
+## TC-FRONTEND-265 — selection, counts, warning and data-loading states
 
 - **Scenario:** The Lead can understand a selected Coordinator's active workload and whether it needs reassignment.
 - **Pre-conditions:** API helper is faked with loading, empty, populated, and error results; A is inactive with two active events under different Leads, B is active with none.
@@ -2507,7 +2684,7 @@ Lead boundaries; ordinary oversight and S-84 controls remain scoped.
 - **Status:** Pass
 - **Evidence:** test_event_assignments.mjs::S-93 selected inventory uses the dedicated composite route with cookies; test_event_assignments.mjs::S-93 dashboard offers a selected inventory and keeps cross-Lead rows read-only
 
-## TC-FRONTEND-252 — only active replacements appear and outcomes update correctly
+## TC-FRONTEND-266 — only active replacements appear and outcomes update correctly
 
 - **Scenario:** The existing S-84 control is the only ownership-changing action in the Lead dashboard.
 - **Pre-conditions:** A is inactive and owns one L1 event at version 2; C is active, B inactive; the S-84 API is faked for success then stale failure.

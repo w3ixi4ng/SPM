@@ -52,7 +52,9 @@ def sgt_now() -> datetime:
     return datetime.now(SGT).replace(tzinfo=None, second=0, microsecond=0)
 
 
-def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: datetime) -> str:
+def confirmed_event(
+    admin, organiser_id: str, *, opens: datetime, closes: datetime, expected_attendance: int = 40
+) -> str:
     """A confirmed event starting ten days out, with the given period."""
     start = sgt_now() + timedelta(days=10)
     return admin.schema("events").table("events").insert({
@@ -64,7 +66,7 @@ def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: dateti
         "start_time": "18:00",
         "end_date": start.date().isoformat(),
         "end_time": "21:00",
-        "expected_attendance": 40,
+        "expected_attendance": expected_attendance,
         "submitted_at": "2026-10-01T00:00:00Z",
         "decision": "approved",
         "decided_at": "2026-10-02T00:00:00Z",
@@ -99,5 +101,50 @@ def attendee(admin, auth_client):
     finally:
         admin.schema("registrations").table("registrations").delete().eq(
             "attendee_id", user_id
+        ).execute()
+        # S-49: registering leaves a confirmation in the Attendee's inbox.
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user_id
+        ).execute()
+        admin.auth.admin.delete_user(user_id)
+
+
+@pytest.fixture
+def make_account(admin, auth_client):
+    """S-48: signed-in accounts with a given role and profile name."""
+    made = []
+
+    def make(role: str, name: str) -> dict:
+        email = f"spm-test-registration-{uuid.uuid4().hex[:10]}@example.com"
+        created = admin.auth.admin.create_user({
+            "email": email,
+            "password": PASSWORD,
+            "email_confirm": True,
+            "app_metadata": {"role": role},
+        })
+        user_id = str(created.user.id)
+        made.append(user_id)
+        admin.schema("users").table("users").insert(
+            {"id": user_id, "name": name, "email": email}
+        ).execute()
+        signed_in = auth_client.auth.sign_in_with_password({"email": email, "password": PASSWORD})
+        return {
+            "id": user_id,
+            "name": name,
+            "email": email,
+            "headers": {"Cookie": f"sb_access_token={signed_in.session.access_token}"},
+        }
+
+    yield make
+    for user_id in made:
+        admin.schema("registrations").table("registrations").delete().eq(
+            "attendee_id", user_id
+        ).execute()
+        admin.schema("registrations").table("waiting_list").delete().eq(
+            "attendee_id", user_id
+        ).execute()
+        # S-49: registering leaves a confirmation in the Attendee's inbox.
+        admin.schema("notifications").table("notifications").delete().eq(
+            "recipient_id", user_id
         ).execute()
         admin.auth.admin.delete_user(user_id)

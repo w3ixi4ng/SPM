@@ -6,6 +6,7 @@ export const PERMISSIONS = Object.freeze({
   UPDATE_OWN_EVENT_DRAFT: 'events:update_own_draft',
   SUBMIT_OWN_EVENT: 'events:submit_own',
   REQUEST_EVENT_CANCELLATION: 'events:request_cancellation',
+  CLOSE_REGISTRATION: 'events:close_registration',
   CREATE_VENUE: 'venues:create',
   UPDATE_VENUE: 'venues:update',
   VIEW_VENUES: 'venues:view',
@@ -24,6 +25,7 @@ export const PERMISSIONS = Object.freeze({
   MANAGE_VENUE_HOLDS: 'venue_bookings:manage_holds',
   VIEW_VENUE_AVAILABILITY: 'venue_bookings:view_availability',
   MANAGE_VENUE_BLOCKS: 'venue_bookings:manage_blocks',
+  UPDATE_VENUE_PREPARATION: 'venue_bookings:update_preparation',
   CREATE_EQUIPMENT: 'equipment:create',
   UPDATE_EQUIPMENT: 'equipment:update',
   RETIRE_EQUIPMENT: 'equipment:retire',
@@ -57,6 +59,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.UPDATE_OWN_EVENT_DRAFT,
       PERMISSIONS.SUBMIT_OWN_EVENT,
       PERMISSIONS.REQUEST_EVENT_CANCELLATION,
+      PERMISSIONS.CLOSE_REGISTRATION,
     ]),
   }),
   event_coordinator: Object.freeze({
@@ -101,6 +104,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.MANAGE_VENUE_HOLDS,
       PERMISSIONS.VIEW_VENUE_AVAILABILITY,
       PERMISSIONS.MANAGE_VENUE_BLOCKS,
+      PERMISSIONS.UPDATE_VENUE_PREPARATION,
     ]),
   }),
   technical_support: Object.freeze({

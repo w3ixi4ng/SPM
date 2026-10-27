@@ -249,6 +249,9 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
 
     page.get_by_role("link", name="Back to safety checks").click()
     page.get_by_role("button", name="Sign out").click()
+    # Wait for the logout to land: its cookie-clearing response would
+    # otherwise sign out the next account too.
+    page.wait_for_url(re.compile(r"/login$"), timeout=20000)
     sign_in(coordinator)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
     page.get_by_role("tab", name="Events").click()
@@ -281,6 +284,9 @@ def test_safety_changes_return_to_coordinator_and_receive_a_fresh_approval(
 
     page.get_by_role("link", name="Back to workspace").click()
     page.get_by_role("button", name="Sign out").click()
+    # Wait for the logout to land: its cookie-clearing response would
+    # otherwise sign out the next account too.
+    page.wait_for_url(re.compile(r"/login$"), timeout=20000)
     sign_in(officer)
     page.wait_for_url(re.compile(r"/dashboard/safety-officer$"), timeout=20000)
     page.get_by_role("link", name=re.compile(event_name)).click()

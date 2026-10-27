@@ -413,6 +413,8 @@ class EventRead(BaseModel):
     registration_required: bool = False
     registration_opens_at: datetime | None = None
     registration_closes_at: datetime | None = None
+    # S-50: when the Organiser closed registration early; null while open.
+    registration_closed_at: datetime | None = None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
@@ -422,8 +424,13 @@ class EventRead(BaseModel):
 
 class PublishedEventRead(BaseModel):
     """S-51: a confirmed event's public details -- what anyone may read
-    without signing in. Nothing about who organises it, how many are
-    expected, or how it is being run."""
+    without signing in. Nothing about who organises it or how it is being
+    run.
+
+    S-50: internal only, so it also carries the cap and the Organiser's close
+    decision for the event_registrations composite; that composite turns
+    them into `is_full` and `registration_closed_by_organiser` and never
+    passes the attendance figure on."""
 
     id: UUID
     name: str | None
@@ -435,6 +442,8 @@ class PublishedEventRead(BaseModel):
     registration_required: bool
     registration_opens_at: datetime | None
     registration_closes_at: datetime | None
+    expected_attendance: int | None = None
+    registration_closed_at: datetime | None = None
 
 
 class EventChangeRecord(BaseModel):
