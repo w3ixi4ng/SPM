@@ -58,6 +58,15 @@ export default function EventReadinessPanel({ event }) {
                   <div>
                     <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>{area.label}</p>
                     <p className="font-ui text-xs mt-0.5" style={{ color: C.inkFaint }}>{area.detail}</p>
+                    {area.items?.length > 0 && (
+                      <ul className="mt-2 space-y-1" aria-label={`${area.label} preparation statuses`}>
+                        {area.items.map((item) => (
+                          <li key={item.id} className="font-ui text-xs flex gap-2" style={{ color: C.inkFaint }}>
+                            <span>{item.label}</span><span aria-hidden="true">/</span><strong>{item.status}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <span className="inline-flex items-center gap-1.5 font-ui text-xs shrink-0" style={{ color }}>
                     <Icon size={15} aria-hidden="true" />

@@ -1,15 +1,15 @@
 # Test cases — events service schemas (unit)
 
-Covers `tests/unit/atomic/events/test_schemas.py` and `test_app.py`: validation,
+Covers `tests/unit/atomic/events/test_schemas.py`, `test_app.py`, and `test_s93.py`: validation,
 normalization, authentication, RBAC, ownership, and endpoint behaviour with both
 Supabase clients mocked. They use no network, database, or Docker.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/events` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
-| Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 151 passed in this suite; 832 passed, 17 skipped across `tests/unit` |
+| Last run | 2026-10-27, S-93 merge tree of `5aed635` and `origin/sprint4` `0d143d7` |
+| Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
+| Result | 343 passed in this folder; 1,503 passed, 17 skipped across Python unit. |
 
 ## TC-EVENTS-001 — valid partial draft
 
@@ -650,37 +650,37 @@ only by `event_requests` over the Docker network, never by a browser.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
 
-## TC-EVENTS-053 — internal create trusts the caller's organiser and coordinator ids
+## TC-EVENTS-053 — internal create trusts the caller's organiser and starts unassigned
 
 - **Scenario:** Unlike the public `POST /events`, this route does not derive
   `organiser_id` from a session — the caller (the composite) has already
-  verified it and supplies it directly, along with the assignment.
+  verified it and supplies it directly. S-83 reserves assignment for the Lead.
 - **Pre-conditions:** None.
 - **Steps:** `POST /events/internal` with a complete submitted payload plus
-  `organiser_id` and `assigned_coordinator_id`; inspect the insert.
+  `organiser_id` and null `assigned_coordinator_id`; inspect the insert.
 - **Test data:** The standard valid submitted payload, an organiser id, and a
-  coordinator id.
-- **Expected:** `201`; the inserted row's `organiser_id` and
-  `assigned_coordinator_id` are exactly the ones supplied; `status=submitted`
+  null coordinator id.
+- **Expected:** `201`; the inserted row's `organiser_id` is supplied and
+  `assigned_coordinator_id` is null; `status=submitted`
   and `submitted_at` set, same as the public route.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_internal_create_trusts_caller_organiser_and_coordinator_ids`
+- **Evidence:** `test_app.py::test_internal_create_trusts_caller_organiser_but_starts_unassigned`
 
-## TC-EVENTS-054 — internal submit sets the assignment and enforces ownership
+## TC-EVENTS-054 — internal submit preserves assignment and enforces ownership
 
 - **Scenario:** The draft-to-submission internal route applies the same
-  ownership and draft-status filter as the public one, plus the assignment.
+  ownership and draft-status filter as the public one, while preserving any existing assignment.
 - **Pre-conditions:** A draft owned by the given organiser id exists.
 - **Steps:** `POST /events/{event_id}/submit/internal` with the standard
-  submitted payload, that organiser id, and a coordinator id.
+  submitted payload, that organiser id, and the stored coordinator id.
 - **Test data:** As above.
 - **Expected:** `200`; the update is filtered by both `id` and
-  `organiser_id`, sets `status=submitted`, `submitted_at`, and
-  `assigned_coordinator_id` to the supplied coordinator.
+  `organiser_id`, sets `status=submitted` and `submitted_at`, and keeps
+  `assigned_coordinator_id` equal to the stored assignment.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_internal_submit_sets_the_assignment`
+- **Evidence:** `test_app.py::test_internal_submit_preserves_existing_assignment`
 
 ## TC-EVENTS-055 — internal submit still enforces ownership
 
@@ -805,20 +805,19 @@ in one update.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_load_excludes_the_given_event_from_conflict_and_count`
 
-## TC-EVENTS-063 — internal update reassigns the coordinator
+## TC-EVENTS-063 — internal update cannot reassign the coordinator
 
-- **Scenario:** The composite's edit-recheck flow writes the date/time
-  change and the new assignment together.
+- **Scenario:** An obsolete edit-recheck path cannot bypass S-84 by writing
+  a new Coordinator ID with a date/time change.
 - **Pre-conditions:** An owned submitted event assigned to one coordinator.
 - **Steps:** `PATCH /events/{event_id}/internal` with `organiser_id`, a
   changed `start_time`, and a different `assigned_coordinator_id`.
 - **Test data:** `start_time` changed to `20:00`; a second coordinator's id.
-- **Expected:** `200`; the update sent to Supabase contains the new
-  `start_time`, the new `assigned_coordinator_id`, and no `organiser_id`
-  (that field only selects the row, it is never a column value).
+- **Expected:** `409`; no Supabase update runs, so neither the start time
+  nor the Coordinator changes.
 - **Actual:** As expected.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_internal_update_reassigns_the_coordinator`
+- **Evidence:** `test_app.py::test_internal_update_rejects_a_different_coordinator`
 
 ## TC-EVENTS-064 — internal update without reassignment leaves the coordinator untouched
 
@@ -1608,18 +1607,22 @@ the full unit run on 2026-10-08.
 Story: S-84 Reassign Event Coordinator. Acceptance criteria and test cases
 confirmed by the developer on 2026-10-08. Executed locally on 2026-10-09.
 
-## TC-EVENTS-112 — active assigned events are listed for Lead orchestration
+## TC-EVENTS-112 — active assigned events support Lead oversight and notifications
 
-- **Scenario:** The atomic service supplies the assigned work that can be
-  reassigned without making role or profile decisions.
-- **Steps:** `GET /internal/events/assigned-active`.
-- **Expected:** Storage selects assigned events in `submitted`, `planning`,
-  `confirmed`, or `returned`, excludes null owners, and orders newest updates
-  first. Draft, rejected, and cancelled rows cannot enter the result.
-- **Actual:** The query used the four active statuses, excluded null owners,
-  and ordered by newest update.
+- **Scenario:** The atomic service supplies assigned work to its responsible
+  Lead while retaining the cross-service read needed for notifications.
+- **Steps:** As a Lead, call `GET /internal/events/lead-assigned-active`;
+  then, without a Lead session, call `GET /internal/events/assigned-active`
+  as the venue notifications composite does.
+- **Expected:** Storage selects the nine nonterminal assignment states from
+  `submitted` through `safety_changes_requested`, excludes null owners, and orders newest updates
+  first. The Lead read includes only events with that Lead's recorded assignment
+  provenance; the cross-service read remains available for affected booking
+  notifications. Draft, rejected, and cancelled rows cannot enter either result.
+- **Actual:** The Lead query filtered by its trusted ID. The notification read
+  worked without a Lead session and retained the active-status and owner filters.
 - **Status:** Pass
-- **Evidence:** `test_s84.py::test_internal_active_assignments_filter_status_owner_and_order`
+- **Evidence:** `test_s84.py::test_internal_active_assignments_filter_status_owner_and_order`; `test_s84.py::test_notification_assignment_read_does_not_require_a_lead_session`; 2026-10-25 S-88 regression rerun.
 
 ## TC-EVENTS-113 — reassignment compare-and-set transfers an active event
 
@@ -1667,7 +1670,7 @@ Story: S-85 View Coordinator Assignments and Active Events. Acceptance
 criteria and test cases confirmed by the developer on 2026-10-09. Executed
 locally on 2026-10-09.
 
-## TC-EVENTS-117 — oversight lists exactly the five confirmed active statuses
+## TC-EVENTS-117 — oversight lists every open assignment status
 
 - **Scenario:** The events service supplies the complete active assigned-event
   set without making role, profile, or grouping decisions.
@@ -1675,16 +1678,17 @@ locally on 2026-10-09.
   for each accepted status.
 - **Steps:** `GET /internal/events/coordinator-overview` and inspect the
   storage query and response validation.
-- **Test data:** `submitted`, `under_review`, `returned`, `planning`, and
-  `confirmed` assigned to coordinator A.
-- **Expected:** The query includes exactly those five statuses, excludes null
+- **Test data:** `submitted`, `under_review`, `returned`, `planning`,
+  `pending_safety_check`, `confirmed`, `preparation`, `safety_rejected`, and
+  `safety_changes_requested` assigned to coordinator A.
+- **Expected:** The query includes exactly those nine statuses, excludes null
   `assigned_coordinator_id` values, orders newest updates first, and accepts
-  all five statuses in the response contract.
-- **Actual:** The response accepted one row in each confirmed status; storage
-  received the exact five-status filter, excluded null owners, and ordered by
+  all nine statuses in the response contract.
+- **Actual:** The response accepted one row in each open status; storage
+  received the exact nine-status filter, excluded null owners, and ordered by
   descending update time.
 - **Status:** Pass
-- **Evidence:** `test_s85.py::test_internal_oversight_uses_all_five_active_statuses`
+- **Evidence:** `test_s85.py::test_internal_oversight_uses_all_open_active_statuses`
 
 ## TC-EVENTS-118 — oversight excludes unassigned and inactive events at storage
 
@@ -1693,12 +1697,12 @@ locally on 2026-10-09.
 - **Pre-conditions:** Supabase is mocked.
 - **Steps:** Inspect the filters used by
   `GET /internal/events/coordinator-overview`.
-- **Test data:** The five inactive/unassigned states plus the five active
+- **Test data:** The draft/terminal/unassigned states plus the nine active
   states from TC-EVENTS-117.
-- **Expected:** Filtering is performed by the atomic owner: only the five
+- **Expected:** Filtering is performed by the atomic owner: only the nine
   active statuses and non-null owners are selected. The route performs no
   write and no other-service call.
-- **Actual:** The read query contained only the five active values and the
+- **Actual:** The read query contained only the nine active values and the
   non-null-owner filter; no insert, update, or delete operation was made.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_internal_oversight_excludes_unassigned_and_inactive_events`
@@ -2538,3 +2542,347 @@ decision.
 - **Actual:** Editing through both routes returned `409` "This event has been cancelled and is closed."; resubmitting returned `409` "Event has already been submitted"; no update.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_s61.py::test_a_cancelled_event_cant_be_edited_or_resubmitted`; `pytest tests/unit`: 964 passed, 17 skipped, 2026-10-13.
+
+## S-51 — Configure registration and its open/close period
+
+Registration settings are three new fields on the event: `registration_required`
+(boolean, default `false`), `registration_opens_at` and `registration_closes_at`
+(date-times with no timezone, read as Singapore time). Event E below, unless a
+case says otherwise, starts `2026-11-20` at `18:00`. "Today" is `2026-10-25`.
+
+## TC-EVENTS-163 — registration is off unless the Organiser turns it on
+
+- **Scenario:** An event that says nothing about registration does not need it (S-51 AC1).
+- **Pre-conditions:** None.
+- **Steps:** 1. Instantiate `EventDraftCreate` with `{}`. 2. Instantiate
+  `EventSubmittedCreate` with a full valid body that has no registration fields.
+- **Test data:** The full body used by TC-EVENTS-006's valid submitted request.
+- **Expected:** Both are valid, with `registration_required` `False` and both
+  dates `None`.
+- **Actual:** Both models default to registration off with both dates `None`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_is_off_unless_turned_on; `pytest tests/unit`: 1325 passed, 17 skipped, 2026-10-25, branch `S-51/configure-registration-and-open-close-period`, pre-commit working tree
+
+## TC-EVENTS-164 — a draft may turn registration on before choosing dates
+
+- **Scenario:** Like every other draft field, the period can be filled in later (S-51 AC1, AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventDraftCreate` three times.
+- **Test data:**
+  1. `{"registration_required": true}`
+  2. `{"registration_required": true, "registration_opens_at": "2026-11-01T09:00"}`
+  3. `{"registration_required": true, "registration_opens_at": "2026-11-01T09:00", "registration_closes_at": "2026-11-01T09:00"}`
+- **Expected:** 1 and 2 are valid. 3 raises `ValidationError` with
+  "Registration must close after it opens." — once both dates are present
+  the draft must already get the order right.
+- **Actual:** 1 and 2 were valid; 3 raised "Registration must close after it opens."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_draft_may_turn_registration_on_before_choosing_dates
+
+## TC-EVENTS-165 — submitting with registration on needs both dates
+
+- **Scenario:** A submitted request that needs registration has a complete period (S-51 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` with a full valid body plus each
+  registration combination below.
+- **Test data:**
+  1. `registration_required: true`, no dates.
+  2. `registration_required: true`, opens `2026-11-01T09:00`, no close.
+  3. `registration_required: true`, close `2026-11-15T18:00`, no open.
+- **Expected:** Each raises `ValidationError`. 1 and 2 name
+  `registration_closes_at` with "Choose when registration closes."; 1 and 3 name
+  `registration_opens_at` with "Choose when registration opens."
+- **Actual:** Each combination raised `ValidationError` naming exactly the missing date(s) with the expected messages.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_submitting_with_registration_on_needs_both_dates
+
+## TC-EVENTS-166 — registration must close after it opens
+
+- **Scenario:** The period is a real interval (S-51 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` with registration on and each pair.
+- **Test data:**
+  1. opens `2026-11-15T18:00`, closes `2026-11-15T18:00` (equal)
+  2. opens `2026-11-15T18:00`, closes `2026-11-01T09:00` (reversed)
+  3. opens `2026-11-15T18:00`, closes `2026-11-15T18:01`
+- **Expected:** 1 and 2 raise `ValidationError` "Registration must close after
+  it opens."; 3 is valid.
+- **Actual:** Equal and reversed periods raised "Registration must close after it opens."; one minute later was valid.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_must_close_after_it_opens
+
+## TC-EVENTS-167 — registration must close before the event starts
+
+- **Scenario:** The Organiser's final numbers are known before the event (S-51 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` for event E (starts
+  `2026-11-20 18:00`) with registration on, opens `2026-11-01T09:00`, and each close.
+- **Test data:**
+  1. closes `2026-11-20T18:00` (exactly the start)
+  2. closes `2026-11-21T09:00` (after the start)
+  3. closes `2026-11-20T17:59`
+- **Expected:** 1 and 2 raise `ValidationError` "Registration must close before
+  the event starts."; 3 is valid.
+- **Actual:** Closing at and after the start raised "Registration must close before the event starts."; 17:59 was valid.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_must_close_before_the_event_starts
+
+## TC-EVENTS-168 — an opening date that has already passed is accepted
+
+- **Scenario:** Registration may open immediately (S-51 AC2; developer's answer, 2026-10-25).
+- **Pre-conditions:** Today is `2026-10-25`.
+- **Steps:** Instantiate `EventSubmittedCreate` with registration on.
+- **Test data:** opens `2026-10-01T09:00`, closes `2026-11-15T18:00`.
+- **Expected:** Valid; both dates retained exactly.
+- **Actual:** Valid; dumped as `2026-10-01T09:00:00` and `2026-11-15T18:00:00`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_an_opening_date_that_has_already_passed_is_accepted
+
+## TC-EVENTS-169 — turning registration off clears the period
+
+- **Scenario:** An event that doesn't need registration has no period that could be shown or enforced (S-51 AC1).
+- **Pre-conditions:** None.
+- **Steps:** Instantiate `EventSubmittedCreate` and `EventDraftCreate` with
+  registration off and both dates supplied.
+- **Test data:** `registration_required: false`, opens `2026-11-15T18:00`,
+  closes `2026-11-01T09:00` (reversed on purpose).
+- **Expected:** Both are valid — the order is not checked when registration is
+  off — and both dates become `None`.
+- **Actual:** Both models were valid with reversed dates and cleared both to `None`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_turning_registration_off_clears_the_period
+
+## TC-EVENTS-170 — a draft or returned request can change its registration settings
+
+- **Scenario:** The Organiser can turn registration on or off and change the period while updating the request (S-51 AC1, AC2).
+- **Pre-conditions:** Organiser O signed in; the owned-event lookup returns E,
+  first as `draft`, then as `returned`, each with registration on, opens
+  `2026-11-01T09:00`, closes `2026-11-15T18:00`.
+- **Steps:** For each status:
+  1. `PATCH /events/E` `{"registration_closes_at": "2026-11-16T12:00"}`.
+  2. `PATCH /events/E` `{"registration_required": false}`.
+  3. `PATCH /events/E` `{"start_date": "2026-11-10"}` (now before the existing close).
+- **Expected:** 1 → `200`, the update writes only `registration_closes_at`.
+  2 → `200`, the update writes `registration_required: false` and both dates
+  `null`. 3 → `422` "Registration must close before the event starts.", no update.
+- **Actual:** For draft and returned: 1 wrote only `registration_closes_at`; 2 wrote `registration_required: false` and both dates `null`; 3 returned `422` "Registration must close before the event starts." with no update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_draft_or_returned_request_can_change_its_registration_settings
+
+## TC-EVENTS-171 — registration settings are fixed once the request is submitted
+
+- **Scenario:** Only creating or updating the request can change them (S-51 AC1; developer's answer, 2026-10-25).
+- **Pre-conditions:** Organiser O signed in; the lookup returns E with
+  registration on, in each of `submitted`, `under_review`, `planning`,
+  `pending_safety_check`, `confirmed`, `preparation`.
+- **Steps:**
+  1. `PATCH /events/E` `{"registration_required": false}`.
+  2. `PATCH /events/E` `{"registration_opens_at": "2026-11-02T09:00"}`.
+  3. `PATCH /events/E` `{"name": "Renamed"}` for `submitted`.
+- **Expected:** 1 and 2 → `409` "Registration settings can only be changed
+  while the request is a draft or returned.", no update. 3 → `200` as today —
+  the lock covers only the registration fields.
+- **Actual:** Both changes returned `409` with the lock message and no update for all six statuses; renaming a submitted event returned `200` and wrote only `name`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_registration_settings_are_fixed_once_the_request_is_submitted; tests/unit/atomic/events/test_s51.py::test_the_lock_covers_only_the_registration_fields
+
+## TC-EVENTS-172 — the internal create, submit and update routes apply the same rules
+
+- **Scenario:** The event_requests composite's path cannot skip the validation (S-51 AC1, AC2).
+- **Pre-conditions:** Internal routes called as the composite does.
+- **Steps:**
+  1. `POST /events/internal` with registration on and no close date.
+  2. `POST /events/E/submit/internal` (E is a draft) with close at the event start.
+  3. `PATCH /events/E/internal` with `registration_required: false` while E is `planning`.
+  4. `POST /events/internal` with registration on, opens `2026-11-01T09:00`,
+     closes `2026-11-15T18:00`.
+- **Expected:** 1 and 2 → `422` with the messages from TC-EVENTS-165 and -167.
+  3 → `409` as TC-EVENTS-171. 4 → `201`, and the insert carries all three fields.
+- **Actual:** 1 → `422` naming `registration_closes_at`; 2 → `422` "Registration must close before the event starts."; 3 → `409` lock, no update; 4 → `201` with all three fields inserted.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_internal_routes_apply_the_same_rules; tests/unit/atomic/events/test_s51.py::test_submitting_carries_the_registration_settings
+
+## TC-EVENTS-173 — published events list only confirmed events, with only public fields
+
+- **Scenario:** The internal read the public pages are built on (S-51 AC4, AC5).
+- **Pre-conditions:** Fake returns rows for confirmed events A (registration
+  on) and B (registration off). The query is checked for its status filter.
+- **Steps:** `GET /internal/events/published`.
+- **Expected:** `200`. The query filters `status = confirmed`. Each item has
+  exactly `id`, `name`, `purpose`, `start_date`, `start_time`, `end_date`,
+  `end_time`, `registration_required`, `registration_opens_at`,
+  `registration_closes_at`, `expected_attendance`, `registration_closed_at`.
+  No `organiser_id`, contacts, `internal_notes`, or decision fields.
+  (Revised for S-50: the last two fields are added for the composite, which
+  never passes `expected_attendance` on -- see TC-EVENTS-183.)
+- **Actual:** `200`; the query filtered `status = confirmed` and selected exactly the ten public columns; both items had exactly those keys.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_published_events_list_only_confirmed_events_with_public_fields
+
+## TC-EVENTS-174 — a single published event is found only while confirmed
+
+- **Scenario:** A request that isn't confirmed is never public (S-51 AC5; developer's answer: only confirmed events).
+- **Pre-conditions:** Fake returns E as `confirmed`, then `planning`, then
+  `preparation`, then `cancelled`, then no row.
+- **Steps:** `GET /internal/events/published/E` for each.
+- **Expected:** `confirmed` → `200`, the fields from TC-EVENTS-173. Every other
+  case → `404` "Event not found."
+- **Actual:** Confirmed returned `200` with the public fields; the query filters `status = confirmed`, and no matching row returned `404` "Event not found."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s51.py::test_a_single_published_event_is_found_only_while_confirmed
+
+## S-88 confirmed specification — Events storage and state transitions
+
+Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommitted; Python unit suite and fresh `.env.test` integration stack.
+Shared data: event `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, current Coordinator
+`bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, replacement
+`cccccccc-cccc-4ccc-8ccc-cccccccccccc`, assigning Lead
+`dddddddd-dddd-4ddd-8ddd-dddddddddddd`, assignment version `2`.
+
+## TC-EVENTS-176 — create immutable request record
+
+- **Scenario:** Events owns and stores the Coordinator's request without changing the owner.
+- **Pre-conditions:** Active event has the shared owner, Lead and version; Supabase is faked.
+- **Steps:** Create a request for that event, then inspect the stored write and returned row.
+- **Test data:** Requester is current owner; reason `Cannot cover the November event`.
+- **Expected:** One row records event, requester, reason, `pending`, assignment version and server timestamps; the event owner and version are unchanged; client-supplied status or timestamps cannot override them.
+- **Actual:** The atomic route inserted validated fields only; the integration read showed a persisted pending row and unchanged event ownership.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_reassignment_requests.py::test_request_insert_passes_only_validated_fields_to_events_schema; tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTS-177 — concurrent duplicate protection
+
+- **Scenario:** Two simultaneous submissions cannot leave two pending requests.
+- **Pre-conditions:** No pending request at the start; database uniqueness is enforced.
+- **Steps:** Submit the same event twice concurrently.
+- **Test data:** Shared event and requester.
+- **Expected:** Exactly one persisted pending row; one success and one conflict response; prior actioned rows remain intact.
+- **Actual:** Two concurrent submissions produced one 201, one 409 and one persisted pending row.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_concurrent_submissions_leave_one_pending_request`; 2026-10-25.
+
+## TC-EVENTS-178 — actioned status follows successful compare-and-set
+
+- **Scenario:** S-84's versioned transfer actions the matching pending request.
+- **Pre-conditions:** Pending row names current owner and version 2.
+- **Steps:** Transfer to replacement with expected owner and version 2; read the request.
+- **Test data:** Shared IDs.
+- **Expected:** Owner becomes replacement at version 3 and the matching request becomes `actioned` with an action timestamp; a repeated exact S-84 retry leaves the same outcome without duplicate history.
+- **Actual:** S-84 transferred ownership, incremented the version and actioned the matching row; its exact retry did not create another transition.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## TC-EVENTS-179 — stale transfer cannot action a request
+
+- **Scenario:** A version conflict leaves request and owner consistent.
+- **Pre-conditions:** Request was raised at version 2; event is still owned by the requester at version 2.
+- **Steps:** Attempt S-84 with stale expected version 1, then read the stored request and event.
+- **Test data:** Shared IDs; actual version `2`, submitted expected version `1`.
+- **Expected:** `409`; the request stays `pending`, the owner and version stay unchanged, and history remains visible to the requester.
+- **Actual:** A stale S-84 attempt returned 409; the pending row, owner and version remained unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+
+## S-50 — Cap Registration at Capacity
+
+Event C below is owned by Organiser O, `confirmed`, registration on, opens
+`2026-11-01T09:00`, closes `2026-11-15T18:00`, `expected_attendance` 50,
+`registration_closed_at` null. Close and reopen live on the events service
+because it owns the event and its ownership check; Kong already routes
+`/api/events/...` there.
+
+## TC-EVENTS-180 — the Organiser closes registration early
+
+- **Scenario:** The Organiser can close registration before capacity is reached (S-50 AC4).
+- **Pre-conditions:** Signed in as O; the fake returns C, then C with the stamp written.
+- **Steps:** `PUT /events/C/registration-closure`.
+- **Test data:** No body.
+- **Expected:** `200`, the event with `registration_closed_at` set to the
+  current UTC time. The update wrote only `registration_closed_at`, filtered
+  on `id = C` and `organiser_id = O`. A second `PUT` on an already-closed
+  event → `200` with the original stamp unchanged (nothing written).
+- **Actual:** `200` with `registration_closed_at` set to now (UTC); only that column written, filtered on `id` and `organiser_id`; a second close returned the original stamp and wrote nothing.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py::test_the_organiser_closes_registration_early, ::test_closing_an_already_closed_event_keeps_the_first_time; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTS-181 — the Organiser reopens registration
+
+- **Scenario:** The close decision is the Organiser's, so they can undo it (S-50 AC4).
+- **Pre-conditions:** Signed in as O; C has `registration_closed_at` `2026-11-03T06:15:00+00:00`.
+- **Steps:** `DELETE /events/C/registration-closure`.
+- **Expected:** `200`, the event with `registration_closed_at` `null`; the
+  update wrote `{"registration_closed_at": null}` filtered on `id` and `organiser_id`.
+- **Actual:** `200` with `registration_closed_at` null; wrote `{"registration_closed_at": null}` on `id` and `organiser_id`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py::test_the_organiser_reopens_registration; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTS-182 — only the owning Organiser, and only on a confirmed event that takes registrations
+
+- **Scenario:** Nobody else makes the close decision, and it only applies where registration exists (S-50 AC4).
+- **Pre-conditions / Steps / Expected:** each of `PUT` and `DELETE /events/C/registration-closure`:
+  1. No session → `401`.
+  2. Signed in as an Attendee or an Event Coordinator → `403`.
+  3. Signed in as Organiser O2 (the fake finds no event for O2) → `404` "Event not found".
+  4. As O, C is `planning` → `409` "Registration can only be closed or reopened on a confirmed event that takes registrations."
+  5. As O, C is confirmed with `registration_required` false → the same `409`.
+  Nothing is written in any of them.
+- **Actual:** PUT and DELETE alike: `401`, `403` for Attendee and Coordinator, `404` for O2, `409` with the stated message for `planning` and for registration off; nothing written.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py (the four TC-EVENTS-182 tests); 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-EVENTS-183 — the internal published read carries what the cap needs
+
+- **Scenario:** The composite gets the cap and the close decision from the same event record (S-50 AC3).
+- **Pre-conditions:** The fake returns C with `registration_closed_at` `2026-11-03T06:15:00+00:00`.
+- **Steps:** `GET /internal/events/published/C`; `GET /internal/events/published`.
+- **Expected:** Both include `"expected_attendance": 50` and
+  `"registration_closed_at": "2026-11-03T06:15:00Z"` (any equivalent ISO form),
+  and the select lists both columns. Still no `organiser_id`.
+- **Actual:** Both reads carried `expected_attendance` 50 and the closed stamp; both columns selected; no `organiser_id`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s50.py::test_the_published_read_carries_the_cap_and_the_close_decision; 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## S-93 confirmed specification — selected Coordinator event inventory
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. The S-93 inventory is a
+separate Lead-authenticated, read-only summary by selected Coordinator ID.
+It does not change S-85's ordinary `assigning_lead_id` filter or S-84's
+responsible-Lead write rule. Open assignment states are `submitted`,
+`under_review`, `returned`, `planning`, `pending_safety_check`, `confirmed`,
+`preparation`, `safety_rejected`, and `safety_changes_requested` when stored.
+`completed` is not currently an Events schema value; it is specified here as
+a terminal exclusion for any future lifecycle addition.
+
+## TC-EVENTS-184 — selected Coordinator inventory has the complete open lifecycle
+
+- **Scenario:** A Lead's S-93 selected-Coordinator inventory finds every assigned open event and excludes terminal work.
+- **Pre-conditions:** Fake Events storage has one row in each listed open state and one each in `draft`, `completed`, `cancelled`, and `rejected`; every row except the draft belongs to Coordinator A.
+- **Steps:** 1. Read the S-93 inventory for A as Lead A. 2. Inspect the storage filter and returned summaries.
+- **Test data:** Coordinator A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; event names `Submitted`, `Under review`, `Returned`, `Planning`, `Safety pending`, `Confirmed`, `Preparation`, `Safety rejected`, `Safety changes`, `Draft`, `Completed`, `Cancelled`, `Rejected`.
+- **Expected:** Exactly the nine open assigned rows are returned with name, status, date/time, owner and responsible Lead ID; the four draft/terminal rows are absent. `pending_safety_check`, `confirmed`, and `preparation` all count as active.
+- **Actual:** The selected inventory queried only the nine open states and returned the limited assignment summary fields.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_selected_coordinator_inventory_uses_all_open_states_and_limited_fields
+
+## TC-EVENTS-185 — cross-Lead inventory is read-only and ordinary scope stays narrow
+
+- **Scenario:** The S-93 cross-Lead summary does not grant cross-Lead event access or reassignment authority.
+- **Pre-conditions:** Coordinator A owns Event 1 assigned by Lead A and Event 2 assigned by Lead B; Event 3 is legacy with no `assigning_lead_id`.
+- **Steps:** 1. As Lead A, request A's S-93 inventory. 2. Request S-85 overview and S-88 requests. 3. Try Event 2's assignment-scope read and S-84 transfer. 4. Repeat the inventory as a Coordinator and anonymously.
+- **Test data:** Lead A `dddddddd-dddd-4ddd-8ddd-dddddddddddd`, Lead B `eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`; three distinct active events.
+- **Expected:** Lead A sees only limited summaries for all three in the selected-Coordinator inventory, with Event 2 marked `other Lead` and Event 3 `provenance missing`; ordinary S-85/S-88 data remains Lead A scoped. Event 2's scoped read/transfer remains `404`, legacy transfer remains blocked, and non-Leads get `401` or `403` with no summaries.
+- **Actual:** A Lead could read the limited cross-Lead summary; Coordinator and anonymous callers were denied, while existing Lead-scoped routes retained their filters.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_selected_inventory_denies_non_leads_and_anonymous_callers; test_s85.py::test_internal_oversight_uses_all_open_active_statuses; test_s84.py::test_internal_reassignment_rejects_unrelated_lead_and_legacy_event
+
+## TC-EVENTS-186 — S-84 can transfer every open lifecycle state safely
+
+- **Scenario:** The existing versioned S-84 write handles the open states newly needed by S-93.
+- **Pre-conditions:** Event 1 is assigned to A by Lead A at version 2 in each eligible state; fake storage models one compare-and-set winner and a stale loser.
+- **Steps:** 1. Call S-84 directly with a Lead session but no trusted composite credential, then with a forged credential. 2. Reassign A to B with a trusted composite credential and expected owner A/version 2 for `under_review`, `preparation`, `safety_rejected`, and `safety_changes_requested`. 3. Repeat with version 1, then try a different Lead. 4. Try a terminal event.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`; status `completed`, `cancelled`, or `rejected` for terminal attempts.
+- **Expected:** Missing/forged service credentials return `403` before storage access, even with a valid Lead cookie. For each open state, exactly one authenticated composite transfer sets B as owner, version 3, previous owner A, and the responsible Lead audit. A stale/concurrent loser gets `409` and cannot clear a warning; another Lead cannot transfer; terminal rows never change. S-83's internal assignment mutation uses the same service-credential rule.
+- **Actual:** Missing and forged service credentials were denied; older internal create, submit and patch paths could not change Coordinator ownership. Expanded open states transferred with version checks, while stale and unrelated-Lead operations stayed blocked.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_direct_assignment_writes_require_service_credential; test_s93.py::test_older_internal_routes_cannot_change_coordinator_assignment; test_s93.py::test_reassignment_accepts_open_lifecycle_with_version_guard; test_s84.py::test_internal_reassignment_rejects_stale_or_same_owner_requests

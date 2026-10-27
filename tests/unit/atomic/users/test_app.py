@@ -8,6 +8,7 @@ integration tests are for.
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from .conftest import (
@@ -278,6 +279,32 @@ def test_me_returns_the_signed_in_user(client, db, auth):
     auth.auth.get_user.assert_called_once_with("access-token")
 
 
+def test_me_retries_a_dropped_connection_on_the_profile_read(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user())
+    execute = db.schema.return_value.table.return_value.select.return_value.eq.return_value.execute
+    execute.side_effect = [httpx.RemoteProtocolError("connection terminated"), SimpleNamespace(data=[PROFILE])]
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == USER_ID
+    assert execute.call_count == 2
+
+
+def test_me_reports_upstream_failure_after_two_dropped_reads(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user())
+    execute = db.schema.return_value.table.return_value.select.return_value.eq.return_value.execute
+    execute.side_effect = httpx.RemoteProtocolError("connection terminated")
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "User profile service unavailable"
+    assert execute.call_count == 2
+
+
 # --- TC-USERS-026 ---------------------------------------------------------
 def test_me_returns_no_role_when_trusted_role_is_missing(client, db, auth):
     client.cookies.set(ACCESS_COOKIE, "access-token")
@@ -331,6 +358,94 @@ def test_me_clears_cookies_when_neither_token_works(client, auth):
     assert response.status_code == 401
     # Dead cookies are taken back rather than sent on every later request.
     assert set(set_cookies(response)) == {ACCESS_COOKIE, REFRESH_COOKIE}
+
+
+@pytest.fixture
+def no_retry_pause(client, monkeypatch):
+    """Retries without the real pauses. Patched on the module the route's
+    dependency actually lives in, whatever else is called `security`."""
+    from app import app
+
+    route = next(r for r in app.routes if getattr(r, "path", None) == "/users/me")
+    check = next(
+        dep.call for dep in route.dependant.dependencies if dep.call.__name__ == "get_current_user"
+    )
+    monkeypatch.setitem(check.__globals__, "AUTH_RETRY_DELAYS", (0, 0))
+
+
+# --- TC-USERS-035 ---------------------------------------------------------
+def test_me_rejected_token_is_401_without_retrying(client, auth, no_retry_pause):
+    client.cookies.set(ACCESS_COOKIE, "revoked-token")
+    auth.auth.get_user.side_effect = auth_error("invalid JWT", 403)
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 401
+    assert auth.auth.get_user.call_count == 1
+    assert set(set_cookies(response)) == {ACCESS_COOKIE, REFRESH_COOKIE}
+
+
+# --- TC-USERS-036 ---------------------------------------------------------
+@pytest.mark.parametrize(
+    "blip",
+    [httpx.RemoteProtocolError("Server disconnected"), httpx.ReadTimeout("timed out")],
+    ids=["dropped", "timeout"],
+)
+def test_me_retries_a_session_check_that_got_no_answer(client, db, auth, no_retry_pause, blip):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.side_effect = [blip, SimpleNamespace(user=fake_user())]
+    on_select(db, [PROFILE])
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == USER_ID
+    assert auth.auth.get_user.call_count == 2
+
+
+# --- TC-USERS-037 ---------------------------------------------------------
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.RemoteProtocolError("Server disconnected"),
+        auth_error("upstream error", 500),
+        auth_error("rate limit", 429),
+    ],
+    ids=["dropped", "500", "429"],
+)
+def test_me_is_503_and_keeps_the_cookies_when_auth_never_answers(
+    client, auth, no_retry_pause, failure
+):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    client.cookies.set(REFRESH_COOKIE, "refresh-token")
+    auth.auth.get_user.side_effect = failure
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authentication service unavailable"
+    assert auth.auth.get_user.call_count == 3
+    # No verdict on the token is not a logout.
+    auth.auth.refresh_session.assert_not_called()
+    assert set_cookies(response) == {}
+
+
+# --- TC-USERS-038 ---------------------------------------------------------
+def test_me_retries_a_refresh_that_got_no_answer(client, db, auth, no_retry_pause):
+    client.cookies.set(ACCESS_COOKIE, "expired-token")
+    client.cookies.set(REFRESH_COOKIE, "refresh-token")
+    auth.auth.get_user.side_effect = auth_error("token is expired", 401)
+    auth.auth.refresh_session.side_effect = [
+        httpx.RemoteProtocolError("Server disconnected"),
+        SimpleNamespace(user=fake_user(), session=fake_session("new-access", "new-refresh")),
+    ]
+    on_select(db, [PROFILE])
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 200
+    assert auth.auth.refresh_session.call_count == 2
+    assert "new-access" in set_cookies(response)[ACCESS_COOKIE]
 
 
 # --- TC-USERS-021 ---------------------------------------------------------
@@ -413,11 +528,33 @@ def test_coordinator_listing_returns_only_that_role(client, db):
     response = client.get("/internal/users/coordinators")
 
     assert response.status_code == 200
-    assert response.json() == coordinator_profiles
+    assert response.json() == [
+        {**profile, "coordinator_active": True} for profile in coordinator_profiles
+    ]
     queried_ids = set(
         db.schema.return_value.table.return_value.select.return_value.in_.call_args[0][1]
     )
     assert queried_ids == {coordinator_1, coordinator_2}
+
+
+def test_coordinator_availability_uses_only_boolean_auth_app_metadata(client, db):
+    ids = [
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    ]
+    users = [auth_admin_user(uid, "event_coordinator") for uid in ids]
+    users[1].app_metadata["coordinator_active"] = True
+    users[2].app_metadata["coordinator_active"] = False
+    users[2].user_metadata["coordinator_active"] = True
+    users[3].app_metadata["coordinator_active"] = "false"
+    db.auth.admin.list_users.return_value = users
+    on_in(db, [{"id": uid, "name": f"Coordinator {number}", "email": f"c{number}@example.com"} for number, uid in enumerate(ids)])
+    response = client.get("/internal/users/coordinators")
+    assert response.status_code == 200
+    assert [item["coordinator_active"] for item in response.json()] == [True, True, False, None]
+    assert all("password" not in item and "access_token" not in item for item in response.json())
 
 
 # --- TC-USERS-028 ---------------------------------------------------------
@@ -457,8 +594,8 @@ def test_coordinator_listing_keeps_trusted_auth_users_without_profiles(client, d
 
     assert response.status_code == 200
     assert response.json() == [
-        {"id": profiled, "name": "Alex", "email": "alex@example.com"},
-        {"id": profileless, "name": "idle@example.com", "email": "idle@example.com"},
+        {"id": profiled, "name": "Alex", "email": "alex@example.com", "coordinator_active": True},
+        {"id": profileless, "name": "idle@example.com", "email": "idle@example.com", "coordinator_active": True},
     ]
     selected_ids = db.schema.return_value.table.return_value.select.return_value.in_.call_args.args[1]
     assert set(selected_ids) == {profiled, profileless}

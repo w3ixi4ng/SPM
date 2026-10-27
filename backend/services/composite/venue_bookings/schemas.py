@@ -149,6 +149,15 @@ class HoldRequest(BaseModel):
         return value
 
 
+class VenuePreparationRequest(BaseModel):
+    """S-25: one booking's preparation state and optimistic version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["not_started", "in_progress", "ready"]
+    expected_version: int = Field(ge=0)
+
+
 class ReplacementRequest(BaseModel):
     """S-78: what a Coordinator chooses for a replacement -- the venue, and
     notes. The date and times are the affected booking's, and everything else

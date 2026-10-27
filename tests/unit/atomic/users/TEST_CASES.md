@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
-| Environment | Python 3.14.8, pytest 9.1.1. No network, no database, no Docker. |
-| Result | 37 passed in this suite; 840 passed, 17 skipped across `tests/unit` |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
+| Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
+| Result | 40 passed in this folder; 1,505 passed, 17 skipped across Python unit. |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -253,14 +253,16 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Scenario:** The route guard every page load depends on.
 - **Pre-conditions:** The client holds `sb_access_token=access-token`;
   `get_user` returns the shared user; the profile lookup returns the profile.
-- **Steps:** 1. `GET /users/me`.
-- **Test data:** The access cookie above.
-- **Expected:** `200`; body exactly the three profile fields; `get_user` called
+- **Steps:** 1. `GET /users/me`. 2. Repeat with the first profile read raising a dropped-connection error. 3. Repeat with both profile reads raising that error.
+- **Test data:** The access cookie above; `httpx.RemoteProtocolError("connection terminated")` on one or both profile reads.
+- **Expected:** `200`; body contains the three profile fields and trusted role; `get_user` called
   once with `"access-token"` — the token comes from the cookie, never from a
-  session stored on the shared client.
-- **Actual:** As expected.
+  session stored on the shared client. A dropped connection on the idempotent
+  profile read is retried once and returns `200` if the retry succeeds. If both
+  reads fail, return `502` without changing or clearing the session.
+- **Actual:** The normal read and one-retry read returned `200`; two dropped reads returned `502` after exactly two attempts.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_me_returns_the_signed_in_user`
+- **Evidence:** `test_app.py::test_me_returns_the_signed_in_user`, `test_me_retries_a_dropped_connection_on_the_profile_read`, `test_me_reports_upstream_failure_after_two_dropped_reads`
 
 ## TC-USERS-018 — `/users/me` with no cookies is a 401
 
@@ -471,3 +473,91 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** The returned pool contained exactly the two trusted Coordinator IDs; the profiled name remained Alex and the missing-profile account displayed its Auth email, including when that account was on Auth page 2. Every other trusted role and the editable-metadata impostor was excluded.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_listing_keeps_trusted_auth_users_without_profiles`, `test_app.py::test_coordinator_listing_includes_profileless_auth_user_on_later_page`; local Python 3.14 unit run, 2026-10-18.
+
+## S-93 confirmed specification — trusted Coordinator availability
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8` from `origin/sprint4`. Confirmed by developer on 2026-10-25.
+The source of truth is
+Supabase Auth `app_metadata.coordinator_active`. A missing key means active for
+existing Coordinator accounts; explicit `false` means inactive. A malformed
+value is unavailable for new assignment. Only an administrative operation may
+change this trusted field; it preserves `app_metadata.role` and does not delete
+the account or disable login.
+
+## TC-USERS-033 — Coordinator status comes from trusted Auth metadata
+
+- **Scenario:** The Users service exposes an authoritative active/inactive state without changing the trusted role.
+- **Pre-conditions:** Fake Auth lists four users with `app_metadata.role=event_coordinator`: A has no status key, B has `coordinator_active=true`, C has `false`, and D has malformed `"false"`; all have profiles.
+- **Steps:** 1. Request the internal Coordinator inventory. 2. Request the active assignment candidate list. 3. Repeat with C's editable `user_metadata.coordinator_active=true`.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`, D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`.
+- **Expected:** Inventory reports A and B active, C inactive, D unavailable; candidates contain only A and B. C's editable metadata cannot change the result. Each response retains the trusted Coordinator role and returns no Auth secret.
+- **Actual:** Auth metadata gave true, true, false, and null; editable user metadata did not activate the inactive account; the composite candidate pool kept only the active users.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_coordinator_availability_uses_only_boolean_auth_app_metadata; tests/unit/composite/event_requests/test_s93.py::test_candidate_pool_filters_inactive_and_malformed
+
+## TC-USERS-034 — administrative status changes preserve role and account
+
+- **Scenario:** Marking a Coordinator inactive changes assignment availability without deactivating authentication.
+- **Pre-conditions:** Fake Auth user C has `app_metadata={"role":"event_coordinator","coordinator_active":true,"team":"operations"}` and a Users profile.
+- **Steps:** 1. Apply an out-of-band Supabase Auth admin update to mark C inactive. 2. Read C again from Auth and Users. 3. Restore active status with the same admin capability.
+- **Test data:** C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`; active `true → false → true`.
+- **Expected:** Both transitions persist a boolean and preserve `role` and `team`; C's profile and Auth account remain and login is not disabled. No new user-facing deactivation route is required by this case.
+- **Actual:** Admin metadata updates persisted false then true, preserved role and team, and the inactive account still signed in; no account or profile was deleted.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/users/test_app.py::test_coordinator_active_metadata_round_trip; tests/integration/composite/event_requests/test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred
+
+## Session check: a rejected token vs no answer
+
+`get_current_user` used to treat every error from Supabase Auth as a dead
+session. A dropped connection, a timeout, a 5xx or a 429 then became a `401`
+and cleared the browser's cookies, which signed working users out and failed
+CI at random (e.g. S-88's concurrent submissions got `[401, 401]`). Only a 4xx
+other than 429 is now a verdict on the token. Anything else is retried twice
+(after 0.2 s and 0.5 s), then answers `503` and leaves the cookies alone.
+The tests patch out the pauses.
+
+## TC-USERS-035 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403; no refresh cookie.
+- **Steps:** `GET /users/me` with `sb_access_token=revoked-token`.
+- **Expected:** `401`; `get_user` called once; both session cookies cleared.
+- **Actual:** `401`, one call, both cookies cleared.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_rejected_token_is_401_without_retrying; 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree
+
+## TC-USERS-036 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error in the table, then returns the user; the profile row exists.
+- **Steps:** `GET /users/me` with `sb_access_token=access-token`.
+- **Test data / Expected:**
+  | First attempt | Result |
+  | --- | --- |
+  | `httpx.RemoteProtocolError` "Server disconnected" | `200` with the profile; `get_user` called twice |
+  | `httpx.ReadTimeout` | `200` with the profile; `get_user` called twice |
+- **Actual:** Both `200` after two calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_retries_a_session_check_that_got_no_answer (2 params); 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree
+
+## TC-USERS-037 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as in the table; both cookies are sent.
+- **Steps:** `GET /users/me`.
+- **Test data:** `httpx.RemoteProtocolError`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each → `503` "Authentication service unavailable"; `get_user` called 3 times; `refresh_session` not called; no `Set-Cookie`.
+- **Actual:** Each `503` after 3 calls, no refresh, no cookies set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_is_503_and_keeps_the_cookies_when_auth_never_answers (3 params); 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree
+
+## TC-USERS-038 — a refresh that got no answer is retried
+
+- **Scenario:** The same applies to renewing an expired session.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "token is expired", 401. `refresh_session` first raises `httpx.RemoteProtocolError`, then returns a new session (`new-access` / `new-refresh`).
+- **Steps:** `GET /users/me` with both cookies.
+- **Expected:** `200`; `refresh_session` called twice; the response sets `sb_access_token=new-access`.
+- **Actual:** `200`, two refresh calls, new access cookie set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/users/test_app.py::test_me_retries_a_refresh_that_got_no_answer; 2026-10-27, branch `update/auth-session` (on sprint4), pre-commit working tree

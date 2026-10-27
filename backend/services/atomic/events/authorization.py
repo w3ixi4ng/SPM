@@ -1,6 +1,9 @@
 """Trusted role-to-permission policy and FastAPI authorization dependencies."""
 
-from fastapi import Depends, HTTPException, status
+import os
+import secrets
+
+from fastapi import Depends, Header, HTTPException, status
 
 from security import get_current_user
 
@@ -15,6 +18,8 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
         "events:submit_own",
         # S-62
         "events:request_cancellation",
+        # S-50
+        "events:close_registration",
     }
 )
 
@@ -23,6 +28,7 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
 # S-61: and decide on an Organiser's cancellation request.
 EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({
     "events:view_assigned",
+    "events:request_reassignment",
     "events:decide",
     "events:update_assigned",
     "events:decide_cancellation",
@@ -38,6 +44,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "event_coordinator": frozenset(
         {DASHBOARD_PERMISSION, *EVENT_COORDINATOR_EVENT_PERMISSIONS}
     ),
+    "event_coordinator_lead": frozenset({DASHBOARD_PERMISSION, "events:lead_assignments"}),
     "venue_staff": frozenset({DASHBOARD_PERMISSION, "events:view_booking_status"}),
     "technical_support": frozenset(
         {
@@ -50,6 +57,15 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
 }
 
 EVENT_ORGANISER_PERMISSIONS = ROLE_PERMISSIONS["event_organiser"]
+
+
+def require_assignment_service(x_assignment_service_token: str | None = Header(default=None)):
+    """Only the composite may call atomic assignment writes after Users validation."""
+    expected = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Assignment service is not configured")
+    if not x_assignment_service_token or not secrets.compare_digest(x_assignment_service_token, expected):
+        raise HTTPException(status_code=403, detail="Trusted assignment service required")
 
 
 def require_permission(permission: str):

@@ -126,6 +126,9 @@ def make_user(admin):
         admin.schema("events").table("events").delete().eq(
             "organiser_id", user_id
         ).execute()
+        admin.schema("events").table("reassignment_requests").delete().eq(
+            "requester_id", user_id
+        ).execute()
         admin.schema("venues").table("venues").delete().eq(
             "created_by", user_id
         ).execute()
@@ -134,6 +137,12 @@ def make_user(admin):
         ).execute()
         admin.schema("notifications").table("notifications").delete().eq(
             "recipient_id", user_id
+        ).execute()
+        admin.schema("registrations").table("registrations").delete().eq(
+            "attendee_id", user_id
+        ).execute()
+        admin.schema("registrations").table("waiting_list").delete().eq(
+            "attendee_id", user_id
         ).execute()
         # users.users cascades from auth.users, so the profile goes with this.
         admin.auth.admin.delete_user(user_id)

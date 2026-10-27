@@ -32,11 +32,23 @@ import {
   eventStatusMeta,
   getEventRequest,
   organiserDecisionBanner,
+  registrationSettingsFromForm,
   requestEventCancellation,
   submitEventDraft,
   updateEventDraft,
   validateCancellationReason,
 } from '../lib/eventRequests.js'
+import {
+  attendeeCountLabel,
+  closeRegistration,
+  describeRegistration,
+  formatRegistrationMoment,
+  listEventAttendees,
+  registrationClosureControl,
+  reopenRegistration,
+  validateRegistrationSettings,
+  waitingListLabel,
+} from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -72,6 +84,12 @@ const EMPTY_FORM = {
   roomLayout: '',
   requiredFacilities: [],
   requiredAccessibility: [],
+  // S-51: off unless the Organiser turns it on.
+  registrationRequired: false,
+  registrationOpensDate: '',
+  registrationOpensTime: '',
+  registrationClosesDate: '',
+  registrationClosesTime: '',
 }
 
 // Mirrors the backend's same-day rule (see events service schemas.py): once
@@ -116,6 +134,25 @@ function validateForSubmit(form) {
   if (!form.endDate) errors.endDate = 'Please choose an end date.'
   if (!form.endTime) errors.endTime = 'Please choose an end time.'
   if (!form.attendance) errors.attendance = 'Please enter expected attendance.'
+  return errors
+}
+
+// S-51: the registration period, checked as the events service checks it,
+// with each error shown on that end's date picker. A date with no time (or
+// a time with no date) is caught here, since it would otherwise be dropped.
+function validateRegistration(form, { submitting }) {
+  const errors = {}
+  if (!form.registrationRequired) return errors
+  const ends = [
+    ['registrationOpensDate', form.registrationOpensDate, form.registrationOpensTime],
+    ['registrationClosesDate', form.registrationClosesDate, form.registrationClosesTime],
+  ]
+  for (const [field, date, time] of ends) {
+    if (Boolean(date) !== Boolean(time)) errors[field] = 'Choose a date and a time.'
+  }
+  const found = validateRegistrationSettings(registrationSettingsFromForm(form), form, { submitting })
+  if (found.opens && !errors.registrationOpensDate) errors.registrationOpensDate = found.opens
+  if (found.closes && !errors.registrationClosesDate) errors.registrationClosesDate = found.closes
   return errors
 }
 
@@ -427,6 +464,320 @@ function TimeSelect({ id, value, onChange, error, disabled, isOptionDisabled }) 
       <FieldError id={`${id}-error`} message={error} />
     </div>
   )
+}
+
+function todayISO() {
+  const today = new Date()
+  return toISODate(today.getFullYear(), today.getMonth(), today.getDate())
+}
+
+// S-51: whether attendees register, and the period they may do it in. While
+// the request is being written or amended the Organiser sets both; after
+// that the saved settings are shown as they stand.
+function RegistrationSettings({ editable, form, saved, errors, onChange }) {
+  if (!editable) {
+    const settings = registrationSettingsFromForm(saved)
+    const { period } = describeRegistration({
+      registration_required: settings.required,
+      registration_opens_at: settings.opensAt,
+      registration_closes_at: settings.closesAt,
+    })
+    return (
+      <div>
+        <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>
+          Attendee registration
+        </p>
+        <p className="font-ui text-sm leading-relaxed" style={{ color: C.ink }}>
+          {period ?? "This event doesn't need registration."}
+        </p>
+        <p className="font-ui text-xs mt-1" style={{ color: C.inkFaint }}>
+          Registration settings can&apos;t be changed after the request is submitted.
+        </p>
+      </div>
+    )
+  }
+
+  const today = todayISO()
+  return (
+    <div>
+      <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>
+        Attendee registration
+      </p>
+      <label className="flex items-center gap-2 font-ui text-sm" style={{ color: C.ink }}>
+        <input
+          type="checkbox"
+          checked={form.registrationRequired}
+          onChange={(e) => onChange('registrationRequired', e.target.checked)}
+        />
+        Attendees register for this event
+      </label>
+      <p className="font-ui text-xs mt-1 max-w-md" style={{ color: C.inkFaint }}>
+        Only registered attendees hold a place. Times are Singapore time, and
+        registration has to close before the event starts.
+      </p>
+
+      {form.registrationRequired && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label htmlFor="event-registration-opens-date" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration opening date
+            </label>
+            <DateSelect
+              id="event-registration-opens-date"
+              value={form.registrationOpensDate}
+              onChange={(v) => onChange('registrationOpensDate', v)}
+              error={errors.registrationOpensDate}
+              minDate={today}
+            />
+          </div>
+          <div>
+            <label htmlFor="event-registration-opens-time" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration opening time
+            </label>
+            <TimeSelect
+              id="event-registration-opens-time"
+              value={form.registrationOpensTime}
+              onChange={(v) => onChange('registrationOpensTime', v)}
+            />
+          </div>
+          <div>
+            <label htmlFor="event-registration-closes-date" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration closing date
+            </label>
+            <DateSelect
+              id="event-registration-closes-date"
+              value={form.registrationClosesDate}
+              onChange={(v) => onChange('registrationClosesDate', v)}
+              error={errors.registrationClosesDate}
+              minDate={form.registrationOpensDate || today}
+            />
+          </div>
+          <div>
+            <label htmlFor="event-registration-closes-time" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Registration closing time
+            </label>
+            <TimeSelect
+              id="event-registration-closes-time"
+              value={form.registrationClosesTime}
+              onChange={(v) => onChange('registrationClosesTime', v)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// S-50: the Organiser's own decision to close registration early, or to
+// reopen it. Closing asks once more first; reopening does not, since it only
+// gives Attendees back what they had.
+function RegistrationClosure({ eventId, record, onChange }) {
+  const [confirming, setConfirming] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState(null)
+  const control = registrationClosureControl(record)
+  if (!control) return null
+
+  async function run(action) {
+    setPending(true)
+    setError(null)
+    try {
+      onChange(await action(eventId))
+      setConfirming(false)
+    } catch (failure) {
+      setError(failure.message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const ghost = 'px-4 py-2 rounded-sm border font-ui text-sm font-medium disabled:opacity-70'
+  return (
+    <div className="mb-5">
+      {control.action === 'reopen' && (
+        <p className="flex items-center gap-2 font-ui text-sm mb-3" style={{ color: C.ink }}>
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+          {control.status}
+        </p>
+      )}
+      {control.action === 'reopen' && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run(reopenRegistration)}
+          className={ghost}
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          {pending ? 'Reopening…' : 'Reopen registration'}
+        </button>
+      )}
+      {control.action === 'close' && !confirming && (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className={ghost}
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          Close registration
+        </button>
+      )}
+      {control.action === 'close' && confirming && (
+        <div role="group" aria-label="Confirm closing registration">
+          <p className="font-ui text-sm mb-3 max-w-md" style={{ color: C.inkFaint }}>
+            Attendees won&apos;t be able to register until you reopen it. Anyone already
+            registered keeps their place.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(closeRegistration)}
+              className="px-4 py-2 rounded-sm font-ui text-sm font-medium disabled:opacity-70"
+              style={{ backgroundColor: C.teal, color: C.paper }}
+            >
+              {pending ? 'Closing…' : 'Close registration'}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setConfirming(false)}
+              className={ghost}
+              style={{ borderColor: C.ink, color: C.ink }}
+            >
+              Keep it open
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="font-ui text-sm mt-3" style={{ color: C.rose }}>{error}</p>
+      )}
+    </div>
+  )
+}
+
+function PersonRow({ person, when }) {
+  return (
+    <li
+      className="py-3 flex flex-wrap items-baseline justify-between gap-2"
+      style={{ borderColor: C.line }}
+    >
+      <div>
+        <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>
+          {person.name || 'Name not on record'}
+        </p>
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          {person.email || 'Email not on record'}
+        </p>
+      </div>
+      <p className="font-ui text-xs" style={{ color: C.inkFaint }}>{when}</p>
+    </li>
+  )
+}
+
+// S-48: who holds a place at this confirmed event, earliest first. The
+// composite shows it to the event's own Organiser only. S-50: with the
+// close/reopen control and the waiting list.
+function RegisteredAttendees({ eventId, record, onRecordChange }) {
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [state, setState] = useState({ status: 'loading', list: null })
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading', list: null })
+    listEventAttendees(eventId)
+      .then((list) => { if (active) setState({ status: 'ready', list }) })
+      .catch((error) => {
+        if (active) setState({ status: 'error', list: null, message: error.message })
+      })
+    return () => { active = false }
+  }, [eventId, loadAttempt])
+
+  return (
+    <section aria-labelledby="registered-attendees-heading">
+      <h2
+        id="registered-attendees-heading"
+        className="block font-display text-s font-medium mb-1"
+        style={{ color: C.ink }}
+      >
+        Registered attendees
+      </h2>
+      <RegistrationClosure eventId={eventId} record={record} onChange={onRecordChange} />
+      {state.status === 'loading' && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading attendees…</p>
+      )}
+      {state.status === 'error' && (
+        <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          <p role="alert">We couldn&apos;t load who has registered. {state.message}</p>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt((n) => n + 1)}
+            className="mt-3 px-4 py-2 rounded-sm border font-medium"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {state.status === 'ready' && (
+        <>
+          <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
+            {attendeeCountLabel(state.list.count)}
+          </p>
+          {state.list.attendees.length > 0 && (
+            <ul className="divide-y border-t border-b" style={{ borderColor: C.line }}>
+              {state.list.attendees.map((attendee) => (
+                <PersonRow
+                  key={attendee.attendee_id}
+                  person={attendee}
+                  when={`Registered ${formatRegistrationMoment(singaporeTime(attendee.registered_at))}`}
+                />
+              ))}
+            </ul>
+          )}
+          <section aria-labelledby="waiting-list-heading" className="mt-6">
+            <h3
+              id="waiting-list-heading"
+              className="font-ui text-sm font-medium mb-1"
+              style={{ color: C.ink }}
+            >
+              Waiting list
+            </h3>
+            <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
+              {waitingListLabel(state.list.waiting_list?.length ?? 0)}
+            </p>
+            {state.list.waiting_list?.length > 0 && (
+              <ol className="divide-y border-t border-b" style={{ borderColor: C.line }}>
+                {state.list.waiting_list.map((person) => (
+                  <PersonRow
+                    key={person.attendee_id}
+                    person={person}
+                    when={`Joined ${formatRegistrationMoment(singaporeTime(person.joined_at))}`}
+                  />
+                ))}
+              </ol>
+            )}
+          </section>
+        </>
+      )}
+    </section>
+  )
+}
+
+function registrationFields(event) {
+  return {
+    status: event.status,
+    registration_required: event.registration_required,
+    registration_opens_at: event.registration_opens_at,
+    registration_closes_at: event.registration_closes_at,
+    registration_closed_at: event.registration_closed_at ?? null,
+  }
+}
+
+// A registration time is a real instant; show it in Singapore wall-clock
+// time, like every other time on the page.
+function singaporeTime(instant) {
+  return new Date(new Date(instant).getTime() + 8 * 60 * 60 * 1000).toISOString()
 }
 
 function StatusBadge({ status }) {
@@ -752,6 +1103,9 @@ export default function EventRequestForm() {
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [status, setStatus] = useState(routeId ? null : 'unsaved')
+  // S-50: the stored registration settings and the Organiser's close
+  // decision, in the API's own field names for registrationClosureControl.
+  const [registrationRecord, setRegistrationRecord] = useState(null)
   const [decision, setDecision] = useState(null)
   const [errors, setErrors] = useState({})
   const [formError, setFormError] = useState(null)
@@ -814,6 +1168,7 @@ export default function EventRequestForm() {
     setForm(merged)
     setSavedForm(merged)
     setStatus(event.status)
+    setRegistrationRecord(registrationFields(event))
     setCancellation(cancellationFields(event))
     setDecision(
       event.decision
@@ -890,6 +1245,9 @@ export default function EventRequestForm() {
   // form's one submit button at that point is "Save changes". Draft and
   // returned both still need a real submit/resubmit action.
   const routesSubmitToSave = isSubmitted || isPlanning
+  // S-51: whether attendees register, and when, is settled while the request
+  // is being written or amended -- never once it is with the Coordinator.
+  const canEditRegistration = !routeId || status === 'draft' || isReturned
   const isBusy = loadState === 'loading' || saveState === 'saving' || submitState === 'submitting'
   const canShowForm = !routeId || loadState === 'ready'
   // Submitting no longer freezes the record, so it can be dirty too -- the
@@ -918,6 +1276,14 @@ export default function EventRequestForm() {
       return next
     })
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
+    // S-51: a period error sits on the date, but the time may be what fixes it.
+    const registrationDate = {
+      registrationOpensTime: 'registrationOpensDate',
+      registrationClosesTime: 'registrationClosesDate',
+    }[field]
+    if (registrationDate && errors[registrationDate]) {
+      setErrors((prev) => ({ ...prev, [registrationDate]: undefined }))
+    }
     if ((field === 'startDate' || field === 'startTime') && (errors.endDate || errors.endTime)) {
       setErrors((prev) => ({ ...prev, endDate: undefined, endTime: undefined }))
     }
@@ -938,9 +1304,12 @@ export default function EventRequestForm() {
   async function handleSave({ redirectTo } = {}) {
     if (isBusy) return
 
-    const validationErrors = requiresStrictValidation
-      ? validateForSubmit(form)
-      : validateDraft(form)
+    const validationErrors = {
+      ...(requiresStrictValidation ? validateForSubmit(form) : validateDraft(form)),
+      ...(canEditRegistration
+        ? validateRegistration(form, { submitting: requiresStrictValidation })
+        : {}),
+    }
     setErrors(validationErrors)
     if (Object.keys(validationErrors).length) {
       focusFirstError(validationErrors)
@@ -951,7 +1320,7 @@ export default function EventRequestForm() {
     setSaveState('saving')
     try {
       const event = routeId
-        ? await updateEventDraft(routeId, form)
+        ? await updateEventDraft(routeId, form, { includeRegistration: canEditRegistration })
         : await createEventDraft(form)
       applyEvent(event)
       setSaveState('saved')
@@ -998,7 +1367,10 @@ export default function EventRequestForm() {
       return
     }
 
-    const validationErrors = validateForSubmit(form)
+    const validationErrors = {
+      ...validateForSubmit(form),
+      ...validateRegistration(form, { submitting: true }),
+    }
     setErrors(validationErrors)
 
     if (Object.keys(validationErrors).length) {
@@ -1418,6 +1790,22 @@ export default function EventRequestForm() {
                 <FieldError id="event-venue-error" message={errors.venue} />
               </div>
             </div>
+
+            <RegistrationSettings
+              editable={canEditRegistration}
+              form={form}
+              saved={savedForm}
+              errors={errors}
+              onChange={updateField}
+            />
+
+            {routeId && status === 'confirmed' && savedForm.registrationRequired && (
+              <RegisteredAttendees
+                eventId={routeId}
+                record={registrationRecord}
+                onRecordChange={(event) => setRegistrationRecord(registrationFields(event))}
+              />
+            )}
 
             <div>
               <p className="block font-display text-s font-medium mb-1" style={{ color: C.ink }}>

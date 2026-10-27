@@ -10,7 +10,7 @@ test('readiness derives every implemented area from its owning data', () => {
   const event = { equipment_preparation_status: 'ready' }
   const readiness = buildEventReadiness(event, [
     { status: 'pending' },
-    { status: 'confirmed' },
+    { id: 'b1', status: 'confirmed', venue_name: 'Hall A', venue_preparation_status: 'ready' },
   ], [{ required_quantity: 2 }])
 
   assert.deepEqual(readiness.areas.map(({ id, state }) => [id, state]), [
@@ -44,7 +44,7 @@ test('readiness loads fresh venue and equipment data through Kong', async () => 
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options })
     const body = url.startsWith('/api/venue-bookings')
-      ? [{ status: 'confirmed' }]
+      ? [{ id: 'b1', status: 'confirmed', venue_name: 'Hall A', venue_preparation_status: 'ready' }]
       : [{ required_quantity: 4 }]
     return { ok: true, status: 200, json: async () => body }
   }
@@ -62,4 +62,18 @@ test('readiness loads fresh venue and equipment data through Kong', async () => 
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('venue readiness lists every confirmed venue and waits for all to be ready', () => {
+  const readiness = buildEventReadiness({ equipment_preparation_status: 'ready' }, [
+    { id: 'a', status: 'confirmed', venue_name: 'Hall A', venue_preparation_status: 'ready' },
+    { id: 'b', status: 'confirmed', venue_name: 'Room B', venue_preparation_status: 'in_progress' },
+    { id: 'c', status: 'rejected', venue_name: 'Room C', venue_preparation_status: 'ready' },
+  ], [{ required_quantity: 1 }])
+  const venue = readiness.areas[0]
+  assert.equal(venue.state, 'outstanding')
+  assert.equal(venue.detail, '1 of 2 confirmed venues Ready')
+  assert.deepEqual(venue.items.map(({ label, status }) => [label, status]), [
+    ['Hall A', 'Ready'], ['Room B', 'In Progress'],
+  ])
 })

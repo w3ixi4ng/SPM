@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
-from authorization import require_permission
+from authorization import require_assignment_service, require_permission
 from database import get_db
 from schemas import (
     CancellationDecisionCreate,
@@ -24,6 +24,7 @@ from schemas import (
     ROOM_LAYOUTS,
     EventDraftCreate,
     EventDraftUpdate,
+    EventAssignmentSummary,
     CoordinatorEventRead,
     EventInformationImpact,
     EventInformationUpdate,
@@ -39,12 +40,16 @@ from schemas import (
     InternalCoordinatorAssignmentResult,
     InternalCoordinatorReassignment,
     InternalCoordinatorReassignmentResult,
+    ReassignmentRequestCreate,
+    ReassignmentRequestRead,
     InternalSafetyDecision,
     InternalSafetyResubmit,
     InternalSafetySubmission,
     InternalTechnicalSignoff,
     OverlappingEvent,
     OverlappingEventsRequest,
+    PublishedEventRead,
+    REGISTRATION_FIELDS,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
@@ -56,19 +61,14 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = "events"
 TABLE = "events"
-# S-17: pending_safety_check sits between planning and confirmed, so it is
-# open wherever confirmed is.
+REASSIGNMENT_TABLE = "reassignment_requests"
+# S-93: every assigned, nonterminal lifecycle state remains open work until
+# a responsible Lead transfers it or the owning workflow closes it.
 ACTIVE_ASSIGNMENT_STATUSES = [
-    "submitted", "planning", "pending_safety_check", "confirmed", "returned",
+    "submitted", "under_review", "returned", "planning", "pending_safety_check",
+    "confirmed", "preparation", "safety_rejected", "safety_changes_requested",
 ]
-OVERSIGHT_ACTIVE_STATUSES = [
-    "submitted",
-    "under_review",
-    "returned",
-    "planning",
-    "pending_safety_check",
-    "confirmed",
-]
+OVERSIGHT_ACTIVE_STATUSES = ACTIVE_ASSIGNMENT_STATUSES
 EQUIPMENT_PREPARATION_EVENT_STATUSES = [
     "planning", "pending_safety_check", "confirmed", "preparation",
 ]
@@ -312,7 +312,9 @@ def _event_information_changes(existing: dict, payload: EventInformationUpdate) 
 
 
 def _validate_event_information(existing: dict, changes: dict) -> None:
-    candidate = {field: existing.get(field) for field in EventSubmittedCreate.model_fields}
+    candidate = {
+        field: existing[field] for field in EventSubmittedCreate.model_fields if field in existing
+    }
     candidate.update({field: change["after"] for field, change in changes.items() if field in candidate})
     try:
         EventSubmittedCreate.model_validate(candidate)
@@ -494,6 +496,96 @@ def get_booking_status(
     return result.data[0]
 
 
+# S-51: confirmed events' public details, for the event_registrations
+# composite to show anyone without signing in. Only confirmed events are
+# public; every other status is still being planned, or is over.
+_PUBLISHED_COLUMNS = ",".join(PublishedEventRead.model_fields)
+
+
+@app.get("/internal/events/published", response_model=list[PublishedEventRead])
+def list_published_events(db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(_PUBLISHED_COLUMNS)
+        .eq("status", "confirmed")
+        .order("start_date")
+        .order("start_time")
+    )
+    return _execute(operation).data
+
+
+@app.get("/internal/events/published/{event_id}", response_model=PublishedEventRead)
+def get_published_event(event_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(_PUBLISHED_COLUMNS)
+        .eq("id", str(event_id))
+        .eq("status", "confirmed")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found.")
+    return result.data[0]
+
+
+# S-50: the Organiser may close registration before the event fills, and
+# reopen it -- the decision is theirs, so only the owning Organiser can make
+# it, and only where registration exists: a confirmed event that takes it.
+_CLOSURE_NOT_APPLICABLE = (
+    "Registration can only be closed or reopened on a confirmed event that takes registrations."
+)
+
+
+def _closable_event(event_id: UUID, organiser_id: str, db: Client) -> dict:
+    event = _get_owned_event(event_id, organiser_id, db)
+    if event["status"] != "confirmed" or not event.get("registration_required"):
+        raise HTTPException(status_code=409, detail=_CLOSURE_NOT_APPLICABLE)
+    return event
+
+
+def _write_closure(event_id: UUID, organiser_id: str, closed_at: str | None, db: Client) -> dict:
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({"registration_closed_at": closed_at})
+        .eq("id", str(event_id))
+        .eq("organiser_id", organiser_id)
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
+
+
+@app.put("/events/{event_id}/registration-closure", response_model=EventRead)
+def close_registration(
+    event_id: UUID,
+    user=Depends(require_permission("events:close_registration")),
+    db: Client = Depends(get_db),
+):
+    organiser_id = str(user.id)
+    event = _closable_event(event_id, organiser_id, db)
+    # Closing twice keeps the first time it was closed.
+    if event.get("registration_closed_at"):
+        return event
+    return _write_closure(event_id, organiser_id, datetime.now(timezone.utc).isoformat(), db)
+
+
+@app.delete("/events/{event_id}/registration-closure", response_model=EventRead)
+def reopen_registration(
+    event_id: UUID,
+    user=Depends(require_permission("events:close_registration")),
+    db: Client = Depends(get_db),
+):
+    organiser_id = str(user.id)
+    event = _closable_event(event_id, organiser_id, db)
+    if not event.get("registration_closed_at"):
+        return event
+    return _write_closure(event_id, organiser_id, None, db)
+
+
 @app.get("/internal/events/unassigned", response_model=list[EventRead])
 def list_unassigned_events(db: Client = Depends(get_db)):
     operation = (
@@ -509,6 +601,7 @@ def list_unassigned_events(db: Client = Depends(get_db)):
 
 @app.get("/internal/events/assigned-active", response_model=list[EventRead])
 def list_active_assigned_events(db: Client = Depends(get_db)):
+    """Internal cross-service read for affected booking notifications."""
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
@@ -520,8 +613,23 @@ def list_active_assigned_events(db: Client = Depends(get_db)):
     return _execute(operation).data
 
 
+@app.get("/internal/events/lead-assigned-active", response_model=list[EventRead])
+def list_lead_active_assigned_events(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+    """The S-84 Lead view uses recorded assignment provenance."""
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select("*")
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .not_.is_("assigned_coordinator_id", "null")
+        .eq("assigning_lead_id", str(user.id))
+        .order("updated_at", desc=True)
+    )
+    return _execute(operation).data
+
+
 @app.get("/internal/events/coordinator-overview", response_model=list[EventRead])
-def list_coordinator_overview_events(db: Client = Depends(get_db)):
+def list_coordinator_overview_events(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
     """Return assigned active rows for the S-85 composite read model.
 
     The atomic service owns lifecycle filtering. Role checks, trusted
@@ -534,6 +642,24 @@ def list_coordinator_overview_events(db: Client = Depends(get_db)):
         .select("*")
         .in_("status", OVERSIGHT_ACTIVE_STATUSES)
         .not_.is_("assigned_coordinator_id", "null")
+        .order("updated_at", desc=True)
+    )
+    operation = operation.eq("assigning_lead_id", str(user.id))
+    return _execute(operation).data
+
+
+@app.get("/internal/events/coordinators/{coordinator_id}/active-summary", response_model=list[EventAssignmentSummary])
+def list_coordinator_active_summaries(
+    coordinator_id: UUID,
+    user=Depends(require_permission("events:lead_assignments")),
+    db: Client = Depends(get_db),
+):
+    """S-93 cross-Lead inventory with only assignment and scheduling fields."""
+    operation = (
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,name,status,start_date,start_time,end_date,end_time,assigned_coordinator_id,assigning_lead_id,coordinator_assignment_version")
+        .eq("assigned_coordinator_id", str(coordinator_id))
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
         .order("updated_at", desc=True)
     )
     return _execute(operation).data
@@ -819,6 +945,52 @@ def get_event(
 _CANCELLED_CLOSED = "This event has been cancelled and is closed."
 
 
+# S-51: whether attendees register, and when, is the Organiser's to settle
+# while creating or updating the request. Once it is submitted the
+# Coordinator plans around it, so it stays as it was submitted.
+_REGISTRATION_LOCKED = (
+    "Registration settings can only be changed while the request is a draft or returned."
+)
+
+
+def _validated_changes(existing: dict, changes: dict) -> dict:
+    """The PATCH to write, checked against the record it produces.
+
+    A PATCH may supply only one time while the other already exists on the
+    record. Validate the resulting record, not only the partial request, so
+    a cross-field conflict is still a 422 instead of reaching the SQL CHECK.
+
+    Everything past a draft -- submitted, planning, returned -- still has
+    to satisfy every submitted-required rule after the edit; the draft
+    schema would happily accept a PATCH that nulls out a required field,
+    which the database's own constraint would then reject as an opaque
+    storage failure instead of a readable 422.
+    """
+    if REGISTRATION_FIELDS & changes.keys() and existing["status"] not in _SUBMITTABLE_STATUSES:
+        raise HTTPException(status_code=409, detail=_REGISTRATION_LOCKED)
+
+    validator = EventDraftCreate if existing["status"] == "draft" else EventSubmittedCreate
+    candidate = {
+        field: existing[field] for field in EventDraftCreate.model_fields if field in existing
+    }
+    candidate.update(
+        {key: value for key, value in changes.items() if key in EventDraftCreate.model_fields}
+    )
+    try:
+        merged = validator.model_validate(candidate)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    # Turning registration off clears the period the record still holds, so
+    # write whichever registration value the merged record changed.
+    if REGISTRATION_FIELDS & changes.keys():
+        settled = merged.model_dump(mode="json", include=REGISTRATION_FIELDS)
+        for field, value in settled.items():
+            if field in changes or value != existing.get(field):
+                changes[field] = value
+    return changes
+
+
 @app.patch("/events/{event_id}", response_model=EventRead)
 def update_event(
     event_id: UUID,
@@ -841,25 +1013,7 @@ def update_event(
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
         return existing
-
-    # A PATCH may supply only one time while the other already exists on the
-    # record. Validate the resulting record, not only the partial request, so
-    # a cross-field conflict is still a 422 instead of reaching the SQL CHECK.
-    #
-    # Everything past a draft -- submitted, planning, returned -- still has
-    # to satisfy every submitted-required rule after the edit; the draft
-    # schema would happily accept a PATCH that nulls out a required field,
-    # which the database's own constraint would then reject as an opaque
-    # storage failure instead of a readable 422.
-    validator = EventDraftCreate if existing["status"] == "draft" else EventSubmittedCreate
-    candidate = {
-        field: existing.get(field) for field in EventDraftCreate.model_fields
-    }
-    candidate.update(changes)
-    try:
-        validator.model_validate(candidate)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
+    changes = _validated_changes(existing, changes)
 
     operation = (
         db.schema(SCHEMA)
@@ -1315,6 +1469,8 @@ def create_submitted_event_internal(
     payload: InternalEventCreate,
     db: Client = Depends(get_db),
 ):
+    if payload.assigned_coordinator_id is not None:
+        raise HTTPException(status_code=422, detail="Use the Lead assignment workflow")
     values = payload.model_dump(mode="json")
     values["status"] = "submitted"
     values["submitted_at"] = _submitted_now()
@@ -1334,6 +1490,8 @@ def create_submitted_event_internal(
 def assign_coordinator_internal(
     event_id: UUID,
     payload: InternalCoordinatorAssignment,
+    user=Depends(require_permission("events:lead_assignments")),
+    trusted_service=Depends(require_assignment_service),
     db: Client = Depends(get_db),
 ):
     """Conditionally assign one submitted request.
@@ -1343,10 +1501,11 @@ def assign_coordinator_internal(
     failure. A different coordinator is a real concurrent-write conflict.
     """
     coordinator_id = str(payload.coordinator_id)
+    lead_id = str(user.id)
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
-        .update({"assigned_coordinator_id": coordinator_id})
+        .update({"assigned_coordinator_id": coordinator_id, "assigning_lead_id": lead_id})
         .eq("id", str(event_id))
         .eq("status", "submitted")
         .is_("assigned_coordinator_id", "null")
@@ -1366,6 +1525,7 @@ def assign_coordinator_internal(
     if (
         event["status"] == "submitted"
         and event.get("assigned_coordinator_id") == coordinator_id
+        and event.get("assigning_lead_id") == lead_id
     ):
         return {**event, "assignment_created": False}
 
@@ -1373,6 +1533,75 @@ def assign_coordinator_internal(
         status_code=409,
         detail="This event request is no longer available for assignment",
     )
+
+
+@app.get("/internal/events/{event_id}/assignment-scope", response_model=EventRead)
+def get_assignment_scope(event_id: UUID, user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+    rows = _execute(db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))).data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = rows[0]
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    if event["assigning_lead_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Event not found in your scope")
+    return event
+
+
+@app.post(
+    "/events/{event_id}/reassignment-request",
+    response_model=ReassignmentRequestRead,
+    status_code=201,
+)
+def create_reassignment_request_internal(
+    event_id: UUID, payload: ReassignmentRequestCreate,
+    user=Depends(require_permission("events:request_reassignment")),
+    db: Client = Depends(get_db),
+):
+    event = _get_assigned_event(event_id, str(user.id), db)
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    values = {
+        "event_id": str(event_id), "requester_id": str(user.id),
+        "assigning_lead_id": event["assigning_lead_id"],
+        "assignment_version": event["coordinator_assignment_version"],
+        "reason": payload.reason,
+    }
+    # The database trigger locks and checks the current event in the same
+    # transaction as this insert. A pre-read here would race with S-84.
+    try:
+        result = db.schema(SCHEMA).table(REASSIGNMENT_TABLE).insert(values).execute()
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code == "23505":
+            raise HTTPException(status_code=409, detail="A reassignment request is already pending") from exc
+        if code in {"23514", "23503"}:
+            raise HTTPException(status_code=409, detail="This event assignment has changed or has no responsible Lead") from exc
+        logger.exception("Reassignment request storage failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    return result.data[0]
+
+
+@app.get(
+    "/events/reassignment-requests/mine",
+    response_model=list[ReassignmentRequestRead],
+)
+def list_requester_reassignment_requests(user=Depends(require_permission("events:request_reassignment")), db: Client = Depends(get_db)):
+    return _execute(
+        db.schema(SCHEMA).table(REASSIGNMENT_TABLE).select("*")
+        .eq("requester_id", str(user.id)).order("created_at", desc=True)
+    ).data
+
+
+@app.get(
+    "/internal/reassignment-requests/lead",
+    response_model=list[ReassignmentRequestRead],
+)
+def list_lead_reassignment_requests(user=Depends(require_permission("events:lead_assignments")), db: Client = Depends(get_db)):
+    return _execute(
+        db.schema(SCHEMA).table(REASSIGNMENT_TABLE).select("*")
+        .eq("assigning_lead_id", str(user.id)).order("created_at", desc=True)
+    ).data
 
 
 def _is_exact_reassignment_retry(
@@ -1397,6 +1626,8 @@ def _is_exact_reassignment_retry(
 def reassign_coordinator_internal(
     event_id: UUID,
     payload: InternalCoordinatorReassignment,
+    user=Depends(require_permission("events:lead_assignments")),
+    trusted_service=Depends(require_assignment_service),
     db: Client = Depends(get_db),
 ):
     """Versioned compare-and-set transfer with exact-retry recognition.
@@ -1408,6 +1639,7 @@ def reassign_coordinator_internal(
     target_id = str(payload.coordinator_id)
     expected_id = str(payload.expected_coordinator_id)
     expected_version = payload.expected_assignment_version
+    lead_id = str(user.id)
 
     current = _execute(
         db.schema(SCHEMA).table(TABLE).select("*").eq("id", str(event_id))
@@ -1415,6 +1647,10 @@ def reassign_coordinator_internal(
     if not current.data:
         raise HTTPException(status_code=404, detail="Event not found")
     event = current.data[0]
+    if not event.get("assigning_lead_id"):
+        raise HTTPException(status_code=409, detail="This event has no recorded responsible Lead")
+    if event["assigning_lead_id"] != lead_id:
+        raise HTTPException(status_code=404, detail="Event not found in your scope")
 
     if _is_exact_reassignment_retry(
         event,
@@ -1449,6 +1685,7 @@ def reassign_coordinator_internal(
         .eq("id", str(event_id))
         .eq("assigned_coordinator_id", expected_id)
         .eq("coordinator_assignment_version", expected_version)
+        .eq("assigning_lead_id", lead_id)
         .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
         .select("*")
     )
@@ -1482,6 +1719,9 @@ def submit_draft_internal(
     existing = _get_owned_event(event_id, organiser_id, db)
     if existing["status"] not in _SUBMITTABLE_STATUSES:
         raise HTTPException(status_code=409, detail="Event has already been submitted")
+    requested_owner = str(payload.assigned_coordinator_id) if payload.assigned_coordinator_id else None
+    if requested_owner != existing.get("assigned_coordinator_id"):
+        raise HTTPException(status_code=409, detail="Coordinator assignment cannot change during submission")
 
     changes = payload.model_dump(mode="json", exclude={"organiser_id"})
     changes["status"] = "submitted"
@@ -1518,6 +1758,11 @@ def update_event_internal(
     organiser_id = str(payload.organiser_id)
     existing = _get_owned_event(event_id, organiser_id, db)
 
+    if "assigned_coordinator_id" in payload.model_fields_set:
+        requested_owner = str(payload.assigned_coordinator_id) if payload.assigned_coordinator_id else None
+        if requested_owner != existing.get("assigned_coordinator_id"):
+            raise HTTPException(status_code=409, detail="Use the Lead reassignment workflow")
+
     if existing["status"] == "rejected":
         raise HTTPException(status_code=409, detail="This request has been rejected and is closed")
     # S-61: a cancelled event is over too.
@@ -1527,16 +1772,7 @@ def update_event_internal(
     changes = payload.model_dump(exclude_unset=True, mode="json", exclude={"organiser_id"})
     if not changes:
         return existing
-
-    validator = EventDraftCreate if existing["status"] == "draft" else EventSubmittedCreate
-    candidate = {field: existing.get(field) for field in EventDraftCreate.model_fields}
-    candidate.update(
-        {key: value for key, value in changes.items() if key in EventDraftCreate.model_fields}
-    )
-    try:
-        validator.model_validate(candidate)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
+    changes = _validated_changes(existing, changes)
 
     operation = (
         db.schema(SCHEMA)

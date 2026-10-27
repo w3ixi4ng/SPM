@@ -14,3 +14,4 @@ Each atomic service owns exactly one entity and its storage. Rules:
 | [`bookings/`](bookings/README.md) | Venue booking requests |
 | [`equipment/`](equipment/README.md) | Equipment catalogue items and quantities |
 | [`notifications/`](notifications/README.md) | Persistent in-app notifications |
+| [`registrations/`](registrations/README.md) | Event registrations — which Attendee holds a place at which event |

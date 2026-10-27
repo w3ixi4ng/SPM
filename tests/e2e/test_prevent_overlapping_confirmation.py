@@ -86,11 +86,16 @@ def test_confirmed_venue_time_becomes_unavailable_to_another_event(admin, page, 
     expect(pending.get_by_role("link").filter(has_text=events[1]["name"])).to_be_visible(timeout=20000)
 
     page.get_by_role("button", name="Sign out").click()
+    # Sign out clears the cookie asynchronously. Finish that transition
+    # before signing in as another user and doing a hard page navigation.
+    page.wait_for_url(re.compile(r"/login$"), timeout=20000)
     sign_in(coordinator)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
     page.goto(f"/coordinator/events/{events[0]['id']}")
+    page.wait_for_url(re.compile(rf"/coordinator/events/{events[0]['id']}$"), timeout=20000)
     expect(page.get_by_role("list", name="Venue requests sent")).to_contain_text("Confirmed", timeout=20000)
     page.goto(f"/coordinator/events/{events[1]['id']}")
+    page.wait_for_url(re.compile(rf"/coordinator/events/{events[1]['id']}$"), timeout=20000)
     expect(page.get_by_role("list", name="Venue requests sent")).to_contain_text("Pending", timeout=20000)
 
     rows = admin.schema("bookings").table("bookings").select("id,status").in_(

@@ -1206,3 +1206,28 @@ agreed decisions are in the S-61 section of
 - **Actual:** No session `401`; four other roles `403` with no delete; a storage failure `500` "Booking storage unavailable".
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_event_cancelled.py::test_without_a_session_nothing_is_removed`; `tests/unit/atomic/bookings/test_event_cancelled.py::test_other_roles_cannot_remove_an_events_bookings`; `tests/unit/atomic/bookings/test_event_cancelled.py::test_a_storage_failure_is_a_500`
+## S-25 - Update Venue Preparation Status
+
+### TC-BOOKINGS-116 - new bookings begin Not Started
+- **Scenario:** A booking has an explicit preparation state before staff work starts.
+- **Expected:** `venue_preparation_status` is `not_started`, its audit fields are null, and its version is zero.
+- **Status:** Pass.
+- **Evidence:** SQL defaults and constraints in `backend/sql/bookings.sql`, plus response defaults covered by the booking unit suite.
+
+### TC-BOOKINGS-117 - Venue Staff save each preparation state
+- **Steps:** Save `not_started`, `in_progress`, and `ready` as Venue Staff.
+- **Expected:** Each valid state is saved with the verified staff id, server time, and next version.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_staff_saves_each_state_with_server_audit`.
+
+### TC-BOOKINGS-118 - preparation input is controlled by the service
+- **Steps:** Submit an unknown state and submit caller-owned audit fields.
+- **Expected:** Both are rejected with `422`; no write occurs.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_invalid_or_forged_input_never_writes`.
+
+### TC-BOOKINGS-119 - stale preparation updates cannot overwrite newer work
+- **Steps:** Save twice using the same expected version.
+- **Expected:** The first save succeeds and the stale save returns `409`.
+- **Status:** Pass.
+- **Evidence:** `test_venue_preparation.py::test_stale_version_is_a_conflict`.

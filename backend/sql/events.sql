@@ -58,6 +58,7 @@ create table if not exists events.events (
   -- organiser_id, it is an opaque id the users service is the source of
   -- truth for.
   assigned_coordinator_id         uuid,
+  assigning_lead_id               uuid,
   -- S-84: the previous owner and monotonic version make a reassignment
   -- retryable across the events/notifications service boundary. The version
   -- also prevents a delayed old retry from reverting a newer transfer.
@@ -127,6 +128,18 @@ create table if not exists events.events (
   edit_version               integer not null default 0,
   edit_history               jsonb not null default '[]'::jsonb,
   safety_recheck_required    boolean not null default false,
+
+  -- S-51: whether attendees register, and when they may. No timezone: the
+  -- period is Singapore wall-clock time, like the event's own dates and
+  -- times. Null whenever registration is off. Constraints are in the S-51
+  -- block at the end of this file.
+  registration_required      boolean not null default false,
+  registration_opens_at      timestamp without time zone,
+  registration_closes_at     timestamp without time zone,
+  -- S-50: set when the Organiser closes registration early, cleared when
+  -- they reopen it. A real instant (timestamptz), unlike the period above:
+  -- it records when they did it, not a time on the event's own calendar.
+  registration_closed_at     timestamptz,
 
   -- When the request was submitted, and null while it is a draft. Together
   -- with organiser_id this is the record of who submitted and when.
@@ -371,7 +384,8 @@ create table if not exists events.events (
 -- version 0; their first real reassignment moves to version 1.
 alter table events.events
   add column if not exists previous_coordinator_id uuid,
-  add column if not exists coordinator_assignment_version integer not null default 0;
+  add column if not exists coordinator_assignment_version integer not null default 0,
+  add column if not exists assigning_lead_id uuid;
 
 alter table events.events
   drop constraint if exists events_coordinator_assignment_version_nonnegative;
@@ -663,6 +677,80 @@ create trigger events_set_updated_at
   for each row
   execute function events.set_updated_at();
 
+-- S-88: requests belong to Events. The Lead snapshot preserves the
+-- supervisory scope even after the Coordinator changes. Historical events
+-- without assigning_lead_id are deliberately not backfilled or exposed.
+create table if not exists events.reassignment_requests (
+  id uuid primary key default gen_random_uuid(),
+  -- Deliberately no cascade: request history survives event removal.
+  event_id uuid not null,
+  event_name text not null,
+  requester_id uuid not null,
+  assigning_lead_id uuid not null,
+  assignment_version integer not null,
+  reason text not null check (btrim(reason) <> ''),
+  status text not null default 'pending' check (status in ('pending', 'actioned')),
+  created_at timestamptz not null default now(),
+  actioned_at timestamptz,
+  constraint reassignment_action_time_check check (
+    (status = 'pending' and actioned_at is null)
+    or (status = 'actioned' and actioned_at is not null)
+  )
+);
+alter table events.reassignment_requests
+  drop constraint if exists reassignment_requests_event_id_fkey;
+create unique index if not exists reassignment_one_pending_per_event
+  on events.reassignment_requests(event_id) where status = 'pending';
+create index if not exists reassignment_requester_history
+  on events.reassignment_requests(requester_id, created_at desc);
+create index if not exists reassignment_lead_history
+  on events.reassignment_requests(assigning_lead_id, created_at desc);
+
+-- Lock the event while checking the submitted request, so a concurrent S-84
+-- transfer cannot leave a new request pending for its former owner.
+create or replace function events.validate_reassignment_request()
+returns trigger language plpgsql security invoker as $$
+declare current_event events.events%rowtype;
+begin
+  select * into current_event from events.events where id = new.event_id for update;
+  if not found or current_event.assigned_coordinator_id is distinct from new.requester_id
+     or current_event.assigning_lead_id is null
+     or current_event.assigning_lead_id is distinct from new.assigning_lead_id
+     or current_event.coordinator_assignment_version is distinct from new.assignment_version
+     or current_event.status not in ('submitted','planning','pending_safety_check','confirmed','returned') then
+    raise exception 'Event assignment changed or has no responsible Lead' using errcode = '23514';
+  end if;
+  new.reason := btrim(new.reason);
+  new.event_name := coalesce(current_event.name, 'Untitled event');
+  return new;
+end;
+$$;
+drop trigger if exists reassignment_request_validate on events.reassignment_requests;
+create trigger reassignment_request_validate before insert on events.reassignment_requests
+  for each row execute function events.validate_reassignment_request();
+
+-- S-84's successful compare-and-set update is the only actioning event.
+-- This runs in the same transaction as the event update, so failure or a
+-- losing concurrent write cannot mark a request actioned.
+create or replace function events.action_reassignment_request()
+returns trigger language plpgsql security invoker as $$
+begin
+  if old.assigned_coordinator_id is not null
+     and new.assigned_coordinator_id is distinct from old.assigned_coordinator_id then
+    update events.reassignment_requests
+       set status = 'actioned', actioned_at = now()
+     where event_id = old.id and requester_id = old.assigned_coordinator_id
+       and assignment_version = old.coordinator_assignment_version
+       and status = 'pending';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists events_action_reassignment_request on events.events;
+create trigger events_action_reassignment_request
+  after update of assigned_coordinator_id on events.events
+  for each row execute function events.action_reassignment_request();
+
 -- 3. Grant access to the backend role. Supabase does not pre-configure access
 --    to custom schemas, so both schema usage and table privileges are needed.
 grant usage on schema events to service_role;
@@ -679,6 +767,7 @@ alter default privileges for role postgres in schema events
 -- 5. Block direct browser access. The backend uses service_role, which bypasses
 --    RLS; no anon or authenticated policy is intentionally defined.
 alter table events.events enable row level security;
+alter table events.reassignment_requests enable row level security;
 
 -- 6. Ask PostgREST to refresh its view after the schema and grants change.
 -- ---------------------------------------------------------------------------
@@ -998,3 +1087,57 @@ alter table events.events add constraint events_technical_signoff_valid
 notify pgrst, 'reload schema';
 commit;
 -- END S-18 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-51 REGISTRATION PERIOD
+-- Existing installations: run through END S-51 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving: every existing event gets registration
+-- off and no period.
+begin;
+alter table events.events
+  add column if not exists registration_required boolean not null default false,
+  add column if not exists registration_opens_at timestamp without time zone,
+  add column if not exists registration_closes_at timestamp without time zone;
+
+-- Registration off means no period; a period, once both ends are set, is a
+-- real interval. Closing before the event starts is checked by the service,
+-- which already has the event's start in hand.
+alter table events.events drop constraint if exists events_registration_period_valid;
+alter table events.events add constraint events_registration_period_valid
+  check (
+    (
+      not registration_required
+      and registration_opens_at is null
+      and registration_closes_at is null
+    )
+    or (
+      registration_required
+      and (
+        registration_opens_at is null
+        or registration_closes_at is null
+        or registration_closes_at > registration_opens_at
+      )
+    )
+  );
+
+-- The public listing reads confirmed events only.
+create index if not exists events_events_status_idx on events.events (status);
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-51 REGISTRATION PERIOD
+
+-- BEGIN S-50 CLOSE REGISTRATION EARLY
+-- Existing installations: run through END S-50 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving: every existing event stays open.
+begin;
+alter table events.events
+  add column if not exists registration_closed_at timestamptz;
+
+-- Only an event that takes registrations can have it closed.
+alter table events.events drop constraint if exists events_registration_closed_needs_registration;
+alter table events.events add constraint events_registration_closed_needs_registration
+  check (registration_closed_at is null or registration_required);
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-50 CLOSE REGISTRATION EARLY

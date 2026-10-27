@@ -483,3 +483,17 @@ off. The same detail comes back when the database constraint wins a race.
 `POST /bookings` (a Coordinator's request) keeps the S-75 wording and never
 names another event.
 
+## S-25 venue preparation
+
+Every booking response includes `venue_preparation_status` (`not_started`,
+`in_progress`, or `ready`), `venue_preparation_updated_by`,
+`venue_preparation_updated_at`, and `venue_preparation_version`.
+
+`PUT /bookings/{id}/venue-preparation` requires a verified `venue_staff`
+session and body `{"status":"ready","expected_version":0}`. It returns the
+updated booking with `200`. A non-confirmed booking or stale version returns
+`409`; missing is `404`; invalid or caller-owned audit input is `422`.
+
+Before integration tests, run the S-25 migration block in
+`backend/sql/bookings.sql` in both dev and test Supabase projects. The existing
+`bookings` schema remains exposed and granted.

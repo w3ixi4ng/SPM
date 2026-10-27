@@ -1,8 +1,16 @@
 """S-85 coordinator oversight read-source tests."""
 
 from types import SimpleNamespace
+import pytest
 
-from .conftest import COORDINATOR_A, event_row
+from .conftest import COORDINATOR_A, authenticate, event_row, fake_user
+
+LEAD_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
+
+@pytest.fixture(autouse=True)
+def lead_auth(client, auth):
+    authenticate(client, auth, fake_user(LEAD_ID, "event_coordinator_lead"))
 
 
 OVERSIGHT_ACTIVE = [
@@ -12,6 +20,9 @@ OVERSIGHT_ACTIVE = [
     "planning",
     "pending_safety_check",
     "confirmed",
+    "preparation",
+    "safety_rejected",
+    "safety_changes_requested",
 ]
 
 
@@ -30,9 +41,9 @@ def _active_row(status: str):
     )
 
 
-def test_internal_oversight_uses_all_five_active_statuses(client, db):
+def test_internal_oversight_uses_all_open_active_statuses(client, db):
     operation = (
-        db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.return_value
+        db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.return_value.eq.return_value
     )
     operation.execute.return_value = SimpleNamespace(
         data=[_active_row(status) for status in OVERSIGHT_ACTIVE]
@@ -52,11 +63,14 @@ def test_internal_oversight_uses_all_five_active_statuses(client, db):
     table.select.return_value.in_.return_value.not_.is_.return_value.order.assert_called_once_with(
         "updated_at", desc=True
     )
+    table.select.return_value.in_.return_value.not_.is_.return_value.order.return_value.eq.assert_called_once_with(
+        "assigning_lead_id", LEAD_ID
+    )
 
 
 def test_internal_oversight_excludes_unassigned_and_inactive_events(client, db):
     operation = (
-        db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.return_value
+        db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.return_value.eq.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=[])
 

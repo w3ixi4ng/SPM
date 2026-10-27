@@ -28,6 +28,7 @@ from schemas import (
     BookingRead,
     HoldCreate,
     HoldRelease,
+    VenuePreparationUpdate,
 )
 from security import require_coordinator, require_user, require_venue_staff
 
@@ -442,6 +443,9 @@ _REVIEW_CLEARED = {
     "decided_by": None, "decided_at": None, "decision_reason": None, "decision_alternative": None,
     # S-78: a resolved unavailability flag was about the old time and venue.
     "alternative_resolved_at": None, "alternative_resolved_by": None, "alternative_resolution_note": None,
+    # S-25: preparation belonged to the old confirmed venue and time.
+    "venue_preparation_status": "not_started", "venue_preparation_updated_by": None,
+    "venue_preparation_updated_at": None, "venue_preparation_version": 0,
 }
 
 
@@ -611,7 +615,7 @@ def _date_range(venue_id, from_date, to_date):
 
 @app.get("/bookings", response_model=list[BookingRead])
 def list_bookings(
-    booking_status: Literal["pending", "held", "actionable", "live"] | None = Query(default=None, alias="status"),
+    booking_status: Literal["pending", "held", "confirmed", "actionable", "live"] | None = Query(default=None, alias="status"),
     event_id: UUID | None = None,
     venue_id: UUID | None = None,
     from_date: date | None = Query(default=None, alias="from"),
@@ -676,6 +680,43 @@ def get_booking(booking_id: UUID, db: Client = Depends(get_db)):
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     return booking
+
+
+@app.put("/bookings/{booking_id}/venue-preparation", response_model=BookingRead)
+def update_venue_preparation(
+    booking_id: UUID,
+    payload: VenuePreparationUpdate,
+    staff=Depends(require_venue_staff),
+    db: Client = Depends(get_db),
+):
+    """S-25: save preparation for one confirmed venue booking.
+
+    The composite verifies the event is in Preparation. This atomic service
+    owns the booking state and independently verifies the caller and booking
+    status. A version guard prevents two open screens silently overwriting
+    each other.
+    """
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] != "confirmed":
+        raise HTTPException(status_code=409, detail="Only a confirmed venue booking can be prepared")
+
+    values = {
+        "venue_preparation_status": payload.status,
+        "venue_preparation_updated_by": str(staff.id),
+        "venue_preparation_updated_at": datetime.now(timezone.utc).isoformat(),
+        "venue_preparation_version": payload.expected_version + 1,
+    }
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(booking_id))
+        .eq("status", "confirmed")
+        .eq("venue_preparation_version", payload.expected_version)
+    )
+    if not result.data:
+        raise HTTPException(status_code=409, detail="The preparation status changed. Reload and try again.")
+    return result.data[0]
 
 
 @app.post("/blocks", response_model=BlockRead, status_code=status.HTTP_201_CREATED)

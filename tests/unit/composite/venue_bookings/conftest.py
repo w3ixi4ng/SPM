@@ -143,6 +143,7 @@ class Services:
         self.event = fake_response(200, dict(EVENT))
         self.venue = fake_response(200, dict(VENUE))
         self.pending = fake_response(200, [])
+        self.booking_event_status = "planning"
         # S-77: what GET /blocks answers -- the unavailable periods a read
         # checks each held or confirmed booking against.
         self.blocks = fake_response(200, [])
@@ -161,6 +162,7 @@ class Services:
 
         self.bookings = MagicMock()
         self.bookings.post = AsyncMock(side_effect=self._bookings_post)
+        self.bookings.put = AsyncMock()
         self.bookings.get = AsyncMock(side_effect=self._bookings_get)
         # S-75: what GET /bookings/{id} answers -- a hold or decision reads
         # the booking to find its venue's setup and turnaround.
@@ -187,7 +189,7 @@ class Services:
 
     async def _events_get(self, path, **kwargs):
         if path.startswith("/events/booking-status/"):
-            return fake_response(200, {"id": path.rsplit("/", 1)[-1], "status": "planning"})
+            return fake_response(200, {"id": path.rsplit("/", 1)[-1], "status": self.booking_event_status})
         assert path == f"/events/assigned/{EVENT_ID}", f"unexpected events.get({path!r})"
         return self.event
 

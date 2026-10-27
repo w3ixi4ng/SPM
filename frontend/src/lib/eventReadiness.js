@@ -1,5 +1,6 @@
 import { listEquipmentRequirements } from './equipmentRequirements.js'
 import { listVenueBookingsForEvent } from './venueBookings.js'
+import { venuePreparationLabel } from './venueBookings.js'
 
 const unavailable = (id, label) => ({
   id,
@@ -9,7 +10,9 @@ const unavailable = (id, label) => ({
 })
 
 export function buildEventReadiness(event, bookings, requirements) {
-  const venueComplete = bookings.some((booking) => booking.status === 'confirmed')
+  const confirmedVenues = bookings.filter((booking) => booking.status === 'confirmed')
+  const readyVenues = confirmedVenues.filter((booking) => booking.venue_preparation_status === 'ready')
+  const venueComplete = confirmedVenues.length > 0 && readyVenues.length === confirmedVenues.length
   const equipmentComplete = requirements.length > 0
   const supportComplete = event.equipment_preparation_status === 'ready'
 
@@ -18,7 +21,14 @@ export function buildEventReadiness(event, bookings, requirements) {
       id: 'venue',
       label: 'Venue',
       state: venueComplete ? 'complete' : 'outstanding',
-      detail: venueComplete ? 'Confirmed booking recorded' : 'A confirmed venue is still required',
+      detail: confirmedVenues.length === 0
+        ? 'A confirmed venue is still required'
+        : `${readyVenues.length} of ${confirmedVenues.length} confirmed venues Ready`,
+      items: confirmedVenues.map((booking) => ({
+        id: booking.id,
+        label: booking.venue_name,
+        status: venuePreparationLabel(booking.venue_preparation_status),
+      })),
     },
     {
       id: 'equipment',

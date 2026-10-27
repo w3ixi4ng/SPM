@@ -6,9 +6,9 @@ Auth are faked; no network, database, or Docker is used.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/notifications` |
-| Last run | 2026-10-09, branch `S-84/reassign-event-coordinator`, pre-commit working tree |
-| Environment | Unit fakes only |
-| Result | Pass — 9 passed; 735 passed across `tests/unit` |
+| Last run | 2026-10-25, branch `S-49/registration-confirmation-notification`, pre-commit working tree |
+| Environment | Unit fakes only; Python 3.14.4, pytest 9.1.1 |
+| Result | Pass — 12 passed; 1407 passed, 17 skipped across `tests/unit` |
 
 **Stories:** S-83 Assign Event Requests from Unassigned Queue and S-84
 Reassign Event Coordinator.
@@ -150,3 +150,36 @@ against a real table is proven by TC-VENUEBOOKINGS-110.
 - **Actual:** `venue_unavailable` row `201`; `venue_closed` `422` with no storage call.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_venue_unavailable_notification_is_accepted`; `test_app.py::test_an_unknown_kind_is_still_refused`
+
+## TC-NOTIFICATIONS-010 — a registration confirmation is accepted
+
+- **Scenario:** The inbox accepts the S-49 kind, so an Attendee can be told
+  their registration was recorded.
+- **Pre-conditions:** The fake batch upsert echoes its rows.
+- **Steps:** `POST /internal/notifications` with one row of kind
+  `registration_confirmation`.
+- **Test data:** Recipient `33333333-3333-4333-8333-333333333333`; event
+  `22222222-2222-4222-8222-222222222222`, `"Alumni networking evening"`;
+  message
+  `"Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."`;
+  key `registration_confirmation:88888888-8888-4888-8888-888888888888`.
+- **Expected:** `201` with the row, `kind` `registration_confirmation`.
+  `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with the row, `kind` `registration_confirmation`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_registration_confirmation_is_accepted`
+
+## TC-NOTIFICATIONS-011 — a waiting-list promotion is accepted
+
+- **Scenario:** The inbox accepts the S-53 kind, so an Attendee promoted off the waiting list can be told they now hold a place (S-53 AC3).
+- **Pre-conditions:** The fake batch upsert echoes its rows.
+- **Steps:** `POST /internal/notifications` with one row of kind `waiting_list_promotion`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`; event
+  `22222222-2222-4222-8222-222222222222`, `"Alumni networking evening"`;
+  message
+  `"A place opened up: you're now registered for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ben Lee. Email: ben@example.com."`;
+  key `waiting_list_promotion:99999999-9999-4999-8999-999999999999`.
+- **Expected:** `201` with the row, `kind` `waiting_list_promotion`. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with the row, `kind` `waiting_list_promotion`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_a_waiting_list_promotion_is_accepted`; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

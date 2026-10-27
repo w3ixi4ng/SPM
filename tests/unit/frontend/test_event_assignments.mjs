@@ -7,7 +7,10 @@ import {
   assignmentErrorMessage,
   coordinatorOptionLabel,
   listAssignmentCoordinators,
+  listCoordinatorActiveEvents,
   listUnassignedEventRequests,
+  reassignEvent,
+  reassignmentErrorMessage,
 } from '../../../frontend/src/lib/eventAssignments.js'
 
 // --- TC-FRONTEND-093 -----------------------------------------------------
@@ -57,6 +60,65 @@ test('assignment failures give the lead actionable feedback', () => {
   )
   assert.match(assignmentErrorMessage({ status: 422 }), /valid Event Coordinator/i)
   assert.match(assignmentErrorMessage({ status: 502 }), /retry/i)
+})
+
+test('S-93 selected inventory uses the dedicated composite route with cookies', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ coordinator: {}, active_assignment_count: 0, events: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    const result = await listCoordinatorActiveEvents('A/B')
+    assert.equal(result.active_assignment_count, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(calls[0].url, '/api/event-requests/coordinators/A%2FB/active-events')
+  assert.equal(calls[0].options.credentials, 'include')
+})
+
+test('S-93 dashboard offers a selected inventory and keeps cross-Lead rows read-only', () => {
+  const source = readFileSync(
+    new URL('../../../frontend/src/pages/EventCoordinatorLeadDashboard.jsx', import.meta.url), 'utf8',
+  )
+  for (const contract of [
+    'Coordinator active events', 'Selected Coordinator active events',
+    "event.scope === 'other_lead'", "event.scope === 'legacy'",
+    'event.actionable && REASSIGNABLE_STATUSES.has(event.status)',
+    'Inactive Coordinator has', 'loadInventory(selectedCoordinator)',
+    'inventory.status === \'loading\'', 'inventory.status === \'error\'',
+  ]) assert.ok(source.includes(contract), contract)
+})
+
+test('S-93 stale reassignment stays a failure and uses the existing S-84 route', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ detail: 'This event assignment has changed' }), {
+      status: 409, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    await assert.rejects(
+      reassignEvent('event-1', 'active-C', 'inactive-A', 2),
+      (error) => error.status === 409 && /changed/.test(reassignmentErrorMessage(error)),
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, '/api/event-requests/event-1/reassignment')
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    coordinator_id: 'active-C', expected_coordinator_id: 'inactive-A',
+    expected_assignment_version: 2,
+  })
+  const source = readFileSync(new URL('../../../frontend/src/pages/EventCoordinatorLeadDashboard.jsx', import.meta.url), 'utf8')
+  assert.match(source, /setNotice\(reassignmentErrorMessage\(error\)\)\s*load\(\)\s*if \(selectedCoordinatorRef\.current\) loadInventory\(selectedCoordinatorRef\.current\)/)
 })
 
 // --- TC-FRONTEND-094 -----------------------------------------------------
