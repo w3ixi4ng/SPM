@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import Client
 
-from authorization import require_permission
+from authorization import require_assignment_service, require_permission
 from database import get_db
 from schemas import (
     CancellationDecisionCreate,
@@ -24,6 +24,7 @@ from schemas import (
     ROOM_LAYOUTS,
     EventDraftCreate,
     EventDraftUpdate,
+    EventAssignmentSummary,
     CoordinatorEventRead,
     EventInformationImpact,
     EventInformationUpdate,
@@ -61,19 +62,13 @@ logger = logging.getLogger(__name__)
 SCHEMA = "events"
 TABLE = "events"
 REASSIGNMENT_TABLE = "reassignment_requests"
-# S-17: pending_safety_check sits between planning and confirmed, so it is
-# open wherever confirmed is.
+# S-93: every assigned, nonterminal lifecycle state remains open work until
+# a responsible Lead transfers it or the owning workflow closes it.
 ACTIVE_ASSIGNMENT_STATUSES = [
-    "submitted", "planning", "pending_safety_check", "confirmed", "returned",
+    "submitted", "under_review", "returned", "planning", "pending_safety_check",
+    "confirmed", "preparation", "safety_rejected", "safety_changes_requested",
 ]
-OVERSIGHT_ACTIVE_STATUSES = [
-    "submitted",
-    "under_review",
-    "returned",
-    "planning",
-    "pending_safety_check",
-    "confirmed",
-]
+OVERSIGHT_ACTIVE_STATUSES = ACTIVE_ASSIGNMENT_STATUSES
 EQUIPMENT_PREPARATION_EVENT_STATUSES = [
     "planning", "pending_safety_check", "confirmed", "preparation",
 ]
@@ -650,6 +645,23 @@ def list_coordinator_overview_events(user=Depends(require_permission("events:lea
         .order("updated_at", desc=True)
     )
     operation = operation.eq("assigning_lead_id", str(user.id))
+    return _execute(operation).data
+
+
+@app.get("/internal/events/coordinators/{coordinator_id}/active-summary", response_model=list[EventAssignmentSummary])
+def list_coordinator_active_summaries(
+    coordinator_id: UUID,
+    user=Depends(require_permission("events:lead_assignments")),
+    db: Client = Depends(get_db),
+):
+    """S-93 cross-Lead inventory with only assignment and scheduling fields."""
+    operation = (
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,name,status,start_date,start_time,end_date,end_time,assigned_coordinator_id,assigning_lead_id,coordinator_assignment_version")
+        .eq("assigned_coordinator_id", str(coordinator_id))
+        .in_("status", ACTIVE_ASSIGNMENT_STATUSES)
+        .order("updated_at", desc=True)
+    )
     return _execute(operation).data
 
 
@@ -1457,6 +1469,8 @@ def create_submitted_event_internal(
     payload: InternalEventCreate,
     db: Client = Depends(get_db),
 ):
+    if payload.assigned_coordinator_id is not None:
+        raise HTTPException(status_code=422, detail="Use the Lead assignment workflow")
     values = payload.model_dump(mode="json")
     values["status"] = "submitted"
     values["submitted_at"] = _submitted_now()
@@ -1477,6 +1491,7 @@ def assign_coordinator_internal(
     event_id: UUID,
     payload: InternalCoordinatorAssignment,
     user=Depends(require_permission("events:lead_assignments")),
+    trusted_service=Depends(require_assignment_service),
     db: Client = Depends(get_db),
 ):
     """Conditionally assign one submitted request.
@@ -1612,6 +1627,7 @@ def reassign_coordinator_internal(
     event_id: UUID,
     payload: InternalCoordinatorReassignment,
     user=Depends(require_permission("events:lead_assignments")),
+    trusted_service=Depends(require_assignment_service),
     db: Client = Depends(get_db),
 ):
     """Versioned compare-and-set transfer with exact-retry recognition.
@@ -1703,6 +1719,9 @@ def submit_draft_internal(
     existing = _get_owned_event(event_id, organiser_id, db)
     if existing["status"] not in _SUBMITTABLE_STATUSES:
         raise HTTPException(status_code=409, detail="Event has already been submitted")
+    requested_owner = str(payload.assigned_coordinator_id) if payload.assigned_coordinator_id else None
+    if requested_owner != existing.get("assigned_coordinator_id"):
+        raise HTTPException(status_code=409, detail="Coordinator assignment cannot change during submission")
 
     changes = payload.model_dump(mode="json", exclude={"organiser_id"})
     changes["status"] = "submitted"
@@ -1738,6 +1757,11 @@ def update_event_internal(
     """
     organiser_id = str(payload.organiser_id)
     existing = _get_owned_event(event_id, organiser_id, db)
+
+    if "assigned_coordinator_id" in payload.model_fields_set:
+        requested_owner = str(payload.assigned_coordinator_id) if payload.assigned_coordinator_id else None
+        if requested_owner != existing.get("assigned_coordinator_id"):
+            raise HTTPException(status_code=409, detail="Use the Lead reassignment workflow")
 
     if existing["status"] == "rejected":
         raise HTTPException(status_code=409, detail="This request has been rejected and is closed")

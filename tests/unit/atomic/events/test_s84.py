@@ -5,7 +5,7 @@ import pytest
 from .conftest import COORDINATOR_A, COORDINATOR_B, EVENT_ID, authenticate, event_row, fake_user
 
 
-ACTIVE = ["submitted", "planning", "pending_safety_check", "confirmed", "returned"]
+ACTIVE = ["submitted", "under_review", "returned", "planning", "pending_safety_check", "confirmed", "preparation", "safety_rejected", "safety_changes_requested"]
 LEAD_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 
 

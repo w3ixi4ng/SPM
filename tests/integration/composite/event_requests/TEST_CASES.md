@@ -1,6 +1,6 @@
 # Test cases — event_requests service (integration)
 
-Covers `tests/integration/composite/event_requests/test_app.py`: the real
+Covers `tests/integration/composite/event_requests/test_app.py` and `test_s93.py`: the real
 composite service in Docker, calling the real `events`, `users`, and
 `notifications` services,
 against the test Supabase project. Proves the three services agree on shapes
@@ -9,9 +9,9 @@ the unit tests cannot check, because their fakes agree with everything.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_requests` |
-| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
+| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
 | Environment | `.env.test` test Supabase project; schemas applied, granted, and exposed; full stack recreated immediately before the run |
-| Result | Targeted S-83/S-84/S-85 regressions and new integrity case: 4 passed |
+| Result | Event-request integration cases passed within the full integration run: 77 passed, 5 skipped. |
 
 Two real bugs surfaced and were fixed getting to a clean run, neither in the
 feature itself:
@@ -362,3 +362,33 @@ stack and deleted its created rows.
 - **Actual:** S-84 changed ownership and actioned the matching request. The former Coordinator could still read its history, while the stale retry was rejected and did not alter ownership.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_requests/test_s88.py::test_request_survives_refresh_is_scoped_and_actions_after_s84`; 2026-10-25.
+## S-93 confirmed specification — real Users/Events boundary
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. Run only after recreating the
+stack from `.env.test`; use throwaway Supabase Auth users and remove every
+created event, request and user. Existing `users` and `events` schemas must be
+applied, exposed and granted in the test project. No S-93 SQL is proposed if
+trusted Auth metadata holds Coordinator availability.
+
+## TC-EVENTREQUESTS-115 — real status excludes inactive assignment targets
+
+- **Scenario:** A persisted inactive flag is honoured across Users, Events, composite HTTP and Kong.
+- **Pre-conditions:** Fresh `.env.test` stack; temporary Lead L1, active Coordinator C and Coordinator A, plus an unassigned submitted event, an L1 active event owned by A, and an L1 active event owned by C. Test admin marks A inactive in Auth metadata and cleans up afterward.
+- **Steps:** 1. Read A's status in a fresh Users HTTP request. 2. Read S-93 inventory and S-83/S-84 candidate lists through Kong. 3. POST direct S-83 assignment of the unassigned event to A and S-84 reassignment of C's event to A through Kong. 4. Call both atomic Events mutation ports with a valid Lead cookie but missing and forged service credentials. 5. Read all three events and clean up.
+- **Test data:** Temporary `spm-test-s93-<hex>@example.com` accounts; `Autumn Forum` submitted, `Winter Fair` planning owned by A at version 2, `Spring Fair` planning owned by C at version 1.
+- **Expected:** A remains a login-capable Coordinator but is marked inactive and flagged as owner of `Winter Fair`; A is absent from new-target lists. Both direct composite assignment attempts return `422`; atomic-port attempts return `403` before storage access. None of the three event owners/versions or event-linked data changes. C remains an eligible replacement.
+- **Actual:** Real Auth metadata excluded inactive targets through Kong; missing and forged direct atomic credentials returned 403; valid active assignment still worked.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred
+
+## TC-EVENTREQUESTS-116 — S-84 transfer preserves linked records and scope
+
+- **Scenario:** Real S-84 transfers one inactive owner's event and preserves every event-linked record.
+- **Pre-conditions:** Fresh `.env.test` stack; L1/L2, inactive A, active C; two active A events, one in each Lead scope. The L1 event has a venue booking, equipment requirement, technical assignment, comment/history and pending S-88 request. All rows are cleaned up.
+- **Steps:** 1. Snapshot linked records and both Leads' views. 2. Try L2 action on L1's event and a stale version as L1. 3. Reassign that event A→C as L1 through S-84. 4. Read Users/Events and linked services again; read A's S-88 history.
+- **Test data:** `Autumn Forum` planning, expected owner A/version 2; `Winter Fair` preparation under L2; S-88 reason `Leaving the team`.
+- **Expected:** Cross-Lead action is scoped `404` and stale action `409`, leaving owner and warning intact. Successful L1 action changes only `Autumn Forum` owner/version, removes its inactive-owner warning and decrements A's count by one; `Winter Fair` stays warned. Venue, equipment, technical, comment and history rows keep their event IDs/content, and A's S-88 request becomes actioned and remains readable by A.
+- **Actual:** The real S-84 transfer incremented the version, actioned the pending S-88 request, cleared the inactive-owner count, and preserved linked booking, equipment, technical and edit-history data.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]

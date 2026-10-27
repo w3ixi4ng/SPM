@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 import pytest
 from tests.supabase_client import create_client
 
@@ -79,6 +80,17 @@ def confirmed_event(
     }).execute().data[0]["id"]
 
 
+def _delete_user_rows(admin, schema: str, table: str, column: str, user_id: str) -> None:
+    """An exact-id DELETE is safe to repeat if its HTTP/2 response is lost."""
+    for attempt in range(2):
+        try:
+            admin.schema(schema).table(table).delete().eq(column, user_id).execute()
+            return
+        except httpx.RemoteProtocolError:
+            if attempt:
+                raise
+
+
 @pytest.fixture
 def attendee(admin, auth_client):
     email = f"spm-test-registration-{uuid.uuid4().hex[:10]}@example.com"
@@ -99,13 +111,9 @@ def attendee(admin, auth_client):
             "headers": {"Cookie": f"sb_access_token={signed_in.session.access_token}"},
         }
     finally:
-        admin.schema("registrations").table("registrations").delete().eq(
-            "attendee_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "registrations", "registrations", "attendee_id", user_id)
         # S-49: registering leaves a confirmation in the Attendee's inbox.
-        admin.schema("notifications").table("notifications").delete().eq(
-            "recipient_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "notifications", "notifications", "recipient_id", user_id)
         admin.auth.admin.delete_user(user_id)
 
 
@@ -137,14 +145,8 @@ def make_account(admin, auth_client):
 
     yield make
     for user_id in made:
-        admin.schema("registrations").table("registrations").delete().eq(
-            "attendee_id", user_id
-        ).execute()
-        admin.schema("registrations").table("waiting_list").delete().eq(
-            "attendee_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "registrations", "registrations", "attendee_id", user_id)
+        _delete_user_rows(admin, "registrations", "waiting_list", "attendee_id", user_id)
         # S-49: registering leaves a confirmation in the Attendee's inbox.
-        admin.schema("notifications").table("notifications").delete().eq(
-            "recipient_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "notifications", "notifications", "recipient_id", user_id)
         admin.auth.admin.delete_user(user_id)

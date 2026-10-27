@@ -9,7 +9,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
 `test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
 `test_operational_safety_check.py`, and `test_book_multiple_venues.py`,
-and S-51's `test_set_registration_period.py` and `test_register_for_event.py`.
+and S-51's `test_set_registration_period.py` and `test_register_for_event.py`,
+plus S-93's `test_reassign_before_deactivation.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -18,9 +19,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, merge tree of `833c9b2` and `sprint3` commit `d237cd0` |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-83/S-84/S-85 journeys and new integrity case: 4 passed |
+| Result | Full Chromium regression: 58 passed. |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -836,13 +837,16 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   with count 0. The summary shows name, status, organiser, date/time, and
   current Coordinator. After reassignment the event appears only under B,
   counts are A=0/B=1 immediately and after reload, and the S-83 queue remains
-  present. Non-Lead access remains denied by the existing role journey.
+  present. The test identifies A and B by their unique account ID as well as their
+  display name, so another account with the same name does not change which
+  card is checked. Non-Lead access remains denied by the existing role journey.
 - **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
   event summary. Reassignment moved the card to Blair and changed the counts
   to 0/1 immediately; the same grouping survived reload and the queue remained
-  visible.
+  visible. The account-ID locator selected the intended Blair card despite
+  another account in the test project having the same display name.
 - **Status:** Pass
-- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`; [CI Chromium job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121995463408), 2026-10-27.
 
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
@@ -1452,3 +1456,22 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** Chromium: the prompt showed with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard; B's row read Confirmed with "A place opened up: you're now registered for {P}, …" in Notifications; C saw "You're on the waiting list. You're next in line."
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_and_the_next_in_line_gets_the_place[chromium]; run headed with `--slowmo 600`: 1 passed in 46 s; with the S-48/49/50/52 registration journeys headless: 8 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## S-93 confirmed specification — inactive Coordinator handoff in Chromium
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. Run through Kong and Chromium
+with a freshly rebuilt `.env.test` stack; temporary Auth users and records
+are removed during teardown. The test fixture marks only its throwaway
+Coordinator inactive through trusted Auth metadata.
+
+## TC-E2E-258 — Leads clear an inactive Coordinator's active-event warnings
+
+- **Scenario:** The existing Lead dashboard identifies an inactive Coordinator and uses S-84 to clear the correct warnings.
+- **Pre-conditions:** Test Auth has Leads L1/L2, inactive Coordinator A and active replacement C; A owns `Autumn Forum` in L1 scope and `Winter Fair` in L2 scope. Both events are active. The test creates and later removes all accounts and records.
+- **Steps:** 1. Sign in as L1, select A and inspect both events and count. 2. Verify L2's event is read-only; reassign `Autumn Forum` to C using the existing S-84 control. 3. Confirm A's count/warning is reduced but `Winter Fair` remains flagged. 4. Sign in as L2, reassign `Winter Fair` to C, then confirm A's empty state.
+- **Test data:** `Autumn Forum` pending safety check on `2026-11-18 09:00–12:00`; `Winter Fair` preparation on `2026-11-20 14:00–17:00`; reason for A's inactive state `leaving team` is not stored on the event.
+- **Expected:** L1 sees A marked inactive, both summaries and count 2, but can act only on `Autumn Forum`. The first S-84 success moves that event to C, leaves `Winter Fair` with A, and reduces A's count to 1 without an L2 scope leak in ordinary oversight. L2's S-84 success clears the last warning and shows A with 0 active events; C owns both and linked data remains available through the existing event views.
+- **Actual:** L1 saw both active event summaries and an inactive-owner count of two, transferred only its own event and saw the count fall to one. L2 then transferred its event, leaving A with zero active events. Cross-Lead rows remained read-only and ordinary oversight stayed scoped.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]`; final rebuilt `.env.test` stack, 2026-10-25 (1 passed). Full Chromium regression before the final UI selection-race fix: 51 passed.

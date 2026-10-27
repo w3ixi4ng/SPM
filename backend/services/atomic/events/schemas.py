@@ -330,6 +330,21 @@ class EventSubmittedCreate(RegistrationSettings):
         return self
 
 
+class EventAssignmentSummary(BaseModel):
+    """The only event fields exposed in S-93's cross-Lead inventory."""
+
+    id: UUID
+    name: str | None
+    status: EventStatus
+    start_date: date | None
+    start_time: time | None
+    end_date: date | None
+    end_time: time | None
+    assigned_coordinator_id: UUID
+    assigning_lead_id: UUID | None
+    coordinator_assignment_version: int = Field(ge=0)
+
+
 class EventRead(BaseModel):
     id: UUID
     organiser_id: UUID

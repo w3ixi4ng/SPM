@@ -1,6 +1,9 @@
 """Trusted role-to-permission policy and FastAPI authorization dependencies."""
 
-from fastapi import Depends, HTTPException, status
+import os
+import secrets
+
+from fastapi import Depends, Header, HTTPException, status
 
 from security import get_current_user
 
@@ -54,6 +57,15 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
 }
 
 EVENT_ORGANISER_PERMISSIONS = ROLE_PERMISSIONS["event_organiser"]
+
+
+def require_assignment_service(x_assignment_service_token: str | None = Header(default=None)):
+    """Only the composite may call atomic assignment writes after Users validation."""
+    expected = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Assignment service is not configured")
+    if not x_assignment_service_token or not secrets.compare_digest(x_assignment_service_token, expected):
+        raise HTTPException(status_code=403, detail="Trusted assignment service required")
 
 
 def require_permission(permission: str):
