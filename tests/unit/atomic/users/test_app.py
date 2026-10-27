@@ -279,6 +279,32 @@ def test_me_returns_the_signed_in_user(client, db, auth):
     auth.auth.get_user.assert_called_once_with("access-token")
 
 
+def test_me_retries_a_dropped_connection_on_the_profile_read(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user())
+    execute = db.schema.return_value.table.return_value.select.return_value.eq.return_value.execute
+    execute.side_effect = [httpx.RemoteProtocolError("connection terminated"), SimpleNamespace(data=[PROFILE])]
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == USER_ID
+    assert execute.call_count == 2
+
+
+def test_me_reports_upstream_failure_after_two_dropped_reads(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user())
+    execute = db.schema.return_value.table.return_value.select.return_value.eq.return_value.execute
+    execute.side_effect = httpx.RemoteProtocolError("connection terminated")
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "User profile service unavailable"
+    assert execute.call_count == 2
+
+
 # --- TC-USERS-026 ---------------------------------------------------------
 def test_me_returns_no_role_when_trusted_role_is_missing(client, db, auth):
     client.cookies.set(ACCESS_COOKIE, "access-token")
@@ -502,11 +528,33 @@ def test_coordinator_listing_returns_only_that_role(client, db):
     response = client.get("/internal/users/coordinators")
 
     assert response.status_code == 200
-    assert response.json() == coordinator_profiles
+    assert response.json() == [
+        {**profile, "coordinator_active": True} for profile in coordinator_profiles
+    ]
     queried_ids = set(
         db.schema.return_value.table.return_value.select.return_value.in_.call_args[0][1]
     )
     assert queried_ids == {coordinator_1, coordinator_2}
+
+
+def test_coordinator_availability_uses_only_boolean_auth_app_metadata(client, db):
+    ids = [
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    ]
+    users = [auth_admin_user(uid, "event_coordinator") for uid in ids]
+    users[1].app_metadata["coordinator_active"] = True
+    users[2].app_metadata["coordinator_active"] = False
+    users[2].user_metadata["coordinator_active"] = True
+    users[3].app_metadata["coordinator_active"] = "false"
+    db.auth.admin.list_users.return_value = users
+    on_in(db, [{"id": uid, "name": f"Coordinator {number}", "email": f"c{number}@example.com"} for number, uid in enumerate(ids)])
+    response = client.get("/internal/users/coordinators")
+    assert response.status_code == 200
+    assert [item["coordinator_active"] for item in response.json()] == [True, True, False, None]
+    assert all("password" not in item and "access_token" not in item for item in response.json())
 
 
 # --- TC-USERS-028 ---------------------------------------------------------
@@ -546,8 +594,8 @@ def test_coordinator_listing_keeps_trusted_auth_users_without_profiles(client, d
 
     assert response.status_code == 200
     assert response.json() == [
-        {"id": profiled, "name": "Alex", "email": "alex@example.com"},
-        {"id": profileless, "name": "idle@example.com", "email": "idle@example.com"},
+        {"id": profiled, "name": "Alex", "email": "alex@example.com", "coordinator_active": True},
+        {"id": profileless, "name": "idle@example.com", "email": "idle@example.com", "coordinator_active": True},
     ]
     selected_ids = db.schema.return_value.table.return_value.select.return_value.in_.call_args.args[1]
     assert set(selected_ids) == {profiled, profileless}

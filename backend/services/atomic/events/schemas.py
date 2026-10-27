@@ -1,9 +1,17 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
-from typing import Any, Literal, get_args
+from typing import Any, ClassVar, Literal, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 class EventStatus(str, Enum):
@@ -125,7 +133,76 @@ def _check_end_after_start(start_date, start_time, end_date, end_time):
         raise ValueError("end_time must be after start_time")
 
 
-class EventDraftCreate(BaseModel):
+# S-51: the period is Singapore wall-clock time and stored without a
+# timezone, like the event's own dates and times. A client that sends an
+# offset anyway is converted, so a comparison never mixes naive and aware.
+SINGAPORE = timezone(timedelta(hours=8))
+REGISTRATION_FIELDS = frozenset(
+    {"registration_required", "registration_opens_at", "registration_closes_at"}
+)
+_REGISTRATION_DATE_PROMPTS = {
+    "registration_opens_at": "Choose when registration opens.",
+    "registration_closes_at": "Choose when registration closes.",
+}
+
+
+class RegistrationSettings(BaseModel):
+    """S-51: whether attendees register for the event, and when they may.
+
+    Shared by every organiser payload. The two dates are checked field by
+    field (``validate_default``, so a missing one is still seen) so an error
+    names the date that is wrong. Closing before the event starts needs the
+    start, so it is checked once the whole model is built.
+    """
+
+    # A submitted request needs both dates once registration is on; a draft
+    # may turn it on and choose them later.
+    REGISTRATION_DATES_REQUIRED: ClassVar[bool] = False
+    # A PATCH body names only what changed, so registration being "off" there
+    # means "not mentioned" and must not clear stored dates. The route clears
+    # them from the merged record instead.
+    PARTIAL: ClassVar[bool] = False
+
+    registration_required: bool = False
+    registration_opens_at: datetime | None = Field(default=None, validate_default=True)
+    registration_closes_at: datetime | None = Field(default=None, validate_default=True)
+
+    @field_validator("registration_opens_at", "registration_closes_at")
+    @classmethod
+    def check_registration_date(cls, value: datetime | None, info: ValidationInfo):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(SINGAPORE).replace(tzinfo=None)
+        # Not checked while registration is off: the dates are about to be
+        # cleared, so their order is no reason to refuse the request.
+        if not info.data.get("registration_required"):
+            return value
+        if value is None:
+            if cls.REGISTRATION_DATES_REQUIRED:
+                raise ValueError(_REGISTRATION_DATE_PROMPTS[info.field_name])
+            return value
+        if info.field_name == "registration_closes_at":
+            opens = info.data.get("registration_opens_at")
+            if opens is not None and value <= opens:
+                raise ValueError("Registration must close after it opens.")
+        return value
+
+    @model_validator(mode="after")
+    def registration_closes_before_start(self):
+        if not self.registration_required:
+            if not self.PARTIAL:
+                self.registration_opens_at = None
+                self.registration_closes_at = None
+            return self
+        start_date = getattr(self, "start_date", None)
+        start_time = getattr(self, "start_time", None)
+        closes = self.registration_closes_at
+        if closes is not None and start_date is not None and start_time is not None:
+            if closes >= datetime.combine(start_date, start_time):
+                raise ValueError("Registration must close before the event starts.")
+        return self
+
+
+class EventDraftCreate(RegistrationSettings):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
@@ -168,7 +245,7 @@ class EventDraftCreate(BaseModel):
 
 
 class EventDraftUpdate(EventDraftCreate):
-    pass
+    PARTIAL: ClassVar[bool] = True
 
 
 # S-14: the coordinator's decision on a submitted request. A separate schema
@@ -208,8 +285,10 @@ class DecisionCreate(BaseModel):
         return self
 
 
-class EventSubmittedCreate(BaseModel):
+class EventSubmittedCreate(RegistrationSettings):
     model_config = ConfigDict(extra="forbid")
+
+    REGISTRATION_DATES_REQUIRED: ClassVar[bool] = True
 
     name: str
     purpose: str
@@ -251,6 +330,21 @@ class EventSubmittedCreate(BaseModel):
         return self
 
 
+class EventAssignmentSummary(BaseModel):
+    """The only event fields exposed in S-93's cross-Lead inventory."""
+
+    id: UUID
+    name: str | None
+    status: EventStatus
+    start_date: date | None
+    start_time: time | None
+    end_date: date | None
+    end_time: time | None
+    assigned_coordinator_id: UUID
+    assigning_lead_id: UUID | None
+    coordinator_assignment_version: int = Field(ge=0)
+
+
 class EventRead(BaseModel):
     id: UUID
     organiser_id: UUID
@@ -270,6 +364,7 @@ class EventRead(BaseModel):
     # Null until the event_requests composite assigns one on submission --
     # never set by the organiser's own request.
     assigned_coordinator_id: UUID | None
+    assigning_lead_id: UUID | None = None
     # Monotonic compare-and-set token for S-84 reassignment. Initial S-83
     # assignment remains version 0; every real owner-to-owner transfer adds 1.
     coordinator_assignment_version: int = Field(default=0, ge=0)
@@ -314,11 +409,41 @@ class EventRead(BaseModel):
     cancellation_decision_reason: str | None = None
     cancellation_decided_by: UUID | None = None
     cancellation_decided_at: datetime | None = None
+    # S-51: off, with no period, unless the Organiser turned it on.
+    registration_required: bool = False
+    registration_opens_at: datetime | None = None
+    registration_closes_at: datetime | None = None
+    # S-50: when the Organiser closed registration early; null while open.
+    registration_closed_at: datetime | None = None
     # Null while the request is a draft. With organiser_id this is the record
     # of who submitted it and when.
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class PublishedEventRead(BaseModel):
+    """S-51: a confirmed event's public details -- what anyone may read
+    without signing in. Nothing about who organises it or how it is being
+    run.
+
+    S-50: internal only, so it also carries the cap and the Organiser's close
+    decision for the event_registrations composite; that composite turns
+    them into `is_full` and `registration_closed_by_organiser` and never
+    passes the attendance figure on."""
+
+    id: UUID
+    name: str | None
+    purpose: str | None
+    start_date: date | None
+    start_time: time | None
+    end_date: date | None
+    end_time: time | None
+    registration_required: bool
+    registration_opens_at: datetime | None
+    registration_closes_at: datetime | None
+    expected_attendance: int | None = None
+    registration_closed_at: datetime | None = None
 
 
 class EventChangeRecord(BaseModel):
@@ -576,6 +701,33 @@ class InternalCoordinatorReassignment(BaseModel):
     coordinator_id: UUID
     expected_coordinator_id: UUID
     expected_assignment_version: int = Field(ge=0)
+
+
+class ReassignmentRequestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
+class ReassignmentRequestRead(BaseModel):
+    id: UUID
+    event_id: UUID
+    event_name: str
+    requester_id: UUID
+    assigning_lead_id: UUID
+    assignment_version: int
+    reason: str
+    status: Literal["pending", "actioned"]
+    created_at: datetime
+    actioned_at: datetime | None
 
 
 class InternalCoordinatorReassignmentResult(EventRead):

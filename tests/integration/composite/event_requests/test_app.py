@@ -8,6 +8,7 @@ non-deterministic. See conftest.py's `block_other_coordinators`.
 """
 
 from datetime import datetime
+import os
 import uuid
 
 import httpx
@@ -494,6 +495,7 @@ def test_lead_assignment_persists_notifications_and_repairs_missing_rows(
             events_api,
             "POST",
             f"/internal/events/{partial_event['id']}/assignment",
+            headers={**lead_headers, "X-Assignment-Service-Token": os.environ["ASSIGNMENT_SERVICE_SECRET"]},
             json={"coordinator_id": coordinator},
         )
         assert event_only.status_code == 200, event_only.text
@@ -873,6 +875,7 @@ def test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners(
             "organiser_id": organiser_id,
             "status": "submitted",
             "assigned_coordinator_id": owner_id,
+            "assigning_lead_id": lead_session["user_id"],
             "name": name,
             "purpose": "S-85 integrity regression",
             "start_date": "2026-11-18",
@@ -899,7 +902,8 @@ def test_overview_uses_real_auth_pool_for_profileless_and_invalid_owners(
             assert groups[first_id]["active_assignment_count"] == 1
             assert groups[second_id]["active_assignment_count"] == 0
             assert groups[second_id]["coordinator"] == {
-                "id": second_id, "name": second_email, "email": second_email,
+                    "id": second_id, "name": second_email, "email": second_email,
+                    "coordinator_active": True,
             }
             invalid = {x["event_id"]: x for x in before.json()["invalid_assignments"]}
             assert invalid[invalid_role["id"]]["assigned_coordinator_id"] == wrong_id

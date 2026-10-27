@@ -30,16 +30,21 @@ create table if not exists notifications.notifications (
   constraint notifications_deduplication_key_not_blank
     check (btrim(deduplication_key) <> ''),
   constraint notifications_kind_allowed
-    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry'))
+    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion'))
 );
 
+-- BEGIN S-53 WAITING LIST PROMOTION
 -- Upgrade path for an existing notifications table: S-84 added
--- event_reassignment, S-77 venue_unavailable, and S-81 venue_hold_expiry.
--- Safe to run twice; run in BOTH dev and test with the S-81 bookings block.
+-- event_reassignment, S-77 venue_unavailable, S-81 venue_hold_expiry, S-49
+-- registration_confirmation, and S-53 waiting_list_promotion. Safe to run
+-- twice; run in BOTH dev and test.
 alter table notifications.notifications
   drop constraint if exists notifications_kind_allowed;
 alter table notifications.notifications add constraint notifications_kind_allowed
-  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry'));
+  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion'));
+
+notify pgrst, 'reload schema';
+-- END S-53 WAITING LIST PROMOTION
 
 -- Every inbox query filters by recipient and shows newest first.
 create index if not exists notifications_recipient_created_idx

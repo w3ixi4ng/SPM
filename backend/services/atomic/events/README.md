@@ -1,6 +1,7 @@
 # Events service
 
-Atomic FastAPI service for event requests. It owns `events.events` and never
+Atomic FastAPI service for event requests. It owns `events.events` and
+`events.reassignment_requests` and never
 queries another service's tables.
 
 ## Endpoints
@@ -14,9 +15,13 @@ queries another service's tables.
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
 | `GET` | `/events/booking-status/{event_id}` | `events:view_booking_status` | Return only the event id and authoritative status so Venue Staff can release a terminal event's tentative hold. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
+| `PUT` | `/events/{event_id}/registration-closure` | `events:close_registration` | S-50: close registration early on an owned, `confirmed` event that takes registrations. See [Closing registration early (S-50)](#closing-registration-early-s-50). |
+| `DELETE` | `/events/{event_id}/registration-closure` | `events:close_registration` | S-50: reopen it. |
 | `POST` | `/events/{event_id}/submit` | `events:submit_own` | Replace the business fields of an owned draft *or returned request* with a complete submission and (re)submit it. |
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
+| `POST` | `/events/{event_id}/reassignment-request` | `events:request_reassignment` | Create a reasoned request for the current Coordinator. |
+| `GET` | `/events/reassignment-requests/mine` | `events:request_reassignment` | List the caller's request history, including actioned requests after transfer. |
 | `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
 | `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `pending_safety_check`, `confirmed`, and `preparation` events. |
@@ -28,9 +33,10 @@ queries another service's tables.
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
 
-Internal, composite-only routes — no Kong route, unauthenticated at this
-layer because they are unreachable from a browser; only the `event_requests`
-composite calls them. See [Internal routes](#internal-routes-composite-only).
+Internal, composite-only routes have no Kong route. S-83/S-84/S-85/S-88
+assignment and request routes also verify the Lead's session at this layer,
+because service ports are published for direct testing. See
+[Internal routes](#internal-routes-composite-only).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -39,9 +45,13 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/events/overlapping` | S-44: the `planning` and `confirmed` events overlapping a window, for the `equipment_requirements` composite's availability check. |
 | `PUT` | `/events/{event_id}/technical-support/internal` | Persist a planning event's Technical Support requirement and automatic assignment for its currently assigned Coordinator. |
 | `GET` | `/internal/events/unassigned` | List submitted requests with no Coordinator, oldest submission first. |
-| `POST` | `/internal/events/{event_id}/assignment` | Atomically assign an unassigned submitted request, with same-target retry support. |
-| `GET` | `/internal/events/assigned-active` | List assigned `submitted`, `planning`, `pending_safety_check`, `confirmed`, and `returned` events, newest update first. |
-| `GET` | `/internal/events/coordinator-overview` | S-85 read source: list assigned `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, and `confirmed` events, newest update first. |
+| `POST` | `/internal/events/{event_id}/assignment` | Authenticated Lead assigns an unassigned request, recording their ID; same-target retry support. |
+| `GET` | `/internal/events/assigned-active` | Internal cross-service active assignments for affected booking notifications. |
+| `GET` | `/internal/events/lead-assigned-active` | Authenticated Lead's active assignments, newest update first. |
+| `GET` | `/internal/events/coordinator-overview` | Authenticated Lead's scoped S-85 active events, newest update first. |
+| `GET` | `/internal/events/coordinators/{coordinator_id}/active-summary` | Authenticated Lead's limited S-93 summaries across Lead scopes for one Coordinator; no event details. |
+| `GET` | `/internal/events/{event_id}/assignment-scope` | Return an event only to its recorded assigning Lead. |
+| `GET` | `/internal/reassignment-requests/lead` | Return only the authenticated Lead's request history. |
 | `GET` | `/internal/events/safety-review` | S-86 queue source: list `pending_safety_check` events with no current safety decision, oldest update first. |
 | `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
 | `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
@@ -50,12 +60,14 @@ composite calls them. See [Internal routes](#internal-routes-composite-only).
 | `POST` | `/internal/events/{event_id}/safety-submission` | S-17: move the Coordinator's planning event to `pending_safety_check`. See [Safety-check submission](#safety-check-submission-and-sign-off-s-17). |
 | `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
 | `POST` | `/internal/events/{event_id}/technical-signoff/clear` | S-17: clear the sign-off after a Coordinator equipment change. |
-| `POST` | `/internal/events/{event_id}/reassignment` | Versioned compare-and-set transfer to another Coordinator, with exact-retry support. |
-| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
-| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
-| `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
+| `POST` | `/internal/events/{event_id}/reassignment` | Authenticated responsible Lead's versioned compare-and-set transfer, with exact-retry support. |
+| `POST` | `/events/internal` | Create an unassigned, already-submitted event with a caller-supplied `organiser_id`. |
+| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft or returned event while preserving its existing Coordinator assignment. |
+| `PATCH` | `/events/{event_id}/internal` | Update an owned event without changing Coordinator assignment. |
+| `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
+| `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
 
-All event endpoints except health authenticate the `sb_access_token` and
+Public event endpoints and the S-83/S-84/S-85/S-88 Lead routes authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
 trusted `app_metadata.role` against the permission shown above.
 
@@ -66,7 +78,8 @@ Technical Support workflows have the following event permissions:
 | Role | Permissions |
 | --- | --- |
 | `event_organiser` | `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` |
-| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation` |
+| `event_coordinator` | `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation`, `events:request_reassignment` |
+| `event_coordinator_lead` | `dashboard:view`, `events:lead_assignments` |
 | `venue_staff` | `dashboard:view`, `events:view_booking_status` |
 | `technical_support` | `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation` |
 | `attendee` | `dashboard:view` |
@@ -147,6 +160,9 @@ When supplied, values still have to be valid.
 | `room_layout` | string or null | From the venue layout set. |
 | `required_facilities` | array of string | From the venue facility set. Defaults to `[]`. |
 | `required_accessibility` | array of string | From the venue accessibility set. Defaults to `[]`. |
+| `registration_required` | boolean | S-51. Defaults to `false`. Turning it off clears both dates. |
+| `registration_opens_at` | `YYYY-MM-DDTHH:MM` or null | S-51. Singapore time, no offset. May be left empty on a draft. |
+| `registration_closes_at` | `YYYY-MM-DDTHH:MM` or null | S-51. After `registration_opens_at`, and before the event's start, whenever those are known. |
 
 **Venue requirements (S-36).** `room_layout`, `required_facilities` and
 `required_accessibility` say what a venue must offer. They use the venue
@@ -191,6 +207,9 @@ failure, rather than reaching the database's own constraint as an opaque
 | `room_layout` | string or null | no | One of `theatre`, `classroom`, `boardroom`, `u_shape`, `banquet`, `cocktail`. |
 | `required_facilities` | array of string | no | From the venue facility set; repeats dropped. Defaults to `[]`. |
 | `required_accessibility` | array of string | no | From the venue accessibility set; repeats dropped. Defaults to `[]`. |
+| `registration_required` | boolean | no | S-51. Defaults to `false`; when `false` both dates are stored as null. |
+| `registration_opens_at` | `YYYY-MM-DDTHH:MM` | when registration is on | Singapore time, no offset. May already have passed. |
+| `registration_closes_at` | `YYYY-MM-DDTHH:MM` | when registration is on | After `registration_opens_at`; before `start_date` + `start_time`. |
 
 ```json
 {
@@ -258,6 +277,9 @@ Create endpoints return `201`; list, get, update, and submit-existing return
   "safety_officer_id": null,
   "safety_decided_at": null,
   "safety_review_history": [],
+  "registration_required": true,
+  "registration_opens_at": "2026-10-01T09:00:00",
+  "registration_closes_at": "2026-10-15T18:00:00",
   "created_at": "2026-09-14T00:00:00Z",
   "updated_at": "2026-09-14T00:00:00Z"
 }
@@ -271,7 +293,9 @@ version when reassigning, so a stale request cannot overwrite newer work.
 See [Internal routes](#internal-routes-composite-only).
 
 S-85's internal coordinator-overview route is read-only and recognizes
-`submitted`, `under_review`, `returned`, `planning`, and `confirmed` as active.
+`submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`,
+`confirmed`, `preparation`, `safety_rejected`, and
+`safety_changes_requested` as active.
 It excludes null assignments and every other lifecycle state. S-85 does not
 create or transition event statuses and makes no schema change; it only
 defines how an assigned `under_review` row is treated when that workflow state
@@ -324,6 +348,76 @@ user, most recently updated first. No assigned active events returns `[]`.
 ```json
 {"status": "ok"}
 ```
+
+## Registration (S-51)
+
+The Organiser decides whether attendees register, and sets the period they
+may do it in, while creating or updating the request: on a `draft` or a
+`returned` request. Once it is submitted the settings are fixed. A `PATCH`
+that names any of the three fields on an event in any other status is
+refused with `409` "Registration settings can only be changed while the
+request is a draft or returned.", even if the values are unchanged. Other
+fields on the same event can still be edited as before.
+
+The period is Singapore wall-clock time and is stored without a timezone,
+like the event's own dates and times. A date-time sent with an offset is
+converted to Singapore time first.
+
+| Rule | Message (`422`) |
+| --- | --- |
+| Registration on and submitted without an opening | "Choose when registration opens." on `registration_opens_at` |
+| Registration on and submitted without a closing | "Choose when registration closes." on `registration_closes_at` |
+| Closing at or before opening | "Registration must close after it opens." |
+| Closing at or after the event starts | "Registration must close before the event starts." |
+
+The rules apply to the record a `PATCH` produces, so moving the event's start
+before an existing closing date is refused too. Registration being off clears
+both dates, and the order of dates is not checked while it is off.
+
+`GET /internal/events/published` and `GET /internal/events/published/{id}`
+return only `confirmed` events, and only their public fields:
+
+```json
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "name": "Alumni networking evening",
+  "purpose": "Reconnect alumni with current students",
+  "start_date": "2026-11-20",
+  "start_time": "18:00:00",
+  "end_date": "2026-11-20",
+  "end_time": "21:00:00",
+  "registration_required": true,
+  "registration_opens_at": "2026-11-01T09:00:00",
+  "registration_closes_at": "2026-11-15T18:00:00",
+  "expected_attendance": 120,
+  "registration_closed_at": null
+}
+```
+
+A missing event, or one in any other status, is `404` "Event not found.".
+Registrations themselves are stored by the
+[registrations service](../registrations/README.md); this service only holds
+the settings.
+
+S-50: `expected_attendance` (the registration cap) and `registration_closed_at`
+are here for the composite only. It turns them into `is_full` and
+`registration_closed_by_organiser` and never shows the figure publicly.
+
+## Closing registration early (S-50)
+
+`PUT /events/{event_id}/registration-closure` and `DELETE` on the same path,
+no body. Only the owning Event Organiser, only on a `confirmed` event with
+registration on. Both answer `200` with the event (as `GET /events/{event_id}`),
+whose `registration_closed_at` is the time it was closed, or `null` once
+reopened. Closing an already-closed event keeps the first time; reopening an
+open one changes nothing.
+
+| Status | When | `detail` |
+| --- | --- | --- |
+| `401` | Not signed in | |
+| `403` | Not an Event Organiser | "Insufficient permissions" |
+| `404` | Missing, or another Organiser's event | "Event not found" |
+| `409` | Not `confirmed`, or registration is off | "Registration can only be closed or reopened on a confirmed event that takes registrations." |
 
 ## Status model (S-14, S-36, S-43, S-17, S-86, S-87)
 
@@ -583,7 +677,7 @@ must never set them:
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `organiser_id` | uuid | The organiser the composite already authenticated — not derived from a session here. |
-| `assigned_coordinator_id` | uuid or null | Existing assignment to preserve; S-83 submissions use null until a Lead assigns the request. |
+| `assigned_coordinator_id` | uuid or null | Must be null for a new S-83 submission; on resubmit it must match the stored assignment. |
 
 Same responses and status codes as the public routes they mirror
 (`201`/`200`, `404` for another organiser's draft, `409` for an event that is
@@ -607,14 +701,78 @@ returns `200` with `assignment_created: false`; this lets the composite repair
 a failed notification write. A different existing assignment or changed
 status returns `409`, and a missing event returns `404`. This atomic route does
 not evaluate schedule conflicts.
+The Lead identity comes from the verified session and is stored as
+`assigning_lead_id`; a retry by another Lead cannot claim the event.
+
+S-93 requires both assignment write routes to carry
+`X-Assignment-Service-Token` matching the server's
+`ASSIGNMENT_SERVICE_SECRET`, in addition to the Lead session. The
+event_requests composite supplies that credential only after checking live
+Coordinator eligibility with Users. A missing or forged credential returns
+`403`; an unconfigured server returns `503`. The older internal create,
+submit, and patch routes reject any change to `assigned_coordinator_id`.
+The selected-Coordinator summary returns only id, name, lifecycle status,
+date/time, owner, responsible Lead ID, and assignment version. Legacy rows
+with null Lead provenance remain read-only; repair requires verified audit
+evidence and an approved administrator change, never automatic backfill.
+
+For a legacy row, an operator first verifies the original Lead using the
+assignment audit, confirms that account still has the trusted Lead role in
+Auth, and records the evidence, event ID, verified Lead ID, and
+approver in a change ticket. In the Supabase SQL Editor, against the intended
+project only, they lock and inspect that single `events.events` row in a
+transaction, then set `assigning_lead_id` only if it is still null:
+
+```sql
+begin;
+select id, assigned_coordinator_id, assigning_lead_id
+from events.events where id = '<verified-event-uuid>' for update;
+update events.events set assigning_lead_id = '<verified-lead-uuid>'
+where id = '<verified-event-uuid>' and assigning_lead_id is null
+returning id, assigning_lead_id;
+commit;
+```
+
+The operator checks that exactly one row was returned and verifies S-85/S-88
+scope afterward. If provenance cannot be established, the row stays legacy
+and read-only. This is a controlled data repair, not an S-93 migration.
+
+### Reassignment requests (S-88)
+
+The authenticated current Coordinator may call
+`POST /events/{event_id}/reassignment-request` with exactly
+`{"reason":"Cannot cover the November event"}`. The reason must be nonblank
+and at most 2,000 characters. The service derives requester, assigning Lead,
+and assignment version from the current event; clients cannot provide them.
+The request is inserted into `events.reassignment_requests` with database
+timestamps. A database trigger locks and rechecks the event in the same
+transaction as insertion. A unique pending index rejects concurrent duplicates.
+
+Success is `201` with this shape:
+
+```json
+{"id":"ffffffff-ffff-4fff-8fff-ffffffffffff","event_id":"33333333-3333-4333-8333-333333333333","event_name":"November Forum","requester_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","assigning_lead_id":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","assignment_version":2,"reason":"Cannot cover the November event","status":"pending","created_at":"2026-10-25T00:00:00Z","actioned_at":null}
+```
+
+`GET /events/reassignment-requests/mine` and the Lead-only internal list
+take no parameters or body and return arrays of these rows. Both filter by
+the verified caller's ID. A successful S-84 event update actions the matching
+pending request in the same database transaction, setting `actioned_at`; a
+failed transfer leaves it pending. The original requester can read the
+actioned row after losing event ownership. Historical rows remain.
+
+Failures use `{"detail":"..."}`: `401` for no session, `403` for a wrong
+role, `404` for an event outside the Coordinator's or Lead's scope, `409` for
+no recorded Lead, duplicate pending request, or a stale assignment, `422`
+for an invalid reason, and `500` if Events storage fails.
 
 ### `PATCH /events/{event_id}/internal`
 
 Same body as the public `PATCH /events/{event_id}` (every field optional),
 plus `organiser_id` (required, same reason as above) and
-`assigned_coordinator_id` (optional — included only when the composite is
-changing it). Same responses as the public route: `200` with the updated
-event, `404` for another organiser's event.
+`assigned_coordinator_id` (optional but must match the stored owner; changes
+are rejected with `409`). Same responses as the public route: `200` with the
+updated event, `404` for another organiser's event.
 
 ## Errors
 
@@ -623,7 +781,7 @@ event, `404` for another organiser's event.
 | `401` | No valid session; expired access tokens are refreshed when possible. |
 | `403` | The trusted role is missing, unknown, or lacks the route's permission. |
 | `404` | The event does not exist, belongs to another user, or (for `/decision`) is not assigned to the calling coordinator. |
-| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
+| `409` | `POST /events/{event_id}/submit` on an event that is not `draft` or `returned`; `PATCH` or `/submit` on a `rejected` event (closed permanently); `PATCH` on a `cancelled` event (S-61: "This event has been cancelled and is closed."); `POST /events/{event_id}/decision` on an event that is not currently `submitted`; S-51: a `PATCH` naming a registration field on an event that is not `draft` or `returned`; an internal Technical Support write when the event is no longer the Coordinator's planning event or changed concurrently. Editing a `submitted`/`returned`/`planning` event via `PATCH` is otherwise allowed and does not 409. |
 | `422` | The request body or event id is invalid. |
 | `500` | Event storage or another internal operation failed. Internal details are not returned. |
 
@@ -657,6 +815,9 @@ Exposed schemas**. The SQL grants the table to `service_role`; do not grant
 Write endpoints also require the authenticated user's trusted Supabase Auth
 `app_metadata.role` to be `event_organiser`. User-supplied metadata must not be
 used for this decision.
+Set `ASSIGNMENT_SERVICE_SECRET` to the same independent random value in Events
+and event_requests before using S-83/S-84 writes. No S-93 SQL change is
+required for Auth metadata availability.
 
 ## Running
 

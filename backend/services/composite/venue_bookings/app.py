@@ -37,6 +37,7 @@ from schemas import (
     ResolutionRequest,
     VenueBookingChange,
     VenueBookingRequest,
+    VenuePreparationRequest,
 )
 
 app = FastAPI(title="Venue Bookings Service")
@@ -462,6 +463,76 @@ async def list_pending_venue_bookings(
         raise _unavailable("Bookings")
     current = await _release_terminal_holds(response.json(), events, bookings, request.cookies)
     return await _with_clashes(current, venues, bookings, request.cookies)
+
+
+@app.get("/venue-bookings/preparation")
+async def list_venue_preparation_bookings(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-25: confirmed bookings whose event is currently in Preparation."""
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    response = await _get("Bookings", bookings, "/bookings", params={"status": "confirmed"})
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+
+    async def in_preparation(row):
+        event = await _get(
+            "Events", events, f'/events/booking-status/{row["event_id"]}',
+            cookies=request.cookies,
+        )
+        if event.status_code == status.HTTP_404_NOT_FOUND:
+            return None
+        if event.status_code != status.HTTP_200_OK:
+            raise _unavailable("Events")
+        return {**row, "event_status": event.json().get("status")} if event.json().get("status") == "preparation" else None
+
+    rows = await asyncio.gather(*(in_preparation(row) for row in response.json()))
+    return [row for row in rows if row is not None]
+
+
+@app.put("/venue-bookings/{booking_id}/preparation")
+async def update_venue_preparation(
+    booking_id: UUID,
+    payload: VenuePreparationRequest,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    booking = await _booking_by_id(bookings, booking_id)
+    if booking.get("status") != "confirmed":
+        raise HTTPException(status_code=409, detail="Only a confirmed venue booking can be prepared")
+
+    event = await _get(
+        "Events", events, f'/events/booking-status/{booking["event_id"]}',
+        cookies=request.cookies,
+    )
+    if event.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event.status_code != status.HTTP_200_OK:
+        raise _unavailable("Events")
+    if event.json().get("status") != "preparation":
+        raise HTTPException(
+            status_code=409,
+            detail="Venue preparation can only be updated while the event is in preparation",
+        )
+
+    response = await _call("Bookings", bookings.put(
+        f"/bookings/{booking_id}/venue-preparation",
+        json=payload.model_dump(mode="json"), cookies=request.cookies,
+    ))
+    if response.status_code == status.HTTP_200_OK:
+        return response.json()
+    if response.status_code in (401, 403, 404, 409, 422):
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=(response.json() or {}).get("detail", "Venue preparation was not updated"),
+        )
+    raise _unavailable("Bookings")
 
 
 @app.post("/venue-bookings/{booking_id}/hold")

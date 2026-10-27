@@ -2,7 +2,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from .conftest import COORDINATOR_A, COORDINATOR_B, EVENT_ID, ORGANISER_ID, event_row, on_insert
+from .conftest import COORDINATOR_A, COORDINATOR_B, EVENT_ID, ORGANISER_ID, authenticate, event_row, fake_user, on_insert
+
+LEAD_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
+
+@pytest.fixture(autouse=True)
+def lead_auth(client, auth):
+    authenticate(client, auth, fake_user(LEAD_ID, "event_coordinator_lead"))
 
 
 SUBMITTED = {
@@ -69,7 +76,7 @@ def test_internal_unassigned_queue_filters_and_orders_in_storage(client, db):
 
 
 def test_internal_assignment_is_conditional_and_same_target_idempotent(client, db):
-    assigned = submitted_row(assigned_coordinator_id=COORDINATOR_A)
+    assigned = submitted_row(assigned_coordinator_id=COORDINATOR_A, assigning_lead_id=LEAD_ID)
     update_operation = (
         db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.is_.return_value.select.return_value
     )
@@ -92,6 +99,7 @@ def test_internal_assignment_is_conditional_and_same_target_idempotent(client, d
     assert first.status_code == second.status_code == 200
     assert first.json()["assignment_created"] is True
     assert second.json()["assignment_created"] is False
+    assert db.schema.return_value.table.return_value.update.call_args.args[0]["assigning_lead_id"] == LEAD_ID
     chain = db.schema.return_value.table.return_value.update.return_value
     chain.eq.assert_any_call("id", EVENT_ID)
     chain.eq.return_value.eq.assert_any_call("status", "submitted")

@@ -20,6 +20,10 @@ export function listCoordinatorOverview() {
   return requestJSON('/event-requests/coordinator-overview')
 }
 
+export function listCoordinatorActiveEvents(coordinatorId) {
+  return requestJSON(`/event-requests/coordinators/${encodeURIComponent(coordinatorId)}/active-events`)
+}
+
 export function moveAssignmentInOverview(groups, updatedEvent, targetCoordinator) {
   let currentEvent = null
   const withoutEvent = groups.map((group) => {

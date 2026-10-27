@@ -8,9 +8,9 @@ where the code thinks it is.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait` then `pytest tests/integration/atomic/users` |
-| Last run | 2026-09-14, working tree of branch `events-schema` |
-| Environment | `.env.test` → test Supabase project, `users` schema applied and exposed, email confirmation off; users service in Docker on `localhost:8001` |
-| Result | 4 passed |
+| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Environment | Fresh `.env.test` test Supabase stack; schemas applied, granted and exposed; email confirmation off |
+| Result | Users integration cases passed within the full integration run: 77 passed, 5 skipped. |
 
 These passed as of the working tree above, and a pass is only ever a pass as
 of a build. They return to Blocked — not Failed — the moment they run against a
@@ -134,3 +134,20 @@ whether the case passes or fails, so the suite can be run twice in a row.
 - **Actual:** Not yet run.
 - **Status:** Blocked — needs the new endpoint built.
 - **Evidence:** —
+
+## S-93 confirmed specification — real Auth status round trip
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. No S-93 SQL is proposed if the
+trusted Auth metadata mechanism above is accepted.
+
+## TC-USERS-106 — inactive status persists across real Auth reads
+
+- **Scenario:** Real Supabase Auth preserves Coordinator availability independently of login and profile rows.
+- **Pre-conditions:** A fresh `.env.test` stack, test Auth and `users.users` available; a temporary Coordinator account and profile created by the test fixture. The test cleans up the account and profile.
+- **Steps:** 1. Read the account as active through the Users service. 2. Update trusted Auth `app_metadata.coordinator_active` to `false` with the test fixture's admin client. 3. Read again through a new HTTP request and sign in as that user. 4. Restore `true`, reread, and clean up.
+- **Test data:** `spm-test-s93-coordinator-<hex>@example.com`, role `event_coordinator`, status `true → false → true`.
+- **Expected:** The new read reports inactive, then active; the account retains its role and profile and can still authenticate while inactive. No user is left modified after cleanup.
+- **Actual:** Fresh Users HTTP reads showed true, false, then true after Admin updates; login while inactive succeeded and the Auth role remained Event Coordinator.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_coordinator_active_metadata_round_trip

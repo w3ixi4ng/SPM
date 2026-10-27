@@ -135,6 +135,7 @@ def organiser_session(admin, auth_client):
             "recipient_id", user["id"]
         ).execute()
         for event_id in event_ids:
+            admin.schema("events").table("reassignment_requests").delete().eq("event_id", event_id).execute()
             admin.schema("events").table("events").delete().eq("id", event_id).execute()
         admin.auth.admin.delete_user(user["id"])
 

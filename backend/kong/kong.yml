@@ -109,6 +109,16 @@ services:
           - /api/safety-checks
         strip_path: true
 
+  - name: event-registrations
+    # S-51: confirmed events' public pages and Attendee registration. The
+    # registrations atomic service behind it has no route here.
+    url: http://event_registrations:8104/event-registrations
+    routes:
+      - name: event-registrations
+        paths:
+          - /api/event-registrations
+        strip_path: true
+
   # The frontend, last and least specific. Kong matches the longest path
   # prefix first, so the `/api/...` routes above still win over `/` and
   # this only catches what they did not.

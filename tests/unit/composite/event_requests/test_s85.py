@@ -22,7 +22,11 @@ ACTIVE_STATUSES = [
     "under_review",
     "returned",
     "planning",
+    "pending_safety_check",
     "confirmed",
+    "preparation",
+    "safety_rejected",
+    "safety_changes_requested",
 ]
 
 
@@ -136,8 +140,8 @@ def test_overview_reports_invalid_owners_without_creating_groups(
     assert body["coordinators"][0]["active_assignment_count"] == 1
     assert [event["name"] for event in body["coordinators"][0]["events"]] == ["A's event"]
     assert body["invalid_assignments"] == [
-        {"event_id": rows[1]["id"], "name": "Deleted owner", "status": event_status, "assigned_coordinator_id": deleted_id},
-        {"event_id": rows[2]["id"], "name": "Wrong role", "status": event_status, "assigned_coordinator_id": wrong_role_id},
+        {"event_id": rows[1]["id"], "name": "Deleted owner", "status": event_status, "assigned_coordinator_id": deleted_id, "reason": "identity_missing"},
+        {"event_id": rows[2]["id"], "name": "Wrong role", "status": event_status, "assigned_coordinator_id": wrong_role_id, "reason": "identity_missing"},
     ]
     users.post.assert_awaited_once_with("/internal/users/profiles", json={"ids": [ORGANISER_ID]})
     events.post.assert_not_awaited()
@@ -158,7 +162,12 @@ def test_overview_groups_profileless_trusted_coordinators_and_keeps_idle(
         _event(COORDINATOR_B, id="22222222-2222-4222-8222-222222222222", name="B1"),
         _event(COORDINATOR_B, id="33333333-3333-4333-8333-333333333333", name="B2"),
     ]
-    events.get.return_value = fake_response(200, rows)
+    async def scoped_events_get(path, **kwargs):
+        if path.endswith("/assignment-scope"):
+            return fake_response(200, {**rows[0], "assigning_lead_id": LEAD_ID})
+        return fake_response(200, rows)
+
+    events.get.side_effect = scoped_events_get
     users.post.return_value = fake_response(
         200, [{"id": ORGANISER_ID, "name": "Ada Organiser", "email": "ada@example.com"}],
     )
@@ -190,6 +199,7 @@ def test_overview_groups_profileless_trusted_coordinators_and_keeps_idle(
         "expected_assignment_version": 0,
     })
     assert moved.status_code == 200
+    events.get.side_effect = None
     events.get.return_value = fake_response(200, [
         {**rows[0], "assigned_coordinator_id": COORDINATOR_C, "coordinator_assignment_version": 1},
         *rows[1:],
