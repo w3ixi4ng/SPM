@@ -1,5 +1,5 @@
 import { Loader2, LogOut } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
@@ -8,6 +8,7 @@ import {
   assignmentErrorMessage,
   coordinatorOptionLabel,
   listAssignmentCoordinators,
+  listCoordinatorActiveEvents,
   listCoordinatorOverview,
   listUnassignedEventRequests,
   moveAssignmentInOverview,
@@ -23,7 +24,7 @@ const C = {
   teal: '#0E7C74', green: '#3F8F5F', paperDim: '#F0EDE5',
 }
 
-const REASSIGNABLE_STATUSES = new Set(['submitted', 'returned', 'planning', 'pending_safety_check', 'confirmed'])
+const REASSIGNABLE_STATUSES = new Set(['submitted', 'under_review', 'returned', 'planning', 'pending_safety_check', 'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'])
 
 function formatWindow(event) {
   return `${event.start_date} ${event.start_time?.slice(0, 5)} – ${event.end_date} ${event.end_time?.slice(0, 5)}`
@@ -31,6 +32,10 @@ function formatWindow(event) {
 
 function formatStatus(status) {
   return status.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
+}
+
+function isActiveCoordinator(coordinator) {
+  return coordinator.coordinator_active === undefined || coordinator.coordinator_active === true
 }
 
 export default function EventCoordinatorLeadDashboard({ role }) {
@@ -42,6 +47,22 @@ export default function EventCoordinatorLeadDashboard({ role }) {
   const [assigning, setAssigning] = useState(null)
   const [notice, setNotice] = useState('')
   const [requests, setRequests] = useState({ status: 'loading', rows: [] })
+  const [selectedCoordinator, setSelectedCoordinator] = useState('')
+  const selectedCoordinatorRef = useRef('')
+  const [inventory, setInventory] = useState({ status: 'idle', events: [] })
+  const inventoryRequest = useRef(0)
+
+  function loadInventory(coordinatorId) {
+    const requestId = ++inventoryRequest.current
+    if (!coordinatorId) {
+      setInventory({ status: 'idle', events: [] })
+      return
+    }
+    setInventory({ status: 'loading', events: [] })
+    listCoordinatorActiveEvents(coordinatorId)
+      .then((data) => { if (requestId === inventoryRequest.current) setInventory({ status: 'ready', ...data }) })
+      .catch((error) => { if (requestId === inventoryRequest.current) setInventory({ status: 'error', events: [], error: overviewErrorMessage(error) }) })
+  }
 
   function loadRequests() {
     setRequests({ status: 'loading', rows: [] })
@@ -128,8 +149,11 @@ export default function EventCoordinatorLeadDashboard({ role }) {
       setChoices((current) => ({ ...current, [choiceKey]: '' }))
       setNotice(`${event.name} was reassigned to ${coordinator?.name || 'the selected coordinator'}.`)
       loadRequests()
+      if (selectedCoordinatorRef.current) loadInventory(selectedCoordinatorRef.current)
     } catch (error) {
       setNotice(reassignmentErrorMessage(error))
+      load()
+      if (selectedCoordinatorRef.current) loadInventory(selectedCoordinatorRef.current)
     } finally {
       setAssigning(null)
     }
@@ -207,13 +231,47 @@ export default function EventCoordinatorLeadDashboard({ role }) {
         </section>
 
         <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }}>
+          <h2 className="font-display text-2xl mb-2" style={{ color: C.ink }}>Coordinator active events</h2>
+          <p className="font-ui text-sm mb-5" style={{ color: C.inkFaint }}>Select a Coordinator to review all active assignments. Events belonging to another Lead are read-only.</p>
+          <label htmlFor="coordinator-inventory" className="block font-ui text-sm mb-2">Event Coordinator</label>
+          <select id="coordinator-inventory" value={selectedCoordinator} onChange={(event) => { selectedCoordinatorRef.current = event.target.value; setSelectedCoordinator(event.target.value); loadInventory(event.target.value) }} className="border rounded-sm px-3 py-2 font-ui text-sm bg-white" style={{ borderColor: C.line, color: C.ink }}>
+            <option value="">Choose an Event Coordinator</option>
+            {state.coordinatorGroups.map((group) => <option key={group.coordinator.id} value={group.coordinator.id}>{coordinatorOptionLabel(group.coordinator)}{isActiveCoordinator(group.coordinator) ? '' : ' — inactive'}</option>)}
+          </select>
+          {inventory.status === 'loading' && <p className="font-ui text-sm mt-4">Loading active events…</p>}
+          {inventory.status === 'error' && <p role="alert" className="font-ui text-sm mt-4">{inventory.error} <button type="button" onClick={() => loadInventory(selectedCoordinator)} className="underline">Try again</button></p>}
+          {inventory.status === 'ready' && <>
+            {!isActiveCoordinator(inventory.coordinator) && inventory.active_assignment_count > 0 && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.ink }}>Inactive Coordinator has {inventory.active_assignment_count} active {inventory.active_assignment_count === 1 ? 'event' : 'events'} requiring reassignment.</p>}
+            <p className="font-ui text-sm mt-4">{inventory.active_assignment_count} active {inventory.active_assignment_count === 1 ? 'event' : 'events'}</p>
+            {inventory.events.length === 0 && <p className="font-ui text-sm mt-2">No active events assigned.</p>}
+            <ul aria-label="Selected Coordinator active events" className="space-y-3 mt-4">
+              {inventory.events.map((event) => <li key={event.id} className="border rounded-sm p-4" style={{ borderColor: C.line }}>
+                <h3 className="font-display text-lg">{event.name}</h3>
+                <p className="font-ui text-sm">{formatStatus(event.status)} · {formatWindow(event)}</p>
+                <p className="font-ui text-sm">Assigned Coordinator: {inventory.coordinator.name}</p>
+                {event.scope === 'other_lead' && <p className="font-ui text-sm">Responsible Lead: {event.assigning_lead_id}. Read-only; contact that Lead for reassignment.</p>}
+                {event.scope === 'legacy' && <p className="font-ui text-sm">Responsible Lead not recorded. Read-only; controlled provenance review required.</p>}
+                {event.actionable && REASSIGNABLE_STATUSES.has(event.status) && <div className="flex flex-col sm:flex-row gap-3 mt-3">
+                  <label className="sr-only" htmlFor={`inventory-reassign-${event.id}`}>New Event Coordinator for {event.name}</label>
+                  <select id={`inventory-reassign-${event.id}`} value={choices[`reassign:${event.id}`] || ''} onChange={(change) => setChoices((current) => ({ ...current, [`reassign:${event.id}`]: change.target.value }))} className="border rounded-sm px-3 py-2 font-ui text-sm bg-white" style={{ borderColor: C.line, color: C.ink }}>
+                    <option value="">Choose a different Event Coordinator</option>
+                    {state.coordinators.filter((item) => item.id !== event.assigned_coordinator_id).map((item) => <option key={item.id} value={item.id}>{coordinatorOptionLabel(item)}</option>)}
+                  </select>
+                  <button type="button" disabled={assigning === event.id} onClick={() => handleReassign(event)} className="rounded-sm px-5 py-2 font-ui text-sm text-white disabled:opacity-60" style={{ backgroundColor: C.teal }}>{assigning === event.id ? 'Reassigning…' : 'Reassign event'}</button>
+                </div>}
+              </li>)}
+            </ul>
+          </>}
+        </section>
+
+        <section className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }}>
           <h2 className="font-display text-2xl mb-2" style={{ color: C.ink }}>Coordinator oversight</h2>
           <p className="font-ui text-sm mb-6" style={{ color: C.inkFaint }}>Active assignments grouped by their current Event Coordinator.</p>
           {state.status === 'ready' && state.invalidAssignments.length > 0 && (
             <div role="alert" className="border rounded-sm p-5 mb-6" style={{ borderColor: C.line, backgroundColor: C.paperDim }}>
               <h3 className="font-ui font-semibold" style={{ color: C.ink }}>Assignment data needs review</h3>
               <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>
-                {state.invalidAssignments.length} active {state.invalidAssignments.length === 1 ? 'event is' : 'events are'} assigned to an account that is not an eligible Event Coordinator. These assignments have not been changed.
+                {state.invalidAssignments.length} active {state.invalidAssignments.length === 1 ? 'event is' : 'events are'} assigned to an account with a missing Coordinator identity. These assignments have not been changed.
               </p>
               <ul className="font-ui text-sm mt-3 space-y-1" style={{ color: C.inkFaint }}>
                 {state.invalidAssignments.map((item) => (
@@ -233,6 +291,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                     <p className="font-ui text-sm" style={{ color: C.teal }}>{group.active_assignment_count} active {group.active_assignment_count === 1 ? 'assignment' : 'assignments'}</p>
                   </div>
                   {group.coordinator.email && <p className="font-ui text-xs mt-1" style={{ color: C.inkFaint }}>{group.coordinator.email}</p>}
+                  {!isActiveCoordinator(group.coordinator) && group.active_assignment_count > 0 && <p role="alert" className="font-ui text-sm mt-2">Inactive Coordinator: {group.active_assignment_count} active {group.active_assignment_count === 1 ? 'event needs' : 'events need'} reassignment.</p>}
                   {group.events.length === 0 && <p className="font-ui text-sm mt-5" style={{ color: C.inkFaint }}>No active events assigned.</p>}
                   {group.events.length > 0 && (
                     <ul aria-label={`${group.coordinator.name} active events`} className="space-y-4 mt-5">

@@ -145,6 +145,7 @@ jobs:
           BOOKINGS_SERVICE_URL=http://bookings:8004
           EQUIPMENT_SERVICE_URL=http://equipment:8005
           ENV
+          echo "ASSIGNMENT_SERVICE_SECRET=$(openssl rand -hex 32)" >> .env.test
 
       # Only this matrix entry's service — compose would otherwise try to build
       # every service, including ones that are not written yet.

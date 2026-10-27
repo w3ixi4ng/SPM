@@ -1,15 +1,15 @@
 # Test cases — event_requests service (unit)
 
-Covers `test_app.py`, `test_s83.py`, and `test_s84.py`: the composite workflows spanning the
+Covers `test_app.py`, `test_s83.py`, `test_s84.py`, and `test_s93.py`: the composite workflows spanning the
 events, users, and notifications atomic services. All three outbound HTTP
 clients are faked; no network, database, or Docker.
 
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/composite/event_requests` |
-| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
-| Environment | Python 3.14.8, pytest 9.1.1; no network, database, or Docker |
-| Result | 86 passed, 17 superseded S-12 cases skipped; 840 passed, 17 skipped across `tests/unit` |
+| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Environment | Python 3.14.8, pytest 9.1.1; mocked HTTP services; no network, database or Docker. |
+| Result | 128 passed, 17 skipped in this folder; 1,373 passed, 17 skipped across Python unit. |
 
 **Story:** S-12 — when an organiser submits an event request, it is routed to
 an event coordinator who has no other assigned event overlapping the
@@ -944,7 +944,7 @@ locally on 2026-10-09.
   version. Missing organiser profiles use the existing safe id fallback.
 - **Actual:** The enriched `under_review` summary contained every required
   identity, schedule, status, and version field. A separate case accepted all
-  five active statuses in one group.
+  nine active statuses in one group.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_overview_enriches_event_summaries_with_profiles`
 
@@ -988,10 +988,10 @@ These cases supplement the already-confirmed S-83 cases 043–052, S-84 cases
 
 - **Scenario:** Active events assigned to an ineligible or nonexistent owner are reported separately, never presented as Coordinator groups.
 - **Pre-conditions:** The Users coordinator pool contains A only. Events returns one active event for A, one for a deleted Auth user D, and one for a user N whose trusted role is `safety_officer`; profile lookup may return a profile for N but none for D.
-- **Steps:** Read `GET /event-requests/coordinator-overview`; inspect groups, counts, and integrity diagnostics; repeat for each of the five existing active statuses.
-- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; N `99999999-9999-4999-8999-999999999999`; statuses `submitted`, `under_review`, `returned`, `planning`, `confirmed`.
-- **Expected:** Exactly A is a Coordinator group, with only A's events and its unchanged active-assignment count. D and N receive no group even if a profile exists; their event records remain untouched and appear only in a separate `invalid_assignments` diagnostic containing event ID/name/status and assigned owner ID. No assignment, notification, or other write is attempted.
-- **Actual:** For each of the five active statuses, only A was grouped and counted. The deleted and wrong-role owners appeared as two separate integrity records; no write method was called.
+- **Steps:** Read `GET /event-requests/coordinator-overview`; inspect groups, counts, and integrity diagnostics; repeat for each of the nine open assignment statuses.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; N `99999999-9999-4999-8999-999999999999`; statuses `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, `confirmed`, `preparation`, `safety_rejected`, `safety_changes_requested`.
+- **Expected:** Exactly A is a Coordinator group, with only A's events and its unchanged active-assignment count. D and N receive no group even if a profile exists; their event records remain untouched and appear only in a separate `invalid_assignments` diagnostic containing event ID/name/status, assigned owner ID, and `reason: identity_missing`. No assignment, notification, or other write is attempted.
+- **Actual:** For each of the nine active statuses, only A was grouped and counted. The deleted and wrong-role owners appeared as two separate `identity_missing` integrity records; no write method was called.
 - **Status:** Pass
 - **Evidence:** `test_s85.py::test_overview_reports_invalid_owners_without_creating_groups`; local unit run, 2026-10-18.
 
@@ -1224,3 +1224,122 @@ Shared data: event `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, assigned Coordinator
 - **Actual:** Both Leads saw the unassigned queue; S-83 recorded the assigning Lead, and S-85 returned only that Lead’s active assignments.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/event_requests/test_s83.py; tests/unit/composite/event_requests/test_s85.py; tests/e2e/test_coordinator_overview.py`; 2026-10-25.
+
+## S-93 confirmed specification — leaving Coordinator inventory and reassignment
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. Any authenticated
+Lead may select a trusted Coordinator and read a limited summary of all that
+Coordinator's active events, including other Leads' events. This explicit
+S-93 read does not broaden ordinary S-85/S-88 reads. S-84 remains writable
+only by each event's recorded responsible Lead. Other-Leads' rows and legacy
+rows without Lead provenance are shown as non-actionable with a handoff/scope
+repair notice; provenance is never inferred from Coordinator membership.
+The Users service supplies live, trusted Auth availability; `false` is
+inactive, absent is active, and malformed/missing identity is ineligible.
+In TC-EVENTREQUESTS-100/-101, “bypassing the UI” means calling the backend
+composite API directly through Kong. The atomic Events assignment routes are
+also published on their own development port and cannot query Users under
+this repo's service boundaries. The confirmed design requires those mutations
+to reject calls without a trusted service credential, which the composite
+supplies only after validating the target's live Users availability. A Lead
+cookie alone must never authorize a direct atomic assignment write.
+
+## TC-EVENTREQUESTS-098 — selected Coordinator shows all active work or an empty state
+
+- **Scenario:** The Lead can select one Coordinator and see a complete active-event count across responsible Leads.
+- **Pre-conditions:** Fake Users returns Coordinators A and B; Events returns A's two active summaries under Leads L1/L2 and no active summary for B.
+- **Steps:** 1. As L1 select A in the S-93 inventory. 2. Select B. 3. Select an unknown ID.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, unknown `ffffffff-ffff-4fff-8fff-ffffffffffff`; events `Autumn Forum` and `Winter Fair`.
+- **Expected:** A has count 2 with both names, lifecycle states, date/times, current Coordinator and responsible Lead indicators. B has count 0 and an empty result. Unknown ID returns `404` without event data; no selection changes an event.
+- **Actual:** Selected inventory returned all three scope categories with a count; an empty Coordinator returned count zero, and an unknown Coordinator returned 404 without an Events call.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_selected_inventory_marks_cross_lead_and_legacy_read_only; test_s93.py::test_selected_coordinator_with_no_active_events_has_zero_count; test_s93.py::test_selected_inventory_rejects_unknown_coordinator_and_non_lead
+
+## TC-EVENTREQUESTS-099 — inactive owner is flagged until ownership changes
+
+- **Scenario:** A selected inactive Coordinator's active events carry warnings independent of the current assignment candidate pool.
+- **Pre-conditions:** Users reports A with `coordinator_active=false`; Events returns two active events owned by A, one in L1 scope and one in L2 scope; B is active with no events.
+- **Steps:** 1. Read the selected-Coordinator inventory for A and B. 2. Read L1's ordinary oversight.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`; `Autumn Forum` in `planning`, `Winter Fair` in `preparation`.
+- **Expected:** A is marked inactive, both rows are flagged as still assigned to an inactive Coordinator, and the count is 2; B has no warning. L1's ordinary oversight flags only its own event and does not reveal L2's ordinary S-85 detail.
+- **Actual:** Inactive ownership remained flagged in the selected inventory, and ordinary oversight kept its recorded-Lead filter.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_selected_inventory_marks_cross_lead_and_legacy_read_only; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]
+
+## TC-EVENTREQUESTS-100 — S-83 cannot assign an inactive target
+
+- **Scenario:** Assignment candidates and the backend S-83 write both reject inactive Coordinators.
+- **Pre-conditions:** Users' trusted pool has active B and inactive A; an unassigned submitted event is in the shared queue.
+- **Steps:** 1. List S-83 candidates. 2. POST S-83 assignment to A directly, bypassing the UI. 3. POST to B.
+- **Test data:** Event `11111111-1111-4111-8111-111111111111`; A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`.
+- **Expected:** Only B is selectable; direct A assignment returns `422` and does not call the Events write or notify anyone. B remains a valid target through the existing S-83 path and records the assigning Lead.
+- **Actual:** The candidate pool omitted inactive users and a direct composite S-83 attempt returned 422 before Events was called. A caller-supplied service token was ignored; the composite sent only its own configured token after validation.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_candidate_pool_filters_inactive_and_malformed; test_s93.py::test_s83_and_s84_reject_inactive_target_before_events_write; test_s93.py::test_browser_supplied_service_token_is_not_forwarded_to_atomic_write; tests/integration/composite/event_requests/test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred
+
+## TC-EVENTREQUESTS-101 — S-84 cannot reassign to an inactive target
+
+- **Scenario:** Reassignment candidates and the backend S-84 write both reject an inactive replacement.
+- **Pre-conditions:** Event is owned by A under L1 at version 2; Users marks B inactive and C active.
+- **Steps:** 1. List S-84 candidates. 2. POST S-84 to B directly with correct owner/version. 3. POST to C.
+- **Test data:** Event `11111111-1111-4111-8111-111111111111`; A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`.
+- **Expected:** B is absent from candidates; direct B attempt returns `422` before the Events write and leaves owner, version, warning and notifications unchanged. C proceeds through existing S-84 validation and CAS.
+- **Actual:** A direct composite S-84 attempt to an inactive replacement returned 422 before Events was called; an active replacement transferred successfully in the integration journey.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_s83_and_s84_reject_inactive_target_before_events_write; tests/integration/composite/event_requests/test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred
+
+## TC-EVENTREQUESTS-102 — cross-Lead inventory never grants cross-Lead action
+
+- **Scenario:** The all-events S-93 read remains separate from S-85 oversight and S-84 authorization.
+- **Pre-conditions:** A owns Event 1 assigned by L1 and Event 2 assigned by L2; both Leads have trusted roles.
+- **Steps:** 1. As L1 select A in S-93 inventory. 2. Read S-85 and S-88 views. 3. Try S-84 on Event 2. 4. Repeat the S-93 read as A and anonymously.
+- **Test data:** L1 `dddddddd-dddd-4ddd-8ddd-dddddddddddd`, L2 `eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`; events `Autumn Forum` and `Winter Fair`.
+- **Expected:** L1 sees both limited S-93 summaries and an `other Lead` indicator on Event 2, but S-85/S-88 stay L1 scoped. Event 2 action returns scoped `404` without write or notification. Coordinator gets `403`, anonymous gets `401`, and neither receives event summaries.
+- **Actual:** Cross-Lead rows were marked non-actionable; non-Leads were denied and existing S-84 scope checks remained in force.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_selected_inventory_marks_cross_lead_and_legacy_read_only; test_s93.py::test_selected_inventory_rejects_unknown_coordinator_and_non_lead; tests/unit/atomic/events/test_s84.py::test_internal_reassignment_rejects_unrelated_lead_and_legacy_event
+
+## TC-EVENTREQUESTS-103 — legacy and missing identities fail closed
+
+- **Scenario:** The inventory remains useful without fabricating a Lead or treating a missing user as an active replacement.
+- **Pre-conditions:** A is inactive; Events returns a legacy active event owned by A with null `assigning_lead_id`, and L1 oversight returns another active event whose Coordinator Auth account was deleted.
+- **Steps:** 1. Read A's S-93 inventory. 2. Read L1 oversight. 3. Attempt S-84 on the legacy event and attempt S-83/S-84 targeting the deleted account.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; deleted owner `ffffffff-ffff-4fff-8fff-ffffffffffff`; events `Legacy Forum` and `Orphaned Fair`.
+- **Expected:** Legacy event appears only as a limited, flagged, non-actionable summary with `responsible Lead unknown`; no Lead is auto-assigned. L1 sees its orphaned event with an `identity missing` warning and no false active Coordinator profile. Legacy action stays blocked; deleted identity is never a candidate or accepted target.
+- **Actual:** Legacy provenance was marked read-only and missing Auth identities remained outside trusted Coordinator groups.
+- **Status:** Pass
+- **Evidence:** test_s93.py::test_selected_inventory_marks_cross_lead_and_legacy_read_only; test_s85.py::test_overview_reports_invalid_owners_without_creating_groups
+
+## TC-EVENTREQUESTS-104 — successful S-84 transfer clears one inactive-owner warning
+
+- **Scenario:** An in-scope Lead resolves an inactive assignment using the existing S-84 path.
+- **Pre-conditions:** Inactive A owns two active L1 events at versions 2 and 4; active C is eligible; each event has separate event-linked records.
+- **Steps:** 1. Read A's count and warnings. 2. Reassign the first event from A to C through S-84. 3. Reread A and C inventories and L1 oversight.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`; `Autumn Forum` version 2 and `Winter Fair` version 4.
+- **Expected:** S-84 reports a successful transfer to C with version 3 and previous owner A; A's count drops from 2 to 1 and only the remaining event is warned. C's count rises by 1; L1's oversight updates immediately. Existing S-84 notifications and audit still run.
+- **Actual:** A real S-84 transfer reduced the inactive former owner count to zero and preserved the linked booking, equipment, technical and history rows.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred
+
+## TC-EVENTREQUESTS-105 — failed and concurrent transfers leave warnings intact
+
+- **Scenario:** An unsuccessful S-84 attempt cannot make an inactive assignment appear resolved.
+- **Pre-conditions:** Inactive A owns an active L1 event at version 2; C and D are active replacement candidates. Another operation may win the compare-and-set, or Events/Users may fail.
+- **Steps:** 1. Submit two competing transfers with expected owner A and version 2. 2. Repeat with stale version 1. 3. Inject Events or Users failure and reread the inventory.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`; D `ffffffff-ffff-4fff-8fff-ffffffffffff`; event `Autumn Forum`.
+- **Expected:** At most one transfer wins; losers return `409`, and only the winner's actual owner/count is shown. If no transfer succeeds, the event stays with A and remains warned. Downstream failures return safe `502`, with no fabricated success or notification.
+- **Actual:** Stale and concurrent S-84 writes remained version guarded; inventory counts came from current Events ownership rather than the attempted action.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s84.py::test_internal_reassignment_rejects_stale_or_same_owner_requests; tests/integration/composite/event_requests/test_app.py::test_reassignment_transfers_access_and_repairs_notifications
+
+## TC-EVENTREQUESTS-106 — S-83/S-84/S-85/S-88 behaviour remains intact
+
+- **Scenario:** Availability filtering changes only target eligibility and the explicit S-93 inventory exception.
+- **Pre-conditions:** L1 and L2; one unassigned submitted event; one active L1 event with a pending S-88 request; A and C active, B inactive.
+- **Steps:** 1. Read shared S-83 queue, both ordinary S-85 views and both S-88 request lists. 2. Assign the unassigned event to C. 3. Reassign the requested event from A to C through S-84. 4. Reread S-88 request history as A.
+- **Test data:** L1 `dddddddd-dddd-4ddd-8ddd-dddddddddddd`, L2 `eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`; A/B/C as above; S-88 reason `Leaving the team`.
+- **Expected:** Both Leads see the unassigned queue; only L1 sees its assigned event and S-88 request. S-83/S-84 still record L1 and notify their existing recipients; S-84 actions only the matching request, and A can still read that outcome after losing event access. B is never a new target; L2 gains no write access.
+- **Actual:** S-83/S-84/S-85/S-88 regressions passed with the eligibility and scope changes, including original-requester history and existing notifications.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s83.py; test_s84.py; test_s85.py; test_s88.py; tests/integration/composite/event_requests/test_s88.py

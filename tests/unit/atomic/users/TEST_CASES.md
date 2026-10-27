@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, uncommitted working tree |
-| Environment | Python 3.14.8, pytest 9.1.1. No network, no database, no Docker. |
-| Result | 37 passed in this suite; 840 passed, 17 skipped across `tests/unit` |
+| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
+| Result | 38 passed in this folder; 1,373 passed, 17 skipped across Python unit. |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -471,3 +471,36 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Actual:** The returned pool contained exactly the two trusted Coordinator IDs; the profiled name remained Alex and the missing-profile account displayed its Auth email, including when that account was on Auth page 2. Every other trusted role and the editable-metadata impostor was excluded.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_coordinator_listing_keeps_trusted_auth_users_without_profiles`, `test_app.py::test_coordinator_listing_includes_profileless_auth_user_on_later_page`; local Python 3.14 unit run, 2026-10-18.
+
+## S-93 confirmed specification — trusted Coordinator availability
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8` from `origin/sprint4`. Confirmed by developer on 2026-10-25.
+The source of truth is
+Supabase Auth `app_metadata.coordinator_active`. A missing key means active for
+existing Coordinator accounts; explicit `false` means inactive. A malformed
+value is unavailable for new assignment. Only an administrative operation may
+change this trusted field; it preserves `app_metadata.role` and does not delete
+the account or disable login.
+
+## TC-USERS-033 — Coordinator status comes from trusted Auth metadata
+
+- **Scenario:** The Users service exposes an authoritative active/inactive state without changing the trusted role.
+- **Pre-conditions:** Fake Auth lists four users with `app_metadata.role=event_coordinator`: A has no status key, B has `coordinator_active=true`, C has `false`, and D has malformed `"false"`; all have profiles.
+- **Steps:** 1. Request the internal Coordinator inventory. 2. Request the active assignment candidate list. 3. Repeat with C's editable `user_metadata.coordinator_active=true`.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`, D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`.
+- **Expected:** Inventory reports A and B active, C inactive, D unavailable; candidates contain only A and B. C's editable metadata cannot change the result. Each response retains the trusted Coordinator role and returns no Auth secret.
+- **Actual:** Auth metadata gave true, true, false, and null; editable user metadata did not activate the inactive account; the composite candidate pool kept only the active users.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_coordinator_availability_uses_only_boolean_auth_app_metadata; tests/unit/composite/event_requests/test_s93.py::test_candidate_pool_filters_inactive_and_malformed
+
+## TC-USERS-034 — administrative status changes preserve role and account
+
+- **Scenario:** Marking a Coordinator inactive changes assignment availability without deactivating authentication.
+- **Pre-conditions:** Fake Auth user C has `app_metadata={"role":"event_coordinator","coordinator_active":true,"team":"operations"}` and a Users profile.
+- **Steps:** 1. Apply an out-of-band Supabase Auth admin update to mark C inactive. 2. Read C again from Auth and Users. 3. Restore active status with the same admin capability.
+- **Test data:** C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`; active `true → false → true`.
+- **Expected:** Both transitions persist a boolean and preserve `role` and `team`; C's profile and Auth account remain and login is not disabled. No new user-facing deactivation route is required by this case.
+- **Actual:** Admin metadata updates persisted false then true, preserved role and team, and the inactive account still signed in; no account or profile was deleted.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/users/test_app.py::test_coordinator_active_metadata_round_trip; tests/integration/composite/event_requests/test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred

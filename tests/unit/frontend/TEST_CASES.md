@@ -14,9 +14,9 @@ RBAC, and validation remain authoritative.
 | | |
 | --- | --- |
 | Suite | `node --test tests/unit/frontend/test_*.mjs` |
-| Last run | 2026-10-09, branch `S-85/view-coordinator-assignments-and-active-events`, commit `628e09b` |
-| Environment | Node.js; no network or Supabase |
-| Result | 119 passed |
+| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Environment | Node 22; local source imports; no browser or network. |
+| Result | 178 passed across frontend unit. |
 
 ## TC-FRONTEND-001 — each known role has one dashboard
 
@@ -2488,3 +2488,32 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** Loading, empty, error and retry states rendered distinctly; pending and actioned rows rendered requester, event, reason and outcome, while reassignment stayed on S-84.
 - **Status:** Pass
 - **Evidence:** `tests/unit/frontend/test_reassignment_requests.mjs; tests/e2e/test_request_reassignment_from_lead.py::test_lead_request_empty_error_and_retry_states`; 2026-10-25.
+
+## S-93 confirmed specification — leaving Coordinator Lead view
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. The S-93 view extends the
+existing Lead dashboard. Only the selected-Coordinator summary may cross
+Lead boundaries; ordinary oversight and S-84 controls remain scoped.
+
+## TC-FRONTEND-251 — selection, counts, warning and data-loading states
+
+- **Scenario:** The Lead can understand a selected Coordinator's active workload and whether it needs reassignment.
+- **Pre-conditions:** API helper is faked with loading, empty, populated, and error results; A is inactive with two active events under different Leads, B is active with none.
+- **Steps:** 1. Select A and inspect its loading state. 2. Resolve the response and inspect both rows. 3. Select B. 4. Fail the selected inventory read, then retry.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`; `Autumn Forum` in `pending_safety_check` on `2026-11-18 09:00–12:00`; `Winter Fair` in `preparation` on `2026-11-20 14:00–17:00`.
+- **Expected:** Loading, empty, populated and error/retry states are distinct. A shows `Inactive`, count 2, both event names/statuses/times/current owner, two warning indicators and an `other Lead` label where applicable. B shows count 0 and no warning; failure displays no stale event data.
+- **Actual:** The frontend helper used the dedicated cookie-authenticated route; the dashboard rendered selection, counts, inactive warnings, loading/error/retry and empty states.
+- **Status:** Pass
+- **Evidence:** test_event_assignments.mjs::S-93 selected inventory uses the dedicated composite route with cookies; test_event_assignments.mjs::S-93 dashboard offers a selected inventory and keeps cross-Lead rows read-only
+
+## TC-FRONTEND-252 — only active replacements appear and outcomes update correctly
+
+- **Scenario:** The existing S-84 control is the only ownership-changing action in the Lead dashboard.
+- **Pre-conditions:** A is inactive and owns one L1 event at version 2; C is active, B inactive; the S-84 API is faked for success then stale failure.
+- **Steps:** 1. Inspect replacement choices. 2. Choose C and perform S-84. 3. Reload the selected inventories. 4. Repeat with a stale `409` response on another event.
+- **Test data:** A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`; event `Autumn Forum`.
+- **Expected:** B is absent from assignment and reassignment choices. Success calls the existing S-84 API with expected owner/version, removes the resolved warning, updates A/C counts and shows success. The `409` case keeps the warning and count until a fresh read confirms a real transfer; no frontend direct owner write is sent.
+- **Actual:** The dashboard gated transfer controls by actionable scope and used the filtered candidate list; the Chromium journey moved only the responsible Lead’s event and refreshed the inactive count.
+- **Status:** Pass
+- **Evidence:** test_event_assignments.mjs::S-93 dashboard offers a selected inventory and keeps cross-Lead rows read-only; test_event_assignments.mjs::S-93 stale reassignment stays a failure and uses the existing S-84 route; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]

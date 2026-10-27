@@ -20,6 +20,9 @@ OVERSIGHT_ACTIVE = [
     "planning",
     "pending_safety_check",
     "confirmed",
+    "preparation",
+    "safety_rejected",
+    "safety_changes_requested",
 ]
 
 
@@ -38,7 +41,7 @@ def _active_row(status: str):
     )
 
 
-def test_internal_oversight_uses_all_five_active_statuses(client, db):
+def test_internal_oversight_uses_all_open_active_statuses(client, db):
     operation = (
         db.schema.return_value.table.return_value.select.return_value.in_.return_value.not_.is_.return_value.order.return_value.eq.return_value
     )

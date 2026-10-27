@@ -52,9 +52,17 @@ fields (or Auth phone/id supplies the name if no email exists):
 
 ```json
 // 200
-[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com"},
- {"id": "bbbb...", "name": "idle@example.com", "email": "idle@example.com"}]
+[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com", "coordinator_active": true},
+ {"id": "bbbb...", "name": "idle@example.com", "email": "idle@example.com", "coordinator_active": false}]
 ```
+
+S-93 reads `coordinator_active` from trusted Auth
+`app_metadata.coordinator_active`. An explicit boolean `false` excludes the
+account from new assignments; `true` or a missing key means available. A
+malformed value returns `null` and is ineligible. Editable `user_metadata`
+does not affect this field. Administrators can change it through the Supabase
+Auth Admin API while preserving existing `app_metadata.role` and any other
+metadata; this service exposes no Coordinator deactivation endpoint.
 
 `[]` when no account currently holds that role.
 

@@ -168,6 +168,7 @@ jobs:
           BOOKINGS_SERVICE_URL=http://bookings:8004
           EQUIPMENT_SERVICE_URL=http://equipment:8005
           ENV
+          echo "ASSIGNMENT_SERVICE_SECRET=$(openssl rand -hex 32)" >> .env.test
 
       - name: Install test dependencies
         run: |
@@ -276,6 +277,7 @@ jobs:
           BOOKINGS_SERVICE_URL=http://bookings:8004
           EQUIPMENT_SERVICE_URL=http://equipment:8005
           ENV
+          echo "ASSIGNMENT_SERVICE_SECRET=$(openssl rand -hex 32)" >> .env.test
 
       - name: Install test dependencies
         run: |

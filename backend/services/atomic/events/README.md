@@ -47,6 +47,7 @@ because service ports are published for direct testing. See
 | `GET` | `/internal/events/assigned-active` | Internal cross-service active assignments for affected booking notifications. |
 | `GET` | `/internal/events/lead-assigned-active` | Authenticated Lead's active assignments, newest update first. |
 | `GET` | `/internal/events/coordinator-overview` | Authenticated Lead's scoped S-85 active events, newest update first. |
+| `GET` | `/internal/events/coordinators/{coordinator_id}/active-summary` | Authenticated Lead's limited S-93 summaries across Lead scopes for one Coordinator; no event details. |
 | `GET` | `/internal/events/{event_id}/assignment-scope` | Return an event only to its recorded assigning Lead. |
 | `GET` | `/internal/reassignment-requests/lead` | Return only the authenticated Lead's request history. |
 | `GET` | `/internal/events/safety-review` | S-86 queue source: list `pending_safety_check` events with no current safety decision, oldest update first. |
@@ -58,9 +59,9 @@ because service ports are published for direct testing. See
 | `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
 | `POST` | `/internal/events/{event_id}/technical-signoff/clear` | S-17: clear the sign-off after a Coordinator equipment change. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Authenticated responsible Lead's versioned compare-and-set transfer, with exact-retry support. |
-| `POST` | `/events/internal` | Create an already-submitted event with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
-| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft with a caller-supplied `organiser_id` and optional `assigned_coordinator_id`. |
-| `PATCH` | `/events/{event_id}/internal` | Update an owned event with a caller-supplied `organiser_id`, optionally reassigning `assigned_coordinator_id` in the same write. |
+| `POST` | `/events/internal` | Create an unassigned, already-submitted event with a caller-supplied `organiser_id`. |
+| `POST` | `/events/{event_id}/submit/internal` | Submit an owned draft or returned event while preserving its existing Coordinator assignment. |
+| `PATCH` | `/events/{event_id}/internal` | Update an owned event without changing Coordinator assignment. |
 | `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
 | `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
 
@@ -290,7 +291,9 @@ version when reassigning, so a stale request cannot overwrite newer work.
 See [Internal routes](#internal-routes-composite-only).
 
 S-85's internal coordinator-overview route is read-only and recognizes
-`submitted`, `under_review`, `returned`, `planning`, and `confirmed` as active.
+`submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`,
+`confirmed`, `preparation`, `safety_rejected`, and
+`safety_changes_requested` as active.
 It excludes null assignments and every other lifecycle state. S-85 does not
 create or transition event statuses and makes no schema change; it only
 defines how an assigned `under_review` row is treated when that workflow state
@@ -650,7 +653,7 @@ must never set them:
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `organiser_id` | uuid | The organiser the composite already authenticated — not derived from a session here. |
-| `assigned_coordinator_id` | uuid or null | Existing assignment to preserve; S-83 submissions use null until a Lead assigns the request. |
+| `assigned_coordinator_id` | uuid or null | Must be null for a new S-83 submission; on resubmit it must match the stored assignment. |
 
 Same responses and status codes as the public routes they mirror
 (`201`/`200`, `404` for another organiser's draft, `409` for an event that is
@@ -676,6 +679,39 @@ status returns `409`, and a missing event returns `404`. This atomic route does
 not evaluate schedule conflicts.
 The Lead identity comes from the verified session and is stored as
 `assigning_lead_id`; a retry by another Lead cannot claim the event.
+
+S-93 requires both assignment write routes to carry
+`X-Assignment-Service-Token` matching the server's
+`ASSIGNMENT_SERVICE_SECRET`, in addition to the Lead session. The
+event_requests composite supplies that credential only after checking live
+Coordinator eligibility with Users. A missing or forged credential returns
+`403`; an unconfigured server returns `503`. The older internal create,
+submit, and patch routes reject any change to `assigned_coordinator_id`.
+The selected-Coordinator summary returns only id, name, lifecycle status,
+date/time, owner, responsible Lead ID, and assignment version. Legacy rows
+with null Lead provenance remain read-only; repair requires verified audit
+evidence and an approved administrator change, never automatic backfill.
+
+For a legacy row, an operator first verifies the original Lead using the
+assignment audit, confirms that account still has the trusted Lead role in
+Auth, and records the evidence, event ID, verified Lead ID, and
+approver in a change ticket. In the Supabase SQL Editor, against the intended
+project only, they lock and inspect that single `events.events` row in a
+transaction, then set `assigning_lead_id` only if it is still null:
+
+```sql
+begin;
+select id, assigned_coordinator_id, assigning_lead_id
+from events.events where id = '<verified-event-uuid>' for update;
+update events.events set assigning_lead_id = '<verified-lead-uuid>'
+where id = '<verified-event-uuid>' and assigning_lead_id is null
+returning id, assigning_lead_id;
+commit;
+```
+
+The operator checks that exactly one row was returned and verifies S-85/S-88
+scope afterward. If provenance cannot be established, the row stays legacy
+and read-only. This is a controlled data repair, not an S-93 migration.
 
 ### Reassignment requests (S-88)
 
@@ -710,9 +746,9 @@ for an invalid reason, and `500` if Events storage fails.
 
 Same body as the public `PATCH /events/{event_id}` (every field optional),
 plus `organiser_id` (required, same reason as above) and
-`assigned_coordinator_id` (optional — included only when the composite is
-changing it). Same responses as the public route: `200` with the updated
-event, `404` for another organiser's event.
+`assigned_coordinator_id` (optional but must match the stored owner; changes
+are rejected with `409`). Same responses as the public route: `200` with the
+updated event, `404` for another organiser's event.
 
 ## Errors
 
@@ -755,6 +791,9 @@ Exposed schemas**. The SQL grants the table to `service_role`; do not grant
 Write endpoints also require the authenticated user's trusted Supabase Auth
 `app_metadata.role` to be `event_organiser`. User-supplied metadata must not be
 used for this decision.
+Set `ASSIGNMENT_SERVICE_SECRET` to the same independent random value in Events
+and event_requests before using S-83/S-84 writes. No S-93 SQL change is
+required for Auth metadata availability.
 
 ## Running
 

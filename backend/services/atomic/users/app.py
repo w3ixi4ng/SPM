@@ -132,6 +132,13 @@ def _list_user_ids_with_role(db: Client, role: str) -> list[str]:
     return [user.id for user in _list_auth_users_with_role(db, role)]
 
 
+def _coordinator_active(user) -> bool | None:
+    """Read only the admin-controlled Auth claim; invalid values fail closed."""
+    metadata = getattr(user, "app_metadata", None) or {}
+    value = metadata.get("coordinator_active", True)
+    return value if type(value) is bool else None
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -285,6 +292,7 @@ def list_coordinators(db: Client = Depends(get_db)):
             or user.id,
             "email": profiles.get(user.id, {}).get("email")
             or getattr(user, "email", None),
+            "coordinator_active": _coordinator_active(user),
         }
         for user in coordinators
     ]

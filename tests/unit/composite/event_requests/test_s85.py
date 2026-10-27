@@ -22,7 +22,11 @@ ACTIVE_STATUSES = [
     "under_review",
     "returned",
     "planning",
+    "pending_safety_check",
     "confirmed",
+    "preparation",
+    "safety_rejected",
+    "safety_changes_requested",
 ]
 
 
@@ -136,8 +140,8 @@ def test_overview_reports_invalid_owners_without_creating_groups(
     assert body["coordinators"][0]["active_assignment_count"] == 1
     assert [event["name"] for event in body["coordinators"][0]["events"]] == ["A's event"]
     assert body["invalid_assignments"] == [
-        {"event_id": rows[1]["id"], "name": "Deleted owner", "status": event_status, "assigned_coordinator_id": deleted_id},
-        {"event_id": rows[2]["id"], "name": "Wrong role", "status": event_status, "assigned_coordinator_id": wrong_role_id},
+        {"event_id": rows[1]["id"], "name": "Deleted owner", "status": event_status, "assigned_coordinator_id": deleted_id, "reason": "identity_missing"},
+        {"event_id": rows[2]["id"], "name": "Wrong role", "status": event_status, "assigned_coordinator_id": wrong_role_id, "reason": "identity_missing"},
     ]
     users.post.assert_awaited_once_with("/internal/users/profiles", json={"ids": [ORGANISER_ID]})
     events.post.assert_not_awaited()

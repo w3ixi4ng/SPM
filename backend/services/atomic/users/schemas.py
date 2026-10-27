@@ -39,6 +39,7 @@ class CoordinatorRead(BaseModel):
     id: str
     name: str
     email: EmailStr | None
+    coordinator_active: bool | None = None
 
 
 class CurrentUserRead(UserRead):

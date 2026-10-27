@@ -11,6 +11,14 @@ NOTIFICATIONS_URL = os.environ["NOTIFICATIONS_SERVICE_URL"]
 BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
 
 
+def assignment_service_headers() -> dict[str, str]:
+    """Server-owned credential, never copied from an incoming browser request."""
+    secret = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    if not secret:
+        raise RuntimeError("Assignment service is not configured")
+    return {"X-Assignment-Service-Token": secret}
+
+
 def get_users_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=USERS_URL, timeout=5.0)
 
