@@ -222,3 +222,65 @@ by `created_at`, with `id` breaking a tie so two entries never share a place
 - **Actual:** `200` with both rows; ordered by `created_at` then `id`.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/registrations/test_app.py::test_an_events_waiting_list_is_first_come_first_served; 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## S-53 — Withdraw Registration
+
+Developer decisions (2026-10-26): withdrawing removes the place, so the
+Attendee is back to not registered and may register again. In the same
+locked step as the removal, the first Attendee on the waiting list (first
+come, first served: `created_at`, then `id`) takes the freed place. Someone is
+promoted only while a place is genuinely free (places taken after the
+withdrawal < `capacity`), and at most one per withdrawal. The withdrawal and the
+promotion run in `registrations.withdraw` under the same per-event lock as
+`registrations.register`. A missing place raises `SP053`.
+
+## TC-REGISTRATIONS-016 — an Attendee withdraws and no one is waiting
+
+- **Scenario:** A withdrawal removes the place and reports that no one was promoted (S-53 AC1, AC2).
+- **Pre-conditions:** `rpc("withdraw", ...)` returns `{"withdrawn": <A's row for E>, "promoted": null}`.
+- **Steps:** `POST /registrations/withdrawals`.
+- **Test data:** `{"event_id": E, "attendee_id": A, "capacity": 2}`; A's row `created_at` `2026-11-05T04:00:00+00:00`.
+- **Expected:** `200` `{"withdrawn": {"id", "event_id": E, "attendee_id": A, "created_at"}, "promoted": null}`. The call is `schema("registrations").rpc("withdraw", {"p_event_id": E, "p_attendee_id": A, "p_capacity": 2})`; no table is written to directly.
+- **Actual:** `200` with A's row and `promoted` null; one `rpc("withdraw", {p_event_id: E, p_attendee_id: A, p_capacity: 2})` on `registrations`; no table call.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_an_attendee_withdraws_and_no_one_is_waiting; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-REGISTRATIONS-017 — the freed place goes to the next Attendee waiting
+
+- **Scenario:** The withdrawal answers with the Attendee who was promoted into the freed place (S-53 AC3, AC4).
+- **Pre-conditions:** `rpc("withdraw", ...)` returns `{"withdrawn": <A's row>, "promoted": <B's new row for E, created_at 2026-11-06T04:00:00+00:00>}`.
+- **Steps:** `POST /registrations/withdrawals`.
+- **Test data:** As TC-REGISTRATIONS-016.
+- **Expected:** `200` with `withdrawn` A's row and `promoted` `{"id", "event_id": E, "attendee_id": B, "created_at": "2026-11-06T04:00:00Z"}`.
+- **Actual:** `200`; `withdrawn` A's row, `promoted` B's row with `created_at` `2026-11-06T04:00:00Z`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_the_freed_place_goes_to_the_next_attendee_waiting; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-REGISTRATIONS-018 — withdrawing a place that isn't held
+
+- **Scenario:** Withdrawing without a place is refused, not silently accepted (S-53 AC1).
+- **Pre-conditions:** `rpc("withdraw", ...)` raises `APIError` with code `SP053`.
+- **Steps:** `POST /registrations/withdrawals`.
+- **Test data:** `{"event_id": E, "attendee_id": B, "capacity": 2}`.
+- **Expected:** `404` `{"detail": "You're not registered for this event."}`.
+- **Actual:** `404` "You're not registered for this event."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_withdrawing_a_place_that_isnt_held; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-REGISTRATIONS-019 — a malformed withdrawal, or storage failing
+
+- **Scenario:** Bad input is refused before storage is touched, and a storage error doesn't pass as success.
+- **Pre-conditions:** For the last row, `rpc` raises `APIError` code `XX000`.
+- **Steps:** `POST /registrations/withdrawals` with each body.
+- **Test data / Expected:**
+  | Body | Result |
+  | --- | --- |
+  | `{"event_id": E, "attendee_id": A}` (no capacity) | `422`, `errors.capacity` set; rpc not called |
+  | `{"event_id": E, "attendee_id": A, "capacity": -1}` | `422`, `errors.capacity` set; rpc not called |
+  | `{"event_id": "nope", "attendee_id": A, "capacity": 2}` | `422`, `errors.event_id` set; rpc not called |
+  | `{"event_id": E, "attendee_id": A, "capacity": 2, "x": 1}` | `422`, `errors.x` set; rpc not called |
+  | `{"event_id": E, "attendee_id": A, "capacity": 0}` | Accepted (`0` means no place is free, so no one is promoted) |
+  | Valid body, storage raises `XX000` | `500` `{"detail": "Registration storage unavailable"}` |
+- **Actual:** All four malformed bodies `422` with the named field, rpc not called; capacity `0` accepted with `p_capacity` 0; storage error `500` "Registration storage unavailable".
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_a_malformed_withdrawal_is_refused, ::test_a_withdrawal_with_no_free_place_is_accepted, ::test_a_withdrawal_storage_cant_record; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

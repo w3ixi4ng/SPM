@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import {
+  canWithdraw,
   describeRegistration,
   formatEventWhen,
   getMyRegistration,
@@ -12,6 +13,8 @@ import {
   registerForEvent,
   registrationCountdown,
   waitingListPlace,
+  withdrawPrompt,
+  withdrawRegistration,
 } from '../lib/registration.js'
 
 const C = {
@@ -80,8 +83,71 @@ function Fact({ icon: Icon, label, children }) {
 
 // The page's one bold moment: where registration stands right now, with a
 // live countdown to the next change, and the action that goes with it.
+// S-53: giving up a place can't be undone -- registering again may mean the
+// back of the waiting list -- so it asks first, inline.
+function WithdrawControl({ event, onWithdraw, withdrawing }) {
+  const [confirming, setConfirming] = useState(false)
+  const trigger = useRef(null)
+  const keep = useRef(null)
+  const opened = useRef(false)
+
+  useEffect(() => {
+    if (confirming) keep.current?.focus()
+    else if (opened.current) trigger.current?.focus()
+    opened.current = confirming
+  }, [confirming])
+
+  if (!confirming) {
+    return (
+      <button
+        ref={trigger}
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="csp-ghost mt-5 px-5 py-3 rounded-sm font-ui text-sm font-medium border"
+        style={{ borderColor: C.paper, color: C.paper }}
+      >
+        Withdraw registration
+      </button>
+    )
+  }
+  return (
+    <div
+      className="mt-5 pt-5 border-t"
+      style={{ borderColor: C.lineOnInk }}
+      onKeyDown={(e) => { if (e.key === 'Escape' && !withdrawing) setConfirming(false) }}
+    >
+      <p className="font-ui text-sm leading-relaxed max-w-sm mb-4" style={{ color: C.paper }}>
+        {withdrawPrompt(event)}
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={onWithdraw}
+          disabled={withdrawing}
+          className="csp-primary inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium transition-transform duration-200 disabled:opacity-70"
+          style={{ backgroundColor: C.teal, color: C.paper }}
+        >
+          {withdrawing && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+          {withdrawing ? 'Withdrawing…' : 'Withdraw'}
+        </button>
+        <button
+          ref={keep}
+          type="button"
+          onClick={() => setConfirming(false)}
+          disabled={withdrawing}
+          className="csp-ghost px-5 py-3 rounded-sm font-ui font-medium border disabled:opacity-70"
+          style={{ borderColor: C.paper, color: C.paper }}
+        >
+          Keep my place
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function RegistrationPanel({
   event, now, auth, registration, onRegister, onJoinWaitingList, registering, error,
+  withdrawn, onWithdraw, withdrawing,
 }) {
   const navigate = useNavigate()
   const { state, status } = describeRegistration(event, now)
@@ -92,10 +158,15 @@ function RegistrationPanel({
   let action = null
   if (registration?.registered) {
     action = (
-      <p className="flex items-center gap-2 font-ui text-base" style={{ color: C.paper }}>
-        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.green }} aria-hidden="true" />
-        You&apos;re registered for this event.
-      </p>
+      <>
+        <p className="flex items-center gap-2 font-ui text-base" style={{ color: C.paper }}>
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.green }} aria-hidden="true" />
+          You&apos;re registered for this event.
+        </p>
+        {canWithdraw(event, now) && (
+          <WithdrawControl event={event} onWithdraw={onWithdraw} withdrawing={withdrawing} />
+        )}
+      </>
     )
   } else if (registration?.waitlisted) {
     // S-50
@@ -154,6 +225,12 @@ function RegistrationPanel({
           </span>
         </p>
       )}
+      {withdrawn && (
+        <p role="status" className="flex items-center gap-2 font-ui text-base mb-5" style={{ color: C.paper }}>
+          <span className="w-2 h-2 rounded-full border" style={{ borderColor: C.paperDim }} aria-hidden="true" />
+          You&apos;ve withdrawn from this event.
+        </p>
+      )}
       {action}
       {error && (
         <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.paper }}>
@@ -172,6 +249,9 @@ export default function PublicEvent() {
   const [registration, setRegistration] = useState(null)
   const [registering, setRegistering] = useState(false)
   const [registerError, setRegisterError] = useState(null)
+  // S-53: shown once, after withdrawing; a reload starts without it.
+  const [withdrawn, setWithdrawn] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
   // Bumped by Register / Join the waiting list, so a status lookup that
   // started before the click can't overwrite what the click returned.
   const actions = useRef(0)
@@ -208,6 +288,7 @@ export default function PublicEvent() {
     actions.current += 1
     setRegistering(true)
     setRegisterError(null)
+    setWithdrawn(false)
     try {
       setRegistration(await registerForEvent(id))
     } catch (error) {
@@ -224,6 +305,7 @@ export default function PublicEvent() {
     actions.current += 1
     setRegistering(true)
     setRegisterError(null)
+    setWithdrawn(false)
     try {
       const joined = await joinWaitingList(id)
       setRegistration({
@@ -234,6 +316,23 @@ export default function PublicEvent() {
       if (error.status === 409) refreshEvent()
     } finally {
       setRegistering(false)
+    }
+  }
+
+  async function handleWithdraw() {
+    actions.current += 1
+    setWithdrawing(true)
+    setRegisterError(null)
+    try {
+      setRegistration(await withdrawRegistration(id))
+      setWithdrawn(true)
+    } catch (error) {
+      setRegisterError(error.message)
+    } finally {
+      setWithdrawing(false)
+      // The freed place may have gone to the next person waiting, so the
+      // event can be full again.
+      refreshEvent()
     }
   }
 
@@ -318,6 +417,9 @@ export default function PublicEvent() {
               onJoinWaitingList={handleJoinWaitingList}
               registering={registering}
               error={registerError}
+              withdrawn={withdrawn}
+              onWithdraw={handleWithdraw}
+              withdrawing={withdrawing}
             />
           </div>
         )}

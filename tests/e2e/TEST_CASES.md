@@ -1434,3 +1434,42 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** C joined and saw "You're on the waiting list. You're 2nd in line." before and after reload, with no Register or registered line; C's dashboard row read "Waiting list · 2nd in line" with no "Confirmed"; A's row read "Confirmed".
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_join_waiting_list.py::test_a_waitlisted_attendee_sees_their_place_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+
+## S-49 — Registration Confirmation Notification
+
+## TC-E2E-256 — an Attendee sees the confirmation on their dashboard after registering
+
+- **Scenario:** Registering in the browser leaves a confirmation on the
+  Attendee dashboard with the event and entry details (S-49 AC1, AC2).
+- **Pre-conditions:** As TC-E2E-252, with the S-49 `notifications.sql`
+  applied to the test project. A has the name "S-49 E2E Attendee".
+- **Steps:**
+  1. As A, open `/dashboard`.
+  2. Open `/public/events/P`, click **Register**.
+  3. Open `/dashboard` again.
+- **Test data:** As above; emails `spm-e2e-*`.
+- **Expected:** 1 shows a "Notifications" section with "No notifications
+  yet." 3 shows one notification reading "Registration confirmed: {P's
+  name}, {P's date and time}, venue to be confirmed. Name: S-49 E2E Attendee.
+  Email: {A's email}."
+- **Actual:** Chromium: the dashboard first showed "No notifications yet."; after registering it showed the confirmation with P's name, date and time, "venue to be confirmed", A's name and email.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; with the rest of `test_register_for_event.py`: 4 passed in 62 s
+
+## S-53 — Withdraw Registration
+
+## TC-E2E-257 — an Attendee withdraws and the next in line gets the place
+
+- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, is no longer registered, and the Attendee first on the waiting list is moved to Confirmed and notified (S-53 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-53 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B ("S-53 E2E Attendee B") and C; A holds P's one place; B, then C, are on P's waiting list.
+- **Steps:**
+  1. As A, open `/public/events/P` and click **Withdraw registration**.
+  2. Click **Keep my place**.
+  3. Click **Withdraw registration**, then **Withdraw**.
+  4. Reload; open the dashboard.
+  5. As B, open the dashboard.
+  6. As C, open `/public/events/P`.
+- **Expected:** 1 → "Withdraw from {P's name}? Your place goes to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (B took the place), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard has no row for P. 5 → the row for P reads "Confirmed", and Notifications shows "A place opened up: you're now registered for {P's name}, …". 6 → "You're on the waiting list. You're next in line."
+- **Actual:** Chromium: the prompt showed with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard; B's row read Confirmed with "A place opened up: you're now registered for {P}, …" in Notifications; C saw "You're on the waiting list. You're next in line."
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_and_the_next_in_line_gets_the_place[chromium]; run headed with `--slowmo 600`: 1 passed in 46 s; with the S-48/49/50/52 registration journeys headless: 8 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree

@@ -1,7 +1,8 @@
 """S-51: the registrations service records who holds a place.
 
 TC-REGISTRATIONS-001..005; S-48 adds 006..007; S-50 adds 008..013 and
-routes 002..004 through the capped insert; S-52 adds 014..015.
+routes 002..004 through the capped insert; S-52 adds 014..015; S-53 adds
+016..019, withdrawing.
 """
 
 from types import SimpleNamespace
@@ -329,3 +330,100 @@ def test_an_events_waiting_list_is_first_come_first_served(client, db):
     by_join_time = select.return_value.eq.return_value.order
     by_join_time.assert_called_once_with("created_at")
     by_join_time.return_value.order.assert_called_once_with("id")
+
+
+PROMOTED_ID = "99999999-9999-4999-8999-999999999999"
+WITHDRAWAL = {"event_id": EVENT_ID, "attendee_id": ATTENDEE_A, "capacity": 2}
+
+
+def _withdrawn(db, promoted=None):
+    """S-53: registrations.withdraw answers one jsonb object, not a list."""
+    _register(db).return_value.execute.return_value = SimpleNamespace(
+        data={"withdrawn": registration_row(), "promoted": promoted}
+    )
+
+
+# --- TC-REGISTRATIONS-016 -------------------------------------------------
+def test_an_attendee_withdraws_and_no_one_is_waiting(client, db):
+    _withdrawn(db)
+
+    response = client.post("/registrations/withdrawals", json=WITHDRAWAL)
+
+    assert response.status_code == 200
+    assert response.json() == {"withdrawn": registration_row(), "promoted": None}
+    db.schema.assert_called_with("registrations")
+    _register(db).assert_called_once_with(
+        "withdraw", {"p_event_id": EVENT_ID, "p_attendee_id": ATTENDEE_A, "p_capacity": 2}
+    )
+    db.schema.return_value.table.assert_not_called()
+
+
+# --- TC-REGISTRATIONS-017 -------------------------------------------------
+def test_the_freed_place_goes_to_the_next_attendee_waiting(client, db):
+    promoted = registration_row(
+        id=PROMOTED_ID, attendee_id=ATTENDEE_B, created_at="2026-11-06T04:00:00+00:00"
+    )
+    _withdrawn(db, promoted)
+
+    response = client.post("/registrations/withdrawals", json=WITHDRAWAL)
+
+    assert response.status_code == 200
+    assert response.json()["withdrawn"] == registration_row()
+    assert response.json()["promoted"] == {
+        "id": PROMOTED_ID,
+        "event_id": EVENT_ID,
+        "attendee_id": ATTENDEE_B,
+        "created_at": "2026-11-06T04:00:00Z",
+    }
+
+
+# --- TC-REGISTRATIONS-018 -------------------------------------------------
+def test_withdrawing_a_place_that_isnt_held(client, db):
+    _register(db).return_value.execute.side_effect = APIError(
+        {"code": "SP053", "message": "not registered"}
+    )
+
+    response = client.post(
+        "/registrations/withdrawals", json={**WITHDRAWAL, "attendee_id": ATTENDEE_B}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "You're not registered for this event."}
+
+
+# --- TC-REGISTRATIONS-019 -------------------------------------------------
+@pytest.mark.parametrize(
+    ("body", "field"),
+    [
+        ({"event_id": EVENT_ID, "attendee_id": ATTENDEE_A}, "capacity"),
+        ({**WITHDRAWAL, "capacity": -1}, "capacity"),
+        ({**WITHDRAWAL, "event_id": "nope"}, "event_id"),
+        ({**WITHDRAWAL, "x": 1}, "x"),
+    ],
+)
+def test_a_malformed_withdrawal_is_refused(client, db, body, field):
+    response = client.post("/registrations/withdrawals", json=body)
+
+    assert response.status_code == 422
+    assert field in response.json()["errors"]
+    _register(db).assert_not_called()
+
+
+def test_a_withdrawal_with_no_free_place_is_accepted(client, db):
+    _withdrawn(db)
+
+    response = client.post("/registrations/withdrawals", json={**WITHDRAWAL, "capacity": 0})
+
+    assert response.status_code == 200
+    assert _register(db).call_args.args[1]["p_capacity"] == 0
+
+
+def test_a_withdrawal_storage_cant_record(client, db):
+    _register(db).return_value.execute.side_effect = APIError(
+        {"code": "XX000", "message": "boom"}
+    )
+
+    response = client.post("/registrations/withdrawals", json=WITHDRAWAL)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Registration storage unavailable"}

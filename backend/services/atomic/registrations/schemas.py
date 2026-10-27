@@ -30,6 +30,18 @@ class WaitingListCreate(BaseModel):
     attendee_id: UUID
 
 
+class WithdrawalCreate(BaseModel):
+    """S-53: an Attendee giving up their place. `capacity` is the event's
+    expected attendance, so the freed place goes to the next Attendee waiting
+    only while one is genuinely free; 0 promotes no one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    attendee_id: UUID
+    capacity: int = Field(ge=0)
+
+
 class RegistrationRead(BaseModel):
     id: UUID
     event_id: UUID
@@ -42,3 +54,8 @@ class WaitingListRead(BaseModel):
     event_id: UUID
     attendee_id: UUID
     created_at: datetime
+
+
+class WithdrawalRead(BaseModel):
+    withdrawn: RegistrationRead
+    promoted: RegistrationRead | None

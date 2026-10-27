@@ -252,3 +252,127 @@ def test_waitlisted_attendees_see_their_place_in_line(admin, make_account):
     assert events.select("id").eq("id", event_id).execute().data == []
     assert registrations.select("id").eq("event_id", event_id).execute().data == []
     assert waiting.select("id").eq("event_id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-105 --------------------------------------------
+def test_registering_puts_one_confirmation_in_the_attendees_notifications(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-49 organiser")
+    attendee = make_account("attendee", "S-49 Test Attendee")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1)
+    )
+    events = admin.schema("events").table("events")
+    registrations = admin.schema("registrations").table("registrations")
+    notifications = admin.schema("notifications").table("notifications")
+    name = events.select("name").eq("id", event_id).execute().data[0]["name"]
+    register = f"{GATEWAY_BASE_URL}/event-registrations/events/{event_id}/registration"
+    try:
+        taken = httpx.post(register, headers=attendee["headers"], timeout=20)
+        assert taken.status_code == 201, taken.text
+
+        again = httpx.post(register, headers=attendee["headers"], timeout=20)
+        assert again.status_code == 409, again.text
+        assert again.json()["detail"] == "You're already registered for this event."
+
+        inbox = httpx.get(f"{GATEWAY_BASE_URL}/notifications", headers=attendee["headers"], timeout=20)
+        assert inbox.status_code == 200, inbox.text
+        confirmations = [
+            row for row in inbox.json() if row["kind"] == "registration_confirmation"
+        ]
+        assert len(confirmations) == 1, (
+            f"{inbox.json()} -- check notifications.sql's S-49 kind is applied to the test project"
+        )
+        (row,) = confirmations
+        assert row["event_id"] == event_id
+        assert row["message"].startswith(f"Registration confirmed: {name}, ")
+        assert "venue to be confirmed" in row["message"]
+        assert "Name: S-49 Test Attendee." in row["message"]
+        assert f"Email: {attendee['email']}." in row["message"]
+    finally:
+        notifications.delete().eq("event_id", event_id).execute()
+        registrations.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    assert notifications.select("id").eq("event_id", event_id).execute().data == []
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
+    assert events.select("id").eq("id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-106 --------------------------------------------
+def test_withdrawing_frees_the_place_for_the_next_in_line(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-53 organiser")
+    first = make_account("attendee", "S-53 Test Attendee A")
+    second = make_account("attendee", "S-53 Test Attendee B")
+    third = make_account("attendee", "S-53 Test Attendee C")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1),
+        expected_attendance=1,
+    )
+    events = admin.schema("events").table("events")
+    registrations = admin.schema("registrations").table("registrations")
+    waiting = admin.schema("registrations").table("waiting_list")
+    notifications = admin.schema("notifications").table("notifications")
+    name = events.select("name").eq("id", event_id).execute().data[0]["name"]
+    base = f"{GATEWAY_BASE_URL}/event-registrations"
+    register = f"{base}/events/{event_id}/registration"
+    wait = f"{base}/events/{event_id}/waiting-list"
+
+    def promotions(account):
+        inbox = httpx.get(f"{GATEWAY_BASE_URL}/notifications", headers=account["headers"], timeout=20)
+        assert inbox.status_code == 200, inbox.text
+        return [
+            row for row in inbox.json()
+            if row["kind"] == "waiting_list_promotion" and row["event_id"] == event_id
+        ]
+
+    try:
+        taken = httpx.post(register, headers=first["headers"], timeout=20)
+        assert taken.status_code == 201, taken.text
+        for account, place in [(second, 1), (third, 2)]:
+            joined = httpx.post(wait, headers=account["headers"], timeout=20)
+            assert joined.status_code == 201, joined.text
+            assert joined.json()["position"] == place
+
+        withdrawn = httpx.delete(register, headers=first["headers"], timeout=20)
+        assert withdrawn.status_code == 200, (
+            f"{withdrawn.text} -- check the S-53 block of registrations.sql is applied"
+        )
+        assert withdrawn.json()["registered"] is False
+
+        status = httpx.get(register, headers=first["headers"], timeout=20)
+        assert status.json()["registered"] is False
+        assert status.json()["waitlisted"] is False
+        mine = httpx.get(f"{base}/me/registrations", headers=first["headers"], timeout=20)
+        assert mine.status_code == 200, mine.text
+        assert [row for row in mine.json() if row["event_id"] == event_id] == []
+
+        promoted = httpx.get(register, headers=second["headers"], timeout=20)
+        assert promoted.json()["registered"] is True
+        behind = httpx.get(register, headers=third["headers"], timeout=20)
+        assert behind.json()["waitlisted"] is True
+        assert behind.json()["position"] == 1
+
+        notices = promotions(second)
+        assert len(notices) == 1, (
+            f"{notices} -- check notifications.sql's S-53 kind is applied to the test project"
+        )
+        (row,) = notices
+        assert row["message"].startswith(f"A place opened up: you're now registered for {name}, ")
+        assert "venue to be confirmed" in row["message"]
+        assert "Name: S-53 Test Attendee B." in row["message"]
+        assert f"Email: {second['email']}." in row["message"]
+        assert promotions(first) == []
+
+        again = httpx.delete(register, headers=first["headers"], timeout=20)
+        assert again.status_code == 404, again.text
+        assert again.json()["detail"] == "You're not registered for this event."
+    finally:
+        notifications.delete().eq("event_id", event_id).execute()
+        registrations.delete().eq("event_id", event_id).execute()
+        waiting.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    assert notifications.select("id").eq("event_id", event_id).execute().data == []
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
+    assert waiting.select("id").eq("event_id", event_id).execute().data == []
+    assert events.select("id").eq("id", event_id).execute().data == []

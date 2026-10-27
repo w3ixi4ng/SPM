@@ -450,6 +450,7 @@ def _bookings_are(services, rows):
 
 
 # --- TC-EVENTREGISTRATIONS-019 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-031 --------------------------------------------
 def test_a_successful_registration_sends_the_attendee_one_confirmation(client, ada):
     order = []
     registered = ada["registrations"].post.return_value
@@ -475,6 +476,7 @@ def test_a_successful_registration_sends_the_attendee_one_confirmation(client, a
 
 
 # --- TC-EVENTREGISTRATIONS-020 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-032 --------------------------------------------
 def test_an_event_spanning_days_shows_both_dates(client, ada):
     _event_e_is(ada, start_time="12:00:00", end_date="2026-11-21", end_time="00:30:00")
 
@@ -488,6 +490,7 @@ def test_an_event_spanning_days_shows_both_dates(client, ada):
 
 
 # --- TC-EVENTREGISTRATIONS-021 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-033 --------------------------------------------
 def test_no_confirmed_venue_reads_to_be_confirmed(client, ada):
     _bookings_are(ada, [{"id": "b1", "venue_id": VENUE_ID, "status": "pending"}])
 
@@ -524,6 +527,7 @@ def test_several_confirmed_venues_are_joined(client, ada):
 
 
 # --- TC-EVENTREGISTRATIONS-022 --------------------------------------------
+# --- TC-EVENTREGISTRATIONS-034 --------------------------------------------
 def _signed_out(services, clock):
     services["users"].get.return_value = response(401, {"detail": "Not authenticated"})
 
@@ -590,6 +594,14 @@ def test_no_confirmation_when_the_registration_did_not_succeed(
 REGISTERED_E = {
     "event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT,
     "waitlisted": False, "joined_at": None, "position": None,
+# --- TC-EVENTREGISTRATIONS-035 --------------------------------------------
+REGISTERED_E = {
+    "event_id": EVENT_E,
+    "registered": True,
+    "registered_at": REGISTERED_AT,
+    "waitlisted": False,
+    "joined_at": None,
+    "position": None,
 }
 
 

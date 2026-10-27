@@ -1,4 +1,4 @@
-"""TC-REGISTRATIONS-101..105. Run after backend/sql/registrations.sql on .env.test."""
+"""TC-REGISTRATIONS-101..106. Run after backend/sql/registrations.sql on .env.test."""
 
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -141,3 +141,61 @@ def test_waiting_list_order_and_an_attendees_entries(admin):
     finally:
         table.delete().in_("event_id", [event_e, event_f]).execute()
     assert table.select("id").in_("event_id", [event_e, event_f]).execute().data == []
+
+
+# --- TC-REGISTRATIONS-106 -------------------------------------------------
+def test_withdrawing_promotes_the_first_in_line(admin):
+    event_id = str(uuid.uuid4())
+    attendee_a, attendee_b, attendee_c = (str(uuid.uuid4()) for _ in range(3))
+    places = admin.schema("registrations").table("registrations")
+    waiting = admin.schema("registrations").table("waiting_list")
+
+    def withdraw(attendee_id, capacity):
+        return httpx.post(
+            f"{BASE_URL}/registrations/withdrawals",
+            json={"event_id": event_id, "attendee_id": attendee_id, "capacity": capacity},
+            timeout=20,
+        )
+
+    def attendees(path):
+        listed = httpx.get(f"{BASE_URL}/registrations/{path}/{event_id}", timeout=20)
+        assert listed.status_code == 200, listed.text
+        return [row["attendee_id"] for row in listed.json()]
+
+    try:
+        taken = httpx.post(
+            f"{BASE_URL}/registrations",
+            json={"event_id": event_id, "attendee_id": attendee_a, "capacity": 1},
+            timeout=20,
+        )
+        assert taken.status_code == 201, taken.text
+        for attendee_id in (attendee_b, attendee_c):
+            joined = httpx.post(
+                f"{BASE_URL}/registrations/waiting-list",
+                json={"event_id": event_id, "attendee_id": attendee_id},
+                timeout=20,
+            )
+            assert joined.status_code == 201, joined.text
+
+        freed = withdraw(attendee_a, 1)
+        assert freed.status_code == 200, (
+            f"{freed.text} -- check the S-53 block of registrations.sql is applied"
+        )
+        assert freed.json()["withdrawn"]["attendee_id"] == attendee_a
+        assert freed.json()["promoted"]["attendee_id"] == attendee_b
+        assert attendees("events") == [attendee_b]
+        assert attendees("waiting-list/events") == [attendee_c]
+
+        again = withdraw(attendee_a, 1)
+        assert again.status_code == 404, again.text
+        assert again.json()["detail"] == "You're not registered for this event."
+
+        no_room = withdraw(attendee_b, 0)
+        assert no_room.status_code == 200, no_room.text
+        assert no_room.json()["promoted"] is None
+        assert attendees("waiting-list/events") == [attendee_c]
+    finally:
+        places.delete().eq("event_id", event_id).execute()
+        waiting.delete().eq("event_id", event_id).execute()
+    assert places.select("id").eq("event_id", event_id).execute().data == []
+    assert waiting.select("id").eq("event_id", event_id).execute().data == []

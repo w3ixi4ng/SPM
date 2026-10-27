@@ -41,6 +41,9 @@ deduplication key. Supported kinds are `event_assignment`,
 alternative arrangements), `venue_hold_expiry` (the time a tentative hold
 will be released), and `registration_confirmation` (an Attendee's place at an
 event was recorded). S-84 sends a three-row reassignment batch whose keys
+will be released), `registration_confirmation` (an Attendee's place at an
+event was recorded), and `waiting_list_promotion` (S-53: a withdrawal freed a
+place and this Attendee, first on the waiting list, now holds it). S-84 sends a three-row reassignment batch whose keys
 include the event's monotonic assignment version.
 
 ## Response

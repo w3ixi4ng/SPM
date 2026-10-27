@@ -1,9 +1,12 @@
 """S-51: confirmed events' public pages, and Attendees registering for them.
 S-48: each registration read back by its Attendee and by the event's Organiser.
+S-49: a recorded registration sends the Attendee an in-app confirmation.
 S-50: registration capped at the event's expected attendance -- the figure the
 S-35 venue check uses -- with a waiting list once it is full, and the
 Organiser's own decision to close registration early.
 S-49: a recorded registration sends the Attendee an in-app confirmation.
+S-53: an Attendee withdraws until the event starts, and the freed place goes
+to whoever has waited longest, who is told so.
 
 Anyone may read a confirmed event's public details. Registering needs a
 signed-in Attendee, an event that asks for registration, and a moment inside
@@ -54,6 +57,10 @@ STILL_HAS_PLACES = "This event still has places. Register instead."
 ALREADY_REGISTERED = "You're already registered for this event."
 # The registrations service's own word for a full event.
 REGISTRATIONS_FULL = "This event is full."
+# S-53
+SIGN_IN_TO_WITHDRAW = "Sign in to withdraw your registration."
+ALREADY_STARTED = "This event has already started. You can no longer withdraw."
+NOT_REGISTERED = "You're not registered for this event."
 
 
 @app.exception_handler(RequestValidationError)
@@ -104,10 +111,12 @@ async def _json(service: str, send, *, identified: frozenset[int] = frozenset())
     return response.json()
 
 
-async def _attendee(request: Request, users: httpx.AsyncClient) -> dict:
+async def _attendee(
+    request: Request, users: httpx.AsyncClient, *, signed_out: str = SIGN_IN_TO_REGISTER
+) -> dict:
     response = await _call("Users", users.get("/users/me", cookies=request.cookies))
     if response.status_code == 401:
-        raise HTTPException(status_code=401, detail=SIGN_IN_TO_REGISTER)
+        raise HTTPException(status_code=401, detail=signed_out)
     if response.status_code != 200:
         raise _unavailable("Users")
     user = response.json()
@@ -202,6 +211,9 @@ def _check_period(event: dict, now: datetime) -> None:
 def _confirmation_message(event: dict, venues: list[str], user: dict) -> str:
     """S-49 wording: one sentence naming the event, its date and time, its
     venue, and the Attendee's name and email."""
+def _entry_details(event: dict, venues: list[str], user: dict) -> str:
+    """S-49 wording: the event, its date and time, its venue, and the
+    Attendee's name and email."""
     start_date = date.fromisoformat(event["start_date"])
     end_date = date.fromisoformat(event["end_date"])
     starts = f"{_day(start_date)}, {_clock(time.fromisoformat(event['start_time']))}"
@@ -211,6 +223,7 @@ def _confirmation_message(event: dict, venues: list[str], user: dict) -> str:
     where = f"at {', '.join(venues)}" if venues else "venue to be confirmed"
     return (
         f"Registration confirmed: {event['name']}, {starts} – {ends}, {where}. "
+        f"{event['name']}, {starts} – {ends}, {where}. "
         f"Name: {user['name']}. Email: {user['email']}."
     )
 
@@ -220,6 +233,19 @@ async def _send_confirmation(
 ) -> None:
     """Best effort: the place is already recorded, so a confirmation that
     can't be built or stored is logged rather than failing the registration."""
+# The opening words of each notification an Attendee is sent about a place.
+CONFIRMATION = ("registration_confirmation", "Registration confirmed: ")
+# S-53: the place freed by a withdrawal went to this Attendee.
+PROMOTION = ("waiting_list_promotion", "A place opened up: you're now registered for ")
+
+
+async def _send_notice(
+    notice: tuple[str, str], event: dict, user: dict, registration: dict,
+    bookings, venues, notifications,
+) -> None:
+    """Best effort: the place is already recorded, so a notice that can't be
+    built or stored is logged rather than failing the request that made it."""
+    kind, opening = notice
     try:
         names = await _venue_names(str(event["id"]), bookings, venues)
         row = {
@@ -229,6 +255,9 @@ async def _send_confirmation(
             "kind": "registration_confirmation",
             "message": _confirmation_message(event, names, user),
             "deduplication_key": f"registration_confirmation:{registration['id']}",
+            "kind": kind,
+            "message": opening + _entry_details(event, names, user),
+            "deduplication_key": f"{kind}:{registration['id']}",
         }
         response = await notifications.post(
             "/internal/notifications", json={"notifications": [row]}
@@ -243,6 +272,10 @@ async def _send_confirmation(
         logger.exception(
             "Registration confirmation not sent for %s", registration["id"], exc_info=exc
         )
+                "%s not stored for %s: %s", kind, registration["id"], response.status_code
+            )
+    except Exception as exc:
+        logger.exception("%s not sent for %s", kind, registration["id"], exc_info=exc)
 
 
 @app.get("/event-registrations/events", response_model=list[PublicEvent])
@@ -315,7 +348,77 @@ async def register(
     # S-49: only reached once the place is recorded, so a refused or failed
     # registration never sends a confirmation.
     await _send_confirmation(event, user, row, bookings, venues, notifications)
+    await _send_notice(CONFIRMATION, event, user, row, bookings, venues, notifications)
     return {"event_id": event_id, "registered": True, "registered_at": row["created_at"]}
+
+
+def _has_started(event: dict, now: datetime) -> bool:
+    """S-53: the event's start, Singapore wall-clock time. An event without a
+    start yet hasn't started."""
+    if not event.get("start_date") or not event.get("start_time"):
+        return False
+    starts = datetime.combine(
+        date.fromisoformat(event["start_date"]), time.fromisoformat(event["start_time"])
+    )
+    return now.astimezone(SINGAPORE).replace(tzinfo=None) >= starts
+
+
+async def _profile(user_id: str, users: httpx.AsyncClient) -> dict:
+    found = await _json("Users", users.post("/internal/users/profiles", json={"ids": [user_id]}))
+    return found[0]
+
+
+@app.delete(
+    "/event-registrations/events/{event_id}/registration",
+    response_model=RegistrationStatus,
+)
+async def withdraw(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+    now: datetime = Depends(get_now),
+):
+    """S-53: open until the event starts, whether or not registration still
+    is. The registrations service gives the freed place to the next Attendee
+    waiting in the same step, capped at the event's expected attendance."""
+    user = await _attendee(request, users, signed_out=SIGN_IN_TO_WITHDRAW)
+    event = await _published_event(event_id, events)
+    if _has_started(event, now):
+        raise HTTPException(status_code=409, detail=ALREADY_STARTED)
+
+    response = await _call(
+        "Registrations",
+        registrations.post(
+            "/registrations/withdrawals",
+            json={
+                "event_id": str(event_id),
+                "attendee_id": user["id"],
+                "capacity": event.get("expected_attendance") or 0,
+            },
+        ),
+    )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail=NOT_REGISTERED)
+    if response.status_code != 200:
+        raise _unavailable("Registrations")
+    promoted = response.json().get("promoted")
+    if promoted:
+        try:
+            profile = await _profile(promoted["attendee_id"], users)
+        except Exception as exc:
+            logger.exception(
+                "waiting_list_promotion not sent for %s", promoted["id"], exc_info=exc
+            )
+        else:
+            await _send_notice(
+                PROMOTION, event, profile, promoted, bookings, venues, notifications
+            )
+    return {"event_id": event_id, "registered": False, "registered_at": None}
 
 
 @app.get(
