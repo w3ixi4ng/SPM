@@ -7,9 +7,9 @@ venues, users and registrations services against the test Supabase project.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_registrations` |
-| Last run | 2026-10-25, branch `S-48/register-for-event`, pre-commit working tree |
-| Environment | `.env.test` test Supabase project with the S-51 SQL applied, `registrations` exposed; full stack recreated with `--build` immediately before |
-| Result | 2 passed in this suite |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
+| Environment | `.env.test` test Supabase project; full Docker stack recreated with `--build` by CI |
+| Result | Event-registration cases passed within the full integration run: 89 passed, 5 skipped. |
 
 ## TC-EVENTREGISTRATIONS-101 — public view, blocked attempt and a real registration through Kong
 
@@ -78,7 +78,7 @@ venues, users and registrations services against the test Supabase project.
   organiser has closed registration for this event.". 8 leaves no rows.
 - **Actual:** `201`; `is_full` true; `409` full message; waiting list `201`; `waitlisted` true; O saw A as the one attendee and B on the waiting list; close `200` then `409` closed message; no rows remained.
 - **Status:** Pass
-- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+- **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list`; [CI integration job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121991130112), 2026-10-27. Assertions and fixture teardown both passed.
 
 ## TC-EVENTREGISTRATIONS-104 — waitlisted Attendees see their place in line (S-52)
 
@@ -94,7 +94,7 @@ venues, users and registrations services against the test Supabase project.
 - **Expected:** 1 → `201`. 2 → `201` with `"position": 1`, then `201` with `"position": 2`. 3 → B `"waitlisted": true, "position": 1`; C `"waitlisted": true, "position": 2`. 4 → one row for P, `"status": "waitlisted", "position": 2`. 5 → one row for P, `"status": "confirmed", "position": null`.
 - **Actual:** A `201`; B and C joined with positions 1 and 2, and their status read back 1 and 2; C's dashboard list held P `waitlisted` at 2; A's held P `confirmed`, position null.
 - **Status:** Pass
-- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_waitlisted_attendees_see_their_place_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
+- **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_waitlisted_attendees_see_their_place_in_line`; [CI integration job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121991130112), 2026-10-27.
 
 ## TC-EVENTREGISTRATIONS-105 — registering puts one confirmation in the Attendee's notifications
 

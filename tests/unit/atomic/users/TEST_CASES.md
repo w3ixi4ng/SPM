@@ -7,7 +7,7 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-10-27, uncommitted S-93 CI repair on `3968bb3` |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
 | Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
 | Result | 40 passed in this folder; 1,505 passed, 17 skipped across Python unit. |
 

@@ -19,9 +19,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-25, uncommitted `S-93/reassign-active-events-before-deactivation` working tree based on `605e1e8` |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Full Chromium regression: 51 passed; final S-93 journey rerun after the last UI change: 1 passed. |
+| Result | Full Chromium regression: 58 passed. |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -843,9 +843,10 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
   event summary. Reassignment moved the card to Blair and changed the counts
   to 0/1 immediately; the same grouping survived reload and the queue remained
-  visible.
+  visible. The account-ID locator selected the intended Blair card despite
+  another account in the test project having the same display name.
 - **Status:** Pass
-- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`; [CI Chromium job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121995463408), 2026-10-27.
 
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
