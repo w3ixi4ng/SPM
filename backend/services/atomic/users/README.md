@@ -146,7 +146,8 @@ is not returned.
 | `409` | The address already has an account — whether this service's table or Supabase noticed. |
 | `401` | Wrong credentials, or no usable session. Login never says which half was wrong; a form that distinguishes "no such account" from "wrong password" is a way to enumerate addresses. |
 | `429` | Supabase is rate-limiting that address. |
-| `502` | Supabase Auth could not be reached or made no sense. |
+| `404` | A verified user has no profile row. |
+| `502` | Supabase Auth is unavailable, or the profile read still fails after one retry of a dropped connection. |
 
 Every error has the same shape, so a caller reads `detail` once and is done:
 

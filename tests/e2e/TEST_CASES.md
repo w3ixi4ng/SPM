@@ -837,7 +837,9 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   with count 0. The summary shows name, status, organiser, date/time, and
   current Coordinator. After reassignment the event appears only under B,
   counts are A=0/B=1 immediately and after reload, and the S-83 queue remains
-  present. Non-Lead access remains denied by the existing role journey.
+  present. The test identifies A and B by their unique account ID as well as their
+  display name, so another account with the same name does not change which
+  card is checked. Non-Lead access remains denied by the existing role journey.
 - **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
   event summary. Reassignment moved the card to Blair and changed the counts
   to 0/1 immediately; the same grouping survived reload and the queue remained

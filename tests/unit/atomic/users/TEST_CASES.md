@@ -7,9 +7,9 @@ client.
 | | |
 | --- | --- |
 | Suite | `pytest tests/unit/atomic/users` |
-| Last run | 2026-10-27, S-93 merge tree of `5aed635` and `origin/sprint4` `0d143d7` |
+| Last run | 2026-10-27, uncommitted S-93 CI repair on `3968bb3` |
 | Environment | Python 3.14.8, pytest 9.1.1; mocked Supabase; no network, database or Docker. |
-| Result | 38 passed in this folder; 1,503 passed, 17 skipped across Python unit. |
+| Result | 40 passed in this folder; 1,505 passed, 17 skipped across Python unit. |
 
 A pass here is only a pass as of that build, and it says nothing about whether
 the `users` schema is exposed or granted — the fake agrees with everything.
@@ -253,14 +253,16 @@ profile  {"id": <id>, "name": "Ada Lovelace", "email": "ada@example.com",
 - **Scenario:** The route guard every page load depends on.
 - **Pre-conditions:** The client holds `sb_access_token=access-token`;
   `get_user` returns the shared user; the profile lookup returns the profile.
-- **Steps:** 1. `GET /users/me`.
-- **Test data:** The access cookie above.
-- **Expected:** `200`; body exactly the three profile fields; `get_user` called
+- **Steps:** 1. `GET /users/me`. 2. Repeat with the first profile read raising a dropped-connection error. 3. Repeat with both profile reads raising that error.
+- **Test data:** The access cookie above; `httpx.RemoteProtocolError("connection terminated")` on one or both profile reads.
+- **Expected:** `200`; body contains the three profile fields and trusted role; `get_user` called
   once with `"access-token"` — the token comes from the cookie, never from a
-  session stored on the shared client.
-- **Actual:** As expected.
+  session stored on the shared client. A dropped connection on the idempotent
+  profile read is retried once and returns `200` if the retry succeeds. If both
+  reads fail, return `502` without changing or clearing the session.
+- **Actual:** The normal read and one-retry read returned `200`; two dropped reads returned `502` after exactly two attempts.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_me_returns_the_signed_in_user`
+- **Evidence:** `test_app.py::test_me_returns_the_signed_in_user`, `test_me_retries_a_dropped_connection_on_the_profile_read`, `test_me_reports_upstream_failure_after_two_dropped_reads`
 
 ## TC-USERS-018 — `/users/me` with no cookies is a 401
 

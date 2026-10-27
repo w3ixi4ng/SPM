@@ -8,6 +8,7 @@ integration tests are for.
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from .conftest import (
@@ -276,6 +277,32 @@ def test_me_returns_the_signed_in_user(client, db, auth):
         "role": "event_organiser",
     }
     auth.auth.get_user.assert_called_once_with("access-token")
+
+
+def test_me_retries_a_dropped_connection_on_the_profile_read(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user())
+    execute = db.schema.return_value.table.return_value.select.return_value.eq.return_value.execute
+    execute.side_effect = [httpx.RemoteProtocolError("connection terminated"), SimpleNamespace(data=[PROFILE])]
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == USER_ID
+    assert execute.call_count == 2
+
+
+def test_me_reports_upstream_failure_after_two_dropped_reads(client, db, auth):
+    client.cookies.set(ACCESS_COOKIE, "access-token")
+    auth.auth.get_user.return_value = SimpleNamespace(user=fake_user())
+    execute = db.schema.return_value.table.return_value.select.return_value.eq.return_value.execute
+    execute.side_effect = httpx.RemoteProtocolError("connection terminated")
+
+    response = client.get("/users/me")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "User profile service unavailable"
+    assert execute.call_count == 2
 
 
 # --- TC-USERS-026 ---------------------------------------------------------
