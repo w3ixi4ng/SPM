@@ -433,3 +433,38 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** `200` with the requirement detail; the query used `event_id in (E1, E2)` and no single-event filter; a malformed id returned `422` without storage.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/equipment/test_app.py::test_requirements_can_be_listed_for_a_set_of_events`; `tests/unit/atomic/equipment/test_app.py::test_a_malformed_event_id_in_the_set_is_refused`
+
+---
+
+## S-92 — Record Equipment Storage Location
+
+Story: S-92 Record Equipment Storage Location. Test cases confirmed by the
+developer on 2026-10-28.
+
+## TC-EQUIPMENT-031 — storage location is optional, normalized and bounded
+
+- **Scenario:** Technical Support may record a useful free-text location without storing whitespace-only or excessive input.
+- **Pre-conditions:** An otherwise valid new equipment payload.
+- **Steps:** Validate locations `"  Store A, Bay 9  "`, whitespace only, and 201 characters.
+- **Test data:** `Store A, Bay 9`; `   `; 201 `x` characters.
+- **Expected:** The first becomes `Store A, Bay 9`, blank becomes null, and 201 characters returns a validation error.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_storage_location_is_optional_trimmed_and_limited`
+
+## TC-EQUIPMENT-032 — Technical Support records, edits and clears a location
+
+- **Scenario:** The existing protected catalogue writes persist S-92 metadata.
+- **Pre-conditions:** Authenticated Technical Support and fake equipment storage.
+- **Steps:** Create with `Store B, Shelf 4`; update with an empty location.
+- **Expected:** Create stores and returns the location; update sends null and returns no location. Existing permission tests continue to deny other roles.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_storage_location_is_created_edited_and_cleared_by_technical_support`
+
+## TC-EQUIPMENT-033 — catalogue consumers receive the location
+
+- **Scenario:** Catalogue and selection responses expose the current storage location.
+- **Pre-conditions:** An item stored at `Loading Dock Cabinet 2`.
+- **Steps:** List management catalogue and active selection.
+- **Expected:** Both responses contain the same location as descriptive metadata.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_catalogue_and_selection_expose_storage_location`

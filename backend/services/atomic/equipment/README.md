@@ -31,6 +31,7 @@ physical unit. It also owns the event-to-item relationship in
 | --- | --- | --- | --- |
 | `type` | string | Yes | Must contain non-whitespace text. |
 | `description` | string or null | No | Blank text becomes null. |
+| `storage_location` | string or null | No | Storage description up to 200 characters; surrounding whitespace is removed and blank becomes null. |
 | `total_quantity` | integer | Yes | Positive whole number. |
 
 The service sets `operational_status="available"`,
@@ -43,6 +44,7 @@ Clients cannot choose these values.
 | --- | --- | --- | --- |
 | `type` | string | Yes | Must contain non-whitespace text. |
 | `description` | string or null | No | Blank text becomes null. |
+| `storage_location` | string or null | No | Storage description up to 200 characters; surrounding whitespace is removed and blank becomes null. |
 | `total_quantity` | integer | Yes | Positive whole number. |
 | `operational_status` | string | Yes | Exactly `available`, `unavailable`, or `maintenance`. |
 
@@ -82,6 +84,7 @@ Creation returns `201`; reads and updates return `200`. An item has this shape:
   "id": "22222222-2222-4222-8222-222222222222",
   "type": "Wireless Microphone",
   "description": "Handheld wireless microphone with receiver",
+  "storage_location": "Store B, Shelf 4",
   "total_quantity": 12,
   "operational_status": "available",
   "lifecycle_status": "active",
@@ -106,6 +109,10 @@ Errors:
 Run `backend/sql/equipment.sql` in the SQL Editor of both dev and test
 projects, then add `equipment` under **Data API → Settings → Exposed schemas**.
 Both the exposure and the SQL grants are required.
+
+For an existing installation, the block from `BEGIN S-92` through `END S-92`
+adds the optional storage location without changing existing catalogue rows.
+The field is descriptive and is never used in availability calculations.
 
 ## Running
 

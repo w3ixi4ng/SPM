@@ -40,7 +40,8 @@ REQUIREMENT_SELECT = (
     "id,event_id,equipment_item_id,required_quantity,"
     "recorded_by_coordinator_id,created_at,updated_at,"
     "equipment("
-    "id,type,description,total_quantity,operational_status,lifecycle_status)"
+    "id,type,description,storage_location,total_quantity,"
+    "operational_status,lifecycle_status)"
 )
 
 

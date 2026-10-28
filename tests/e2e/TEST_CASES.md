@@ -1490,3 +1490,14 @@ Coordinator inactive through trusted Auth metadata.
 - **Actual:** Chromium: the card showed "4 Dec 2026, 6:00 pm to 9:00 pm" and Hall One, not Room Two, with no purpose, attendance, organiser or coordinator; after `planning` and a reload it read the "Details to be confirmed…" line with no date or venue; after re-confirming, the date and Hall One were back.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_confirmed_event_details.py::test_an_attendee_sees_when_and_where_and_to_be_confirmed_while_rechecked[chromium]; with the S-48/50/51/52/53 registration journeys: 9 passed (S-52 and S-53's `Confirmed` locators made exact, since a held card now also reads "Venue to be confirmed"); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## S-92 — Record Equipment Storage Location
+
+## TC-E2E-260 — Technical Support records, edits and finds an equipment location
+
+- **Scenario:** The full browser journey shows the same storage location in the catalogue and live availability results.
+- **Pre-conditions:** Fresh `.env.test` stack, S-92 SQL applied, Chromium, temporary Technical Support account.
+- **Steps:** Add a projector at `Store B, Shelf 4`; confirm the catalogue; edit it to `AV Cage, Rack 2`; check a future availability window.
+- **Expected:** Both catalogue states show the saved value; availability shows the updated location and still reports all 3 projectors available, proving the location does not reserve anything.
+- **Status:** Pass (2026-10-28)
+- **Evidence:** `tests/e2e/test_equipment_storage_location.py::test_storage_location_is_recorded_edited_and_shown_in_availability[chromium]`

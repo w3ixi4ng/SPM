@@ -58,7 +58,9 @@ export default function EquipmentForm() {
     setForm((current) => ({ ...current, [field]: value }))
     const errorField = field === 'totalQuantity'
       ? 'total_quantity'
-      : field === 'operationalStatus' ? 'operational_status' : field
+      : field === 'operationalStatus'
+        ? 'operational_status'
+        : field === 'storageLocation' ? 'storage_location' : field
     if (errors[errorField]) setErrors((current) => ({ ...current, [errorField]: undefined }))
     if (formError) setFormError(null)
   }
@@ -71,7 +73,9 @@ export default function EquipmentForm() {
       setFormError('Complete the highlighted fields before saving.')
       const target = found.type
         ? '#equipment-type'
-        : found.total_quantity ? '#equipment-quantity' : '#equipment-status'
+        : found.storage_location
+          ? '#equipment-storage-location'
+          : found.total_quantity ? '#equipment-quantity' : '#equipment-status'
       document.querySelector(target)?.focus()
       return
     }
@@ -152,6 +156,24 @@ export default function EquipmentForm() {
               className="w-full rounded-sm border px-4 py-3 font-ui text-sm"
               style={{ borderColor: C.line, backgroundColor: C.paper, color: C.ink }}
             />
+          </div>
+
+          <div>
+            <label htmlFor="equipment-storage-location" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Storage location (optional)
+            </label>
+            <input
+              id="equipment-storage-location"
+              value={form.storageLocation}
+              maxLength={200}
+              placeholder="e.g. Store B, Shelf 4"
+              onChange={(event) => update('storageLocation', event.target.value)}
+              aria-invalid={Boolean(errors.storage_location)}
+              aria-describedby={errors.storage_location ? 'equipment-storage-location-error' : undefined}
+              className="w-full rounded-sm border px-4 py-3 font-ui text-sm"
+              style={{ borderColor: errors.storage_location ? C.rose : C.line, backgroundColor: C.paper, color: C.ink }}
+            />
+            <FieldError id="equipment-storage-location-error" message={errors.storage_location} />
           </div>
 
           <div>

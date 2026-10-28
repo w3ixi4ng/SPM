@@ -110,3 +110,12 @@ Equipment Item Details; S-42 Retire Equipment Item.
   unchanged, and the second action returned the exact first retired response.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_retirement_is_idempotent_and_preserves_existing_requirement`
+
+## TC-EQUIPMENT-105 — storage location survives the real database boundary
+
+- **Scenario:** S-92 works through Kong and the real test Supabase equipment schema.
+- **Pre-conditions:** Fresh `.env.test` stack; S-92 migration applied, schema exposed and granted; authenticated Technical Support.
+- **Steps:** Create at `Store B, Shelf 4`; edit to `AV Cage, Rack 2`; list the catalogue; clear the location; inspect the table directly.
+- **Expected:** Every API read immediately reflects the current value and the final database value is null.
+- **Status:** Pass (2026-10-28)
+- **Evidence:** `test_app.py::test_storage_location_round_trips_and_can_be_cleared`

@@ -1,7 +1,9 @@
 import { requestJSON } from './api.js'
 
 export function emptyEquipmentForm() {
-  return { type: '', description: '', totalQuantity: '', operationalStatus: 'available' }
+  return {
+    type: '', description: '', storageLocation: '', totalQuantity: '', operationalStatus: 'available',
+  }
 }
 
 export const EQUIPMENT_OPERATIONAL_STATUSES = Object.freeze([
@@ -13,6 +15,9 @@ export const EQUIPMENT_OPERATIONAL_STATUSES = Object.freeze([
 export function validateEquipmentForm(form, { editing = false } = {}) {
   const errors = {}
   if (!form.type?.trim()) errors.type = 'Enter the equipment type.'
+  if ((form.storageLocation?.trim().length ?? 0) > 200) {
+    errors.storage_location = 'Storage location must be 200 characters or fewer.'
+  }
 
   const quantity = String(form.totalQuantity ?? '').trim()
   if (!quantity) errors.total_quantity = 'Enter the total quantity.'
@@ -27,9 +32,11 @@ export function validateEquipmentForm(form, { editing = false } = {}) {
 
 export function equipmentFormToPayload(form) {
   const description = form.description?.trim() ?? ''
+  const storageLocation = form.storageLocation?.trim() ?? ''
   return {
     type: form.type.trim(),
     description: description || null,
+    storage_location: storageLocation || null,
     total_quantity: Number(String(form.totalQuantity).trim()),
   }
 }
@@ -38,6 +45,7 @@ export function equipmentReadToForm(item) {
   return {
     type: item.type ?? '',
     description: item.description ?? '',
+    storageLocation: item.storage_location ?? '',
     totalQuantity: String(item.total_quantity ?? ''),
     operationalStatus: item.operational_status ?? 'available',
   }
@@ -60,6 +68,10 @@ function titleCaseStatus(value) {
 
 export function equipmentStatusLabel(item) {
   return `${titleCaseStatus(item.operational_status)} · ${titleCaseStatus(item.lifecycle_status)}`
+}
+
+export function equipmentStorageLocationLabel(item) {
+  return item?.storage_location ? `Stored at ${item.storage_location}` : 'Storage location not recorded'
 }
 
 export function canRetireEquipment(item) {

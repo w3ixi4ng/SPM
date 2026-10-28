@@ -15,7 +15,7 @@ import {
 const WINDOW = { startDate: '2026-11-12', startTime: '09:00', endDate: '2026-11-12', endTime: '12:00' }
 
 // As TC-EQUIPMENTREQUIREMENTS-012 and 014 return them.
-const MIC = { type: 'Wireless Microphone', operational_status: 'available', total: 12, reserved: 10, unavailable: 0, available: 2, over_reserved: false, sufficient: null }
+const MIC = { type: 'Wireless Microphone', storage_location: 'Store B, Shelf 4', operational_status: 'available', total: 12, reserved: 10, unavailable: 0, available: 2, over_reserved: false, sufficient: null }
 const PROJECTOR = { type: 'Projector', operational_status: 'maintenance', total: 4, reserved: 1, unavailable: 4, available: 0, over_reserved: false, sufficient: null }
 const OVER = { ...MIC, reserved: 14, available: 0, over_reserved: true }
 

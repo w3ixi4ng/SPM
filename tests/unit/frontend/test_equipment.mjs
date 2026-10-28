@@ -8,6 +8,7 @@ import {
   equipmentFieldErrorsToForm,
   equipmentReadToForm,
   equipmentRetirementErrorMessage,
+  equipmentStorageLocationLabel,
   equipmentStatusLabel,
   equipmentUpdateFormToPayload,
   canRetireEquipment,
@@ -22,6 +23,7 @@ import {
 const COMPLETE_FORM = {
   type: '  Wireless Microphone  ',
   description: '  Handheld wireless microphone with receiver  ',
+  storageLocation: '  Store B, Shelf 4  ',
   totalQuantity: '12',
   id: 'must-not-be-sent',
   operational_status: 'maintenance',
@@ -33,6 +35,7 @@ const API_ITEM = {
   id: '22222222-2222-4222-8222-222222222222',
   type: 'Wireless Microphone',
   description: 'Handheld wireless microphone with receiver',
+  storage_location: 'Store B, Shelf 4',
   total_quantity: 12,
   operational_status: 'available',
   lifecycle_status: 'active',
@@ -41,6 +44,7 @@ const API_ITEM = {
 const UPDATE_FORM = {
   type: '  Radio Microphone  ',
   description: '   ',
+  storageLocation: '  AV Cage, Rack 2  ',
   totalQuantity: '18',
   operationalStatus: 'maintenance',
   id: 'must-not-be-sent',
@@ -96,6 +100,7 @@ test('equipment operations use authenticated Kong routes and safe payloads', asy
   assert.deepEqual(JSON.parse(calls[2].options.body), {
     type: 'Wireless Microphone',
     description: 'Handheld wireless microphone with receiver',
+    storage_location: 'Store B, Shelf 4',
     total_quantity: 12,
   })
 })
@@ -123,12 +128,14 @@ test('equipment edit mapping accepts exactly the S-41 fields and statuses', () =
   assert.deepEqual(equipmentReadToForm(API_ITEM), {
     type: 'Wireless Microphone',
     description: 'Handheld wireless microphone with receiver',
+    storageLocation: 'Store B, Shelf 4',
     totalQuantity: '12',
     operationalStatus: 'available',
   })
   assert.deepEqual(equipmentUpdateFormToPayload(UPDATE_FORM), {
     type: 'Radio Microphone',
     description: null,
+    storage_location: 'AV Cage, Rack 2',
     total_quantity: 18,
     operational_status: 'maintenance',
   })
@@ -169,6 +176,7 @@ test('equipment detail and update use authenticated Kong routes', async () => {
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     type: 'Radio Microphone',
     description: null,
+    storage_location: 'AV Cage, Rack 2',
     total_quantity: 18,
     operational_status: 'maintenance',
   })
@@ -227,4 +235,24 @@ test('retirement failures are safe and actionable', () => {
   assert.match(equipmentRetirementErrorMessage({ status: 403 }), /not permitted/i)
   assert.match(equipmentRetirementErrorMessage({ status: 404 }), /could not be found/i)
   assert.match(equipmentRetirementErrorMessage({ status: 500 }), /not been retired/i)
+})
+
+// --- TC-FRONTEND-270 -----------------------------------------------------
+test('storage location is normalized, editable, clearable and length limited', () => {
+  assert.equal(equipmentReadToForm(API_ITEM).storageLocation, 'Store B, Shelf 4')
+  assert.equal(equipmentUpdateFormToPayload(UPDATE_FORM).storage_location, 'AV Cage, Rack 2')
+  assert.equal(
+    equipmentUpdateFormToPayload({ ...UPDATE_FORM, storageLocation: '   ' }).storage_location,
+    null,
+  )
+  assert.match(
+    validateEquipmentForm({ ...COMPLETE_FORM, storageLocation: 'x'.repeat(201) }).storage_location,
+    /200 characters/i,
+  )
+})
+
+// --- TC-FRONTEND-271 -----------------------------------------------------
+test('catalogue and availability use an explicit storage location label', () => {
+  assert.equal(equipmentStorageLocationLabel(API_ITEM), 'Stored at Store B, Shelf 4')
+  assert.equal(equipmentStorageLocationLabel({ ...API_ITEM, storage_location: null }), 'Storage location not recorded')
 })
