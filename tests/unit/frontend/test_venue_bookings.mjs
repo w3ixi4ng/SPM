@@ -9,8 +9,11 @@ import {
   holdExpiryToIso,
   listPendingVenueBookings,
   listVenueBookingsForEvent,
+  primaryVenueErrorMessage,
+  primaryVenuePrompt,
   placeVenueHold,
   releaseVenueHold,
+  selectPrimaryVenueBooking,
   submitVenueBooking,
   venueBookingErrorMessages,
   venueFit,
@@ -32,6 +35,24 @@ test('hold actions use authenticated gateway routes and safe errors', async () =
   })
   assert.equal(holdActionErrorMessage(new ApiError('conflict', 409)), 'conflict')
   assert.match(holdActionErrorMessage(new ApiError('down', 500)), /Reload the list/)
+})
+
+// --- TC-FRONTEND-274..275 -----------------------------------------------
+test('primary venue selection uses Kong and the prompt reflects live confirmed rows', async () => {
+  const calls = await recordingFetch(async () => {
+    await selectPrimaryVenueBooking('b 1/2')
+  })
+  assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
+    ['/api/venue-bookings/b%201%2F2/primary', 'PUT'],
+  ])
+  assert.match(primaryVenuePrompt([{ status: 'confirmed', is_primary: false }]), /Choose a new primary/)
+  assert.equal(primaryVenuePrompt([
+    { status: 'confirmed', is_primary: true },
+    { status: 'confirmed', is_primary: false },
+  ]), null)
+  assert.equal(primaryVenuePrompt([{ status: 'pending', is_primary: false }]), null)
+  assert.equal(primaryVenueErrorMessage(new ApiError('Only confirmed', 409)), 'Only confirmed')
+  assert.match(primaryVenueErrorMessage(new ApiError('down', 500)), /Reload/)
 })
 
 test('a hold expiry is required, future, and converted from Singapore time', () => {

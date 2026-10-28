@@ -504,10 +504,10 @@ def test_no_confirmed_venue_reads_to_be_confirmed(client, ada):
     )
 
 
-def test_several_confirmed_venues_are_joined(client, ada):
+def test_only_the_primary_confirmed_venue_is_sent(client, ada):
     hall = "99999999-9999-4999-8999-999999999999"
     _bookings_are(ada, [
-        {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed"},
+        {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed", "is_primary": True},
         {"id": "b2", "venue_id": hall, "status": "confirmed"},
     ])
     names = {VENUE_ID: "Seminar Room 2-1", hall: "Hall A"}
@@ -523,7 +523,7 @@ def test_several_confirmed_venues_are_joined(client, ada):
     assert result.status_code == 201
     assert _sent_rows(ada)[0]["message"] == (
         "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
-        "at Seminar Room 2-1, Hall A. Name: Ada Tan. Email: ada@example.com."
+        "at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
     )
 
 

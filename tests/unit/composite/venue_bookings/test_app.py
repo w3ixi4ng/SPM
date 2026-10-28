@@ -445,7 +445,7 @@ def test_listing_an_events_requests_needs_a_session(client, services):
 
 
 # --- TC-VENUEBOOKINGS-026 --------------------------------------------------
-@pytest.mark.parametrize("role", ["event_organiser", "venue_staff", "technical_support", "attendee"])
+@pytest.mark.parametrize("role", ["venue_staff", "technical_support", "attendee"])
 def test_only_an_event_coordinator_can_list_an_events_requests(client, services, role):
     services.user = me(role=role)
 

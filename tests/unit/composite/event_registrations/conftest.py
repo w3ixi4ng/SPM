@@ -129,7 +129,8 @@ def services():
                 200,
                 [
                     {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed",
-                     "venue_name": "Seminar Room 2-1", "submitted_at": "2026-10-01T02:00:00Z"},
+                     "venue_name": "Seminar Room 2-1", "is_primary": True,
+                     "submitted_at": "2026-10-01T02:00:00Z"},
                     {"id": "b2", "venue_id": "rejected-venue", "status": "rejected",
                      "venue_name": "Rejected Room", "submitted_at": "2026-09-01T02:00:00Z"},
                 ],

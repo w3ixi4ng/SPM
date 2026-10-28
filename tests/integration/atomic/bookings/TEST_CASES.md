@@ -291,10 +291,14 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
   1. `201`, stored with `replaces_booking_id` A.
   2. `200` `confirmed`.
   3. A is `replaced` with `replaced_by_booking_id` set to the new row and
-     `replaced_at` set. Its other columns are unchanged.
+     `replaced_at` set. Its S-91 primary marker and selection audit are cleared,
+     the replacement is not guessed as primary, and its other columns are unchanged.
   4. `201`: A no longer holds V1.
   Cleanup deletes every row created.
-- **Actual:** Replacement stored with `replaces_booking_id`; approval `200` confirmed; the original became `replaced` with `replaced_by_booking_id` and `replaced_at`, every other column unchanged; a new request at V1 for the same slot `201`.
+- **Actual:** Replacement stored with `replaces_booking_id`; approval `200`
+  confirmed; the original became `replaced`, its primary marker was cleared,
+  and the replacement remained non-primary for the Coordinator to choose; a
+  new request at V1 for the same slot returned `201`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_replacement_venue.py::test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
 
@@ -314,6 +318,13 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Evidence:** `tests/integration/atomic/bookings/test_replacement_venue.py::test_a_resolution_note_is_saved_and_read_back`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
 
 ## TC-BOOKINGS-115 — confirming a replacement retires the rejected original
+
+## TC-BOOKINGS-116 — the database keeps exactly one deliberate primary venue
+
+- **Pre-conditions:** The test stack was freshly recreated from `.env.test`; the S-91 Bookings migration is applied, granted and exposed.
+- **Steps:** Create and confirm B1 and B2 for event E; verify the first confirmation becomes primary. Select B2 through `PUT /bookings/B2/primary`; replace or cancel B2.
+- **Test data:** Two distinct venue slots for one event and one Coordinator actor.
+- **Expected:** The unique database rule never permits two primaries. Selection atomically moves the marker from B1 to B2. Removing/replacing B2 leaves no primary and does not silently select B1.
 
 - **Scenario:** The S-78 trigger also replaces a rejected original.
 - **Pre-conditions:** Fresh `.env.test` stack; S-17 block of

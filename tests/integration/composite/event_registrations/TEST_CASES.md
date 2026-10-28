@@ -145,7 +145,11 @@ venues, users and registrations services against the test Supabase project.
 ## TC-EVENTREGISTRATIONS-107 — the Attendee's list shows the primary venue, and hides details while re-checked
 
 - **Scenario:** Every service and the gateway agree on what a registered Attendee sees (S-56 AC1–AC4).
-- **Pre-conditions:** Fresh `.env.test` stack; the S-51 to S-53 SQL already applied (no new SQL for S-56). Through the admin client: Organiser O; confirmed event P owned by O, registration open yesterday to tomorrow (SGT), starting ten days out; two venues, V1 and V2; a confirmed booking of V2 for P submitted `2026-10-03`, and a confirmed booking of V1 for P submitted `2026-10-01`; Attendee A.
+- **Pre-conditions:** Fresh `.env.test` stack; the S-51 to S-53 and S-91 SQL
+  applied. Through the admin client: Organiser O; confirmed event P owned by O,
+  registration open yesterday to tomorrow (SGT), starting ten days out; two
+  venues, V1 and V2; V2 inserted first; both bookings confirmed; V1 explicitly
+  selected as primary through the S-91 database operation; Attendee A.
 - **Steps:**
   1. As A, `POST /api/event-registrations/events/P/registration`.
   2. As A, `GET /api/event-registrations/me/registrations`.

@@ -796,6 +796,26 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 
 ## TC-EVENTREGISTRATIONS-050 — the bookings service fails
 
+## S-91 — Designate Primary Venue
+
+### TC-EVENTREGISTRATIONS-051 — attendees receive only the explicitly primary venue
+
+- **Pre-conditions:** Published event E has confirmed bookings B1 and B2; B2 has `is_primary=true`.
+- **Steps:** Read E from the public list, public detail, Attendee dashboard, and build a registration notification.
+- **Expected:** Every attendee-facing result names only B2. B1 and all non-confirmed bookings are absent.
+
+### TC-EVENTREGISTRATIONS-052 — no primary reads as venue to be confirmed
+
+- **Pre-conditions:** E has confirmed bookings but none is primary, including immediately after its old primary was cancelled or replaced.
+- **Steps:** Read E and build its attendee detail/notification.
+- **Expected:** The public venue list is empty, the attendee detail venue is null, and notification wording says `venue to be confirmed`.
+
+### TC-EVENTREGISTRATIONS-053 — an invalid primary marker is never exposed
+
+- **Pre-conditions:** A defensive fixture marks a held, rejected, or replaced booking primary.
+- **Steps:** Build attendee-facing venue data.
+- **Expected:** Only a row that is both confirmed and primary is exposed.
+
 - **Scenario:** A venue that can't be read is reported, not shown as "to be confirmed".
 - **Pre-conditions:** As above, with bookings answering `500`, then unreachable.
 - **Steps:** As TC-EVENTREGISTRATIONS-042, for each.

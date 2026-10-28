@@ -74,6 +74,9 @@ def test_a_change_goes_back_to_pending_and_touches_only_this_booking(client, db,
     assert written["status"] == "pending"
     assert {key: written[key] for key in CHANGE} == {**CHANGE, "start_time": "14:00:00", "end_time": "16:00:00"}
     assert all(written[field] is None for field in CLEARED)
+    assert written["is_primary"] is False
+    assert written["primary_selected_by"] is None
+    assert written["primary_selected_at"] is None
     assert table(db).update.return_value.eq.call_args.args == ("id", BOOKING_ID)
     guard = table(db).update.return_value.eq.return_value.in_
     assert guard.call_args.args == ("status", ["pending", "held", "confirmed"])

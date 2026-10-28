@@ -136,7 +136,12 @@ async def _venue_names(
     event_id: str, bookings: httpx.AsyncClient, venues: httpx.AsyncClient
 ) -> list[str]:
     rows = await _json("Bookings", bookings.get("/bookings", params={"event_id": event_id}))
-    confirmed = [row for row in rows if row.get("status") == "confirmed"]
+    # S-91: public/Attendee projections expose only the deliberate primary,
+    # never secondary operational venues.
+    confirmed = [
+        row for row in rows
+        if row.get("status") == "confirmed" and row.get("is_primary") is True
+    ]
     found = await asyncio.gather(
         *(
             _json("Venues", venues.get(f'/internal/venues/{row["venue_id"]}'))
@@ -568,24 +573,14 @@ async def _attendee_view(event_id: str, events: httpx.AsyncClient) -> dict | Non
 
 
 async def _primary_venue(event_id: str, bookings: httpx.AsyncClient) -> str | None:
-    """S-56: until S-91 records one, the primary venue is the confirmed
-    booking made first. A replacement (S-78) takes the place of the booking
-    it replaced, so a venue issue shows only once its replacement is
-    confirmed -- until then the original is still the confirmed one."""
+    """S-91: the one confirmed booking the Coordinator designated. When a
+    primary is cancelled or replaced, none is guessed in its place."""
     rows = await _json("Bookings", bookings.get("/bookings", params={"event_id": event_id}))
-    by_id = {row["id"]: row for row in rows}
-
-    def first_made(row: dict) -> str:
-        seen = set()
-        while row.get("replaces_booking_id") in by_id and row["id"] not in seen:
-            seen.add(row["id"])
-            row = by_id[row["replaces_booking_id"]]
-        return row.get("submitted_at") or ""
-
-    confirmed = [row for row in rows if row.get("status") == "confirmed"]
-    if not confirmed:
-        return None
-    return min(confirmed, key=first_made).get("venue_name")
+    primary = next((
+        row for row in rows
+        if row.get("status") == "confirmed" and row.get("is_primary") is True
+    ), None)
+    return primary.get("venue_name") if primary else None
 
 
 async def _with_details(entry: dict, event: dict, bookings: httpx.AsyncClient) -> dict:

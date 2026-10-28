@@ -579,3 +579,18 @@ Run unit tests with `python -m pytest tests/unit/composite/venue_bookings`.
 After applying the S-25 bookings migration to the test project and recreating
 the `.env.test` stack, run
 `python -m pytest tests/integration/composite/venue_bookings`.
+
+## S-91 primary venue
+
+`PUT /venue-bookings/{id}/primary` lets only the Coordinator assigned to the
+booking's event designate that confirmed booking as the attendee-facing
+primary venue. It returns the booking with `is_primary: true`; `401`, `403`,
+`404`, and `409` retain their usual authentication, ownership, missing-row,
+and non-confirmed meanings.
+
+`GET /venue-bookings?event_id={id}` is available to the assigned Coordinator
+and the Event Organiser who owns the event. Both receive every venue booking,
+including `is_primary`, `primary_selected_by`, and `primary_selected_at`.
+Attendee-facing services do not use this full projection: they expose only a
+booking that is both confirmed and primary, or “Venue to be confirmed” while
+the Coordinator still needs to choose one.

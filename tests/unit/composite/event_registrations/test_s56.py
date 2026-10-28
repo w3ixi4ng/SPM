@@ -3,7 +3,7 @@
 TC-EVENTREGISTRATIONS-042, 044..050. The details are shown on each row of the
 Attendee's list while the event is confirmed; an event sent back for
 re-checking stays listed with them hidden. The venue is the primary one -- the
-confirmed booking made first, until S-91 records one -- and only an Attendee
+confirmed booking explicitly selected under S-91 -- and only an Attendee
 holding a place sees it.
 """
 
@@ -21,7 +21,7 @@ def _booking(booking_id, venue_name, status, submitted_at, **extra):
             "status": status, "submitted_at": submitted_at, **extra}
 
 
-HALL_A = _booking(H1, "Hall A", "confirmed", "2026-10-01T02:00:00Z")
+HALL_A = _booking(H1, "Hall A", "confirmed", "2026-10-01T02:00:00Z", is_primary=True)
 
 
 @pytest.fixture
@@ -112,13 +112,33 @@ def test_an_event_being_rechecked_shows_details_to_be_confirmed(client, held, st
     ],
     ids=["first-confirmed", "unconfirmed-ignored", "only-pending", "none"],
 )
-def test_the_primary_venue_is_the_confirmed_booking_made_first(client, held, rows, venue):
+def test_only_the_explicit_confirmed_primary_venue_is_shown(client, held, rows, venue):
     _bookings(held, rows)
 
     row = _only_row(client)
 
     assert row["venue"] == venue
     assert row["details_confirmed"] is True
+
+
+# --- TC-EVENTREGISTRATIONS-051..053 ---------------------------------------
+def test_secondary_confirmed_venues_are_never_exposed_to_the_attendee(client, held):
+    _bookings(held, [
+        _booking(H2, "Room B", "confirmed", "2026-09-01T02:00:00Z"),
+        HALL_A,
+        _booking(H3, "Hall C", "held", "2026-08-01T02:00:00Z", is_primary=True),
+    ])
+
+    assert _only_row(client)["venue"] == "Hall A"
+
+
+def test_confirmed_venues_without_a_primary_read_to_be_confirmed(client, held):
+    _bookings(held, [
+        _booking(H1, "Hall A", "confirmed", "2026-10-01T02:00:00Z"),
+        _booking(H2, "Room B", "confirmed", "2026-10-02T02:00:00Z"),
+    ])
+
+    assert _only_row(client)["venue"] is None
 
 
 # --- TC-EVENTREGISTRATIONS-046 --------------------------------------------
@@ -136,7 +156,7 @@ def test_the_primary_venue_is_the_confirmed_booking_made_first(client, held, row
             [
                 _booking(H1, "Hall A", "replaced", "2026-10-01T02:00:00Z", replaced_by_booking_id=H3),
                 _booking(H2, "Room B", "confirmed", "2026-10-03T02:00:00Z"),
-                _booking(H3, "Hall C", "confirmed", "2026-10-10T02:00:00Z", replaces_booking_id=H1),
+                _booking(H3, "Hall C", "confirmed", "2026-10-10T02:00:00Z", replaces_booking_id=H1, is_primary=True),
             ],
             "Hall C",
         ),

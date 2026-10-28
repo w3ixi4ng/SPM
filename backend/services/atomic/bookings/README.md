@@ -497,3 +497,17 @@ updated booking with `200`. A non-confirmed booking or stale version returns
 Before integration tests, run the S-25 migration block in
 `backend/sql/bookings.sql` in both dev and test Supabase projects. The existing
 `bookings` schema remains exposed and granted.
+
+## S-91 primary venue
+
+Every booking response includes `is_primary`, `primary_selected_by`, and
+`primary_selected_at`. Only a confirmed booking can be primary and the
+database permits at most one primary booking per event. The first confirmed
+booking becomes primary; if it is cancelled, replaced, or changed, no other
+booking is silently selected.
+
+`PUT /bookings/{id}/primary` requires an authenticated `event_coordinator`.
+It returns the selected booking (`200`), `404` when it does not exist, `409`
+when it is not confirmed, `401` without a session, and `403` for another
+role. The venue_bookings composite verifies that the Coordinator owns the
+event before calling this atomic route.

@@ -1515,6 +1515,12 @@ Coordinator inactive through trusted Auth metadata.
 
 ## TC-E2E-261 — Technical Support records, edits and finds an equipment location
 
+## TC-E2E-262 — a Coordinator designates the attendee-facing primary venue
+
+- **Pre-conditions:** The fresh `.env.test` stack has an assigned Coordinator, its Organiser and an Attendee. Their event has two confirmed venue bookings.
+- **Steps:** The Coordinator opens the event, marks the second venue primary, and the Organiser confirms both venues remain visible. The Attendee opens the published event. The primary booking is then cancelled/replaced and the Coordinator returns to the event.
+- **Expected:** The Coordinator and Organiser see both venues and the Primary label. The Attendee sees only the selected primary. After it is removed, the Coordinator is prompted to choose a new primary and the Attendee sees `Venue to be confirmed` until that choice is made.
+
 - **Scenario:** The full browser journey shows the same storage location in the catalogue and live availability results.
 - **Pre-conditions:** Fresh `.env.test` stack, S-92 SQL applied, Chromium, temporary Technical Support account.
 - **Steps:** Add a projector at `Store B, Shelf 4`; confirm the catalogue; edit it to `AV Cage, Rack 2`; check a future availability window.

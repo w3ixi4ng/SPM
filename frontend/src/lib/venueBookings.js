@@ -163,6 +163,24 @@ export function listVenueBookingsForEvent(eventId) {
   return requestJSON(`/venue-bookings?event_id=${encodeURIComponent(eventId)}`)
 }
 
+export const PRIMARY_VENUE_REQUIRED = 'Choose a new primary venue so attendees know where to go.'
+
+export function primaryVenuePrompt(bookings) {
+  const confirmed = bookings.filter(({ status }) => status === 'confirmed')
+  return confirmed.length > 0 && !confirmed.some(({ is_primary }) => is_primary)
+    ? PRIMARY_VENUE_REQUIRED
+    : null
+}
+
+export function selectPrimaryVenueBooking(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/primary`, { method: 'PUT' })
+}
+
+export function primaryVenueErrorMessage(error) {
+  if ([401, 403, 404, 409].includes(error.status) && error.message) return error.message
+  return "We couldn't change the primary venue. Reload and try again."
+}
+
 const BOOKING_STATUS_META = {
   pending: { label: 'Pending', color: '#B5842B' },
   held: { label: 'Tentatively held', color: '#B5842B' },
