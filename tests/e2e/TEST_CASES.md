@@ -1490,3 +1490,50 @@ Coordinator inactive through trusted Auth metadata.
 - **Actual:** Chromium: the card showed "4 Dec 2026, 6:00 pm to 9:00 pm" and Hall One, not Room Two, with no purpose, attendance, organiser or coordinator; after `planning` and a reload it read the "Details to be confirmed…" line with no date or venue; after re-confirming, the date and Hall One were back.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_confirmed_event_details.py::test_an_attendee_sees_when_and_where_and_to_be_confirmed_while_rechecked[chromium]; with the S-48/50/51/52/53 registration journeys: 9 passed (S-52 and S-53's `Confirmed` locators made exact, since a held card now also reads "Venue to be confirmed"); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+
+## S-82 — View Event Change History
+
+`test_view_event_change_history.py`. The history has its own screen,
+`/events/:id/history` (developer decision 9b), with a "Back to …" link in the
+header.
+
+## TC-E2E-260 — a Coordinator's edit shows in their and a Lead's change history
+
+- **Scenario:** In a real browser, through Kong: an edit made in the UI is recorded and both the assigned Coordinator and a Lead can read who changed what and when; nothing on the screen can change an entry (S-82 AC1, AC2, AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, S-82 SQL applied. Through the admin client:
+  - Organiser O, named "Ada Organiser".
+  - Lead L. L assigned nothing.
+  - Coordinator C, named "Alex Coordinator".
+  - Event E "History Forum <6 hex>", `planning`, owned by O, assigned to C by a different Lead, `expected_attendance` 120.
+- **Steps:**
+  1. As C, open `/coordinator/events/E` and change Expected attendance to 150; save.
+  2. Select "View change history".
+  3. Sign in as L; from the Lead dashboard, open E's change history.
+  4. Open `/events/E/history` as Organiser O.
+- **Expected:**
+  1. The edit saves.
+  2. The URL is `/events/E/history`. The newest entry reads "Edited the event" with "Expected attendance: 120 → 150", "Alex Coordinator, Event Coordinator", and today's date in Singapore time. The screen has a "Back to event" link, and no button or field that edits or deletes an entry.
+  3. The same entry.
+  4. The Organiser is sent back to their dashboard; no history is shown.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** tests/e2e/test_view_event_change_history.py::test_coordinator_and_lead_see_an_edit_in_the_history[chromium]
+
+## TC-E2E-261 — a Safety Officer sees only the safety review's history
+
+- **Scenario:** In a real browser, the Safety Officer reaches the history from the safety check and sees attendance changes and safety decisions, not contact edits or assignments (S-82 AC3).
+- **Pre-conditions:** As TC-E2E-260, plus Safety Officer S, named "Sam Safety". E is `pending_safety_check`. Its history holds, through the internal route and the admin client:
+  - `coordinator_assigned`
+  - an `edited` entry changing `contact_phone`
+  - an `edited` entry changing `expected_attendance` 120→150
+- **Steps:**
+  1. As S, open `/safety-checks/E` and request changes with reason "Fire exit blocked".
+  2. Select "View change history".
+- **Expected:**
+  - 2 → `/events/E/history` lists, newest first, "Requested safety changes: Fire exit blocked" by "Sam Safety, Safety Officer", then "Expected attendance: 120 → 150".
+  - No contact phone change and no "Assigned …" entry is shown.
+  - The back link reads "Back to safety check".
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** tests/e2e/test_view_event_change_history.py::test_safety_officer_sees_only_the_safety_history[chromium]

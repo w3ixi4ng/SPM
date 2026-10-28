@@ -1343,3 +1343,120 @@ cookie alone must never authorize a direct atomic assignment write.
 - **Actual:** S-83/S-84/S-85/S-88 regressions passed with the eligibility and scope changes, including original-requester history and existing notifications.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_requests/test_s83.py; test_s84.py; test_s85.py; test_s88.py; tests/integration/composite/event_requests/test_s88.py
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. `GET /event-requests/{event_id}/history` returns an event's
+history to its assigned Coordinator and to any Lead, with names filled in from
+the users service.
+
+**Shared test data.**
+
+```
+event E            11111111-1111-4111-8111-111111111111
+Coordinator C      aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa  "Alex Coordinator"
+Coordinator C2     bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb  "Blair Coordinator"
+Lead L             dddddddd-dddd-4ddd-8ddd-dddddddddddd  "Lee Lead"
+Lead L2            eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee
+Organiser O        22222222-2222-4222-8222-222222222222  "Ada Organiser"
+```
+
+Events fake history for E, newest first:
+1. `coordinator_reassigned` by L, `{"from_coordinator_id": C, "to_coordinator_id": C2}`
+2. `edited` by C
+3. `submitted` by O
+
+## TC-EVENTREQUESTS-117 — the assigned Coordinator reads the event's history
+
+- **Scenario:** The Coordinator responsible for an event sees who did what and when (S-82 AC2).
+- **Pre-conditions:** Signed in as C2; Events says E is assigned to C2; Users profiles return the names above.
+- **Steps:** `GET /event-requests/E/history`.
+- **Test data:** As above.
+- **Expected:** `200` with
+  ```json
+  {
+    "event_id": "E",
+    "event_name": "Autumn Forum",
+    "entries": [
+      {"id": 3, "occurred_at": "...", "category": "assignment", "action": "coordinator_reassigned",
+       "details": {"from_coordinator_id": "C", "to_coordinator_id": "C2"},
+       "actor": {"id": "L", "name": "Lee Lead", "role": "event_coordinator_lead"}},
+      ...
+    ],
+    "people": {"C": "Alex Coordinator", "C2": "Blair Coordinator"}
+  }
+  ```
+  The entries are in the Events order (newest first). `people` names every user id that appears in an entry's `details`. Users is asked for all ids in one `POST /internal/users/profiles` call.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_the_assigned_coordinator_reads_the_history
+
+## TC-EVENTREQUESTS-118 — any Lead reads any event's history
+
+- **Scenario:** A Lead sees the history of every event, not only those they assigned (developer decision 6).
+- **Pre-conditions:** Signed in as L2; E was assigned by L.
+- **Steps:** `GET /event-requests/E/history`.
+- **Test data:** As above.
+- **Expected:** `200` with the same body as TC-EVENTREQUESTS-117.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_any_lead_reads_any_history
+
+## TC-EVENTREQUESTS-119 — a Coordinator not assigned to the event is turned away
+
+- **Scenario:** A former or unrelated Coordinator cannot read the history.
+- **Pre-conditions:** E is assigned to C2.
+- **Steps:**
+  1. As C (the former Coordinator), `GET /event-requests/E/history`.
+  2. As C, the same for an event that does not exist.
+- **Test data:** As above.
+- **Expected:** Both `404` "Event not found". The Events history read is never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_an_unassigned_coordinator_is_turned_away
+
+## TC-EVENTREQUESTS-120 — other roles cannot read the history here
+
+- **Scenario:** Only Coordinators and Leads use this route.
+- **Pre-conditions:** As in each row.
+- **Steps / Test data / Expected:**
+  | Caller | Response |
+  | --- | --- |
+  | No session | `401` |
+  | `event_organiser` O | `403` |
+  | `safety_officer` | `403` |
+  | `technical_support` | `403` |
+  | `venue_staff` | `403` |
+  | `attendee` | `403` |
+
+  The Events history read is never called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_other_roles_cannot_read_the_history
+
+## TC-EVENTREQUESTS-121 — missing people are shown honestly
+
+- **Scenario:** A deleted account or a backfilled entry with no recorded actor never shows a made-up name.
+- **Pre-conditions:** As C2. Events history: one `request_approved` with `actor_id: null`, `details.backfilled: true`; one `edited` by `ffffffff-ffff-4fff-8fff-ffffffffffff`, whom Users does not return.
+- **Steps:** `GET /event-requests/E/history`.
+- **Test data:** As above.
+- **Expected:** `200`. The first entry's `actor` is `null`. The second's is `{"id": "ffffffff-…", "name": null, "role": "event_coordinator"}`, with the role kept from the entry.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_missing_people_are_shown_honestly
+
+## TC-EVENTREQUESTS-122 — a service that does not answer is a 502
+
+- **Scenario:** The history is never shown half-filled.
+- **Pre-conditions:** As C2.
+- **Steps / Test data / Expected:**
+  | Failure | Response |
+  | --- | --- |
+  | Events history read returns `500` | `502` "Events service unavailable" |
+  | Events history read times out | `502` "Events service unavailable" |
+  | Users profiles returns `500` | `502` "Users service unavailable" |
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502

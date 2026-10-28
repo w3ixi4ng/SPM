@@ -487,3 +487,40 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_failed_clear_blocks_requirement_change`
+
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. After a requirement change takes effect, the composite sends
+one entry to Events `POST /internal/events/{event_id}/history`. Sign-off and
+preparation status are recorded by Events itself (TC-EVENTS-196).
+
+## TC-EQUIPMENTREQUIREMENTS-031 — a requirement change is recorded
+
+- **Scenario:** Adding, changing and removing an equipment requirement is recorded (S-82 AC1).
+- **Pre-conditions:** Signed in as Coordinator `C1`, assigned to `E1`; item `P1` "Projector"; Equipment accepts each write.
+- **Steps / Test data / Expected:** Each step sends exactly one entry with `actor_id: C1`, `actor_role: "event_coordinator"`:
+  | Step | `action` | `details` |
+  | --- | --- | --- |
+  | `PUT /equipment-requirements/E1/P1` `{"required_quantity": 2}` with no existing requirement | `equipment_requirement_set` | `{"equipment_item_id": "P1", "item_name": "Projector", "from_quantity": null, "to_quantity": 2}` |
+  | The same with `{"required_quantity": 5, "impact_accepted": true}` | `equipment_requirement_set` | `{… "from_quantity": 2, "to_quantity": 5}` |
+  | `DELETE /equipment-requirements/E1/P1` | `equipment_requirement_removed` | `{"equipment_item_id": "P1", "item_name": "Projector", "from_quantity": 5, "to_quantity": null}` |
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s82.py::test_a_requirement_change_is_recorded`
+
+## TC-EQUIPMENTREQUIREMENTS-032 — refused or failed recording leaves the change as it was
+
+- **Scenario:** Refused changes record nothing, and a failed history write does not undo an accepted one.
+- **Pre-conditions:** As TC-EQUIPMENTREQUIREMENTS-031.
+- **Steps / Test data / Expected:**
+  | Case | Response | History |
+  | --- | --- | --- |
+  | `PUT` as Technical Support | `403` | not called |
+  | `PUT` blocked by the sign-off clear failing (TC-EQUIPMENTREQUIREMENTS-029) | `502` | not called |
+  | `PUT` accepted, Events history answers `500` | usual `200` | one `ERROR` log naming `E1` and `equipment_requirement_set` |
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** `test_s82.py::test_refused_or_failed_recording_leaves_the_change`
