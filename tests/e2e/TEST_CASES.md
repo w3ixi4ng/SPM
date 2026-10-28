@@ -32,7 +32,8 @@ surviving a page load.
   session and the case reports Blocked (see below).
 - **Steps:**
   1. Open `/signup` through Kong.
-  2. Fill first name, last name, email, password, confirm password.
+  2. Fill first name, last name, email, password, confirm password, and choose
+     **Event Organiser** (S-01).
   3. Submit the form.
   4. Wait for the browser to leave `/signup`.
 - **Test data:** `Ada` / `Lovelace` / `spm-e2e-<random>@example.com` /
@@ -42,7 +43,7 @@ surviving a page load.
   `/users/me` to have returned it, and the route guard to have resolved it.
 - **Actual:** Redirected to `/dashboard/event-organiser`.
 - **Status:** Pass
-- **Evidence:** `test_sign_up.py::test_sign_up_lands_on_the_organiser_dashboard`
+- **Evidence:** `test_sign_up.py::test_sign_up_lands_on_the_organiser_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 
 > If the test project has email confirmation on, the case skips with the fix
 > spelled out rather than failing. That is **Blocked**, not Fail — the code is
@@ -1418,6 +1419,25 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_join_waiting_list.py::test_a_waitlisted_attendee_sees_their_place_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
 
+## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
+
+## TC-E2E-260 — an Attendee sign-up lands on the Attendee dashboard
+
+- **Scenario:** Choosing Attendee on the real form ends on the Attendee
+  dashboard, and the page will not submit until a role is chosen (AC1, AC3).
+- **Pre-conditions:** As TC-E2E-201.
+- **Steps:**
+  1. Open `/signup` through Kong; check neither **Attendee** nor **Event
+     Organiser** is selected.
+  2. Fill every other field and submit.
+  3. Choose **Attendee** and submit again.
+- **Test data:** As TC-E2E-201, with a fresh `spm-e2e-*` address.
+- **Expected:** 1: both role buttons report not pressed. 2: the page stays on
+  `/signup` showing "Choose whether you're signing up as an Attendee or an
+  Event Organiser." 3: the browser ends on `/dashboard/attendee`.
+- **Actual:** Chromium: both buttons started `aria-pressed="false"`; submitting without a role stayed on `/signup` with the role message; after choosing Attendee the browser ended on `/dashboard/attendee`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_sign_up.py::test_an_attendee_sign_up_lands_on_the_attendee_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 ## S-49 — Registration Confirmation Notification
 
 ## TC-E2E-256 — an Attendee sees the confirmation on their dashboard after registering

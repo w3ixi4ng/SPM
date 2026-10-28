@@ -1,9 +1,17 @@
 import { useRef, useState } from 'react'
-import { CalendarCheck2, CircleAlert, Loader2 } from 'lucide-react'
+import { CalendarCheck2, Check, CircleAlert, Loader2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import { signUp } from '../lib/auth.js'
+import {
+  NAME_MAX,
+  PASSWORD_MAX,
+  PASSWORD_MIN,
+  ROLE_REQUIRED,
+  SIGN_UP_ROLES,
+  validateSignUp,
+} from '../lib/signUp.js'
 
 const C = {
   ink: '#10192B',
@@ -15,17 +23,11 @@ const C = {
   rose: '#B25547',
 }
 
-// Mirrors backend/services/atomic/users/schemas.py::SignUpRequest exactly, so
-// a bad value is caught here instead of round-tripping to the server first.
-// First/last name are a frontend-only split -- the backend takes one `name`.
-const NAME_MAX = 100
-const PASSWORD_MIN = 8
-const PASSWORD_MAX = 72
-
 const FRIENDLY_FIELD_ERRORS = {
   name: `Please check your name (up to ${NAME_MAX} characters).`,
   email: 'Please enter a valid email address.',
   password: `Password must be ${PASSWORD_MIN}-${PASSWORD_MAX} characters.`,
+  role: ROLE_REQUIRED,
 }
 
 function withAlpha(hex, alpha) {
@@ -34,35 +36,6 @@ function withAlpha(hex, alpha) {
   const g = (n >> 8) & 255
   const b = n & 255
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
-function validate({ firstName, lastName, email, password, confirmPassword }) {
-  const errors = {}
-
-  const trimmedFirst = firstName.trim()
-  if (!trimmedFirst) errors.firstName = 'Please enter your first name.'
-
-  const trimmedLast = lastName.trim()
-  if (!trimmedLast) errors.lastName = 'Please enter your last name.'
-
-  if (trimmedFirst && trimmedLast && `${trimmedFirst} ${trimmedLast}`.length > NAME_MAX) {
-    errors.lastName = `Your full name must be ${NAME_MAX} characters or fewer.`
-  }
-
-  const trimmedEmail = email.trim()
-  if (!trimmedEmail) errors.email = 'Please enter your email address.'
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-    errors.email = 'Please enter a valid email address.'
-  }
-
-  if (!password) errors.password = 'Please create a password.'
-  else if (password.length < PASSWORD_MIN) errors.password = `Password must be at least ${PASSWORD_MIN} characters.`
-  else if (password.length > PASSWORD_MAX) errors.password = `Password must be ${PASSWORD_MAX} characters or fewer.`
-
-  if (!confirmPassword) errors.confirmPassword = 'Please confirm your password.'
-  else if (confirmPassword !== password) errors.confirmPassword = 'Passwords do not match.'
-
-  return errors
 }
 
 function FieldError({ id, message }) {
@@ -81,6 +54,7 @@ export default function SignUp() {
   const navigate = useNavigate()
   const { refresh } = useAuth()
 
+  const [role, setRole] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -91,12 +65,14 @@ export default function SignUp() {
   const [formError, setFormError] = useState(null)
   const [status, setStatus] = useState('idle')
 
+  const roleRef = useRef(null)
   const firstNameRef = useRef(null)
   const lastNameRef = useRef(null)
   const emailRef = useRef(null)
   const passwordRef = useRef(null)
   const confirmPasswordRef = useRef(null)
   const fieldRefs = {
+    role: roleRef,
     firstName: firstNameRef,
     lastName: lastNameRef,
     email: emailRef,
@@ -115,7 +91,7 @@ export default function SignUp() {
     e.preventDefault()
     if (isSubmitting) return
 
-    const validationErrors = validate({ firstName, lastName, email, password, confirmPassword })
+    const validationErrors = validateSignUp({ role, firstName, lastName, email, password, confirmPassword })
     setErrors(validationErrors)
     setFormError(null)
 
@@ -129,7 +105,7 @@ export default function SignUp() {
 
     setStatus('loading')
     try {
-      await signUp({ name, email: email.trim(), password })
+      await signUp({ name, email: email.trim(), password, role })
       await refresh()
       setStatus('success')
       setTimeout(() => navigate('/dashboard'), 700)
@@ -181,6 +157,23 @@ export default function SignUp() {
         }
         .csp-input:disabled { opacity: 0.65; cursor: not-allowed; }
 
+        .csp-role {
+          border: 1px solid ${C.line};
+          background: ${C.paper};
+          transition: border-color 0.2s, background-color 0.2s;
+        }
+        .csp-role[aria-pressed="true"] {
+          border-color: ${C.teal};
+          background: ${withAlpha(C.teal, 0.08)};
+        }
+        .csp-role:focus-visible {
+          outline: none;
+          border-color: ${C.teal};
+          box-shadow: 0 0 0 3px ${withAlpha(C.teal, 0.15)};
+        }
+        .csp-role:disabled { opacity: 0.65; cursor: not-allowed; }
+        .csp-role-invalid .csp-role[aria-pressed="false"] { border-color: ${C.rose}; }
+
         .csp-text-link {
           color: ${C.teal};
           text-decoration: none;
@@ -222,6 +215,47 @@ export default function SignUp() {
           )}
 
           <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-6">
+            <div>
+              <p id="signup-role-label" className="font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+                I'm signing up as
+              </p>
+              <div
+                role="group"
+                aria-labelledby="signup-role-label"
+                aria-describedby={errors.role ? 'signup-role-error' : undefined}
+                className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${errors.role ? 'csp-role-invalid' : ''}`}
+              >
+                {SIGN_UP_ROLES.map((option, index) => {
+                  const selected = role === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      ref={index === 0 ? roleRef : undefined}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setRole(option.value)
+                        clearFieldError('role')
+                      }}
+                      disabled={isSubmitting}
+                      className="csp-role flex items-start justify-between gap-3 w-full rounded-sm px-4 py-3 text-left font-ui"
+                    >
+                      <span>
+                        <span className="block text-sm font-medium" style={{ color: C.ink }}>
+                          {option.label}
+                        </span>
+                        <span className="block text-xs leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>
+                          {option.description}
+                        </span>
+                      </span>
+                      {selected && <Check size={18} className="shrink-0 mt-0.5" aria-hidden="true" style={{ color: C.teal }} />}
+                    </button>
+                  )
+                })}
+              </div>
+              <FieldError id="signup-role-error" message={errors.role} />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="signup-first-name" className="block font-ui text-sm font-medium mb-1.5" style={{ color: C.ink }}>
