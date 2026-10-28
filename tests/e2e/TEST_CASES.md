@@ -1545,16 +1545,16 @@ header.
 - **Steps:**
   1. As C, open `/coordinator/events/E` and change Expected attendance to 150; save.
   2. Select "View change history".
-  3. Sign in as L; from the Lead dashboard, open E's change history.
+  3. Sign in as L; under "Coordinator active events" choose C, then select "Change history" on E. (L did not assign E, so it is not in L's own oversight.)
   4. Open `/events/E/history` as Organiser O.
 - **Expected:**
   1. The edit saves.
   2. The URL is `/events/E/history`. The newest entry reads "Edited the event" with "Expected attendance: 120 → 150", "Alex Coordinator, Event Coordinator", and today's date in Singapore time. The screen has a "Back to event" link, and no button or field that edits or deletes an entry.
   3. The same entry.
   4. The Organiser is sent back to their dashboard; no history is shown.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** tests/e2e/test_view_event_change_history.py::test_coordinator_and_lead_see_an_edit_in_the_history[chromium]
+- **Actual:** Chromium: the Coordinator's edit saved; the history's newest entry read "Edited the event", "Expected attendance: 120 → 150", "Alex Coordinator, Event Coordinator" and today's date, with a "Back to event" link and no buttons or text fields; the Lead reached the same entry from "Coordinator active events"; the Organiser was sent back to their dashboard.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_event_change_history.py::test_coordinator_and_lead_see_an_edit_in_the_history[chromium]; full e2e suite 61 passed on a `.env.test` stack recreated with `--build` (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-E2E-263 — a Safety Officer sees only the safety review's history
 
@@ -1565,11 +1565,11 @@ header.
   - an `edited` entry changing `expected_attendance` 120→150
 - **Steps:**
   1. As S, open `/safety-checks/E` and request changes with reason "Fire exit blocked".
-  2. Select "View change history".
+  2. Select "View change history" on the same page.
 - **Expected:**
   - 2 → `/events/E/history` lists, newest first, "Requested safety changes: Fire exit blocked" by "Sam Safety, Safety Officer", then "Expected attendance: 120 → 150".
   - No contact phone change and no "Assigned …" entry is shown.
-  - The back link reads "Back to safety check".
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** tests/e2e/test_view_event_change_history.py::test_safety_officer_sees_only_the_safety_history[chromium]
+  - The back link reads "Back to safety checks" and leads to the Safety Officer's dashboard. A decided event's safety check page no longer opens, so the link can't go back to it.
+- **Actual:** Chromium: after requesting changes, the history listed exactly two entries: "Requested safety changes: Fire exit blocked" by "Sam Safety, Safety Officer", then "Expected attendance: 120 → 150". No contact phone or assignment entry; back link "Back to safety checks".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_event_change_history.py::test_safety_officer_sees_only_the_safety_history[chromium]; full e2e suite 61 passed on a `.env.test` stack recreated with `--build` (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

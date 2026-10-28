@@ -400,7 +400,7 @@ trusted Auth metadata holds Coordinator availability.
 ## TC-EVENTREQUESTS-123 — real actions show up in the Coordinator's and Lead's history
 
 - **Scenario:** Actions taken through the real services are recorded and read back with names, through Kong (S-82 AC1, AC2).
-- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied and `events` exposed. Fixtures: Organiser O, Lead L, Coordinators C and C2, all with `spm-event-requests-*` emails. `block_other_coordinators` keeps every other Coordinator busy for the event's window.
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied and `events` exposed. Fixtures: Organiser O, Lead L, Coordinators C and C2, all with `spm-event-requests-*` emails. (Since S-83 a Lead assigns explicitly, so no other Coordinator has to be blocked.)
 - **Steps:**
   1. As O, `POST /api/event-requests` with a valid submitted body.
   2. As L, `POST /api/event-requests/E/assignment` assigning C.
@@ -416,6 +416,6 @@ trusted Auth metadata holds Coordinator availability.
   - `people` names C.
   - 5 → the same three entries.
   - 6 → `404`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** tests/integration/composite/event_requests/test_s82.py::test_real_actions_show_up_in_the_history
+- **Actual:** Through Kong: three entries newest first (`request_approved` by C, `coordinator_assigned` by L, `submitted` by O) with their stored names; the Lead saw the same entries; C2 got `404`.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s82.py::test_real_actions_show_up_in_the_history; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

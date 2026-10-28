@@ -54,6 +54,7 @@ Event Coordinators.
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
 | `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. |
+| `GET` | `/event-requests/{event_id}/history` | Assigned Event Coordinator, or any Event Coordinator Lead | S-82: who changed or decided what on the event, and when, with names. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
 `GET /event-requests/health` is the gateway-compatible health alias.
@@ -349,6 +350,40 @@ is passed on unchanged.
 | --- | --- | --- |
 | `502` | `The events service is unavailable. Nothing was changed.` | No decision was recorded. |
 | `502` | `The event is cancelled, but its venue bookings were not released. Approve again to release them.` | Approving again is safe. The event is not written a second time, and the bookings are removed. |
+
+## Change history (S-82)
+
+`GET /event-requests/{event_id}/history`, no body. Readable by the event's
+currently assigned Coordinator and by any Lead. A Coordinator who is not
+assigned, including one reassigned away, gets `404` "Event not found", the same as a
+missing event. The entries are the events service's
+(see its [Change history](../../atomic/events/README.md#change-history-s-82)),
+newest first, with each actor's name from the users service:
+
+```json
+{
+  "event_id": "11111111-…",
+  "event_name": "Autumn Forum",
+  "entries": [
+    {"id": 3, "occurred_at": "2026-10-03T01:00:00Z", "category": "assignment",
+     "action": "coordinator_reassigned",
+     "details": {"from_coordinator_id": "aaaaaaaa-…", "to_coordinator_id": "bbbbbbbb-…"},
+     "actor": {"id": "dddddddd-…", "name": "Lee Lead", "role": "event_coordinator_lead"}}
+  ],
+  "people": {"aaaaaaaa-…": "Alex Coordinator", "bbbbbbbb-…": "Blair Coordinator"}
+}
+```
+
+`people` names every user id an entry's `details` mentions. A name no longer
+on file is `null`, and a backfilled entry whose actor was never recorded has
+`"actor": null`.
+
+| Status | When |
+| --- | --- |
+| `401` | No session. |
+| `403` | Any role but Event Coordinator or Event Coordinator Lead. |
+| `404` | No such event, or the Coordinator is not assigned to it. |
+| `502` | Events or Users did not answer: "Events service unavailable" / "Users service unavailable". |
 
 ## Errors
 

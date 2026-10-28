@@ -201,6 +201,31 @@ def _booking_body(payload: VenueBookingRequest, user: dict, event: dict, venue: 
     }
 
 
+def _slot_time(booking: dict, field: str) -> str:
+    clock = str(booking[field])
+    return f'{booking["booking_date"]}T{clock if len(clock) > 5 else clock + ":00"}'
+
+
+def _venue_details(booking: dict, **extra) -> dict:
+    return {"booking_id": str(booking["id"]), "venue_name": booking.get("venue_name"), **extra}
+
+
+async def _record(events: httpx.AsyncClient, booking: dict, user: dict, action: str, details: dict) -> None:
+    """S-82: add a venue action to its event's change history.
+
+    Called only after the bookings service accepted the action. Best effort,
+    by the developer's decision: the booking has already changed, so a failed
+    entry is logged rather than reported as a failed action."""
+    event_id = booking.get("event_id")
+    entry = {"actor_id": user.get("id"), "actor_role": user.get("role"), "action": action, "details": details}
+    try:
+        response = await events.post(f"/internal/events/{event_id}/history", json=entry)
+        if response.status_code != status.HTTP_201_CREATED:
+            raise RuntimeError(f"Events answered {response.status_code}")
+    except Exception as exc:
+        logger.error("Could not record %s in the history of event %s", action, event_id, exc_info=exc)
+
+
 def _today() -> date:
     """The composite's server date: S-75 clashes are checked from today on."""
     return date.today()
@@ -341,7 +366,11 @@ async def submit_venue_booking(
         raise HTTPException(status_code=409, detail=conflict)
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
-    return response.json()
+    booking = response.json()
+    await _record(events, booking, user, "venue_requested", _venue_details(
+        booking, start=_slot_time(booking, "start_time"), end=_slot_time(booking, "end_time"),
+    ))
+    return booking
 
 
 # S-80: what a Coordinator may change or cancel; a rejected request is closed.
@@ -377,8 +406,8 @@ async def change_venue_booking(
 ):
     """S-80: move one booking of an event; its other bookings are untouched.
     Checked exactly like a new request, and back to pending for Venue Staff."""
-    await _authenticate(request, users, COORDINATOR_ROLE)
-    _, event = await _changeable_booking(booking_id, "changed", request, events, bookings)
+    user = await _authenticate(request, users, COORDINATOR_ROLE)
+    before, event = await _changeable_booking(booking_id, "changed", request, events, bookings)
     venue = await _fetch(
         "Venues", venues, f"/venues/{payload.venue_id}", request.cookies, "Venue not found"
     )
@@ -397,7 +426,15 @@ async def change_venue_booking(
         raise HTTPException(status_code=409, detail=conflict)
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    return response.json()
+    after = response.json()
+    await _record(events, after, user, "venue_request_changed", _venue_details(
+        after,
+        **{"from": {"start": _slot_time(before, "start_time"), "end": _slot_time(before, "end_time"),
+                    "venue_name": before.get("venue_name")},
+           "to": {"start": _slot_time(after, "start_time"), "end": _slot_time(after, "end_time"),
+                  "venue_name": after.get("venue_name")}},
+    ))
+    return after
 
 
 @app.delete(
@@ -412,13 +449,14 @@ async def cancel_venue_booking(
 ):
     """S-80: cancel one booking of an event. It is deleted, so its time is
     free; the event's other bookings are untouched."""
-    await _authenticate(request, users, COORDINATOR_ROLE)
-    await _changeable_booking(booking_id, "cancelled", request, events, bookings)
+    user = await _authenticate(request, users, COORDINATOR_ROLE)
+    booking, _ = await _changeable_booking(booking_id, "cancelled", request, events, bookings)
     response = await _call("Bookings", bookings.delete(
         f"/bookings/{booking_id}", cookies=request.cookies,
     ))
     if response.status_code != status.HTTP_204_NO_CONTENT:
         raise _unavailable("Bookings")
+    await _record(events, booking, user, "venue_request_withdrawn", _venue_details(booking))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -582,8 +620,9 @@ async def hold_venue_booking(
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
     notifications: httpx.AsyncClient = Depends(get_notifications_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
 ):
-    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    staff = await _authenticate(request, users, VENUE_STAFF_ROLE)
     gap = await _venue_gap(booking_id, venues, bookings, request.cookies)
     if payload is None:
         return JSONResponse(
@@ -618,6 +657,7 @@ async def hold_venue_booking(
         ))
         if notified.status_code != status.HTTP_201_CREATED:
             logger.warning("Hold %s saved but its expiry notice could not be sent", held["id"])
+        await _record(events, held, staff, "venue_held", _venue_details(held))
         return held
     conflict = _identified_conflict(response)
     if conflict:
@@ -633,14 +673,17 @@ async def release_venue_booking(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
 ):
-    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    staff = await _authenticate(request, users, VENUE_STAFF_ROLE)
     response = await _call("Bookings", bookings.post(
         f"/bookings/{booking_id}/release",
         json={"reason": "staff_released"}, cookies=request.cookies,
     ))
     if response.status_code == 200:
-        return response.json()
+        released = response.json()
+        await _record(events, released, staff, "venue_released", _venue_details(released))
+        return released
     if response.status_code in (401, 403, 404, 409):
         raise HTTPException(status_code=response.status_code, detail=(response.json() or {}).get("detail"))
     raise _unavailable("Bookings")
@@ -654,8 +697,9 @@ async def decide_venue_booking(
     users: httpx.AsyncClient = Depends(get_users_client),
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
 ):
-    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    staff = await _authenticate(request, users, VENUE_STAFF_ROLE)
     # Only a confirmation reserves time, so only it needs the venue's setup
     # and turnaround; a rejection never depends on reading the venue.
     gap = (
@@ -667,7 +711,12 @@ async def decide_venue_booking(
         json=payload.model_dump(mode="json"), params=gap, cookies=request.cookies,
     ))
     if response.status_code == 200:
-        return response.json()
+        decided = response.json()
+        action = "venue_confirmed" if payload.decision == "approved" else "venue_rejected"
+        await _record(events, decided, staff, action, _venue_details(
+            decided, reason=payload.reason, alternative=payload.alternative,
+        ))
+        return decided
     conflict = _identified_conflict(response)
     if conflict:
         raise HTTPException(status_code=409, detail=conflict)
@@ -1020,7 +1069,11 @@ async def request_replacement_venue(
         raise HTTPException(status_code=409, detail=CANNOT_REPLACE)
     if response.status_code != status.HTTP_201_CREATED:
         raise _unavailable("Bookings")
-    return response.json()
+    created = response.json()
+    await _record(events, created, user, "venue_replacement_requested", _venue_details(
+        created, replaces_booking_id=str(original["id"]), replaced_venue_name=original.get("venue_name"),
+    ))
+    return created
 
 
 @app.post("/venue-bookings/{booking_id}/resolution")
@@ -1036,13 +1089,17 @@ async def resolve_alternative_arrangements(
     """S-78: the Coordinator says what they arranged instead. The booking is
     not changed, and a replacement already sent stays with Venue Staff; the
     flag ignores the periods this resolves."""
-    await _affected_booking(booking_id, request, users, events, venues, bookings, RESOLUTION_NOT_NEEDED)
+    user, _, _ = await _affected_booking(
+        booking_id, request, users, events, venues, bookings, RESOLUTION_NOT_NEEDED,
+    )
     response = await _call("Bookings", bookings.post(
         f"/bookings/{booking_id}/alternative-resolution",
         json=payload.model_dump(), cookies=request.cookies,
     ))
     if response.status_code == status.HTTP_200_OK:
-        return response.json()
+        resolved = response.json()
+        await _record(events, resolved, user, "venue_alternative_resolved", _venue_details(resolved))
+        return resolved
     if response.status_code in (401, 403, 404, 409):
         raise HTTPException(status_code=response.status_code, detail=(response.json() or {}).get("detail"))
     raise _unavailable("Bookings")

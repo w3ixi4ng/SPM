@@ -266,9 +266,9 @@ the `events.backfill_event_history` function.
   4. Delete E, C and O.
 - **Test data:** Emails `spm-test-*`.
 - **Expected:** 2 → `201` with an `id` and an `occurred_at` within 60 s of now. 3 → `200` with that one entry, `category: "venue"`. After 4, no `event_history` row for E remains: deleting the event removes its entries.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** tests/integration/atomic/events/test_s82.py::test_an_appended_entry_is_stored_and_read_back
+- **Actual:** `201` with an id and a server `occurred_at` within a minute; read back as one `venue` entry; deleting the event left no history rows.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_an_appended_entry_is_stored_and_read_back; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-204 — the database refuses to change or delete an entry
 
@@ -281,9 +281,9 @@ the `events.backfill_event_history` function.
   4. Delete E (cleanup).
 - **Test data:** As above.
 - **Expected:** 1 and 2 each raise an API error (Postgres `42501` permission denied); 3 shows the entry unchanged; 4 succeeds and removes the entry with E.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** tests/integration/atomic/events/test_s82.py::test_the_database_refuses_to_change_or_delete_an_entry
+- **Actual:** Both the update and the delete through the service key raised `42501`; the entry read back unchanged.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_the_database_refuses_to_change_or_delete_an_entry; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-205 — backfill rebuilds what existing events already record, once
 
@@ -311,6 +311,6 @@ the `events.backfill_event_history` function.
   | `submitted` | O | `2026-10-01T01:00:00Z` |
 
   Step 2 adds nothing.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** tests/integration/atomic/events/test_s82.py::test_backfill_rebuilds_existing_history_once
+- **Actual:** The first backfill added 5 entries, the second 0; the five came back newest first with the expected actors and times, all `backfilled`.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_backfill_rebuilds_existing_history_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

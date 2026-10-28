@@ -7,6 +7,7 @@ import EventCoordinatorDashboard from './pages/EventCoordinatorDashboard.jsx'
 import EventCoordinatorLeadDashboard from './pages/EventCoordinatorLeadDashboard.jsx'
 import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
+import EventHistory from './pages/EventHistory.jsx'
 import EquipmentAvailability from './pages/EquipmentAvailability.jsx'
 import EquipmentForm from './pages/EquipmentForm.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
@@ -134,6 +135,16 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.UPDATE_EQUIPMENT}>
               <EquipmentForm />
+            </ProtectedRoute>
+          )}
+        />
+        {/* S-82: one screen for the Coordinator, the Lead and the Safety
+            Officer; each reads its own part of the history. */}
+        <Route
+          path="/events/:id/history"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_EVENT_HISTORY}>
+              <EventHistory />
             </ProtectedRoute>
           )}
         />

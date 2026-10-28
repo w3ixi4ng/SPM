@@ -17,6 +17,7 @@ Safety Officer's approval makes it `confirmed`.
 | `GET` | `/safety-checks` | List `pending_safety_check` events with no safety decision, enriched with organiser. |
 | `GET` | `/safety-checks/{event_id}` | Return all operational-safety evidence for one eligible event. |
 | `POST` | `/safety-checks/{event_id}/decision` | Record the first safety decision as the authenticated Safety Officer. |
+| `GET` | `/safety-checks/{event_id}/history` | S-82: the safety review's part of the event's change history, for any Safety Officer once the event has reached the safety check. See [Change history](#change-history-s-82). |
 | `GET` | `/safety-checks/coordinator/events/{event_id}` | Return preserved safety feedback and history to the currently assigned Event Coordinator. |
 | `GET` | `/safety-checks/coordinator/events/{event_id}/readiness` | S-17: what is still outstanding before the event can be submitted, without submitting. |
 | `POST` | `/safety-checks/coordinator/events/{event_id}/submit` | S-17: submit a fully arranged planning event for the Operational Safety Check. |
@@ -136,6 +137,19 @@ nothing written:
 Venue items carry the `booking_id` they are about. The rules are in
 [`readiness.py`](readiness.py); the S-77 flag rule there is repeated from
 `venue_bookings`.
+
+## Change history (S-82)
+
+`GET /safety-checks/{event_id}/history`, no body, Safety Officer only. It
+returns the events service's `scope=safety` view: safety decisions and
+submissions, venue and equipment entries, and edits cut down to attendance,
+venue, layout, facilities and access. The body has the same shape as
+`event_requests`' `GET /event-requests/{event_id}/history`, with names filled
+in. Available once the event has reached the safety check: its status is
+`pending_safety_check`, `safety_changes_requested`, `safety_rejected`,
+`confirmed` or `preparation`, or it has any recorded safety review. That
+last case covers an event sent back to `planning`. Any other event, and a
+missing one, is `404` "Event not found".
 
 ## Errors
 

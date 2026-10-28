@@ -150,6 +150,41 @@ async def _equipment_response(service_call):
     return response.json()
 
 
+async def _requirement(event_id: UUID, equipment_item_id: UUID, equipment: httpx.AsyncClient) -> dict | None:
+    rows = await _json_list("Equipment", equipment.get(INTERNAL_PATH, params={"event_id": str(event_id)}))
+    return next((row for row in rows if str(row["equipment_item_id"]) == str(equipment_item_id)), None)
+
+
+async def _record(
+    event_id: UUID, equipment_item_id: UUID, user: dict, action: str,
+    before: dict | None, to_quantity: int | None,
+    events: httpx.AsyncClient, equipment: httpx.AsyncClient,
+) -> None:
+    """S-82: add a requirement change to its event's change history.
+
+    Called only after the equipment service accepted the change. Best effort,
+    by the developer's decision: the requirement has already changed, so a
+    failed entry is logged rather than reported as a failed change."""
+    try:
+        named = before or await _requirement(event_id, equipment_item_id, equipment)
+        entry = {
+            "actor_id": user["id"],
+            "actor_role": user["role"],
+            "action": action,
+            "details": {
+                "equipment_item_id": str(equipment_item_id),
+                "item_name": ((named or {}).get("equipment") or {}).get("type"),
+                "from_quantity": before["required_quantity"] if before else None,
+                "to_quantity": to_quantity,
+            },
+        }
+        response = await events.post(f"/internal/events/{event_id}/history", json=entry)
+        if response.status_code != status.HTTP_201_CREATED:
+            raise RuntimeError(f"Events answered {response.status_code}")
+    except Exception as exc:
+        logger.error("Could not record %s in the history of event %s", action, event_id, exc_info=exc)
+
+
 @app.put("/equipment-requirements/{event_id}/{equipment_item_id}")
 async def save_requirement(
     event_id: UUID,
@@ -170,8 +205,9 @@ async def save_requirement(
             status_code=409,
             detail="Review and accept the equipment impact before saving",
         )
+    before = await _requirement(event_id, equipment_item_id, equipment)
     await _clear_signoff(event_id, events)
-    return await _equipment_response(
+    saved = await _equipment_response(
         equipment.put(
             f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}/audited",
             json={
@@ -180,6 +216,12 @@ async def save_requirement(
             },
         ),
     )
+    if not before or before["required_quantity"] != payload.required_quantity:
+        await _record(
+            event_id, equipment_item_id, user, "equipment_requirement_set",
+            before, payload.required_quantity, events, equipment,
+        )
+    return saved
 
 
 @app.delete(
@@ -205,13 +247,19 @@ async def remove_requirement(
             status_code=409,
             detail="Review and accept the equipment impact before removing it",
         )
+    before = await _requirement(event_id, equipment_item_id, equipment)
     await _clear_signoff(event_id, events)
-    return await _equipment_response(
+    removed = await _equipment_response(
         equipment.post(
             f"{INTERNAL_PATH}/{event_id}/{equipment_item_id}/remove-audited",
             json={"recorded_by_coordinator_id": user["id"]},
         ),
     )
+    await _record(
+        event_id, equipment_item_id, user, "equipment_requirement_removed",
+        before, None, events, equipment,
+    )
+    return removed
 
 
 def _window_error() -> JSONResponse:

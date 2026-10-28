@@ -2082,12 +2082,13 @@ C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
   | Step | `action` | `details` |
   | --- | --- | --- |
   | `POST /venue-bookings` for E at Hall One, 2026-11-18 09:00–12:00 | `venue_requested` | `{"booking_id": B, "venue_name": "Hall One", "start": "2026-11-18T09:00:00", "end": "2026-11-18T12:00:00"}` |
-  | `PATCH /venue-bookings/B` to 10:00–13:00 | `venue_request_changed` | `{"booking_id": B, "venue_name": "Hall One", "from": {"start": "…09:00:00", "end": "…12:00:00"}, "to": {"start": "…10:00:00", "end": "…13:00:00"}}` |
+  | `PATCH /venue-bookings/B` to 10:00–13:00 | `venue_request_changed` | `{"booking_id": B, "venue_name": "Hall One", "from": {"start": "…09:00:00", "end": "…12:00:00", "venue_name": "Hall One"}, "to": {"start": "…10:00:00", "end": "…13:00:00", "venue_name": "Hall One"}}` |
   | `DELETE /venue-bookings/B` | `venue_request_withdrawn` | `{"booking_id": B, "venue_name": "Hall One"}` |
-  | `POST /venue-bookings/B/replacement` with Room Two | `venue_replacement_requested` | `{"booking_id": <new id>, "replaces_booking_id": B, "venue_name": "Room Two"}` |
+  | `POST /venue-bookings/B/replacement` with Room Two | `venue_replacement_requested` | `{"booking_id": <new id>, "venue_name": "Room Two", "replaces_booking_id": B, "replaced_venue_name": "Hall One"}` |
   | `POST /venue-bookings/B/resolution` | `venue_alternative_resolved` | `{"booking_id": B, "venue_name": "Hall One"}` |
-- **Status:** Not Executed.
-- **Evidence:** `test_s82.py::test_coordinator_venue_requests_are_recorded`.
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_coordinator_venue_requests_are_recorded`, `test_s82.py::test_replacement_and_resolution_are_recorded`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
 
 ### TC-VENUEBOOKINGS-123 - Venue Staff decisions are recorded
 - **Scenario:** Holding, releasing, confirming and rejecting a booking is recorded (S-82 AC1).
@@ -2097,10 +2098,11 @@ C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
   | --- | --- | --- |
   | `POST /venue-bookings/B/hold` | `venue_held` | `{"booking_id": B, "venue_name": "Hall One"}` |
   | `POST /venue-bookings/B/release` | `venue_released` | `{"booking_id": B, "venue_name": "Hall One"}` |
-  | `POST /venue-bookings/B/decision` `{"decision": "approved"}` | `venue_confirmed` | `{"booking_id": B, "venue_name": "Hall One", "reason": null}` |
-  | `POST /venue-bookings/B/decision` `{"decision": "rejected", "reason": "Under renovation", ...}` | `venue_rejected` | `{"booking_id": B, "venue_name": "Hall One", "reason": "Under renovation"}` |
-- **Status:** Not Executed.
-- **Evidence:** `test_s82.py::test_venue_staff_decisions_are_recorded`.
+  | `POST /venue-bookings/B/decision` `{"decision": "approved"}` | `venue_confirmed` | `{"booking_id": B, "venue_name": "Hall One", "reason": null, "alternative": null}` |
+  | `POST /venue-bookings/B/decision` `{"decision": "rejected", "reason": "Under renovation", "alternative": "Studio C"}` | `venue_rejected` | `{"booking_id": B, "venue_name": "Hall One", "reason": "Under renovation", "alternative": "Studio C"}` |
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_venue_staff_decisions_are_recorded`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
 
 ### TC-VENUEBOOKINGS-124 - refused venue actions record nothing
 - **Scenario:** Only actions that took effect are recorded.
@@ -2109,13 +2111,15 @@ C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
   - `POST /venue-bookings` returns `409` (slot taken) or `422` (unsuitable venue);
   - `POST /venue-bookings/B/decision` comes from a Coordinator (`403`);
   - Bookings answers `409` to a hold.
-- **Status:** Not Executed.
-- **Evidence:** `test_s82.py::test_refused_venue_actions_record_nothing`.
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_refused_venue_actions_record_nothing`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
 
 ### TC-VENUEBOOKINGS-125 - a failed history write does not undo the venue action
 - **Scenario:** The history is best effort, as in TC-EVENTS-198.
 - **Pre-conditions:** As V; Bookings confirms B; Events history answers `500`, and separately times out.
 - **Steps:** `POST /venue-bookings/B/decision` with `{"decision": "approved"}`.
 - **Expected:** The usual `200` with the confirmed booking each time, and one `ERROR` log record naming E and `venue_confirmed`.
-- **Status:** Not Executed.
-- **Evidence:** `test_s82.py::test_a_failed_history_write_does_not_undo_the_venue_action`.
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_a_failed_history_write_does_not_undo_the_venue_action`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.

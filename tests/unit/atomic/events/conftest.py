@@ -170,9 +170,21 @@ def on_update_owned(db, rows):
     operation.execute.return_value = SimpleNamespace(data=rows)
 
 
+def history_table(db):
+    """S-82: the `event_history` table's own mock, so a test that inspects
+    the event table's last insert or update never sees a history row."""
+    return db.history
+
+
 @pytest.fixture
 def db():
-    return MagicMock()
+    db = MagicMock()
+    events_table = db.schema.return_value.table.return_value
+    db.history = MagicMock()
+    db.schema.return_value.table.side_effect = (
+        lambda name: db.history if name == "event_history" else events_table
+    )
+    return db
 
 
 @pytest.fixture

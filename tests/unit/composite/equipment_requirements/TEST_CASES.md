@@ -515,9 +515,9 @@ preparation status are recorded by Events itself (TC-EVENTS-196).
   | `PUT /equipment-requirements/E1/P1` `{"required_quantity": 2}` with no existing requirement | `equipment_requirement_set` | `{"equipment_item_id": "P1", "item_name": "Projector", "from_quantity": null, "to_quantity": 2}` |
   | The same with `{"required_quantity": 5, "impact_accepted": true}` | `equipment_requirement_set` | `{… "from_quantity": 2, "to_quantity": 5}` |
   | `DELETE /equipment-requirements/E1/P1` | `equipment_requirement_removed` | `{"equipment_item_id": "P1", "item_name": "Projector", "from_quantity": 5, "to_quantity": null}` |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s82.py::test_a_requirement_change_is_recorded`
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_s82.py::test_a_requirement_change_is_recorded`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EQUIPMENTREQUIREMENTS-033 — refused or failed recording leaves the change as it was
 
@@ -529,6 +529,6 @@ preparation status are recorded by Events itself (TC-EVENTS-196).
   | `PUT` as Technical Support | `403` | not called |
   | `PUT` blocked by the sign-off clear failing (TC-EQUIPMENTREQUIREMENTS-029) | `502` | not called |
   | `PUT` accepted, Events history answers `500` | usual `200` | one `ERROR` log naming `E1` and `equipment_requirement_set` |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** `test_s82.py::test_refused_or_failed_recording_leaves_the_change`
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_s82.py::test_refused_or_failed_recording_leaves_the_change`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

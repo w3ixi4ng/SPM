@@ -929,3 +929,96 @@ async def request_technical_support_assignment(
     if response.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail="Events service unavailable")
     return _support_response(response.json(), candidates)
+
+
+# --- S-82: an event's change history -----------------------------------------
+
+# Every user id an entry's details can name, so the page can show a name.
+HISTORY_PEOPLE_KEYS = (
+    "coordinator_id", "from_coordinator_id", "to_coordinator_id",
+    "technical_support_id", "previous_technical_support_id",
+)
+
+
+async def _events_read(events: httpx.AsyncClient, path: str, **params) -> dict | list:
+    try:
+        response = await events.get(path, params=params or None)
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    return response.json()
+
+
+def _people_in(entry: dict) -> list[str]:
+    details = entry.get("details") or {}
+    ids = [details.get(key) for key in HISTORY_PEOPLE_KEYS]
+    # The Organiser's edit-recheck can move the event to another Coordinator.
+    moved = (details.get("changes") or {}).get("assigned_coordinator_id") or {}
+    ids += [moved.get("before"), moved.get("after")]
+    return [user_id for user_id in ids if user_id]
+
+
+async def _named_history(scope: dict, entries: list[dict], users: httpx.AsyncClient) -> dict:
+    """The entries with each actor's name, and a name for everyone their
+    details mention. A name no longer on file is null, never a guess."""
+    people_ids = [user_id for entry in entries for user_id in _people_in(entry)]
+    actor_ids = [entry["actor_id"] for entry in entries if entry.get("actor_id")]
+    profiles = await _profiles_by_id(users, actor_ids + people_ids)
+
+    def name(user_id):
+        return (profiles.get(user_id) or {}).get("name")
+
+    return {
+        "event_id": scope["id"],
+        "event_name": scope.get("name"),
+        "entries": [
+            {
+                "id": entry["id"],
+                "occurred_at": entry["occurred_at"],
+                "category": entry["category"],
+                "action": entry["action"],
+                "details": entry.get("details") or {},
+                "actor": None if not entry.get("actor_id") else {
+                    "id": entry["actor_id"],
+                    "name": name(entry["actor_id"]),
+                    "role": entry.get("actor_role"),
+                },
+            }
+            for entry in entries
+        ],
+        "people": {user_id: name(user_id) for user_id in dict.fromkeys(people_ids)},
+    }
+
+
+@app.get("/event-requests/{event_id}/history")
+async def event_history(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """S-82: the assigned Coordinator's or any Lead's view of who changed or
+    decided what, and when. A Coordinator no longer assigned is told the
+    event does not exist, as on every other assigned-event route."""
+    try:
+        response = await users.get("/users/me", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        logger.exception("Users service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Users service unavailable") from exc
+    if response.status_code == status.HTTP_401_UNAUTHORIZED:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Users service unavailable")
+    user = response.json()
+    if user.get("role") not in (COORDINATOR_ROLE, LEAD_ROLE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    scope = await _events_read(events, f"/internal/events/{event_id}/history-scope")
+    if user["role"] == COORDINATOR_ROLE and scope.get("assigned_coordinator_id") != user["id"]:
+        raise HTTPException(status_code=404, detail="Event not found")
+    entries = await _events_read(events, f"/internal/events/{event_id}/history")
+    return await _named_history(scope, entries, users)
