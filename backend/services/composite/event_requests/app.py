@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from clients import get_bookings_client, get_events_client, get_notifications_client, get_users_client
+from clients import assignment_service_headers, get_bookings_client, get_events_client, get_notifications_client, get_users_client
 from schemas import (
     CancellationDecision,
     CoordinatorAssignmentCreate,
@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 ORGANISER_ROLE = "event_organiser"
 COORDINATOR_ROLE = "event_coordinator"
 LEAD_ROLE = "event_coordinator_lead"
+ASSIGNMENT_SUMMARY_FIELDS = (
+    "id", "name", "status", "start_date", "start_time", "end_date", "end_time",
+    "assigned_coordinator_id", "assigning_lead_id", "coordinator_assignment_version",
+)
 NO_SUPPORT_AVAILABLE = "Technical Support is required but no staff member is currently available"
 # The events service's status-guarded submit write matched nothing -- the
 # request stopped being a draft or returned one underneath this call. Same
@@ -126,6 +130,17 @@ async def _coordinator_pool(users: httpx.AsyncClient) -> list[dict]:
     if response.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail="Users service unavailable")
     return response.json()
+
+
+def _is_active_coordinator(coordinator: dict) -> bool:
+    return coordinator.get("coordinator_active", True) is True
+
+
+def _assignment_headers() -> dict[str, str]:
+    try:
+        return assignment_service_headers()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 async def _profiles_by_id(users: httpx.AsyncClient, ids: list[str]) -> dict[str, dict]:
@@ -422,7 +437,48 @@ async def list_assignment_coordinators(
     users: httpx.AsyncClient = Depends(get_users_client),
 ):
     await _authenticate_lead(request, users)
-    return await _coordinator_pool(users)
+    return [item for item in await _coordinator_pool(users) if _is_active_coordinator(item)]
+
+
+@app.get("/event-requests/coordinators/{coordinator_id}/active-events")
+async def coordinator_active_events(
+    coordinator_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """S-93 inventory for a selected Coordinator; cross-Lead rows are summaries."""
+    lead = await _authenticate_lead(request, users)
+    coordinator = next(
+        (item for item in await _coordinator_pool(users) if item["id"] == str(coordinator_id)),
+        None,
+    )
+    if coordinator is None:
+        raise HTTPException(status_code=404, detail="Coordinator not found")
+    try:
+        response = await events.get(
+            f"/internal/events/coordinators/{coordinator_id}/active-summary",
+            cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    rows = []
+    for row in response.json():
+        responsible = row.get("assigning_lead_id")
+        scope = "mine" if responsible == lead["id"] else ("other_lead" if responsible else "legacy")
+        rows.append({
+            **{field: row.get(field) for field in ASSIGNMENT_SUMMARY_FIELDS},
+            "scope": scope,
+            "actionable": scope == "mine",
+            "inactive_owner": not _is_active_coordinator(coordinator),
+        })
+    return {
+        "coordinator": coordinator,
+        "active_assignment_count": len(rows),
+        "events": rows,
+    }
 
 
 @app.get("/event-requests/assigned-active")
@@ -513,6 +569,7 @@ async def coordinator_overview(
                     "name": row["name"],
                     "status": row["status"],
                     "assigned_coordinator_id": owner_id,
+                    "reason": "identity_missing",
                 }
             )
             continue
@@ -552,16 +609,17 @@ async def assign_event_request(
     coordinators = await _coordinator_pool(users)
     coordinator_id = str(payload.coordinator_id)
     coordinator = next((item for item in coordinators if item["id"] == coordinator_id), None)
-    if coordinator is None:
+    if coordinator is None or not _is_active_coordinator(coordinator):
         raise HTTPException(
             status_code=422,
-            detail="Selected user is not an Event Coordinator",
+            detail="Selected Event Coordinator is not active or eligible",
         )
 
     try:
         event_response = await events.post(
             f"/internal/events/{event_id}/assignment",
             json={"coordinator_id": coordinator_id}, cookies=request.cookies,
+            headers=_assignment_headers(),
         )
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)
@@ -693,10 +751,10 @@ async def reassign_event_request(
     coordinators = await _coordinator_pool(users)
     by_id = {item["id"]: item for item in coordinators}
     target = by_id.get(target_id)
-    if target is None:
+    if target is None or not _is_active_coordinator(target):
         raise HTTPException(
             status_code=422,
-            detail="Selected user is not an Event Coordinator",
+            detail="Selected Event Coordinator is not active or eligible",
         )
 
     try:
@@ -719,6 +777,7 @@ async def reassign_event_request(
         event_response = await events.post(
             f"/internal/events/{event_id}/reassignment",
             json=payload.model_dump(mode="json"), cookies=request.cookies,
+            headers=_assignment_headers(),
         )
     except httpx.HTTPError as exc:
         logger.exception("Events service unavailable", exc_info=exc)

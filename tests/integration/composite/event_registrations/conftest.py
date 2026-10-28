@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 import pytest
 from tests.supabase_client import create_client
 
@@ -52,7 +53,9 @@ def sgt_now() -> datetime:
     return datetime.now(SGT).replace(tzinfo=None, second=0, microsecond=0)
 
 
-def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: datetime) -> str:
+def confirmed_event(
+    admin, organiser_id: str, *, opens: datetime, closes: datetime, expected_attendance: int = 40
+) -> str:
     """A confirmed event starting ten days out, with the given period."""
     start = sgt_now() + timedelta(days=10)
     return admin.schema("events").table("events").insert({
@@ -64,7 +67,7 @@ def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: dateti
         "start_time": "18:00",
         "end_date": start.date().isoformat(),
         "end_time": "21:00",
-        "expected_attendance": 40,
+        "expected_attendance": expected_attendance,
         "submitted_at": "2026-10-01T00:00:00Z",
         "decision": "approved",
         "decided_at": "2026-10-02T00:00:00Z",
@@ -75,6 +78,17 @@ def confirmed_event(admin, organiser_id: str, *, opens: datetime, closes: dateti
         "registration_opens_at": opens.isoformat(),
         "registration_closes_at": closes.isoformat(),
     }).execute().data[0]["id"]
+
+
+def _delete_user_rows(admin, schema: str, table: str, column: str, user_id: str) -> None:
+    """An exact-id DELETE is safe to repeat if its HTTP/2 response is lost."""
+    for attempt in range(2):
+        try:
+            admin.schema(schema).table(table).delete().eq(column, user_id).execute()
+            return
+        except httpx.RemoteProtocolError:
+            if attempt:
+                raise
 
 
 @pytest.fixture
@@ -97,13 +111,9 @@ def attendee(admin, auth_client):
             "headers": {"Cookie": f"sb_access_token={signed_in.session.access_token}"},
         }
     finally:
-        admin.schema("registrations").table("registrations").delete().eq(
-            "attendee_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "registrations", "registrations", "attendee_id", user_id)
         # S-49: registering leaves a confirmation in the Attendee's inbox.
-        admin.schema("notifications").table("notifications").delete().eq(
-            "recipient_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "notifications", "notifications", "recipient_id", user_id)
         admin.auth.admin.delete_user(user_id)
 
 
@@ -135,11 +145,8 @@ def make_account(admin, auth_client):
 
     yield make
     for user_id in made:
-        admin.schema("registrations").table("registrations").delete().eq(
-            "attendee_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "registrations", "registrations", "attendee_id", user_id)
+        _delete_user_rows(admin, "registrations", "waiting_list", "attendee_id", user_id)
         # S-49: registering leaves a confirmation in the Attendee's inbox.
-        admin.schema("notifications").table("notifications").delete().eq(
-            "recipient_id", user_id
-        ).execute()
+        _delete_user_rows(admin, "notifications", "notifications", "recipient_id", user_id)
         admin.auth.admin.delete_user(user_id)

@@ -1,3 +1,5 @@
+import httpx
+
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -131,6 +133,23 @@ def _list_user_ids_with_role(db: Client, role: str) -> list[str]:
     return [user.id for user in _list_auth_users_with_role(db, role)]
 
 
+def _coordinator_active(user) -> bool | None:
+    """Read only the admin-controlled Auth claim; invalid values fail closed."""
+    metadata = getattr(user, "app_metadata", None) or {}
+    value = metadata.get("coordinator_active", True)
+    return value if type(value) is bool else None
+
+
+def _read_profile(db: Client, user_id: str):
+    """Retry a dropped Supabase connection only for this idempotent read."""
+    for attempt in range(2):
+        try:
+            return db.schema(SCHEMA).table(TABLE).select("*").eq("id", user_id).execute()
+        except httpx.RemoteProtocolError as exc:
+            if attempt:
+                raise HTTPException(status_code=502, detail="User profile service unavailable") from exc
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -254,7 +273,7 @@ def logout(
 # declaration order, and a dynamic route declared first would swallow "me".
 @app.get("/users/me", response_model=CurrentUserRead)
 def me(user=Depends(get_current_user), db: Client = Depends(get_db)):
-    res = db.schema(SCHEMA).table(TABLE).select("*").eq("id", user.id).execute()
+    res = _read_profile(db, user.id)
     if not res.data:
         raise HTTPException(status_code=404, detail="User profile not found")
     app_metadata = getattr(user, "app_metadata", None) or {}
@@ -284,6 +303,7 @@ def list_coordinators(db: Client = Depends(get_db)):
             or user.id,
             "email": profiles.get(user.id, {}).get("email")
             or getattr(user, "email", None),
+            "coordinator_active": _coordinator_active(user),
         }
         for user in coordinators
     ]

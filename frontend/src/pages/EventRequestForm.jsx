@@ -40,10 +40,14 @@ import {
 } from '../lib/eventRequests.js'
 import {
   attendeeCountLabel,
+  closeRegistration,
   describeRegistration,
   formatRegistrationMoment,
   listEventAttendees,
+  registrationClosureControl,
+  reopenRegistration,
   validateRegistrationSettings,
+  waitingListLabel,
 } from '../lib/registration.js'
 
 const C = {
@@ -564,9 +568,117 @@ function RegistrationSettings({ editable, form, saved, errors, onChange }) {
   )
 }
 
+// S-50: the Organiser's own decision to close registration early, or to
+// reopen it. Closing asks once more first; reopening does not, since it only
+// gives Attendees back what they had.
+function RegistrationClosure({ eventId, record, onChange }) {
+  const [confirming, setConfirming] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState(null)
+  const control = registrationClosureControl(record)
+  if (!control) return null
+
+  async function run(action) {
+    setPending(true)
+    setError(null)
+    try {
+      onChange(await action(eventId))
+      setConfirming(false)
+    } catch (failure) {
+      setError(failure.message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const ghost = 'px-4 py-2 rounded-sm border font-ui text-sm font-medium disabled:opacity-70'
+  return (
+    <div className="mb-5">
+      {control.action === 'reopen' && (
+        <p className="flex items-center gap-2 font-ui text-sm mb-3" style={{ color: C.ink }}>
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+          {control.status}
+        </p>
+      )}
+      {control.action === 'reopen' && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run(reopenRegistration)}
+          className={ghost}
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          {pending ? 'Reopening…' : 'Reopen registration'}
+        </button>
+      )}
+      {control.action === 'close' && !confirming && (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className={ghost}
+          style={{ borderColor: C.ink, color: C.ink }}
+        >
+          Close registration
+        </button>
+      )}
+      {control.action === 'close' && confirming && (
+        <div role="group" aria-label="Confirm closing registration">
+          <p className="font-ui text-sm mb-3 max-w-md" style={{ color: C.inkFaint }}>
+            Attendees won&apos;t be able to register until you reopen it. Anyone already
+            registered keeps their place.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(closeRegistration)}
+              className="px-4 py-2 rounded-sm font-ui text-sm font-medium disabled:opacity-70"
+              style={{ backgroundColor: C.teal, color: C.paper }}
+            >
+              {pending ? 'Closing…' : 'Close registration'}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setConfirming(false)}
+              className={ghost}
+              style={{ borderColor: C.ink, color: C.ink }}
+            >
+              Keep it open
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="font-ui text-sm mt-3" style={{ color: C.rose }}>{error}</p>
+      )}
+    </div>
+  )
+}
+
+function PersonRow({ person, when }) {
+  return (
+    <li
+      className="py-3 flex flex-wrap items-baseline justify-between gap-2"
+      style={{ borderColor: C.line }}
+    >
+      <div>
+        <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>
+          {person.name || 'Name not on record'}
+        </p>
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+          {person.email || 'Email not on record'}
+        </p>
+      </div>
+      <p className="font-ui text-xs" style={{ color: C.inkFaint }}>{when}</p>
+    </li>
+  )
+}
+
 // S-48: who holds a place at this confirmed event, earliest first. The
-// composite shows it to the event's own Organiser only.
-function RegisteredAttendees({ eventId }) {
+// composite shows it to the event's own Organiser only. S-50: with the
+// close/reopen control and the waiting list.
+function RegisteredAttendees({ eventId, record, onRecordChange }) {
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [state, setState] = useState({ status: 'loading', list: null })
 
@@ -590,6 +702,7 @@ function RegisteredAttendees({ eventId }) {
       >
         Registered attendees
       </h2>
+      <RegistrationClosure eventId={eventId} record={record} onChange={onRecordChange} />
       {state.status === 'loading' && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading attendees…</p>
       )}
@@ -614,30 +727,51 @@ function RegisteredAttendees({ eventId }) {
           {state.list.attendees.length > 0 && (
             <ul className="divide-y border-t border-b" style={{ borderColor: C.line }}>
               {state.list.attendees.map((attendee) => (
-                <li
+                <PersonRow
                   key={attendee.attendee_id}
-                  className="py-3 flex flex-wrap items-baseline justify-between gap-2"
-                  style={{ borderColor: C.line }}
-                >
-                  <div>
-                    <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>
-                      {attendee.name || 'Name not on record'}
-                    </p>
-                    <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-                      {attendee.email || 'Email not on record'}
-                    </p>
-                  </div>
-                  <p className="font-ui text-xs" style={{ color: C.inkFaint }}>
-                    Registered {formatRegistrationMoment(singaporeTime(attendee.registered_at))}
-                  </p>
-                </li>
+                  person={attendee}
+                  when={`Registered ${formatRegistrationMoment(singaporeTime(attendee.registered_at))}`}
+                />
               ))}
             </ul>
           )}
+          <section aria-labelledby="waiting-list-heading" className="mt-6">
+            <h3
+              id="waiting-list-heading"
+              className="font-ui text-sm font-medium mb-1"
+              style={{ color: C.ink }}
+            >
+              Waiting list
+            </h3>
+            <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
+              {waitingListLabel(state.list.waiting_list?.length ?? 0)}
+            </p>
+            {state.list.waiting_list?.length > 0 && (
+              <ol className="divide-y border-t border-b" style={{ borderColor: C.line }}>
+                {state.list.waiting_list.map((person) => (
+                  <PersonRow
+                    key={person.attendee_id}
+                    person={person}
+                    when={`Joined ${formatRegistrationMoment(singaporeTime(person.joined_at))}`}
+                  />
+                ))}
+              </ol>
+            )}
+          </section>
         </>
       )}
     </section>
   )
+}
+
+function registrationFields(event) {
+  return {
+    status: event.status,
+    registration_required: event.registration_required,
+    registration_opens_at: event.registration_opens_at,
+    registration_closes_at: event.registration_closes_at,
+    registration_closed_at: event.registration_closed_at ?? null,
+  }
 }
 
 // A registration time is a real instant; show it in Singapore wall-clock
@@ -969,6 +1103,9 @@ export default function EventRequestForm() {
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [status, setStatus] = useState(routeId ? null : 'unsaved')
+  // S-50: the stored registration settings and the Organiser's close
+  // decision, in the API's own field names for registrationClosureControl.
+  const [registrationRecord, setRegistrationRecord] = useState(null)
   const [decision, setDecision] = useState(null)
   const [errors, setErrors] = useState({})
   const [formError, setFormError] = useState(null)
@@ -1031,6 +1168,7 @@ export default function EventRequestForm() {
     setForm(merged)
     setSavedForm(merged)
     setStatus(event.status)
+    setRegistrationRecord(registrationFields(event))
     setCancellation(cancellationFields(event))
     setDecision(
       event.decision
@@ -1662,7 +1800,11 @@ export default function EventRequestForm() {
             />
 
             {routeId && status === 'confirmed' && savedForm.registrationRequired && (
-              <RegisteredAttendees eventId={routeId} />
+              <RegisteredAttendees
+                eventId={routeId}
+                record={registrationRecord}
+                onRecordChange={(event) => setRegistrationRecord(registrationFields(event))}
+              />
             )}
 
             <div>

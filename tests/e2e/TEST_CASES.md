@@ -9,7 +9,8 @@ Covers `test_sign_up.py`, `test_session.py`, `test_role_access.py`,
 `test_venue_availability.py`, `test_assign_event_request.py`, and
 `test_reassign_event_coordinator.py`, `test_coordinator_overview.py`, and
 `test_operational_safety_check.py`, and `test_book_multiple_venues.py`,
-and S-51's `test_set_registration_period.py` and `test_register_for_event.py`.
+and S-51's `test_set_registration_period.py` and `test_register_for_event.py`,
+plus S-93's `test_reassign_before_deactivation.py`.
 A real browser drives the built frontend through Kong,
 against the services and a real (test) Supabase project. These are the only
 tests that see the gateway's routing, the SPA fallback and a session cookie
@@ -18,9 +19,9 @@ surviving a page load.
 | | |
 | --- | --- |
 | Suite | `pytest tests/e2e` |
-| Last run | 2026-10-18, branch `S-85/view-coordinator-assignments-and-active-events`, merge tree of `833c9b2` and `sprint3` commit `d237cd0` |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
 | Environment | `.env.test` test Supabase project with all repository SQL applied, granted and exposed; full stack recreated immediately before; Chromium; email confirmation off |
-| Result | Targeted S-83/S-84/S-85 journeys and new integrity case: 4 passed |
+| Result | Full Chromium regression: 58 passed. |
 
 ## TC-E2E-201 — sign-up lands on the dashboard for the assigned role
 
@@ -837,13 +838,16 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
   with count 0. The summary shows name, status, organiser, date/time, and
   current Coordinator. After reassignment the event appears only under B,
   counts are A=0/B=1 immediately and after reload, and the S-83 queue remains
-  present. Non-Lead access remains denied by the existing role journey.
+  present. The test identifies A and B by their unique account ID as well as their
+  display name, so another account with the same name does not change which
+  card is checked. Non-Lead access remains denied by the existing role journey.
 - **Actual:** Chromium showed Alex at 1 and idle Blair at 0 with the complete
   event summary. Reassignment moved the card to Blair and changed the counts
   to 0/1 immediately; the same grouping survived reload and the queue remained
-  visible.
+  visible. The account-ID locator selected the intended Blair card despite
+  another account in the test project having the same display name.
 - **Status:** Pass
-- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`
+- **Evidence:** `test_coordinator_overview.py::test_lead_overview_tracks_reassignment[chromium]`; [CI Chromium job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121995463408), 2026-10-27.
 
 ## TC-E2E-231 — Safety Officer completes an Operational Safety Check
 
@@ -1363,16 +1367,61 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_a_registration_shows_on_the_attendees_dashboard_and_the_organisers_event[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`; with `test_set_registration_period.py`: 4 passed in 58 s; rerun headed with `--slowmo 400` on a freshly recreated `.env.test` stack: 3 passed in 50 s
 
-## TC-E2E-251 - Venue Staff prepare two venues and readiness updates
-- **Scenario:** Venue Staff update two confirmed bookings and the Coordinator sees both states.
-- **Expected:** Both per-venue states are visible; the venue indicator completes only after both are Ready.
-- **Actual:** Venue Staff moved the first venue through In Progress to Ready and the second to Ready; after switching accounts, the Coordinator saw both venue names and `2 of 2 confirmed venues Ready`.
-- **Status:** Pass.
-- **Evidence:** `tests/e2e/test_venue_preparation.py::test_staff_prepare_each_venue_and_coordinator_sees_readiness[chromium]`; `.env.test` stack recreated with `--build` immediately before; 1 passed on 2026-10-25.
+## S-50 — Cap Registration at Capacity
+
+## TC-E2E-253 — a full event turns the next Attendee to the waiting list
+
+- **Scenario:** In a real browser: the event fills, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin
+  client: Organiser O; confirmed event P owned by O, `expected_attendance` 1,
+  registration open yesterday to tomorrow (SGT); Attendees A and B.
+- **Steps:**
+  1. As A, open `/public/events/P` and click **Register**.
+  2. As B, open `/public/events/P`.
+  3. Click **Join the waiting list**; reload.
+  4. As O, open `/events/P`.
+- **Expected:** 1 → "You're registered for this event.". 2 → the status
+  reads "This event is full. You can join the waiting list.", there is no
+  **Register** button, and a **Join the waiting list** button is shown. 3 →
+  "You're on the waiting list." both before and after the reload. 4 → the
+  Registered attendees section lists A and the Waiting list section lists B.
+- **Actual:** A registered; B saw the full message, no Register, joined and stayed on the waiting list after reload; O saw A registered and B on the waiting list.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_cap_registration.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-E2E-254 — the Organiser closes registration early and reopens it
+
+- **Scenario:** The close decision is the Organiser's and takes effect for Attendees at once (S-50 AC4).
+- **Pre-conditions:** As TC-E2E-253, but `expected_attendance` 50 and only Attendee A.
+- **Steps:**
+  1. As O, open `/events/P`, click **Close registration**, then confirm with **Close registration** in the confirmation that appears.
+  2. As A, open `/public/events/P`.
+  3. As O, click **Reopen registration**.
+  4. As A, reload `/public/events/P`.
+- **Expected:** 1 → "You closed registration on {today}, {time}. Attendees
+  can't register until you reopen it." and a **Reopen registration** button.
+  2 → "The organiser has closed registration for this event.", no
+  **Register** and no **Join the waiting list**. 4 → **Register** is back.
+- **Actual:** O closed after confirming and saw the closed line with Reopen; A saw the closed message with no Register or waiting list; after reopening A saw Register.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_cap_registration.py::test_the_organiser_closes_registration_early_and_reopens_it; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+## TC-E2E-255 — a waitlisted Attendee sees their place in line, not a confirmation
+
+- **Scenario:** In a real browser: an Attendee joins a full event's waiting list behind someone else, sees their place on the event page, and their dashboard marks the event as waiting, not confirmed (S-52 AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT); Attendees A, B and C; A holds P's one place; B is on P's waiting list.
+- **Steps:**
+  1. As C, open `/public/events/P` and click **Join the waiting list**; reload.
+  2. As C, open the dashboard.
+  3. As A, open the dashboard.
+- **Expected:** 1 → "You're on the waiting list. You're 2nd in line." both before and after the reload, and no **Register** or "You're registered for this event.". 2 → the "Your registrations" row for P reads "Waiting list · 2nd in line" and not "Confirmed". 3 → the row for P reads "Confirmed".
+- **Actual:** C joined and saw "You're on the waiting list. You're 2nd in line." before and after reload, with no Register or registered line; C's dashboard row read "Waiting list · 2nd in line" with no "Confirmed"; A's row read "Confirmed".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_join_waiting_list.py::test_a_waitlisted_attendee_sees_their_place_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
 
 ## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
 
-## TC-E2E-253 — an Attendee sign-up lands on the Attendee dashboard
+## TC-E2E-260 — an Attendee sign-up lands on the Attendee dashboard
 
 - **Scenario:** Choosing Attendee on the real form ends on the Attendee
   dashboard, and the page will not submit until a role is chosen (AC1, AC3).
@@ -1391,7 +1440,7 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Evidence:** `tests/e2e/test_sign_up.py::test_an_attendee_sign_up_lands_on_the_attendee_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 ## S-49 — Registration Confirmation Notification
 
-## TC-E2E-253 — an Attendee sees the confirmation on their dashboard after registering
+## TC-E2E-256 — an Attendee sees the confirmation on their dashboard after registering
 
 - **Scenario:** Registering in the browser leaves a confirmation on the
   Attendee dashboard with the event and entry details (S-49 AC1, AC2).
@@ -1409,3 +1458,55 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Actual:** Chromium: the dashboard first showed "No notifications yet."; after registering it showed the confirmation with P's name, date and time, "venue to be confirmed", A's name and email.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_register_for_event.py::test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering[chromium]`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; with the rest of `test_register_for_event.py`: 4 passed in 62 s
+
+## S-53 — Withdraw Registration
+
+## TC-E2E-257 — an Attendee withdraws and the next in line gets the place
+
+- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, is no longer registered, and the Attendee first on the waiting list is moved to Confirmed and notified (S-53 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-53 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B ("S-53 E2E Attendee B") and C; A holds P's one place; B, then C, are on P's waiting list.
+- **Steps:**
+  1. As A, open `/public/events/P` and click **Withdraw registration**.
+  2. Click **Keep my place**.
+  3. Click **Withdraw registration**, then **Withdraw**.
+  4. Reload; open the dashboard.
+  5. As B, open the dashboard.
+  6. As C, open `/public/events/P`.
+- **Expected:** 1 → "Withdraw from {P's name}? Your place goes to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (B took the place), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard has no row for P. 5 → the row for P reads "Confirmed", and Notifications shows "A place opened up: you're now registered for {P's name}, …". 6 → "You're on the waiting list. You're next in line."
+- **Actual:** Chromium: the prompt showed with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard; B's row read Confirmed with "A place opened up: you're now registered for {P}, …" in Notifications; C saw "You're on the waiting list. You're next in line."
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_and_the_next_in_line_gets_the_place[chromium]; run headed with `--slowmo 600`: 1 passed in 46 s; with the S-48/49/50/52 registration journeys headless: 8 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## S-93 confirmed specification — inactive Coordinator handoff in Chromium
+
+Drafted 2026-10-25 on `S-93/reassign-active-events-before-deactivation` at
+`605e1e8`. Confirmed by developer on 2026-10-25. Run through Kong and Chromium
+with a freshly rebuilt `.env.test` stack; temporary Auth users and records
+are removed during teardown. The test fixture marks only its throwaway
+Coordinator inactive through trusted Auth metadata.
+
+## TC-E2E-258 — Leads clear an inactive Coordinator's active-event warnings
+
+- **Scenario:** The existing Lead dashboard identifies an inactive Coordinator and uses S-84 to clear the correct warnings.
+- **Pre-conditions:** Test Auth has Leads L1/L2, inactive Coordinator A and active replacement C; A owns `Autumn Forum` in L1 scope and `Winter Fair` in L2 scope. Both events are active. The test creates and later removes all accounts and records.
+- **Steps:** 1. Sign in as L1, select A and inspect both events and count. 2. Verify L2's event is read-only; reassign `Autumn Forum` to C using the existing S-84 control. 3. Confirm A's count/warning is reduced but `Winter Fair` remains flagged. 4. Sign in as L2, reassign `Winter Fair` to C, then confirm A's empty state.
+- **Test data:** `Autumn Forum` pending safety check on `2026-11-18 09:00–12:00`; `Winter Fair` preparation on `2026-11-20 14:00–17:00`; reason for A's inactive state `leaving team` is not stored on the event.
+- **Expected:** L1 sees A marked inactive, both summaries and count 2, but can act only on `Autumn Forum`. The first S-84 success moves that event to C, leaves `Winter Fair` with A, and reduces A's count to 1 without an L2 scope leak in ordinary oversight. L2's S-84 success clears the last warning and shows A with 0 active events; C owns both and linked data remains available through the existing event views.
+- **Actual:** L1 saw both active event summaries and an inactive-owner count of two, transferred only its own event and saw the count fall to one. L2 then transferred its event, leaving A with zero active events. Cross-Lead rows remained read-only and ordinary oversight stayed scoped.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]`; final rebuilt `.env.test` stack, 2026-10-25 (1 passed). Full Chromium regression before the final UI selection-race fix: 51 passed.
+
+## S-56 — View Confirmed Event Details
+
+## TC-E2E-259 — an Attendee sees when and where their event is, and "to be confirmed" while it is re-checked
+
+- **Scenario:** In a real browser: a registered Attendee's dashboard shows the confirmed date, time and primary venue, hides them while the event is re-checked, and shows them again once it is confirmed (S-56 AC1–AC5).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, no new SQL. Through the admin client: Organiser O; confirmed event P owned by O, starting `2026-12-04 18:00`, ending `2026-12-04 21:00`, registration open from yesterday to a week out (SGT); venues V1 and V2; confirmed bookings of V1 (submitted first) and V2 for P; Attendee A holding a place at P.
+- **Steps:**
+  1. As A, open the dashboard.
+  2. Through the admin client, set P to `planning`; reload.
+  3. Set P to `confirmed` again; reload.
+- **Expected:** 1 → P's card in "Your registrations" shows "4 Dec 2026, 6:00 pm to 9:00 pm" and V1's name, and not V2's name. It shows none of P's purpose, expected attendance, organiser or coordinator. 2 → P's card is still there and reads "Details to be confirmed. The date, time and venue will show here once the event is confirmed again.", with no date and neither venue's name. 3 → the date, time and V1's name are back.
+- **Actual:** Chromium: the card showed "4 Dec 2026, 6:00 pm to 9:00 pm" and Hall One, not Room Two, with no purpose, attendance, organiser or coordinator; after `planning` and a reload it read the "Details to be confirmed…" line with no date or venue; after re-confirming, the date and Hall One were back.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_confirmed_event_details.py::test_an_attendee_sees_when_and_where_and_to_be_confirmed_while_rechecked[chromium]; with the S-48/50/51/52/53 registration journeys: 9 passed (S-52 and S-53's `Confirmed` locators made exact, since a held card now also reads "Venue to be confirmed"); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree

@@ -52,9 +52,17 @@ fields (or Auth phone/id supplies the name if no email exists):
 
 ```json
 // 200
-[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com"},
- {"id": "bbbb...", "name": "idle@example.com", "email": "idle@example.com"}]
+[{"id": "aaaa...", "name": "Grace Hopper", "email": "grace@example.com", "coordinator_active": true},
+ {"id": "bbbb...", "name": "idle@example.com", "email": "idle@example.com", "coordinator_active": false}]
 ```
+
+S-93 reads `coordinator_active` from trusted Auth
+`app_metadata.coordinator_active`. An explicit boolean `false` excludes the
+account from new assignments; `true` or a missing key means available. A
+malformed value returns `null` and is ineligible. Editable `user_metadata`
+does not affect this field. Administrators can change it through the Supabase
+Auth Admin API while preserving existing `app_metadata.role` and any other
+metadata; this service exposes no Coordinator deactivation endpoint.
 
 `[]` when no account currently holds that role.
 
@@ -140,7 +148,9 @@ is not returned.
 | `409` | The address already has an account — whether this service's table or Supabase noticed. |
 | `401` | Wrong credentials, or no usable session. Login never says which half was wrong; a form that distinguishes "no such account" from "wrong password" is a way to enumerate addresses. |
 | `429` | Supabase is rate-limiting that address. |
-| `502` | Supabase Auth could not be reached or made no sense. |
+| `404` | A verified user has no profile row. |
+| `502` | Supabase Auth is unavailable, or the profile read still fails after one retry of a dropped connection. |
+| `503` | `/users/me` (and every route that checks the session) got no verdict on the token from Supabase Auth after two retries: a dropped connection, a timeout, a 5xx or a 429. The cookies are left alone. |
 
 Every error has the same shape, so a caller reads `detail` once and is done:
 
@@ -184,6 +194,11 @@ not the headers, because CORS with credentials would also force the weaker
 The access token lasts about an hour, so `/users/me` refreshes it from the
 refresh cookie when it has expired and writes the renewed pair back on the same
 response. An idle tab is not logged out.
+
+Only Supabase rejecting a token (a 4xx other than 429) makes it a dead
+session: `401`, with the cookies cleared. A check that got no answer is
+retried after 0.2 s and 0.5 s, and then answers `503`, so a network blip never
+signs a working user out.
 
 ## Configuration
 

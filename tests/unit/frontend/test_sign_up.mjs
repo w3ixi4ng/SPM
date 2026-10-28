@@ -13,7 +13,7 @@ const FORM = {
   confirmPassword: 'correct-horse-battery-staple',
 }
 
-// --- TC-FRONTEND-256 -------------------------------------------------------
+// --- TC-FRONTEND-270 -------------------------------------------------------
 test('sign-up offers exactly two roles, none chosen', () => {
   assert.deepEqual(
     SIGN_UP_ROLES.map(({ value, label }) => [value, label]),
@@ -24,7 +24,7 @@ test('sign-up offers exactly two roles, none chosen', () => {
   })
 })
 
-// --- TC-FRONTEND-257 -------------------------------------------------------
+// --- TC-FRONTEND-271 -------------------------------------------------------
 test('the chosen role is sent with the sign-up', async (t) => {
   const calls = []
   const realFetch = globalThis.fetch

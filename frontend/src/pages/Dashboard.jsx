@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, Loader2, LogOut } from 'lucide-react'
+import { ArrowRight, Check, Loader2, LogOut, MapPin } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
@@ -12,7 +12,7 @@ import {
   organiserStatusMeta,
   organiserTabs,
 } from '../lib/eventRequests.js'
-import { formatEventWhen, listMyRegistrations } from '../lib/registration.js'
+import { listMyRegistrations, registrationDetails, registrationStatusLabel } from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -23,6 +23,7 @@ const C = {
   green: '#3F8F5F',
   paperDim: '#F0EDE5',
   amber: '#B5842B',
+  sky: '#3C6E96',
 }
 
 const ORGANISER_CAPABILITIES = [
@@ -34,7 +35,33 @@ const ORGANISER_CAPABILITIES = [
   [PERMISSIONS.REQUEST_EVENT_CANCELLATION, 'Request cancellation of your events'],
 ]
 
-// S-48: the events this Attendee holds a place at, soonest first.
+// S-56: when and where, once confirmed; "to be confirmed" while re-checked.
+function RegistrationDetails({ registration }) {
+  const { when, venue, pending } = registrationDetails(registration)
+  if (pending) {
+    return (
+      <p className="font-ui text-sm max-w-md" style={{ color: C.inkFaint }}>
+        {pending}
+      </p>
+    )
+  }
+  return (
+    <>
+      <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
+        {when}
+      </p>
+      {venue && (
+        <p className="flex items-center gap-1.5 font-ui text-sm" style={{ color: C.inkFaint }}>
+          <MapPin size={14} aria-hidden="true" style={{ color: C.sky }} />
+          {venue}
+        </p>
+      )}
+    </>
+  )
+}
+
+// S-48: the events this Attendee holds a place at, soonest first. S-52: and
+// the ones they are waiting for, each marked as one or the other.
 function MyRegistrations() {
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [state, setState] = useState({ status: 'loading', registrations: [] })
@@ -94,8 +121,14 @@ function MyRegistrations() {
               >
                 {registration.name || 'Untitled event'}
               </Link>
-              <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-                {formatEventWhen(registration)}
+              <RegistrationDetails registration={registration} />
+              <p className="mt-1 flex items-center gap-2 font-ui text-xs" style={{ color: C.inkFaint }}>
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: registration.status === 'waitlisted' ? C.amber : C.green }}
+                  aria-hidden="true"
+                />
+                {registrationStatusLabel(registration)}
               </p>
             </li>
           ))}

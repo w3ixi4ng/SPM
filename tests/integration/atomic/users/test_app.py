@@ -26,6 +26,37 @@ def unique_email() -> str:
     return f"spm-test-{uuid.uuid4().hex[:12]}@example.com"
 
 
+def test_coordinator_active_metadata_round_trip(api, cleanup, admin):
+    email = f"spm-test-s93-coordinator-{uuid.uuid4().hex[:12]}@example.com"
+    created = admin.auth.admin.create_user({
+        "email": email, "password": PASSWORD, "email_confirm": True,
+        "app_metadata": {"role": "event_coordinator", "coordinator_active": True},
+    }).user
+    user_id = str(created.id)
+    cleanup.append(user_id)
+    admin.schema("users").table("users").insert({
+        "id": user_id, "name": "S93 Coordinator", "email": email,
+    }).execute()
+
+    def read_status():
+        response = api.get("/internal/users/coordinators")
+        assert response.status_code == 200, response.text
+        return next(item["coordinator_active"] for item in response.json() if item["id"] == user_id)
+
+    assert read_status() is True
+    admin.auth.admin.update_user_by_id(user_id, {
+        "app_metadata": {**created.app_metadata, "coordinator_active": False},
+    })
+    assert read_status() is False
+    signed_in = api.post("/users/login", json={"email": email, "password": PASSWORD})
+    assert signed_in.status_code == 200, signed_in.text
+    assert admin.auth.admin.get_user_by_id(user_id).user.app_metadata["role"] == "event_coordinator"
+    admin.auth.admin.update_user_by_id(user_id, {
+        "app_metadata": {**created.app_metadata, "coordinator_active": True},
+    })
+    assert read_status() is True
+
+
 def session_cookies(response) -> dict:
     """The session out of the Set-Cookie headers.
 
@@ -158,7 +189,7 @@ def test_public_signup_cannot_choose_another_role(api, cleanup):
 
 
 
-# --- TC-USERS-106 ---------------------------------------------------------
+# --- TC-USERS-107 ---------------------------------------------------------
 def test_an_attendee_sign_up_reads_back_as_an_attendee(api, cleanup, admin):
     created = api.post(
         "/users/signup",

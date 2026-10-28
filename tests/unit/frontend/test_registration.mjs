@@ -3,11 +3,24 @@ import test from 'node:test'
 
 import {
   attendeeCountLabel,
+  canWithdraw,
+  closeRegistration,
   describeRegistration,
+  formatEventWhen,
+  joinWaitingList,
   listEventAttendees,
   listMyRegistrations,
+  registrationClosureControl,
+  registrationDetails,
+  registrationStatusLabel,
+  registrationCountdown,
   registrationWindow,
+  reopenRegistration,
   validateRegistrationSettings,
+  waitingListLabel,
+  waitingListPlace,
+  withdrawPrompt,
+  withdrawRegistration,
 } from '../../../frontend/src/lib/registration.js'
 import {
   eventFieldErrorsToForm,
@@ -139,4 +152,201 @@ test('the attendee count reads as a sentence', () => {
   assert.equal(attendeeCountLabel(0), 'No one has registered yet.')
   assert.equal(attendeeCountLabel(1), '1 attendee registered')
   assert.equal(attendeeCountLabel(2), '2 attendees registered')
+})
+
+// --- S-50 ------------------------------------------------------------------
+const NOW = new Date('2026-11-05T04:00:00Z') // 12:00 in Singapore
+const CLOSED_AT = '2026-11-03T06:15:00+00:00'
+
+// --- TC-FRONTEND-256 -------------------------------------------------------
+test("a full event's status offers the waiting list", () => {
+  const full = { ...EVENT, is_full: true, registration_closed_by_organiser: false }
+  const { state, status } = describeRegistration(full, NOW)
+  assert.equal(state, 'full')
+  assert.equal(status, 'This event is full. You can join the waiting list.')
+  assert.equal(registrationCountdown(full, NOW), null)
+})
+
+// --- TC-FRONTEND-257 -------------------------------------------------------
+test('registration closed by the Organiser, and which message wins', () => {
+  const closed = { ...EVENT, is_full: false, registration_closed_by_organiser: true }
+  const message = 'The organiser has closed registration for this event.'
+
+  let described = describeRegistration(closed, NOW)
+  assert.equal(described.state, 'closed_by_organiser')
+  assert.equal(described.status, message)
+  assert.equal(registrationCountdown(closed, NOW), null)
+
+  described = describeRegistration({ ...closed, is_full: true }, NOW)
+  assert.equal(described.state, 'closed_by_organiser')
+  assert.equal(described.status, message)
+
+  described = describeRegistration(closed, new Date('2026-11-16T04:00:00Z'))
+  assert.equal(described.state, 'closed')
+  assert.equal(
+    described.status,
+    'Registration has closed. It was open from 1 Nov 2026, 9:00 am to 15 Nov 2026, 6:00 pm.',
+  )
+
+  const fullEarly = { ...EVENT, is_full: true, registration_closed_by_organiser: false }
+  assert.equal(describeRegistration(fullEarly, new Date('2026-10-30T04:00:00Z')).state, 'not_open')
+})
+
+// --- TC-FRONTEND-258 -------------------------------------------------------
+test('when the Organiser can close or reopen, and what it says', () => {
+  const confirmed = { ...EVENT, status: 'confirmed', registration_closed_at: null }
+  assert.deepEqual(registrationClosureControl(confirmed, NOW), { action: 'close', status: null })
+  assert.deepEqual(
+    registrationClosureControl({ ...confirmed, registration_closed_at: CLOSED_AT }, NOW),
+    {
+      action: 'reopen',
+      status: "You closed registration on 3 Nov 2026, 2:15 pm. Attendees can't register until you reopen it.",
+    },
+  )
+  assert.equal(registrationClosureControl({ ...confirmed, status: 'planning' }, NOW), null)
+  assert.equal(
+    registrationClosureControl({ ...confirmed, registration_required: false }, NOW),
+    null,
+  )
+  assert.equal(registrationClosureControl(confirmed, new Date('2026-11-16T04:00:00Z')), null)
+})
+
+// --- TC-FRONTEND-259 -------------------------------------------------------
+test('the waiting list and close/reopen calls go to the right services', async (t) => {
+  const calls = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ ok: true }), { status: 200 })
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  assert.deepEqual(await joinWaitingList('E'), { ok: true })
+  assert.deepEqual(await closeRegistration('E'), { ok: true })
+  assert.deepEqual(await reopenRegistration('E'), { ok: true })
+
+  assert.deepEqual(
+    calls.map((call) => [call.options.method, call.url]),
+    [
+      ['POST', '/api/event-registrations/events/E/waiting-list'],
+      ['PUT', '/api/events/E/registration-closure'],
+      ['DELETE', '/api/events/E/registration-closure'],
+    ],
+  )
+  for (const call of calls) assert.equal(call.options.credentials, 'include')
+})
+
+// --- TC-FRONTEND-260 -------------------------------------------------------
+test('the waiting-list count reads as a sentence', () => {
+  assert.equal(waitingListLabel(0), 'No one is on the waiting list.')
+  assert.equal(waitingListLabel(1), '1 person on the waiting list')
+  assert.equal(waitingListLabel(3), '3 people on the waiting list')
+})
+
+// --- TC-FRONTEND-261 -------------------------------------------------------
+test('the place in line reads as a sentence', () => {
+  const cases = {
+    1: "You're next in line.",
+    2: "You're 2nd in line.",
+    3: "You're 3rd in line.",
+    4: "You're 4th in line.",
+    11: "You're 11th in line.",
+    12: "You're 12th in line.",
+    13: "You're 13th in line.",
+    21: "You're 21st in line.",
+    22: "You're 22nd in line.",
+    23: "You're 23rd in line.",
+    111: "You're 111th in line.",
+  }
+  for (const [n, expected] of Object.entries(cases)) {
+    assert.equal(waitingListPlace(Number(n)), expected)
+  }
+  assert.equal(waitingListPlace(null), '')
+})
+
+// --- TC-FRONTEND-262 -------------------------------------------------------
+test('a dashboard row says confirmed or waiting', () => {
+  assert.equal(registrationStatusLabel({ status: 'confirmed' }), 'Confirmed')
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 1 }), 'Waiting list · next in line')
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 3 }), 'Waiting list · 3rd in line')
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: null }), 'Waiting list')
+})
+
+// --- TC-FRONTEND-263 -------------------------------------------------------
+test('withdrawing is offered until the event starts', () => {
+  const event = { start_date: '2026-11-20', start_time: '18:00:00' }
+  assert.equal(canWithdraw(event, new Date('2026-11-20T09:59:00Z')), true)
+  assert.equal(canWithdraw(event, new Date('2026-11-20T10:00:00Z')), false)
+  assert.equal(canWithdraw(event, new Date('2026-11-21T01:00:00Z')), false)
+  assert.equal(canWithdraw(event, new Date('2026-11-16T04:00:00Z')), true)
+  assert.equal(canWithdraw({ start_date: null, start_time: null }, new Date('2026-11-21T01:00:00Z')), true)
+})
+
+test('withdrawing goes to the composite', async (t) => {
+  const calls = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ registered: false }), { status: 200 })
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  assert.deepEqual(await withdrawRegistration('E'), { registered: false })
+  assert.deepEqual(
+    calls.map((call) => [call.options.method, call.url]),
+    [['DELETE', '/api/event-registrations/events/E/registration']],
+  )
+})
+
+// --- TC-FRONTEND-264 -------------------------------------------------------
+test('the withdraw confirmation says what happens', () => {
+  assert.equal(
+    withdrawPrompt({ name: 'Alumni networking evening' }),
+    'Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list.',
+  )
+})
+
+// --- S-56 -----------------------------------------------------------------
+
+const HELD = {
+  status: 'confirmed',
+  details_confirmed: true,
+  start_date: '2026-11-20',
+  start_time: '18:00:00',
+  end_date: '2026-11-20',
+  end_time: '21:00:00',
+  venue: 'Hall A',
+}
+
+// TC-FRONTEND-267
+test('a held place shows when and where', () => {
+  assert.deepEqual(registrationDetails(HELD), {
+    when: formatEventWhen(HELD), venue: 'Hall A', pending: null,
+  })
+  const unbooked = { ...HELD, venue: null }
+  assert.deepEqual(registrationDetails(unbooked), {
+    when: formatEventWhen(unbooked), venue: 'Venue to be confirmed', pending: null,
+  })
+})
+
+// TC-FRONTEND-268
+test('details being re-checked read to be confirmed', () => {
+  const row = {
+    status: 'confirmed', details_confirmed: false,
+    start_date: null, start_time: null, end_date: null, end_time: null, venue: null,
+  }
+  assert.deepEqual(registrationDetails(row), {
+    when: null,
+    venue: null,
+    pending:
+      'Details to be confirmed. The date, time and venue will show here once the event is confirmed again.',
+  })
+})
+
+// TC-FRONTEND-269
+test('a waiting-list entry shows no venue', () => {
+  const row = { ...HELD, status: 'waitlisted', position: 2, venue: null }
+  assert.deepEqual(registrationDetails(row), {
+    when: formatEventWhen(row), venue: null, pending: null,
+  })
 })

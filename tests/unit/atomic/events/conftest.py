@@ -16,6 +16,7 @@ os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
 os.environ.setdefault("AUTH_COOKIE_SECURE", "false")
+os.environ.setdefault("ASSIGNMENT_SERVICE_SECRET", "unit-assignment-secret")
 
 # Services use flat imports because each Docker image runs from its own folder.
 # Load this service while preserving any same-named modules another service's
@@ -184,5 +185,6 @@ def client(db, auth):
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_auth] = lambda: auth
     with TestClient(app) as test_client:
+        test_client.headers.update({"X-Assignment-Service-Token": "unit-assignment-secret"})
         yield test_client
     app.dependency_overrides.clear()

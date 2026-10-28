@@ -7,9 +7,9 @@ venues, users and registrations services against the test Supabase project.
 | | |
 | --- | --- |
 | Suite | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration/composite/event_registrations` |
-| Last run | 2026-10-25, branch `S-48/register-for-event`, pre-commit working tree |
-| Environment | `.env.test` test Supabase project with the S-51 SQL applied, `registrations` exposed; full stack recreated with `--build` immediately before |
-| Result | 2 passed in this suite |
+| Last run | 2026-10-27, CI on S-93 commit `17f60bc` |
+| Environment | `.env.test` test Supabase project; full Docker stack recreated with `--build` by CI |
+| Result | Event-registration cases passed within the full integration run: 89 passed, 5 skipped. |
 
 ## TC-EVENTREGISTRATIONS-101 — public view, blocked attempt and a real registration through Kong
 
@@ -54,7 +54,49 @@ venues, users and registrations services against the test Supabase project.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_a_registration_shows_for_the_attendee_and_for_the_events_organiser`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-48/register-for-event`
 
-## TC-EVENTREGISTRATIONS-103 — registering puts one confirmation in the Attendee's notifications
+## TC-EVENTREGISTRATIONS-103 — a full event turns the next Attendee to the waiting list (S-50)
+
+- **Scenario:** End to end through Kong: the cap is the event's expected attendance, the next Attendee joins the waiting list, and the Organiser sees them (S-50 AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack; S-50 SQL (events and
+  registrations) applied and `registrations` exposed. Through the admin
+  client: Organiser O; confirmed event P owned by O with
+  `expected_attendance` 1 and registration open from yesterday to tomorrow
+  (SGT); Attendees A and B.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. Anonymously, `GET /api/event-registrations/events/P`.
+  3. As B, `POST /api/event-registrations/events/P/registration`.
+  4. As B, `POST /api/event-registrations/events/P/waiting-list`.
+  5. As B, `GET /api/event-registrations/events/P/registration`.
+  6. As O, `GET /api/event-registrations/events/P/attendees`.
+  7. As O, `PUT /api/events/P/registration-closure`; as B, `POST .../registration` again.
+  8. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `"is_full": true`. 3 → `409` "This event is
+  full. You can join the waiting list.". 4 → `201`. 5 → `"waitlisted": true`.
+  6 → `count` 1 (A), `waiting_list` holding B. 7 → `200`, then `409` "The
+  organiser has closed registration for this event.". 8 leaves no rows.
+- **Actual:** `201`; `is_full` true; `409` full message; waiting list `201`; `waitlisted` true; O saw A as the one attendee and B on the waiting list; close `200` then `409` closed message; no rows remained.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_a_full_event_turns_the_next_attendee_to_the_waiting_list`; [CI integration job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121991130112), 2026-10-27. Assertions and fixture teardown both passed.
+
+## TC-EVENTREGISTRATIONS-104 — waitlisted Attendees see their place in line (S-52)
+
+- **Scenario:** Through Kong against the test project: two Attendees join a full event's waiting list in turn, each sees their place, and the dashboard list tells waiting from confirmed (S-52 AC1, AC2, AC3).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-103: fresh `.env.test` stack; Organiser O; confirmed event P owned by O with `expected_attendance` 1 and registration open yesterday to tomorrow (SGT); Attendees A, B and C. No SQL change for S-52.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As B, then as C, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As B, then as C, `GET /api/event-registrations/events/P/registration`.
+  4. As C, `GET /api/event-registrations/me/registrations`.
+  5. As A, `GET /api/event-registrations/me/registrations`.
+- **Test data:** As above; accounts and rows removed afterwards.
+- **Expected:** 1 → `201`. 2 → `201` with `"position": 1`, then `201` with `"position": 2`. 3 → B `"waitlisted": true, "position": 1`; C `"waitlisted": true, "position": 2`. 4 → one row for P, `"status": "waitlisted", "position": 2`. 5 → one row for P, `"status": "confirmed", "position": null`.
+- **Actual:** A `201`; B and C joined with positions 1 and 2, and their status read back 1 and 2; C's dashboard list held P `waitlisted` at 2; A's held P `confirmed`, position null.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_waitlisted_attendees_see_their_place_in_line`; [CI integration job](https://github.com/w3ixi4ng/SPM/actions/runs/40444107637/job/121991130112), 2026-10-27.
+
+## TC-EVENTREGISTRATIONS-105 — registering puts one confirmation in the Attendee's notifications
 
 - **Scenario:** A registration through Kong stores a confirmation the
   Attendee can read, and a refused second attempt adds none (S-49 AC1–AC3).
@@ -80,3 +122,37 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; second attempt `409` "You're already registered for this event."; the inbox held exactly one `registration_confirmation` for P, starting "Registration confirmed: {P's name}, " with "venue to be confirmed", A's name and email; no rows remained.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_registrations/test_app.py::test_registering_puts_one_confirmation_in_the_attendees_notifications`; `.env.test` stack recreated with `--build` immediately before (users, events, registrations, notifications verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-49/registration-confirmation-notification`; S-49 SQL applied to dev and test; full `tests/integration`: 79 passed, 5 skipped
+
+## TC-EVENTREGISTRATIONS-106 — withdrawing frees the place for the next in line (S-53)
+
+- **Scenario:** Through Kong against the test project: a registered Attendee withdraws, is no longer registered, and the first Attendee waiting gets the place and a notification, first come, first served (S-53 AC1–AC4). Also proves the `waiting_list_promotion` kind is allowed by the real `notifications.notifications` constraint.
+- **Pre-conditions:** Fresh `.env.test` stack; the S-53 blocks of `registrations.sql` and `notifications.sql` applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT), starting ten days out, no confirmed venue; Attendees A, B ("S-53 Test Attendee B") and C.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As B, then as C, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As A, `DELETE /api/event-registrations/events/P/registration`.
+  4. As A, `GET /api/event-registrations/events/P/registration`, then `GET /api/event-registrations/me/registrations`.
+  5. As B, `GET /api/event-registrations/events/P/registration`; as C, the same.
+  6. As B, `GET /api/notifications`; as A, the same.
+  7. As A, `DELETE /api/event-registrations/events/P/registration` again.
+  8. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `201` twice (positions 1 and 2). 3 → `200`, `"registered": false`. 4 → `"registered": false, "waitlisted": false`, and no row for P in A's list. 5 → B `"registered": true`; C `"waitlisted": true, "position": 1`. 6 → B's inbox has exactly one `waiting_list_promotion` row for P, with a message starting "A place opened up: you're now registered for {P's name}," and containing "venue to be confirmed", "Name: S-53 Test Attendee B." and "Email: {B's email}."; A's inbox has no `waiting_list_promotion` row. 7 → `404` "You're not registered for this event.". 8 leaves no rows.
+- **Actual:** `201`; B and C joined at 1 and 2; A's withdrawal `200` `registered` false; A's status not registered or waiting and P gone from A's list; B registered, C waiting at 1; B's inbox held exactly one `waiting_list_promotion` for P with the expected opening, "venue to be confirmed", B's name and email; A's held none; second withdrawal `404`; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_withdrawing_frees_the_place_for_the_next_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-107 — the Attendee's list shows the primary venue, and hides details while re-checked
+
+- **Scenario:** Every service and the gateway agree on what a registered Attendee sees (S-56 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack; the S-51 to S-53 SQL already applied (no new SQL for S-56). Through the admin client: Organiser O; confirmed event P owned by O, registration open yesterday to tomorrow (SGT), starting ten days out; two venues, V1 and V2; a confirmed booking of V2 for P submitted `2026-10-03`, and a confirmed booking of V1 for P submitted `2026-10-01`; Attendee A.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As A, `GET /api/event-registrations/me/registrations`.
+  3. Set P to `planning`; repeat step 2.
+  4. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`; venue names `spm-test S56 V1 <hex>` and `spm-test S56 V2 <hex>`.
+- **Expected:** 1 → `201`. 2 → P's row has `"details_confirmed": true`, P's start and end dates and times, and `"venue"` V1's name. 3 → P's row is still listed with `"details_confirmed": false`, and its dates, times and `venue` all `null`. 4 leaves no rows.
+- **Actual:** `201`; P's row confirmed with its dates, 18:00:00–21:00:00 and V1's name; after `planning`, still listed with `details_confirmed` false and dates, times and venue null; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_the_attendees_list_shows_the_primary_venue_and_hides_details_while_rechecked; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; with the rest of this suite and `tests/integration/atomic/events`: 18 passed; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree

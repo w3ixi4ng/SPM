@@ -297,6 +297,8 @@ def test_event_organiser_has_the_sprint_one_permissions():
         "events:submit_own",
         # S-62
         "events:request_cancellation",
+        # S-50
+        "events:close_registration",
     }
     assert ROLE_PERMISSIONS["event_organiser"] == EVENT_ORGANISER_PERMISSIONS
 
@@ -596,37 +598,37 @@ def test_coordinator_load_query_only_counts_submitted_and_planning_events(client
 
 
 # --- TC-EVENTS-053 --------------------------------------------------------
-def test_internal_create_trusts_caller_organiser_and_coordinator_ids(client, db):
-    stored = event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)
+def test_internal_create_trusts_caller_organiser_but_starts_unassigned(client, db):
+    stored = event_row(status="submitted", assigned_coordinator_id=None, **SUBMITTED)
     on_insert(db, [stored])
 
     response = client.post(
         "/events/internal",
-        json={**SUBMITTED, "organiser_id": ORGANISER_ID, "assigned_coordinator_id": COORDINATOR_A},
+        json={**SUBMITTED, "organiser_id": ORGANISER_ID, "assigned_coordinator_id": None},
     )
 
     assert response.status_code == 201
     sent = db.schema.return_value.table.return_value.insert.call_args[0][0]
     assert sent["organiser_id"] == ORGANISER_ID
-    assert sent["assigned_coordinator_id"] == COORDINATOR_A
+    assert sent["assigned_coordinator_id"] is None
     assert sent["status"] == "submitted"
     assert sent["submitted_at"] is not None
 
 
 # --- TC-EVENTS-054 --------------------------------------------------------
-def test_internal_submit_sets_the_assignment(client, db):
+def test_internal_submit_preserves_existing_assignment(client, db):
     on_owned_select(db, [event_row()])
-    on_update(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
+    on_update(db, [event_row(status="submitted", assigned_coordinator_id=None, **SUBMITTED)])
 
     response = client.post(
         f"/events/{EVENT_ID}/submit/internal",
-        json={**SUBMITTED, "organiser_id": ORGANISER_ID, "assigned_coordinator_id": COORDINATOR_A},
+        json={**SUBMITTED, "organiser_id": ORGANISER_ID, "assigned_coordinator_id": None},
     )
 
     assert response.status_code == 200
-    assert response.json()["assigned_coordinator_id"] == COORDINATOR_A
+    assert response.json()["assigned_coordinator_id"] is None
     sent = db.schema.return_value.table.return_value.update.call_args[0][0]
-    assert sent["assigned_coordinator_id"] == COORDINATOR_A
+    assert sent["assigned_coordinator_id"] is None
     assert sent["status"] == "submitted"
 
 
@@ -737,7 +739,7 @@ def test_coordinator_load_excludes_the_given_event_from_conflict_and_count(clien
 
 
 # --- TC-EVENTS-063 --------------------------------------------------------
-def test_internal_update_reassigns_the_coordinator(client, db):
+def test_internal_update_rejects_a_different_coordinator(client, db):
     on_owned_select(db, [event_row(status="submitted", assigned_coordinator_id=COORDINATOR_A, **SUBMITTED)])
     on_update_owned(
         db,
@@ -760,11 +762,8 @@ def test_internal_update_reassigns_the_coordinator(client, db):
         },
     )
 
-    assert response.status_code == 200
-    sent = db.schema.return_value.table.return_value.update.call_args[0][0]
-    assert sent["start_time"] == "20:00:00"
-    assert sent["assigned_coordinator_id"] == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-    assert "organiser_id" not in sent
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()
 
 
 # --- TC-EVENTS-064 --------------------------------------------------------
