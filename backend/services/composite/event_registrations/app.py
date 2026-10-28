@@ -551,9 +551,15 @@ async def list_event_attendees(
     }
 
 
-async def _still_public(event_id: str, events: httpx.AsyncClient) -> dict | None:
-    """An event that is no longer confirmed drops out of the Attendee's list."""
-    response = await _call("Events", events.get(f"/internal/events/published/{event_id}"))
+# S-56: confirmed details are shown; an event sent back for re-checking stays
+# listed with them hidden until it is confirmed again.
+DETAILS_CONFIRMED = "confirmed"
+_DETAIL_FIELDS = ("start_date", "start_time", "end_date", "end_time")
+
+
+async def _attendee_view(event_id: str, events: httpx.AsyncClient) -> dict | None:
+    """An event that is over or cancelled drops out of the Attendee's list."""
+    response = await _call("Events", events.get(f"/internal/events/attendee-view/{event_id}"))
     if response.status_code == 404:
         return None
     if response.status_code != 200:
@@ -561,11 +567,45 @@ async def _still_public(event_id: str, events: httpx.AsyncClient) -> dict | None
     return response.json()
 
 
+async def _primary_venue(event_id: str, bookings: httpx.AsyncClient) -> str | None:
+    """S-56: until S-91 records one, the primary venue is the confirmed
+    booking made first. A replacement (S-78) takes the place of the booking
+    it replaced, so a venue issue shows only once its replacement is
+    confirmed -- until then the original is still the confirmed one."""
+    rows = await _json("Bookings", bookings.get("/bookings", params={"event_id": event_id}))
+    by_id = {row["id"]: row for row in rows}
+
+    def first_made(row: dict) -> str:
+        seen = set()
+        while row.get("replaces_booking_id") in by_id and row["id"] not in seen:
+            seen.add(row["id"])
+            row = by_id[row["replaces_booking_id"]]
+        return row.get("submitted_at") or ""
+
+    confirmed = [row for row in rows if row.get("status") == "confirmed"]
+    if not confirmed:
+        return None
+    return min(confirmed, key=first_made).get("venue_name")
+
+
+async def _with_details(entry: dict, event: dict, bookings: httpx.AsyncClient) -> dict:
+    row = {**event, "event_id": event["id"], **entry}
+    row["details_confirmed"] = event["status"] == DETAILS_CONFIRMED
+    row["venue"] = None
+    if not row["details_confirmed"]:
+        row.update(dict.fromkeys(_DETAIL_FIELDS))
+    elif entry["status"] == "confirmed":
+        # Only an Attendee holding a place sees where to go.
+        row["venue"] = await _primary_venue(str(event["id"]), bookings)
+    return row
+
+
 @app.get("/event-registrations/me/registrations", response_model=list[MyRegistration])
 async def list_my_registrations(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     user = await _attendee(request, users)
@@ -577,7 +617,7 @@ async def list_my_registrations(
     # S-52: a confirmed place wins should both ever exist for one event.
     waiting = [row for row in waiting if row["event_id"] not in held]
     found, positions = await asyncio.gather(
-        asyncio.gather(*(_still_public(row["event_id"], events) for row in [*places, *waiting])),
+        asyncio.gather(*(_attendee_view(row["event_id"], events) for row in [*places, *waiting])),
         asyncio.gather(
             *(_place_in_line(row["event_id"], user["id"], registrations) for row in waiting)
         ),
@@ -588,12 +628,16 @@ async def list_my_registrations(
         *({"status": "waitlisted", "registered_at": None, "joined_at": row["created_at"],
            "position": position} for row, position in zip(waiting, positions)),
     ]
-    listed = [
-        {**event, "event_id": event["id"], **entry}
+    shown = [
+        (entry, event)
         for entry, event in zip(entries, found)
+        # A waiting-list entry is listed only while the event is confirmed (S-52).
         if event is not None
+        and (entry["status"] == "confirmed" or event["status"] == DETAILS_CONFIRMED)
     ]
-    # Soonest event first; an event without dates yet sorts last.
+    listed = await asyncio.gather(*(_with_details(entry, event, bookings) for entry, event in shown))
+    # Soonest event first; an event without dates, or whose details are being
+    # re-checked, sorts last.
     return sorted(
         listed,
         key=lambda item: (item["start_date"] or "9999-12-31", item["start_time"] or ""),

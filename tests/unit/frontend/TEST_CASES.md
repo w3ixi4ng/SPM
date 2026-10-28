@@ -2694,3 +2694,42 @@ Lead boundaries; ordinary oversight and S-84 controls remain scoped.
 - **Actual:** The dashboard gated transfer controls by actionable scope and used the filtered candidate list; the Chromium journey moved only the responsible Lead’s event and refreshed the inactive count.
 - **Status:** Pass
 - **Evidence:** test_event_assignments.mjs::S-93 dashboard offers a selected inventory and keeps cross-Lead rows read-only; test_event_assignments.mjs::S-93 stale reassignment stays a failure and uses the existing S-84 route; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]
+
+## S-56 — View Confirmed Event Details
+
+`registrationDetails(row)` decides what each card in "Your registrations"
+shows under the event's name. `row` is one item from
+`GET /api/event-registrations/me/registrations`.
+
+## TC-FRONTEND-267 — a held place shows when and where
+
+- **Scenario:** A registered Attendee's card shows the date, time and primary venue (S-56 AC1, AC3).
+- **Steps:** `registrationDetails(row)`.
+- **Test data / Expected:**
+  | Row | Result |
+  | --- | --- |
+  | `{status: "confirmed", details_confirmed: true, start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", venue: "Hall A"}` | `{when: formatEventWhen(row), venue: "Hall A", pending: null}` |
+  | As above with `venue: null` | `{when: formatEventWhen(row), venue: "Venue to be confirmed", pending: null}` |
+- **Actual:** As expected for both rows.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a held place shows when and where; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-FRONTEND-268 — details being re-checked read "to be confirmed"
+
+- **Scenario:** An event sent back for re-checking shows no date, time or venue (S-56 AC2, AC4).
+- **Steps:** `registrationDetails(row)`.
+- **Test data:** `{status: "confirmed", details_confirmed: false, start_date: null, start_time: null, end_date: null, end_time: null, venue: null}`.
+- **Expected:** `{when: null, venue: null, pending: "Details to be confirmed. The date, time and venue will show here once the event is confirmed again."}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::details being re-checked read to be confirmed; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-FRONTEND-269 — a waiting-list entry shows no venue
+
+- **Scenario:** A waiting Attendee sees the date and their place in line, not the venue (S-56 developer decision).
+- **Steps:** `registrationDetails(row)`.
+- **Test data:** `{status: "waitlisted", position: 2, details_confirmed: true, start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", venue: null}`.
+- **Expected:** `{when: formatEventWhen(row), venue: null, pending: null}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a waiting-list entry shows no venue; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree

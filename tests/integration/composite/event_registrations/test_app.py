@@ -1,4 +1,4 @@
-"""TC-EVENTREGISTRATIONS-101..106. Run with the whole .env.test stack up."""
+"""TC-EVENTREGISTRATIONS-101..107. Run with the whole .env.test stack up."""
 
 import uuid
 from datetime import timedelta
@@ -331,4 +331,87 @@ def test_withdrawing_frees_the_place_for_the_next_in_line(admin, make_account):
     assert notifications.select("id").eq("event_id", event_id).execute().data == []
     assert registrations.select("id").eq("event_id", event_id).execute().data == []
     assert waiting.select("id").eq("event_id", event_id).execute().data == []
+    assert events.select("id").eq("id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-107 --------------------------------------------
+def test_the_attendees_list_shows_the_primary_venue_and_hides_details_while_rechecked(
+    admin, make_account
+):
+    organiser = make_account("event_organiser", "spm-test S-56 organiser")
+    attendee = make_account("attendee", "S-56 Test Attendee")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1)
+    )
+    events = admin.schema("events").table("events")
+    venues = admin.schema("venues").table("venues")
+    bookings = admin.schema("bookings").table("bookings")
+    registrations = admin.schema("registrations").table("registrations")
+    notifications = admin.schema("notifications").table("notifications")
+    event = events.select("name,start_date").eq("id", event_id).execute().data[0]
+    tag = uuid.uuid4().hex[:8]
+    venue_ids = []
+    try:
+        names = {}
+        for label in ("V1", "V2"):
+            names[label] = f"spm-test S56 {label} {tag}"
+            venue_ids.append(venues.insert({
+                "name": names[label], "location": "10 Anson Road", "capacity": 300,
+                "room_layouts": ["theatre"], "facilities": [],
+                "operating_hours": [{"day": "fri", "open": "08:00:00", "close": "22:00:00"}], "created_by": organiser["id"],
+            }).execute().data[0]["id"])
+        # V2 is booked last but inserted first, so the order of rows is not
+        # what decides the primary venue.
+        for venue_id, label, submitted in (
+            (venue_ids[1], "V2", "2026-10-03T00:00:00Z"),
+            (venue_ids[0], "V1", "2026-10-01T00:00:00Z"),
+        ):
+            bookings.insert({
+                "event_id": event_id, "venue_id": venue_id, "coordinator_id": organiser["id"],
+                "coordinator_name": "spm-test Coordinator", "coordinator_email": organiser["email"],
+                "booking_date": event["start_date"], "start_time": "18:00", "end_time": "21:00",
+                "event_name": event["name"], "event_purpose": "Prove S-56",
+                "expected_attendance": 40, "venue_name": names[label], "status": "confirmed",
+                "decided_by": organiser["id"], "decided_at": "2026-10-04T00:00:00Z",
+                "submitted_at": submitted,
+            }).execute()
+
+        register = f"{GATEWAY_BASE_URL}/event-registrations/events/{event_id}/registration"
+        taken = httpx.post(register, headers=attendee["headers"], timeout=20)
+        assert taken.status_code == 201, taken.text
+
+        def mine():
+            listed = httpx.get(
+                f"{GATEWAY_BASE_URL}/event-registrations/me/registrations",
+                headers=attendee["headers"], timeout=20,
+            )
+            assert listed.status_code == 200, listed.text
+            (row,) = [row for row in listed.json() if row["event_id"] == event_id]
+            return row
+
+        row = mine()
+        assert row["details_confirmed"] is True
+        assert row["start_date"] == event["start_date"]
+        assert (row["start_time"], row["end_time"]) == ("18:00:00", "21:00:00")
+        assert row["venue"] == names["V1"]
+
+        # A significant S-18 change sends it back for re-checking.
+        events.update({
+            "status": "planning", "safety_recheck_required": True, "safety_decision": None,
+            "safety_decision_reason": None, "safety_officer_id": None, "safety_decided_at": None,
+        }).eq("id", event_id).execute()
+        row = mine()
+        assert row["details_confirmed"] is False
+        for field in ("start_date", "start_time", "end_date", "end_time", "venue"):
+            assert row[field] is None
+    finally:
+        notifications.delete().eq("event_id", event_id).execute()
+        registrations.delete().eq("event_id", event_id).execute()
+        bookings.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+        for venue_id in venue_ids:
+            venues.delete().eq("id", venue_id).execute()
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
+    assert bookings.select("id").eq("event_id", event_id).execute().data == []
     assert events.select("id").eq("id", event_id).execute().data == []

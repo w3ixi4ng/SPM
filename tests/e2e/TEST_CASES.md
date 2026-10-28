@@ -1475,3 +1475,18 @@ Coordinator inactive through trusted Auth metadata.
 - **Actual:** L1 saw both active event summaries and an inactive-owner count of two, transferred only its own event and saw the count fall to one. L2 then transferred its event, leaving A with zero active events. Cross-Lead rows remained read-only and ordinary oversight stayed scoped.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]`; final rebuilt `.env.test` stack, 2026-10-25 (1 passed). Full Chromium regression before the final UI selection-race fix: 51 passed.
+
+## S-56 — View Confirmed Event Details
+
+## TC-E2E-259 — an Attendee sees when and where their event is, and "to be confirmed" while it is re-checked
+
+- **Scenario:** In a real browser: a registered Attendee's dashboard shows the confirmed date, time and primary venue, hides them while the event is re-checked, and shows them again once it is confirmed (S-56 AC1–AC5).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, no new SQL. Through the admin client: Organiser O; confirmed event P owned by O, starting `2026-12-04 18:00`, ending `2026-12-04 21:00`, registration open from yesterday to a week out (SGT); venues V1 and V2; confirmed bookings of V1 (submitted first) and V2 for P; Attendee A holding a place at P.
+- **Steps:**
+  1. As A, open the dashboard.
+  2. Through the admin client, set P to `planning`; reload.
+  3. Set P to `confirmed` again; reload.
+- **Expected:** 1 → P's card in "Your registrations" shows "4 Dec 2026, 6:00 pm to 9:00 pm" and V1's name, and not V2's name. It shows none of P's purpose, expected attendance, organiser or coordinator. 2 → P's card is still there and reads "Details to be confirmed. The date, time and venue will show here once the event is confirmed again.", with no date and neither venue's name. 3 → the date, time and V1's name are back.
+- **Actual:** Chromium: the card showed "4 Dec 2026, 6:00 pm to 9:00 pm" and Hall One, not Room Two, with no purpose, attendance, organiser or coordinator; after `planning` and a reload it read the "Details to be confirmed…" line with no date or venue; after re-confirming, the date and Hall One were back.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_confirmed_event_details.py::test_an_attendee_sees_when_and_where_and_to_be_confirmed_while_rechecked[chromium]; with the S-48/50/51/52/53 registration journeys: 9 passed (S-52 and S-53's `Confirmed` locators made exact, since a held card now also reads "Venue to be confirmed"); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree

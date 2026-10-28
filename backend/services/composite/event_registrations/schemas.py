@@ -88,3 +88,7 @@ class MyRegistration(BaseModel):
     registered_at: datetime | None
     joined_at: datetime | None
     position: int | None
+    # S-56: false while a significant change is re-checked, with the dates
+    # and times null. `venue` is the primary venue, for a held place only.
+    details_confirmed: bool
+    venue: str | None

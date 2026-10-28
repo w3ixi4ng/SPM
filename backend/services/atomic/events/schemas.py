@@ -446,6 +446,14 @@ class PublishedEventRead(BaseModel):
     registration_closed_at: datetime | None = None
 
 
+class AttendeeEventRead(PublishedEventRead):
+    """S-56: an event as its registered Attendees may see it, with its status
+    so the event_registrations composite can tell confirmed details from ones
+    being re-checked after a significant change."""
+
+    status: str
+
+
 class EventChangeRecord(BaseModel):
     """One immutable Coordinator edit, retained for the future S-82 view."""
 

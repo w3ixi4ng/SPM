@@ -13,7 +13,9 @@ pytestmark = requires_env
 def coordinator_group(page, user: dict, name: str):
     """Names can repeat across accounts in the shared test project; IDs cannot."""
     group = page.locator(f'article[data-coordinator-id="{user["id"]}"]')
-    expect(group).to_have_count(1)
+    # The oversight list loads after the heading; on a cold stack that can
+    # take longer than Playwright's 5 s default.
+    expect(group).to_have_count(1, timeout=20000)
     expect(group).to_have_attribute("aria-label", f"{name} coordinator overview")
     return group
 
