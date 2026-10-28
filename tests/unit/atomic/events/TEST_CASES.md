@@ -2914,3 +2914,254 @@ public routes still show only confirmed events.
 - **Actual:** `planning` row → `200` with the published keys plus `status`; select lists exactly those columns, no internal ones; filtered on `id` and `status in` the four statuses. No row → `404` "Event not found.".
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s56.py::test_the_attendee_read_says_whether_the_details_are_confirmed, ::test_an_event_attendees_may_not_see_is_not_found; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. The events service keeps an append-only `events.event_history`
+table, one row per significant action:
+`{id, event_id, actor_id, actor_role, category, action, details, occurred_at}`.
+`occurred_at` is server time. Actions the events service carries out itself
+are recorded by the events service. Venue and equipment actions are sent by
+their composites to `POST /internal/events/{event_id}/history`.
+
+**Shared test data.**
+
+```
+event E            11111111-1111-4111-8111-111111111111
+Organiser O        22222222-2222-4222-8222-222222222222
+Coordinator C      aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+Coordinator C2     bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
+Lead L             dddddddd-dddd-4ddd-8ddd-dddddddddddd
+Safety Officer S   55555555-5555-4555-8555-555555555555
+Tech Support T     66666666-6666-4666-8666-666666666666
+```
+
+The Supabase fake records every `insert` made on `event_history`.
+
+## TC-EVENTS-188 — a submission is recorded
+
+- **Scenario:** Submitting an event request records who submitted it and when (S-82 AC1).
+- **Pre-conditions:** Supabase fake: the event insert/update returns E owned by O with status `submitted`.
+- **Steps:**
+  1. `POST /events/internal` with a valid submitted body for O.
+  2. `POST /events/E/submit/internal` for O on a `draft` E.
+  3. `POST /events/E/submit/internal` for O on a `returned` E.
+- **Test data:** O and E as above.
+- **Expected:** Each step returns its usual status and inserts exactly one `event_history` row: `{event_id: E, actor_id: O, actor_role: "event_organiser", category: "submission", action: "submitted"}`. `details` is `{}` for steps 1 and 2 and `{"resubmission": true}` for step 3. No `occurred_at` is sent; the database sets it.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_a_submission_is_recorded
+
+## TC-EVENTS-189 — a Coordinator's review decision is recorded
+
+- **Scenario:** Approving, rejecting and returning a request are recorded with the reason (S-82 AC1).
+- **Pre-conditions:** E is `submitted`, assigned to C; the decision update succeeds.
+- **Steps:** As C, `POST /events/E/decision` with each body in Test data.
+- **Test data:**
+  | Body | `action` | `details` |
+  | --- | --- | --- |
+  | `{"decision": "approved", "comment": "Looks good"}` | `request_approved` | `{"reason": null, "comment": "Looks good"}` |
+  | `{"decision": "rejected", "reason": "Clashes with exams"}` | `request_rejected` | `{"reason": "Clashes with exams", "comment": null}` |
+  | `{"decision": "returned", "reason": "Add a contact"}` | `request_returned` | `{"reason": "Add a contact", "comment": null}` |
+- **Expected:** `200` each time, and one row per decision with `actor_id: C`, `actor_role: "event_coordinator"`, `category: "review"`, and the `action` and `details` in the table.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_a_review_decision_is_recorded
+
+## TC-EVENTS-190 — a cancellation request and its decision are recorded
+
+- **Scenario:** The Organiser's cancellation request and the Coordinator's decision on it are both recorded (S-82 AC1).
+- **Pre-conditions:** E is `planning`, owned by O, assigned to C.
+- **Steps:**
+  1. As O, `POST /events/E/cancellation-request` with `{"reason": "Speaker withdrew"}`.
+  2. As C, `POST /events/E/cancellation-decision` with `{"decision": "declined", "reason": "Replacement speaker found"}`.
+  3. Repeat 2 with `{"decision": "approved"}` on a fresh E.
+- **Test data:** As above.
+- **Expected:**
+  1 → one row `{actor_id: O, actor_role: "event_organiser", category: "review", action: "cancellation_requested", details: {"reason": "Speaker withdrew"}}`.
+  2 → one row `{actor_id: C, actor_role: "event_coordinator", category: "review", action: "cancellation_declined", details: {"reason": "Replacement speaker found"}}`.
+  3 → `action: "cancellation_approved"`, `details: {"reason": null}`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_cancellation_request_and_decision_are_recorded
+
+## TC-EVENTS-191 — a Lead's assignment is recorded once
+
+- **Scenario:** Assigning a Coordinator is recorded; the idempotent repeat is not recorded again (S-82 AC1).
+- **Pre-conditions:** E is `submitted` with no Coordinator; trusted assignment token set.
+- **Steps:**
+  1. As L, `POST /internal/events/E/assignment` with `{"coordinator_id": C}`.
+  2. Repeat step 1 (the fake now returns E already assigned to C by L).
+- **Test data:** As above.
+- **Expected:** 1 → one row `{actor_id: L, actor_role: "event_coordinator_lead", category: "assignment", action: "coordinator_assigned", details: {"coordinator_id": C}}`. 2 → `assignment_created: false` and no further row.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_an_assignment_is_recorded_once
+
+## TC-EVENTS-192 — a reassignment request and a reassignment are recorded once
+
+- **Scenario:** The Coordinator's request to be reassigned and the Lead's reassignment are both recorded; an exact retry is not (S-82 AC1).
+- **Pre-conditions:** E is `planning`, assigned to C by L, `coordinator_assignment_version` 2.
+- **Steps:**
+  1. As C, `POST /events/E/reassignment-request` with `{"reason": "Leaving the team"}`.
+  2. As L, `POST /internal/events/E/reassignment` with `{"coordinator_id": C2, "expected_coordinator_id": C, "expected_assignment_version": 2}`.
+  3. Repeat step 2 (exact retry; the fake returns E already moved to C2 at version 3).
+- **Test data:** As above.
+- **Expected:**
+  1 → one row `{actor_id: C, actor_role: "event_coordinator", category: "assignment", action: "reassignment_requested", details: {"reason": "Leaving the team"}}`.
+  2 → one row `{actor_id: L, actor_role: "event_coordinator_lead", category: "assignment", action: "coordinator_reassigned", details: {"from_coordinator_id": C, "to_coordinator_id": C2}}`.
+  3 → `reassignment_created: false` and no further row.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_reassignment_request_and_reassignment_are_recorded_once
+
+## TC-EVENTS-193 — a Technical Support assignment is recorded
+
+- **Scenario:** The Coordinator assigning Technical Support is recorded (S-82 AC1).
+- **Pre-conditions:** E is `planning`, assigned to C, no Technical Support.
+- **Steps:** `PUT /events/E/technical-support/internal` assigning T on behalf of C.
+- **Test data:** As above.
+- **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "assignment", action: "technical_support_assigned", details: {"technical_support_id": T, "previous_technical_support_id": null}}`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_a_technical_support_assignment_is_recorded
+
+## TC-EVENTS-194 — a Coordinator's edit is recorded with each changed field
+
+- **Scenario:** One save is one entry listing every changed field's old and new value (S-82 AC1).
+- **Pre-conditions:** E is `planning`, assigned to C, `edit_version` 3, `expected_attendance` 120, `internal_notes` null, `room_layout` `theatre`.
+- **Steps:** As C, `PATCH /events/assigned/E` with `{"expected_version": 3, "impact_accepted": true, "expected_attendance": 150, "internal_notes": "Check lift access", "room_layout": "theatre"}`.
+- **Test data:** As above.
+- **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "edit", action: "edited", details: {"changes": {"expected_attendance": {"from": 120, "to": 150}, "internal_notes": {"from": null, "to": "Check lift access"}}, "significant": true}}`. `room_layout` is not listed, because it did not change. The existing `edit_history` column is still appended to, as before.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_an_edit_is_recorded_with_each_changed_field
+
+## TC-EVENTS-195 — safety-check submissions and decisions are recorded
+
+- **Scenario:** Every step of the Operational Safety Check is recorded (S-82 AC1).
+- **Pre-conditions:** E assigned to C; each internal write succeeds.
+- **Steps:**
+  1. `POST /internal/events/E/safety-submission` for C.
+  2. `POST /internal/events/safety-review/E/decision` as S with each decision below.
+  3. `POST /internal/events/E/safety-resubmit` for C after `changes_requested`.
+- **Test data:**
+  | Decision body | `action` | `details` |
+  | --- | --- | --- |
+  | `{"decision": "approved"}` | `safety_approved` | `{"reason": null}` |
+  | `{"decision": "changes_requested", "reason": "Fire exit blocked"}` | `safety_changes_requested` | `{"reason": "Fire exit blocked"}` |
+  | `{"decision": "rejected", "reason": "Capacity over limit"}` | `safety_rejected` | `{"reason": "Capacity over limit"}` |
+- **Expected:**
+  1 → one row `{actor_id: C, actor_role: "event_coordinator", category: "safety", action: "safety_submitted", details: {}}`.
+  2 → one row per decision, `actor_id: S`, `actor_role: "safety_officer"`, `category: "safety"`, with the table's `action` and `details`.
+  3 → one row `{actor_id: C, category: "safety", action: "safety_resubmitted", details: {}}`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_safety_submissions_and_decisions_are_recorded
+
+## TC-EVENTS-196 — Technical Support's sign-off and preparation status are recorded
+
+- **Scenario:** Equipment decisions owned by the events service are recorded (S-82 AC1).
+- **Pre-conditions:** E is `planning`, Technical Support T assigned, `equipment_preparation_status` `not_started`.
+- **Steps:**
+  1. `PUT /internal/events/E/technical-signoff` as T with `{"decision": "declined", "reason": "Projector unavailable"}`.
+  2. Repeat with `{"decision": "approved"}`.
+  3. As T, `PUT /events/support-assigned/E/equipment-preparation` with `{"status": "in_progress"}`.
+- **Test data:** As above.
+- **Expected:** One row each, all `actor_id: T`, `actor_role: "technical_support"`, `category: "equipment"`:
+  1 → `technical_signoff_declined`, `{"reason": "Projector unavailable"}`.
+  2 → `technical_signoff_approved`, `{"reason": null}`.
+  3 → `equipment_preparation_changed`, `{"from": "not_started", "to": "in_progress"}`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded
+
+## TC-EVENTS-197 — a refused action records nothing
+
+- **Scenario:** Only actions that took effect appear in the history.
+- **Pre-conditions:** As in each row.
+- **Steps / Test data / Expected:**
+  | Attempt | Response | `event_history` inserts |
+  | --- | --- | --- |
+  | `POST /events/E/decision` as C on an already-decided E | `409` | none |
+  | `POST /events/E/decision` as C2 (not assigned) | `404` | none |
+  | `PATCH /events/assigned/E` with a stale `expected_version` 2 | `409` | none |
+  | `PATCH /events/assigned/E` changing nothing | `200` | none |
+  | `POST /internal/events/E/assignment` for C on E already assigned to C2 | `409` | none |
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_a_refused_action_records_nothing
+
+## TC-EVENTS-198 — a failed history write does not undo the action
+
+- **Scenario:** The history is best effort: if recording fails, the action still stands and the failure is logged.
+- **Pre-conditions:** The decision update succeeds; the `event_history` insert raises.
+- **Steps:** As C, `POST /events/E/decision` with `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `200` with the approved event, and one `ERROR` log record naming E and `request_approved`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_a_failed_history_write_does_not_undo_the_action
+
+## TC-EVENTS-199 — composites append an entry through the internal route
+
+- **Scenario:** Venue and equipment actions owned by other services are added through one validated internal route.
+- **Pre-conditions:** E exists unless a row says otherwise.
+- **Steps:** `POST /internal/events/E/history` with each body below.
+- **Test data / Expected:**
+  | Body | Response |
+  | --- | --- |
+  | `{"actor_id": C, "actor_role": "event_coordinator", "action": "venue_requested", "details": {"booking_id": "99999999-9999-4999-8999-999999999999", "venue_name": "Hall One"}}` | `201` with `id`, `event_id: E`, `category: "venue"`, the body's fields and a server `occurred_at` |
+  | Same, `"action": "made_up"` | `422` |
+  | Same, `"action": "request_approved"` (an action only the events service records) | `422` |
+  | Same, plus `"occurred_at": "2020-01-01T00:00:00Z"` | `422` |
+  | Same, plus `"category": "safety"` | `422` |
+  | Same, on an event that does not exist | `404` "Event not found" |
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_composites_append_through_the_internal_route
+
+## TC-EVENTS-200 — the full history reads newest first
+
+- **Scenario:** The internal read returns every entry for one event, newest first.
+- **Pre-conditions:** The fake holds three rows for E at `2026-10-01T01:00Z`, `2026-10-02T01:00Z`, `2026-10-03T01:00Z`, and one row for another event.
+- **Steps:**
+  1. `GET /internal/events/E/history`.
+  2. `GET /internal/events/<missing id>/history`.
+- **Test data:** As above.
+- **Expected:** 1 → `200`, E's three rows only, ordered `2026-10-03`, `2026-10-02`, `2026-10-01`, each with `id, event_id, actor_id, actor_role, category, action, details, occurred_at`. 2 → `404` "Event not found".
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_the_full_history_reads_newest_first
+
+## TC-EVENTS-201 — the safety view keeps only what the safety review needs
+
+- **Scenario:** `scope=safety` returns attendance, venue or layout, access and equipment changes, and the safety decisions (S-82 AC3).
+- **Pre-conditions:** The fake holds these rows for E:
+  1. `submitted`
+  2. `coordinator_assigned`
+  3. `edited`, changes `expected_attendance` 120→150 and `internal_notes` null→"Call Ada"
+  4. `edited`, changes `contact_phone` only
+  5. `venue_confirmed`
+  6. `equipment_requirement_set`
+  7. `safety_changes_requested`
+  8. `request_approved`
+- **Steps:** `GET /internal/events/E/history?scope=safety`.
+- **Test data:** As above.
+- **Expected:** `200` with rows 7, 6, 5 and 3, newest first. Row 3's `details.changes` holds only `expected_attendance`. Rows 1, 2, 4 and 8 are left out. Safety-relevant edit fields are `expected_attendance`, `venue`, `room_layout`, `required_facilities` and `required_accessibility`. `scope=other` → `422`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_the_safety_view_keeps_only_what_the_review_needs
+
+## TC-EVENTS-202 — no route changes or removes an entry
+
+- **Scenario:** History entries cannot be edited or deleted through the service (S-82 AC4).
+- **Pre-conditions:** E has one history row with id 7.
+- **Steps:** Send `PUT`, `PATCH` and `DELETE` to `/internal/events/E/history` and to `/internal/events/E/history/7`.
+- **Test data:** As above.
+- **Expected:** `405` for each method on the collection path and `404` or `405` for each on the entry path. The fake records no `update` or `delete` on `event_history`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:** test_s82.py::test_no_route_changes_or_removes_an_entry

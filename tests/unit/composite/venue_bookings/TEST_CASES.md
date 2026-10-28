@@ -2064,3 +2064,58 @@ submission can be cleared. Everything else about S-78 is unchanged.
 - **Expected:** Pending, held, rejected, replaced, and missing bookings cannot be updated.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.py::test_nonconfirmed_bookings_are_refused`.
+
+
+## S-82 — View Event Change History
+
+`test_s82.py`. After each venue action takes effect, the composite sends one
+entry to Events `POST /internal/events/{event_id}/history` (TC-EVENTS-199).
+Event E `11111111-1111-4111-8111-111111111111`; booking B
+`99999999-9999-4999-8999-999999999999` for E at venue "Hall One"; Coordinator
+C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
+`77777777-7777-4777-8777-777777777777`.
+
+### TC-VENUEBOOKINGS-122 - a Coordinator's venue requests are recorded
+- **Scenario:** Requesting, changing, withdrawing and replacing a venue booking is recorded (S-82 AC1).
+- **Pre-conditions:** Signed in as C, the assigned Coordinator; Bookings accepts each write.
+- **Steps / Test data / Expected:** Each step sends exactly one entry with `actor_id: C` and `actor_role: "event_coordinator"`:
+  | Step | `action` | `details` |
+  | --- | --- | --- |
+  | `POST /venue-bookings` for E at Hall One, 2026-11-18 09:00–12:00 | `venue_requested` | `{"booking_id": B, "venue_name": "Hall One", "start": "2026-11-18T09:00:00", "end": "2026-11-18T12:00:00"}` |
+  | `PATCH /venue-bookings/B` to 10:00–13:00 | `venue_request_changed` | `{"booking_id": B, "venue_name": "Hall One", "from": {"start": "…09:00:00", "end": "…12:00:00"}, "to": {"start": "…10:00:00", "end": "…13:00:00"}}` |
+  | `DELETE /venue-bookings/B` | `venue_request_withdrawn` | `{"booking_id": B, "venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/replacement` with Room Two | `venue_replacement_requested` | `{"booking_id": <new id>, "replaces_booking_id": B, "venue_name": "Room Two"}` |
+  | `POST /venue-bookings/B/resolution` | `venue_alternative_resolved` | `{"booking_id": B, "venue_name": "Hall One"}` |
+- **Status:** Not Executed.
+- **Evidence:** `test_s82.py::test_coordinator_venue_requests_are_recorded`.
+
+### TC-VENUEBOOKINGS-123 - Venue Staff decisions are recorded
+- **Scenario:** Holding, releasing, confirming and rejecting a booking is recorded (S-82 AC1).
+- **Pre-conditions:** Signed in as V; Bookings accepts each write.
+- **Steps / Test data / Expected:** Each step sends exactly one entry with `actor_id: V` and `actor_role: "venue_staff"`:
+  | Step | `action` | `details` |
+  | --- | --- | --- |
+  | `POST /venue-bookings/B/hold` | `venue_held` | `{"booking_id": B, "venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/release` | `venue_released` | `{"booking_id": B, "venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/decision` `{"decision": "approved"}` | `venue_confirmed` | `{"booking_id": B, "venue_name": "Hall One", "reason": null}` |
+  | `POST /venue-bookings/B/decision` `{"decision": "rejected", "reason": "Under renovation", ...}` | `venue_rejected` | `{"booking_id": B, "venue_name": "Hall One", "reason": "Under renovation"}` |
+- **Status:** Not Executed.
+- **Evidence:** `test_s82.py::test_venue_staff_decisions_are_recorded`.
+
+### TC-VENUEBOOKINGS-124 - refused venue actions record nothing
+- **Scenario:** Only actions that took effect are recorded.
+- **Pre-conditions:** As in each row.
+- **Steps / Test data / Expected:** No history call is made when:
+  - `POST /venue-bookings` returns `409` (slot taken) or `422` (unsuitable venue);
+  - `POST /venue-bookings/B/decision` comes from a Coordinator (`403`);
+  - Bookings answers `409` to a hold.
+- **Status:** Not Executed.
+- **Evidence:** `test_s82.py::test_refused_venue_actions_record_nothing`.
+
+### TC-VENUEBOOKINGS-125 - a failed history write does not undo the venue action
+- **Scenario:** The history is best effort, as in TC-EVENTS-198.
+- **Pre-conditions:** As V; Bookings confirms B; Events history answers `500`, and separately times out.
+- **Steps:** `POST /venue-bookings/B/decision` with `{"decision": "approved"}`.
+- **Expected:** The usual `200` with the confirmed booking each time, and one `ERROR` log record naming E and `venue_confirmed`.
+- **Status:** Not Executed.
+- **Evidence:** `test_s82.py::test_a_failed_history_write_does_not_undo_the_venue_action`.
