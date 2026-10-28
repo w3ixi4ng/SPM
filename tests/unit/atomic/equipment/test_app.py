@@ -323,6 +323,46 @@ def test_technical_support_reads_and_updates_one_item(client, db, auth):
     table(db).update.return_value.eq.return_value.select.assert_called_once_with("*")
 
 
+# --- TC-EQUIPMENT-032 ----------------------------------------------------
+def test_storage_location_is_created_edited_and_cleared_by_technical_support(
+    client, db, auth
+):
+    authenticate(client, auth)
+    created = equipment_row(storage_location="Store B, Shelf 4")
+    returns(insert_operation(db), [created])
+
+    create = client.post("/equipment", json=VALID_ITEM)
+
+    assert create.status_code == 201
+    assert create.json()["storage_location"] == "Store B, Shelf 4"
+    assert table(db).insert.call_args.args[0]["storage_location"] == "Store B, Shelf 4"
+
+    table(db).reset_mock()
+    cleared_payload = {**VALID_UPDATE, "storage_location": ""}
+    cleared = equipment_row(**{**VALID_UPDATE, "storage_location": None})
+    returns(update_operation(db), [cleared])
+
+    update = client.put(f"/equipment/{ITEM_ID}", json=cleared_payload)
+
+    assert update.status_code == 200
+    assert update.json()["storage_location"] is None
+    assert table(db).update.call_args.args[0]["storage_location"] is None
+
+
+# --- TC-EQUIPMENT-033 ----------------------------------------------------
+def test_catalogue_and_selection_expose_storage_location(
+    client, db, auth
+):
+    authenticate(client, auth)
+    row = equipment_row(storage_location="Loading Dock Cabinet 2")
+    returns(catalogue_operation(db), [row])
+    assert client.get("/equipment").json()[0]["storage_location"] == "Loading Dock Cabinet 2"
+
+    table(db).reset_mock()
+    returns(selection_operation(db), [row])
+    assert client.get("/equipment/selection").json()[0]["storage_location"] == "Loading Dock Cabinet 2"
+
+
 # --- TC-EQUIPMENT-021 ----------------------------------------------------
 def test_missing_item_returns_404(client, db, auth):
     authenticate(client, auth)

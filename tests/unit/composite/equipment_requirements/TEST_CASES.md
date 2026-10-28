@@ -487,3 +487,12 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_failed_clear_blocks_requirement_change`
+
+## TC-EQUIPMENTREQUIREMENTS-031 — location is displayed metadata, not availability input
+
+- **Scenario:** Recording or changing an equipment location cannot reserve equipment or affect any venue.
+- **Pre-conditions:** The same catalogue, events and requirements are returned twice; only the microphone location differs.
+- **Steps:** Calculate availability with no location and with `Remote Warehouse`.
+- **Expected:** The response passes the current location through, while total, reserved, unavailable, available, over-reserved and sufficient values remain identical. No venues dependency exists in this composite.
+- **Status:** Pass
+- **Evidence:** `test_availability.py::test_storage_location_is_metadata_and_never_changes_availability`

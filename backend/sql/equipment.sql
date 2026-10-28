@@ -16,6 +16,7 @@ create table if not exists equipment.equipment (
   id                 uuid primary key default gen_random_uuid(),
   type               text not null,
   description        text,
+  storage_location   text,
   total_quantity     integer not null,
   operational_status text not null default 'available',
   lifecycle_status   text not null default 'active',
@@ -27,6 +28,11 @@ create table if not exists equipment.equipment (
     check (btrim(type) <> ''),
   constraint equipment_description_not_blank
     check (description is null or btrim(description) <> ''),
+  constraint equipment_storage_location_valid
+    check (
+      storage_location is null
+      or (btrim(storage_location) <> '' and char_length(storage_location) <= 200)
+    ),
   constraint equipment_total_quantity_positive
     check (total_quantity > 0),
   constraint equipment_operational_status_allowed
@@ -179,3 +185,24 @@ grant execute on function equipment.delete_requirement_with_history(uuid, uuid, 
 notify pgrst, 'reload schema';
 commit;
 -- END S-18 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-92 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- Existing catalogue rows keep a null location until Technical Support records
+-- one. The location is descriptive metadata and is not used by availability.
+begin;
+
+alter table equipment.equipment
+  add column if not exists storage_location text;
+
+alter table equipment.equipment
+  drop constraint if exists equipment_storage_location_valid;
+alter table equipment.equipment add constraint equipment_storage_location_valid
+  check (
+    storage_location is null
+    or (btrim(storage_location) <> '' and char_length(storage_location) <= 200)
+  );
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-92 DATA-PRESERVING MIGRATION

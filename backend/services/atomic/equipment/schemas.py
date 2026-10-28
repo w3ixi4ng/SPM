@@ -15,6 +15,7 @@ class EquipmentCreate(BaseModel):
 
     type: str = Field(min_length=1)
     description: str | None = None
+    storage_location: str | None = Field(default=None, max_length=200)
     total_quantity: PositiveInt
 
     @field_validator("type", mode="before")
@@ -22,9 +23,9 @@ class EquipmentCreate(BaseModel):
     def strip_type(cls, value):
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("description", mode="before")
+    @field_validator("description", "storage_location", mode="before")
     @classmethod
-    def blank_description_is_none(cls, value):
+    def blank_optional_text_is_none(cls, value):
         if isinstance(value, str):
             return value.strip() or None
         return value
@@ -37,6 +38,7 @@ class EquipmentUpdate(BaseModel):
 
     type: str = Field(min_length=1)
     description: str | None = None
+    storage_location: str | None = Field(default=None, max_length=200)
     total_quantity: PositiveInt
     operational_status: OperationalStatus
 
@@ -45,9 +47,9 @@ class EquipmentUpdate(BaseModel):
     def strip_type(cls, value):
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("description", mode="before")
+    @field_validator("description", "storage_location", mode="before")
     @classmethod
-    def blank_description_is_none(cls, value):
+    def blank_optional_text_is_none(cls, value):
         if isinstance(value, str):
             return value.strip() or None
         return value
@@ -57,6 +59,7 @@ class EquipmentRead(BaseModel):
     id: UUID
     type: str
     description: str | None
+    storage_location: str | None = None
     total_quantity: int
     operational_status: OperationalStatus
     lifecycle_status: LifecycleStatus
@@ -94,6 +97,7 @@ class EquipmentRequirementItem(BaseModel):
     id: UUID
     type: str
     description: str | None
+    storage_location: str | None = None
     total_quantity: int
     operational_status: OperationalStatus
     lifecycle_status: LifecycleStatus

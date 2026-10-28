@@ -55,6 +55,7 @@ Successful writes and reads return an equipment requirement:
     "id": "22222222-2222-4222-8222-222222222222",
     "type": "Wireless Microphone",
     "description": "Handheld wireless microphone",
+    "storage_location": "Store B, Shelf 4",
     "total_quantity": 12,
     "operational_status": "available",
     "lifecycle_status": "active"
@@ -159,7 +160,8 @@ Nothing is cached: each call reads live data and returns `checked_at`.
   "quantity": 3,
   "items": [
     {
-      "id": "…", "type": "Wireless Microphone", "operational_status": "available",
+      "id": "…", "type": "Wireless Microphone", "storage_location": "Store B, Shelf 4",
+      "operational_status": "available",
       "total": 12, "reserved": 10, "unavailable": 0, "available": 2,
       "over_reserved": false, "sufficient": false,
       "reservations": [
@@ -174,6 +176,9 @@ Nothing is cached: each call reads live data and returns `checked_at`.
 
 Items are in type order; each item's `reservations` in event start order.
 `sufficient` is `null` when no `quantity` was given.
+`storage_location` is passed through for display only. It changes none of
+`reserved`, `unavailable`, `available`, `over_reserved`, or `sufficient`, and
+the composite makes no call to the venues service.
 
 | Status | Body | Meaning |
 | --- | --- | --- |

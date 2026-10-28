@@ -2734,6 +2734,26 @@ shows under the event's name. `row` is one item from
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::a waiting-list entry shows no venue; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
 
+## S-92 — Record Equipment Storage Location
+
+Test cases confirmed by the developer on 2026-10-28.
+
+## TC-FRONTEND-272 — the equipment form maps storage location safely
+
+- **Scenario:** Technical Support can load, edit and clear an optional location.
+- **Steps:** Map an API item to the form; build update payloads with a spaced location and a blank location; validate 201 characters.
+- **Expected:** Current text loads; surrounding spaces are removed; blank becomes null; more than 200 characters is rejected before sending.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs::storage location is normalized, editable, clearable and length limited`
+
+## TC-FRONTEND-273 — catalogue and availability use clear location wording
+
+- **Scenario:** Equipment location is readable in both required views.
+- **Test data:** `Store B, Shelf 4` and null.
+- **Expected:** The UI reads `Stored at Store B, Shelf 4` or `Storage location not recorded`.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs::catalogue and availability use an explicit storage location label`
+
 ## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
 
 ## TC-FRONTEND-270 — sign-up offers exactly two roles, none chosen

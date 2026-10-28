@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, Package, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import Logo from '../components/Logo.jsx'
+import { equipmentStorageLocationLabel } from '../lib/equipment.js'
 import {
   availabilityErrorMessages,
   availabilitySummary,
@@ -123,6 +124,7 @@ function ItemRow({ item }) {
           <Package size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: C.inkFaint }} />
           <div className="min-w-0">
             <h3 className="font-ui text-base font-medium" style={{ color: C.ink }}>{item.type}</h3>
+            <p className="font-ui text-xs mt-0.5" style={{ color: C.inkFaint }}>{equipmentStorageLocationLabel(item)}</p>
             <p className="font-ui text-sm mt-0.5" style={{ color: summary.headlineColor ?? C.ink }}>{summary.headline}</p>
             <p className="font-ui text-xs mt-0.5" style={{ color: C.inkFaint }}>{summary.reserved}</p>
           </div>
