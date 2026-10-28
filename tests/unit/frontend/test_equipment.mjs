@@ -237,7 +237,7 @@ test('retirement failures are safe and actionable', () => {
   assert.match(equipmentRetirementErrorMessage({ status: 500 }), /not been retired/i)
 })
 
-// --- TC-FRONTEND-270 -----------------------------------------------------
+// --- TC-FRONTEND-272 -----------------------------------------------------
 test('storage location is normalized, editable, clearable and length limited', () => {
   assert.equal(equipmentReadToForm(API_ITEM).storageLocation, 'Store B, Shelf 4')
   assert.equal(equipmentUpdateFormToPayload(UPDATE_FORM).storage_location, 'AV Cage, Rack 2')
@@ -251,7 +251,7 @@ test('storage location is normalized, editable, clearable and length limited', (
   )
 })
 
-// --- TC-FRONTEND-271 -----------------------------------------------------
+// --- TC-FRONTEND-273 -----------------------------------------------------
 test('catalogue and availability use an explicit storage location label', () => {
   assert.equal(equipmentStorageLocationLabel(API_ITEM), 'Stored at Store B, Shelf 4')
   assert.equal(equipmentStorageLocationLabel({ ...API_ITEM, storage_location: null }), 'Storage location not recorded')

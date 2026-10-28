@@ -28,7 +28,12 @@ from .conftest import (
 ACCESS_COOKIE = "sb_access_token"
 REFRESH_COOKIE = "sb_refresh_token"
 
-SIGNUP = {"name": NAME, "email": EMAIL, "password": "correct-horse-battery"}
+SIGNUP = {
+    "name": NAME,
+    "email": EMAIL,
+    "password": "correct-horse-battery",
+    "role": "event_organiser",
+}
 LOGIN = {"email": EMAIL, "password": "correct-horse-battery"}
 
 
@@ -479,7 +484,7 @@ def test_validation_errors_arrive_in_the_same_shape_as_every_other_error(client,
 # --- TC-USERS-024 ---------------------------------------------------------
 @pytest.mark.parametrize(
     "requested_role",
-    ["event_coordinator", "venue_staff", "technical_support", "attendee"],
+    ["event_coordinator", "venue_staff", "technical_support"],
 )
 def test_signup_cannot_choose_an_internal_role(client, db, auth, requested_role):
     response = client.post(
@@ -697,3 +702,63 @@ def test_internal_profile_lookup_empty_input_skips_storage(client, db):
     assert response.status_code == 200
     assert response.json() == []
     db.schema.assert_not_called()
+
+
+# --- TC-USERS-039, TC-USERS-040 -------------------------------------------
+@pytest.mark.parametrize("role", ["attendee", "event_organiser"])
+def test_signup_stamps_the_role_that_was_chosen(client, db, auth, role):
+    on_select(db, [])
+    on_insert(db, [PROFILE])
+    auth.auth.sign_up.return_value = SimpleNamespace(
+        user=fake_user(), session=fake_session()
+    )
+
+    response = client.post("/users/signup", json={**SIGNUP, "role": role})
+
+    assert response.status_code == 201
+    assert response.json() == {"id": USER_ID, "name": NAME, "email": EMAIL}
+    db.auth.admin.update_user_by_id.assert_called_once_with(
+        USER_ID, {"app_metadata": {"role": role}}
+    )
+    # The role lives in trusted Auth metadata only, never in the profile.
+    db.schema.return_value.table.return_value.insert.assert_called_once_with(
+        {"id": USER_ID, "name": NAME, "email": EMAIL}
+    )
+
+
+# --- TC-USERS-041 ---------------------------------------------------------
+@pytest.mark.parametrize("role", ["omitted", None, ""])
+def test_signup_without_a_role_is_rejected(client, db, auth, role):
+    body = {k: v for k, v in SIGNUP.items() if k != "role"}
+    if role != "omitted":
+        body["role"] = role
+
+    response = client.post("/users/signup", json=body)
+
+    assert response.status_code == 422
+    assert "role" in response.json()["errors"]
+    auth.auth.sign_up.assert_not_called()
+    db.auth.admin.update_user_by_id.assert_not_called()
+
+
+# --- TC-USERS-042 ---------------------------------------------------------
+@pytest.mark.parametrize(
+    "role",
+    [
+        "event_coordinator",
+        "event_coordinator_lead",
+        "venue_staff",
+        "technical_support",
+        "safety_officer",
+        "admin",
+        "Attendee",
+        ["attendee", "event_organiser"],
+    ],
+)
+def test_signup_cannot_choose_any_role_but_the_two_public_ones(client, db, auth, role):
+    response = client.post("/users/signup", json={**SIGNUP, "role": role})
+
+    assert response.status_code == 422
+    assert "role" in response.json()["errors"]
+    auth.auth.sign_up.assert_not_called()
+    db.auth.admin.update_user_by_id.assert_not_called()

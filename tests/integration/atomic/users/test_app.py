@@ -88,7 +88,13 @@ def test_signup_login_me_logout_round_trip(api, cleanup, admin):
     email = unique_email()
 
     created = api.post(
-        "/users/signup", json={"name": "Ada Lovelace", "email": email, "password": PASSWORD}
+        "/users/signup",
+        json={
+            "name": "Ada Lovelace",
+            "email": email,
+            "password": PASSWORD,
+            "role": "event_organiser",
+        },
     )
     assert created.status_code == 201, created.text
     profile = created.json()
@@ -136,7 +142,12 @@ def test_signup_login_me_logout_round_trip(api, cleanup, admin):
 # --- TC-USERS-102 ---------------------------------------------------------
 def test_signing_up_twice_with_one_email_is_refused(api, cleanup):
     email = unique_email()
-    payload = {"name": "Ada Lovelace", "email": email, "password": PASSWORD}
+    payload = {
+        "name": "Ada Lovelace",
+        "email": email,
+        "password": PASSWORD,
+        "role": "event_organiser",
+    }
 
     first = api.post("/users/signup", json=payload)
     assert first.status_code == 201, first.text
@@ -176,6 +187,35 @@ def test_public_signup_cannot_choose_another_role(api, cleanup):
     assert response.status_code == 422
     assert "role" in response.json()["errors"]
 
+
+
+# --- TC-USERS-107 ---------------------------------------------------------
+def test_an_attendee_sign_up_reads_back_as_an_attendee(api, cleanup, admin):
+    created = api.post(
+        "/users/signup",
+        json={
+            "name": "Ada Lovelace",
+            "email": unique_email(),
+            "password": PASSWORD,
+            "role": "attendee",
+        },
+    )
+    assert created.status_code == 201, created.text
+    cleanup.append(created.json()["id"])
+
+    auth_user = admin.auth.admin.get_user_by_id(created.json()["id"]).user
+    assert auth_user.app_metadata["role"] == "attendee"
+
+    signup_session = session_cookies(created)
+    if not signup_session:
+        pytest.skip(
+            "sign-up returned no session: turn off Authentication -> Providers -> "
+            "Email -> Confirm email in the TEST Supabase project"
+        )
+
+    me = api.get("/users/me", headers=as_header(signup_session))
+    assert me.status_code == 200, me.text
+    assert me.json()["role"] == "attendee"
 
 # --- TC-USERS-105 ---------------------------------------------------------
 def test_coordinator_listing_against_real_supabase(api, cleanup, admin):
