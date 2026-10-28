@@ -423,13 +423,13 @@ Coordinator".
 ## TC-SAFETYCHECKS-027 — a Safety Officer reads the safety view
 
 - **Scenario:** The Safety Officer sees attendance, venue, access and equipment changes and the safety decisions, with names (S-82 AC3).
-- **Pre-conditions:** Signed in as S. E is `pending_safety_check`. Events `scope=safety` returns two entries: `edited` by C, changes `{"expected_attendance": {"from": 120, "to": 150}}`; `venue_confirmed` by Venue Staff `77777777-7777-4777-8777-777777777777` "Val Venue".
+- **Pre-conditions:** Signed in as S. E is `pending_safety_check`. Events `scope=safety` returns two entries: `edited` by C, changes `{"expected_attendance": {"before": 120, "after": 150}}`; `venue_confirmed` by Venue Staff `77777777-7777-4777-8777-777777777777` "Val Venue".
 - **Steps:** `GET /safety-checks/E/history`.
 - **Test data:** As above.
 - **Expected:** `200` with `event_id`, `event_name: "Autumn Forum"`, both entries in order with `actor` `{id, name, role}` filled in, and `people`, the same shape as TC-EVENTREQUESTS-117. Events was called with `scope=safety`, never without it.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_safety_officer_reads_the_safety_view
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_safety_officer_reads_the_safety_view; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-SAFETYCHECKS-028 — only events that entered the safety check are shown
 
@@ -445,24 +445,24 @@ Coordinator".
   | No such event | `404` "Event not found" |
 
   The Events history read is never called on a `404`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_only_events_that_entered_the_safety_check_are_shown
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_only_events_that_entered_the_safety_check_are_shown; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-SAFETYCHECKS-029 — only Safety Officers use this route
 
 - **Scenario:** Other roles are turned away.
 - **Pre-conditions:** E is `pending_safety_check`.
 - **Steps / Test data / Expected:** No session → `401`. `event_coordinator`, `event_coordinator_lead`, `event_organiser`, `technical_support`, `venue_staff`, `attendee` → `403`. The Events history read is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_only_safety_officers_use_this_route
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_only_safety_officers_use_this_route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-SAFETYCHECKS-030 — a service that does not answer is a 502
 
 - **Scenario:** The safety view is never shown half-filled.
 - **Pre-conditions:** As S; E `pending_safety_check`.
 - **Steps / Test data / Expected:** Events history `500` or timeout → `502` "Events service unavailable"; Users profiles `500` → `502` "Users service unavailable".
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

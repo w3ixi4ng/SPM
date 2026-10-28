@@ -1272,9 +1272,17 @@ export default function EventCoordinatorEventDetail() {
             )}
 
             <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
-              <h1 className="font-display text-3xl mb-8" style={{ color: C.ink }}>
+              <h1 className="font-display text-3xl mb-2" style={{ color: C.ink }}>
                 {form.name || 'Untitled event request'}
               </h1>
+              {/* S-82: who changed or decided what on this event, and when. */}
+              <Link
+                to={`/events/${state.event.id}/history`}
+                className="inline-block font-ui text-sm mb-8"
+                style={{ color: C.teal }}
+              >
+                View change history
+              </Link>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <Field label="Purpose" value={form.purpose} />

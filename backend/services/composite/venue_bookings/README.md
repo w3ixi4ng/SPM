@@ -173,6 +173,29 @@ exactly as the bookings service returns them (see
 | `422` | `{"detail": "This venue can't take this booking", "errors": {...}}` | Refused by the checks above. |
 | `502` | `{"detail": "<Users\|Events\|Venues\|Bookings> service unavailable"}` | A downstream service could not be reached or failed. Nothing was saved. |
 
+### Change history (S-82)
+
+Once the bookings service has accepted an action, the composite sends one
+entry for it to the event's change history (Events
+`POST /internal/events/{event_id}/history`). The actor is the signed-in
+Coordinator or Venue Staff member. Refused and failed actions send nothing.
+
+| Route | `action` | `details` beyond `booking_id` and `venue_name` |
+| --- | --- | --- |
+| `POST /venue-bookings` | `venue_requested` | `start`, `end` |
+| `PATCH /venue-bookings/{id}` | `venue_request_changed` | `from`, `to`: each `{start, end, venue_name}` |
+| `DELETE /venue-bookings/{id}` | `venue_request_withdrawn` | — |
+| `POST /venue-bookings/{id}/replacement` | `venue_replacement_requested` | `replaces_booking_id`, `replaced_venue_name` |
+| `POST /venue-bookings/{id}/resolution` | `venue_alternative_resolved` | — |
+| `POST /venue-bookings/{id}/hold` | `venue_held` | — |
+| `POST /venue-bookings/{id}/release` | `venue_released` | — |
+| `POST /venue-bookings/{id}/decision` | `venue_confirmed` / `venue_rejected` | `reason`, `alternative` |
+
+Recording is best effort: if Events can't take the entry, the booking still
+changed, the route answers as usual, and the failure is logged at `ERROR`.
+An identical repeat of `POST /venue-bookings` saves nothing new and records
+nothing.
+
 ## Running it
 
 **First:** every schema it depends on applied and exposed in both the dev and

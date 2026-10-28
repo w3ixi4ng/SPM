@@ -1389,9 +1389,9 @@ Events fake history for E, newest first:
   }
   ```
   The entries are in the Events order (newest first). `people` names every user id that appears in an entry's `details`. Users is asked for all ids in one `POST /internal/users/profiles` call.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_the_assigned_coordinator_reads_the_history
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_assigned_coordinator_reads_the_history; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-118 — any Lead reads any event's history
 
@@ -1400,9 +1400,9 @@ Events fake history for E, newest first:
 - **Steps:** `GET /event-requests/E/history`.
 - **Test data:** As above.
 - **Expected:** `200` with the same body as TC-EVENTREQUESTS-117.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_any_lead_reads_any_history
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_any_lead_reads_any_history; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-119 — a Coordinator not assigned to the event is turned away
 
@@ -1413,9 +1413,9 @@ Events fake history for E, newest first:
   2. As C, the same for an event that does not exist.
 - **Test data:** As above.
 - **Expected:** Both `404` "Event not found". The Events history read is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_an_unassigned_coordinator_is_turned_away
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_unassigned_coordinator_is_turned_away; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-120 — other roles cannot read the history here
 
@@ -1432,9 +1432,9 @@ Events fake history for E, newest first:
   | `attendee` | `403` |
 
   The Events history read is never called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_other_roles_cannot_read_the_history
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_other_roles_cannot_read_the_history; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-121 — missing people are shown honestly
 
@@ -1443,9 +1443,9 @@ Events fake history for E, newest first:
 - **Steps:** `GET /event-requests/E/history`.
 - **Test data:** As above.
 - **Expected:** `200`. The first entry's `actor` is `null`. The second's is `{"id": "ffffffff-…", "name": null, "role": "event_coordinator"}`, with the role kept from the entry.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_missing_people_are_shown_honestly
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_missing_people_are_shown_honestly; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-122 — a service that does not answer is a 502
 
@@ -1457,6 +1457,6 @@ Events fake history for E, newest first:
   | Events history read returns `500` | `502` "Events service unavailable" |
   | Events history read times out | `502` "Events service unavailable" |
   | Users profiles returns `500` | `502` "Users service unavailable" |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

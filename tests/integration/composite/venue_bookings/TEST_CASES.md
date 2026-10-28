@@ -464,5 +464,6 @@ in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
   3. `GET http://localhost:8002/internal/events/E/history`.
   4. Delete everything created.
 - **Expected:** 3 → newest first, `venue_confirmed` by V then `venue_requested` by C. Both have `category: "venue"` and the booking's id and venue name in `details`.
-- **Status:** Not Executed.
-- **Evidence:** `tests/integration/composite/venue_bookings/test_s82.py::test_venue_actions_reach_the_event_history`.
+- **Actual:** Events history held `venue_confirmed` by V then `venue_requested` by C, both `venue`, with the booking's id and venue name.
+- **Status:** Pass.
+- **Evidence:** `tests/integration/composite/venue_bookings/test_s82.py::test_venue_actions_reach_the_event_history`; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.

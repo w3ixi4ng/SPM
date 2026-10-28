@@ -68,6 +68,18 @@ role, `404` for a missing/unassigned event or item, `409` outside planning,
 `422` for invalid input, and `502` when a dependency is unavailable. A write
 without accepted impact returns `409` before the equipment service is called.
 
+S-82: once the equipment service has accepted a change, the composite sends
+it to the event's change history (Events
+`POST /internal/events/{event_id}/history`): `equipment_requirement_set` or
+`equipment_requirement_removed`, by the Coordinator, with `details`
+`{"equipment_item_id", "item_name", "from_quantity", "to_quantity"}`
+(`from_quantity` is `null` for a new requirement and `to_quantity` is `null`
+for a removal). The current requirement is read first, so a `502` from that
+read stops the change before anything is written. Saving the same quantity
+again records nothing. Recording is best effort: if Events can't take the
+entry, the change stands and the failure is logged at `ERROR`. Technical
+Support's sign-off and preparation status are recorded by Events itself.
+
 ## Running
 
 Set all variables listed in the root `.env.example`, start the three atomic

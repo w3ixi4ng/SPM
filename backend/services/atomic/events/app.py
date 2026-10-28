@@ -1,5 +1,6 @@
 import logging
 from datetime import date, datetime, time, timezone
+from typing import Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -54,6 +55,13 @@ from schemas import (
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
+    EVENT_HISTORY_ACTIONS,
+    HISTORY_CATEGORIES,
+    SAFETY_EDIT_FIELDS,
+    SAFETY_HISTORY_CATEGORIES,
+    HistoryEntryCreate,
+    HistoryEntryRead,
+    HistoryScopeRead,
 )
 from security import clear_session_cookies
 
@@ -63,6 +71,7 @@ logger = logging.getLogger(__name__)
 SCHEMA = "events"
 TABLE = "events"
 REASSIGNMENT_TABLE = "reassignment_requests"
+HISTORY_TABLE = "event_history"
 # S-93: every assigned, nonterminal lifecycle state remains open work until
 # a responsible Lead transfers it or the owning workflow closes it.
 ACTIVE_ASSIGNMENT_STATUSES = [
@@ -205,6 +214,28 @@ def _decided_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _record(db: Client, event_id, actor_id, actor_role: str, action: str, details: dict | None = None) -> None:
+    """S-82: append one entry to the event's change history.
+
+    Called only after the action's own write succeeded. Best effort, by the
+    developer's decision: the action has already taken effect, so a failed
+    entry is logged rather than turned into an error the caller can't act on.
+    The database sets occurred_at.
+    """
+    row = {
+        "event_id": str(event_id),
+        "actor_id": str(actor_id),
+        "actor_role": actor_role,
+        "category": EVENT_HISTORY_ACTIONS[action],
+        "action": action,
+        "details": details or {},
+    }
+    try:
+        db.schema(SCHEMA).table(HISTORY_TABLE).insert(row).execute()
+    except Exception as exc:
+        logger.error("Could not record %s in the history of event %s", action, event_id, exc_info=exc)
+
+
 @app.get("/health")
 @app.get("/events/health", include_in_schema=False)
 def health():
@@ -234,7 +265,9 @@ def create_submitted_event(
     user=Depends(require_permission("events:create")),
     db: Client = Depends(get_db),
 ):
-    return _insert_event(payload, "submitted", str(user.id), db)
+    event = _insert_event(payload, "submitted", str(user.id), db)
+    _record(db, event["id"], user.id, "event_organiser", "submitted")
+    return event
 
 
 @app.get("/events", response_model=list[EventRead])
@@ -416,6 +449,10 @@ def update_assigned_event_information(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail="The event changed. Reload before editing again")
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", "edited",
+        {"changes": changed, "significant": bool(significant)},
+    )
     return result.data[0]
 
 
@@ -458,7 +495,7 @@ def update_equipment_preparation(
     db: Client = Depends(get_db),
 ):
     staff_id = str(user.id)
-    _get_support_assigned_event(event_id, staff_id, db)
+    existing = _get_support_assigned_event(event_id, staff_id, db)
     values = {
         "equipment_preparation_status": payload.status.value,
         "equipment_preparation_updated_by": staff_id,
@@ -477,6 +514,12 @@ def update_equipment_preparation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The event assignment or status changed. Reload and try again.",
+        )
+    before = existing.get("equipment_preparation_status")
+    if before != payload.status.value:
+        _record(
+            db, event_id, staff_id, "technical_support", "equipment_preparation_changed",
+            {"from": before, "to": payload.status.value},
         )
     return result.data[0]
 
@@ -792,6 +835,10 @@ def record_safety_decision(
             status_code=409,
             detail="This Operational Safety Check has already been decided",
         )
+    _record(
+        db, event_id, payload.safety_officer_id, "safety_officer", f"safety_{payload.decision.value}",
+        {"reason": payload.reason},
+    )
     return result.data[0]
 
 
@@ -852,6 +899,7 @@ def resubmit_safety_returned_event(
             status_code=409,
             detail="The event changed before it could be resubmitted for safety review",
         )
+    _record(db, event_id, payload.coordinator_id, "event_coordinator", "safety_resubmitted")
     return result.data[0]
 
 
@@ -893,6 +941,7 @@ def submit_for_safety_check(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NOT_IN_PLANNING)
+    _record(db, event_id, payload.coordinator_id, "event_coordinator", "safety_submitted")
     return result.data[0]
 
 
@@ -938,6 +987,10 @@ def record_technical_signoff(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_SIGNOFF_ONLY_IN_PLANNING)
+    _record(
+        db, event_id, staff_id, "technical_support", f"technical_signoff_{payload.decision.value}",
+        {"reason": payload.reason},
+    )
     return result.data[0]
 
 
@@ -955,6 +1008,76 @@ def clear_technical_signoff(event_id: UUID, db: Client = Depends(get_db)):
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
     return result.data[0]
+
+
+def _require_event(event_id: UUID, db: Client) -> None:
+    result = _execute(db.schema(SCHEMA).table(TABLE).select("id").eq("id", str(event_id)))
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+
+@app.post(
+    "/internal/events/{event_id}/history",
+    response_model=HistoryEntryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def append_history(event_id: UUID, payload: HistoryEntryCreate, db: Client = Depends(get_db)):
+    """S-82: a venue or equipment action from its composite. There is
+    deliberately no route that changes or deletes an entry."""
+    _require_event(event_id, db)
+    row = payload.model_dump(mode="json")
+    row.update({"event_id": str(event_id), "category": HISTORY_CATEGORIES[payload.action]})
+    return _execute(db.schema(SCHEMA).table(HISTORY_TABLE).insert(row)).data[0]
+
+
+def _safety_entry(entry: dict) -> dict | None:
+    """The part of an entry the Safety Officer sees, or None for none of it."""
+    if entry["category"] in SAFETY_HISTORY_CATEGORIES:
+        return entry
+    if entry["category"] != "edit":
+        return None
+    changes = (entry.get("details") or {}).get("changes") or {}
+    kept = {field: change for field, change in changes.items() if field in SAFETY_EDIT_FIELDS}
+    if not kept:
+        return None
+    return {**entry, "details": {**entry["details"], "changes": kept}}
+
+
+@app.get("/internal/events/{event_id}/history-scope", response_model=HistoryScopeRead)
+def read_history_scope(event_id: UUID, db: Client = Depends(get_db)):
+    """S-82: just enough for a composite to decide who may read the history
+    -- the assigned Coordinator, and whether it has reached the Safety
+    Officer -- and to title the page."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,name,status,assigned_coordinator_id,safety_review_history")
+        .eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = result.data[0]
+    return {**event, "safety_reviewed": bool(event.get("safety_review_history"))}
+
+
+@app.get("/internal/events/{event_id}/history", response_model=list[HistoryEntryRead])
+def read_history(
+    event_id: UUID,
+    scope: Literal["all", "safety"] = "all",
+    db: Client = Depends(get_db),
+):
+    """S-82: newest first. `scope=safety` is the Safety Officer's view: the
+    safety, venue and equipment entries, and edits cut to the fields the
+    safety review depends on."""
+    _require_event(event_id, db)
+    entries = _execute(
+        db.schema(SCHEMA).table(HISTORY_TABLE).select("*")
+        .eq("event_id", str(event_id))
+        .order("occurred_at", desc=True)
+        .order("id", desc=True)
+    ).data
+    if scope == "safety":
+        entries = [kept for kept in map(_safety_entry, entries) if kept is not None]
+    return entries
 
 
 @app.get("/events/{event_id}", response_model=EventRead)
@@ -1050,7 +1173,25 @@ def update_event(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
+    _record_organiser_edit(db, event_id, organiser_id, existing, changes)
     return result.data[0]
+
+
+def _record_organiser_edit(db: Client, event_id, organiser_id: str, existing: dict, written: dict) -> None:
+    """S-82: an Organiser's edit is history once the request has been
+    submitted. A draft is still theirs alone, so its edits are not."""
+    if existing["status"] == "draft":
+        return
+    changes = {
+        field: {"before": existing.get(field), "after": value}
+        for field, value in written.items()
+        if existing.get(field) != value
+    }
+    if changes:
+        _record(
+            db, event_id, organiser_id, "event_organiser", "edited",
+            {"changes": changes, "significant": bool(changes.keys() & SIGNIFICANT_EVENT_FIELDS)},
+        )
 
 
 # A draft is submitted for the first time, or a returned request is
@@ -1098,7 +1239,13 @@ def submit_draft(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
+    _record_submission(db, event_id, organiser_id, existing)
     return result.data[0]
+
+
+def _record_submission(db: Client, event_id, organiser_id: str, existing: dict) -> None:
+    details = {"resubmission": True} if existing["status"] == "returned" else {}
+    _record(db, event_id, organiser_id, "event_organiser", "submitted", details)
 
 
 # S-62: an Organiser may ask for a live event to be cancelled. Drafts can be
@@ -1151,6 +1298,7 @@ def request_cancellation(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
+    _record(db, event_id, organiser_id, "event_organiser", "cancellation_requested", {"reason": payload.reason})
     return result.data[0]
 
 
@@ -1200,6 +1348,10 @@ def decide_cancellation(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", f"cancellation_{payload.decision}",
+        {"reason": payload.reason},
+    )
     return result.data[0]
 
 
@@ -1250,6 +1402,10 @@ def decide_event(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail="This request is not awaiting a decision")
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", f"request_{payload.decision.value}",
+        {"reason": payload.reason, "comment": payload.comment},
+    )
     return result.data[0]
 
 
@@ -1482,6 +1638,11 @@ def record_technical_support_assignment(
             status_code=409,
             detail="The event changed before Technical Support could be saved",
         )
+    if selected_staff_id != existing_staff_id:
+        _record(
+            db, event_id, coordinator_id, "event_coordinator", "technical_support_assigned",
+            {"technical_support_id": selected_staff_id, "previous_technical_support_id": existing_staff_id},
+        )
     return result.data[0]
 
 
@@ -1505,7 +1666,9 @@ def create_submitted_event_internal(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not create event",
         )
-    return result.data[0]
+    event = result.data[0]
+    _record(db, event["id"], payload.organiser_id, "event_organiser", "submitted")
+    return event
 
 
 @app.post(
@@ -1538,6 +1701,10 @@ def assign_coordinator_internal(
     )
     result = _execute(operation)
     if result.data:
+        _record(
+            db, event_id, lead_id, "event_coordinator_lead", "coordinator_assigned",
+            {"coordinator_id": coordinator_id},
+        )
         return {**result.data[0], "assignment_created": True}
 
     current = _execute(
@@ -1604,6 +1771,10 @@ def create_reassignment_request_internal(
             raise HTTPException(status_code=409, detail="This event assignment has changed or has no responsible Lead") from exc
         logger.exception("Reassignment request storage failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    _record(
+        db, event_id, user.id, "event_coordinator", "reassignment_requested",
+        {"reason": result.data[0]["reason"]},
+    )
     return result.data[0]
 
 
@@ -1716,6 +1887,10 @@ def reassign_coordinator_internal(
     )
     result = _execute(operation)
     if result.data:
+        _record(
+            db, event_id, lead_id, "event_coordinator_lead", "coordinator_reassigned",
+            {"from_coordinator_id": expected_id, "to_coordinator_id": target_id},
+        )
         return {**result.data[0], "reassignment_created": True}
 
     latest = _execute(
@@ -1766,6 +1941,7 @@ def submit_draft_internal(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
+    _record_submission(db, event_id, organiser_id, existing)
     return result.data[0]
 
 
@@ -1809,4 +1985,5 @@ def update_event_internal(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
+    _record_organiser_edit(db, event_id, organiser_id, existing, changes)
     return result.data[0]

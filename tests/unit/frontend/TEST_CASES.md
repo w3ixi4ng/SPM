@@ -2749,9 +2749,9 @@ shows under the event's name. `row` is one item from
   | `event_coordinator`, `event_coordinator_lead` | `"/event-requests/E1/history"` |
   | `safety_officer` | `"/safety-checks/E1/history"` |
   | `event_organiser`, `technical_support`, `venue_staff`, `attendee`, `undefined` | `null` |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_event_history.mjs::each role reads history from its own route
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::each role reads history from its own route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-FRONTEND-271 — each action reads as a plain sentence
 
@@ -2775,15 +2775,15 @@ shows under the event's name. `row` is one item from
   | an action the page does not know, `"made_up"` | "Made up" |
 
   Every action in TC-EVENTS-188 to -196, TC-VENUEBOOKINGS-122 to -123 and TC-EQUIPMENTREQUIREMENTS-031 has a sentence that is not the fallback.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_event_history.mjs::each action reads as a plain sentence
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::each action reads as a plain sentence; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-FRONTEND-272 — an edit lists each changed field
 
 - **Scenario:** An edit shows field labels with before and after, so the reader sees exactly what changed.
 - **Steps:** `describeChanges(entry.details.changes)`.
-- **Test data:** `{"expected_attendance": {"from": 120, "to": 150}, "internal_notes": {"from": null, "to": "Check lift access"}, "required_accessibility": {"from": ["lift"], "to": ["lift", "hearing_loop"]}, "start_date": {"from": "2026-11-18", "to": "2026-11-19"}}`.
+- **Test data:** `{"expected_attendance": {"before": 120, "after": 150}, "internal_notes": {"before": null, "after": "Check lift access"}, "required_accessibility": {"before": ["lift"], "after": ["lift", "hearing_loop"]}, "start_date": {"before": "2026-11-18", "after": "2026-11-19"}}`.
 - **Expected:**
   ```
   [
@@ -2793,9 +2793,9 @@ shows under the event's name. `row` is one item from
     "Start date: 18 Nov 2026 → 19 Nov 2026"
   ]
   ```
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_event_history.mjs::an edit lists each changed field
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::an edit lists each changed field; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-FRONTEND-273 — who and when are shown plainly
 
@@ -2809,6 +2809,6 @@ shows under the event's name. `row` is one item from
   | `actor: null` (backfilled) | "Not recorded" |
   | `occurred_at: "2026-10-27T06:05:00Z"` | "27 Oct 2026, 2:05 pm" |
   | `occurred_at: "2026-10-27T16:30:00Z"` | "28 Oct 2026, 12:30 am" |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_event_history.mjs::who and when are shown plainly
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::who and when are shown plainly; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

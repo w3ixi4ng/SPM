@@ -418,3 +418,69 @@ async def decide_safety_check(
         ),
         identified={404, 409, 422},
     )
+
+
+# --- S-82: the safety review's view of an event's change history -------------
+
+# An event has reached the Safety Officer once it is in, or past, the
+# Operational Safety Check -- or once any review was recorded, so an event
+# sent back to planning after a significant change still counts.
+SAFETY_REACHED_STATUSES = frozenset({
+    "pending_safety_check", "safety_changes_requested", "safety_rejected",
+    "confirmed", "preparation",
+})
+# Every user id an entry's details can name, so the page can show a name.
+HISTORY_PEOPLE_KEYS = (
+    "coordinator_id", "from_coordinator_id", "to_coordinator_id",
+    "technical_support_id", "previous_technical_support_id",
+)
+
+
+@app.get("/safety-checks/{event_id}/history")
+async def safety_history(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """S-82 AC3: attendance, venue or layout, access and equipment changes,
+    and the safety decisions -- Events' `scope=safety` view, with names."""
+    await _safety_officer(request, users)
+    scope = await _json(
+        "Events", events.get(f"/internal/events/{event_id}/history-scope"), identified={404},
+    )
+    if scope["status"] not in SAFETY_REACHED_STATUSES and not scope.get("safety_reviewed"):
+        raise HTTPException(status_code=404, detail="Event not found")
+    entries = await _json(
+        "Events", events.get(f"/internal/events/{event_id}/history", params={"scope": "safety"}),
+    )
+    people_ids = [
+        user_id for entry in entries
+        for user_id in ((entry.get("details") or {}).get(key) for key in HISTORY_PEOPLE_KEYS)
+        if user_id
+    ]
+    profiles = await _profiles(users, [entry.get("actor_id") for entry in entries] + people_ids)
+
+    def name(user_id):
+        return (profiles.get(user_id) or {}).get("name")
+
+    return {
+        "event_id": scope["id"],
+        "event_name": scope.get("name"),
+        "entries": [
+            {
+                "id": entry["id"],
+                "occurred_at": entry["occurred_at"],
+                "category": entry["category"],
+                "action": entry["action"],
+                "details": entry.get("details") or {},
+                "actor": None if not entry.get("actor_id") else {
+                    "id": entry["actor_id"],
+                    "name": name(entry["actor_id"]),
+                    "role": entry.get("actor_role"),
+                },
+            }
+            for entry in entries
+        ],
+        "people": {user_id: name(user_id) for user_id in dict.fromkeys(people_ids)},
+    }

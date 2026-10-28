@@ -2950,9 +2950,9 @@ The Supabase fake records every `insert` made on `event_history`.
   3. `POST /events/E/submit/internal` for O on a `returned` E.
 - **Test data:** O and E as above.
 - **Expected:** Each step returns its usual status and inserts exactly one `event_history` row: `{event_id: E, actor_id: O, actor_role: "event_organiser", category: "submission", action: "submitted"}`. `details` is `{}` for steps 1 and 2 and `{"resubmission": true}` for step 3. No `occurred_at` is sent; the database sets it.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_submission_is_recorded
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_submission_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-189 — a Coordinator's review decision is recorded
 
@@ -2962,13 +2962,15 @@ The Supabase fake records every `insert` made on `event_history`.
 - **Test data:**
   | Body | `action` | `details` |
   | --- | --- | --- |
-  | `{"decision": "approved", "comment": "Looks good"}` | `request_approved` | `{"reason": null, "comment": "Looks good"}` |
+  | `{"decision": "approved"}` | `request_approved` | `{"reason": null, "comment": null}` |
   | `{"decision": "rejected", "reason": "Clashes with exams"}` | `request_rejected` | `{"reason": "Clashes with exams", "comment": null}` |
-  | `{"decision": "returned", "reason": "Add a contact"}` | `request_returned` | `{"reason": "Add a contact", "comment": null}` |
+  | `{"decision": "returned", "reason": "Add a contact", "comment": "A phone number is enough"}` | `request_returned` | `{"reason": "Add a contact", "comment": "A phone number is enough"}` |
+
+  (S-14 accepts a comment only with a return; the confirmed case had one on the approval, which the service refuses.)
 - **Expected:** `200` each time, and one row per decision with `actor_id: C`, `actor_role: "event_coordinator"`, `category: "review"`, and the `action` and `details` in the table.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_review_decision_is_recorded
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_review_decision_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-190 — a cancellation request and its decision are recorded
 
@@ -2983,9 +2985,9 @@ The Supabase fake records every `insert` made on `event_history`.
   1 → one row `{actor_id: O, actor_role: "event_organiser", category: "review", action: "cancellation_requested", details: {"reason": "Speaker withdrew"}}`.
   2 → one row `{actor_id: C, actor_role: "event_coordinator", category: "review", action: "cancellation_declined", details: {"reason": "Replacement speaker found"}}`.
   3 → `action: "cancellation_approved"`, `details: {"reason": null}`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_cancellation_request_and_decision_are_recorded
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_cancellation_request_and_decision_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-191 — a Lead's assignment is recorded once
 
@@ -2996,9 +2998,9 @@ The Supabase fake records every `insert` made on `event_history`.
   2. Repeat step 1 (the fake now returns E already assigned to C by L).
 - **Test data:** As above.
 - **Expected:** 1 → one row `{actor_id: L, actor_role: "event_coordinator_lead", category: "assignment", action: "coordinator_assigned", details: {"coordinator_id": C}}`. 2 → `assignment_created: false` and no further row.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_an_assignment_is_recorded_once
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_assignment_is_recorded_once; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-192 — a reassignment request and a reassignment are recorded once
 
@@ -3013,9 +3015,9 @@ The Supabase fake records every `insert` made on `event_history`.
   1 → one row `{actor_id: C, actor_role: "event_coordinator", category: "assignment", action: "reassignment_requested", details: {"reason": "Leaving the team"}}`.
   2 → one row `{actor_id: L, actor_role: "event_coordinator_lead", category: "assignment", action: "coordinator_reassigned", details: {"from_coordinator_id": C, "to_coordinator_id": C2}}`.
   3 → `reassignment_created: false` and no further row.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_reassignment_request_and_reassignment_are_recorded_once
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_reassignment_request_and_reassignment_are_recorded_once; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-193 — a Technical Support assignment is recorded
 
@@ -3024,9 +3026,9 @@ The Supabase fake records every `insert` made on `event_history`.
 - **Steps:** `PUT /events/E/technical-support/internal` assigning T on behalf of C.
 - **Test data:** As above.
 - **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "assignment", action: "technical_support_assigned", details: {"technical_support_id": T, "previous_technical_support_id": null}}`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_technical_support_assignment_is_recorded
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_technical_support_assignment_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-194 — a Coordinator's edit is recorded with each changed field
 
@@ -3034,10 +3036,10 @@ The Supabase fake records every `insert` made on `event_history`.
 - **Pre-conditions:** E is `planning`, assigned to C, `edit_version` 3, `expected_attendance` 120, `internal_notes` null, `room_layout` `theatre`.
 - **Steps:** As C, `PATCH /events/assigned/E` with `{"expected_version": 3, "impact_accepted": true, "expected_attendance": 150, "internal_notes": "Check lift access", "room_layout": "theatre"}`.
 - **Test data:** As above.
-- **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "edit", action: "edited", details: {"changes": {"expected_attendance": {"from": 120, "to": 150}, "internal_notes": {"from": null, "to": "Check lift access"}}, "significant": true}}`. `room_layout` is not listed, because it did not change. The existing `edit_history` column is still appended to, as before.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_an_edit_is_recorded_with_each_changed_field
+- **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "edit", action: "edited", details: {"changes": {"expected_attendance": {"before": 120, "after": 150}, "internal_notes": {"before": null, "after": "Check lift access"}}, "significant": true}}`. `room_layout` is not listed, because it did not change. The existing `edit_history` column is still appended to, as before.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_edit_is_recorded_with_each_changed_field; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-195 — safety-check submissions and decisions are recorded
 
@@ -3057,9 +3059,9 @@ The Supabase fake records every `insert` made on `event_history`.
   1 → one row `{actor_id: C, actor_role: "event_coordinator", category: "safety", action: "safety_submitted", details: {}}`.
   2 → one row per decision, `actor_id: S`, `actor_role: "safety_officer"`, `category: "safety"`, with the table's `action` and `details`.
   3 → one row `{actor_id: C, category: "safety", action: "safety_resubmitted", details: {}}`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_safety_submissions_and_decisions_are_recorded
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_safety_submissions_and_decisions_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-196 — Technical Support's sign-off and preparation status are recorded
 
@@ -3074,9 +3076,9 @@ The Supabase fake records every `insert` made on `event_history`.
   1 → `technical_signoff_declined`, `{"reason": "Projector unavailable"}`.
   2 → `technical_signoff_approved`, `{"reason": null}`.
   3 → `equipment_preparation_changed`, `{"from": "not_started", "to": "in_progress"}`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-197 — a refused action records nothing
 
@@ -3090,9 +3092,9 @@ The Supabase fake records every `insert` made on `event_history`.
   | `PATCH /events/assigned/E` with a stale `expected_version` 2 | `409` | none |
   | `PATCH /events/assigned/E` changing nothing | `200` | none |
   | `POST /internal/events/E/assignment` for C on E already assigned to C2 | `409` | none |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_refused_action_records_nothing
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_refused_action_records_nothing; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-198 — a failed history write does not undo the action
 
@@ -3101,9 +3103,9 @@ The Supabase fake records every `insert` made on `event_history`.
 - **Steps:** As C, `POST /events/E/decision` with `{"decision": "approved"}`.
 - **Test data:** As above.
 - **Expected:** `200` with the approved event, and one `ERROR` log record naming E and `request_approved`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_a_failed_history_write_does_not_undo_the_action
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_failed_history_write_does_not_undo_the_action; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-199 — composites append an entry through the internal route
 
@@ -3119,9 +3121,9 @@ The Supabase fake records every `insert` made on `event_history`.
   | Same, plus `"occurred_at": "2020-01-01T00:00:00Z"` | `422` |
   | Same, plus `"category": "safety"` | `422` |
   | Same, on an event that does not exist | `404` "Event not found" |
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_composites_append_through_the_internal_route
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_composites_append_through_the_internal_route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-200 — the full history reads newest first
 
@@ -3132,9 +3134,9 @@ The Supabase fake records every `insert` made on `event_history`.
   2. `GET /internal/events/<missing id>/history`.
 - **Test data:** As above.
 - **Expected:** 1 → `200`, E's three rows only, ordered `2026-10-03`, `2026-10-02`, `2026-10-01`, each with `id, event_id, actor_id, actor_role, category, action, details, occurred_at`. 2 → `404` "Event not found".
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_the_full_history_reads_newest_first
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_full_history_reads_newest_first; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-201 — the safety view keeps only what the safety review needs
 
@@ -3151,9 +3153,9 @@ The Supabase fake records every `insert` made on `event_history`.
 - **Steps:** `GET /internal/events/E/history?scope=safety`.
 - **Test data:** As above.
 - **Expected:** `200` with rows 7, 6, 5 and 3, newest first. Row 3's `details.changes` holds only `expected_attendance`. Rows 1, 2, 4 and 8 are left out. Safety-relevant edit fields are `expected_attendance`, `venue`, `room_layout`, `required_facilities` and `required_accessibility`. `scope=other` → `422`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_the_safety_view_keeps_only_what_the_review_needs
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_safety_view_keeps_only_what_the_review_needs; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
 
 ## TC-EVENTS-202 — no route changes or removes an entry
 
@@ -3162,6 +3164,33 @@ The Supabase fake records every `insert` made on `event_history`.
 - **Steps:** Send `PUT`, `PATCH` and `DELETE` to `/internal/events/E/history` and to `/internal/events/E/history/7`.
 - **Test data:** As above.
 - **Expected:** `405` for each method on the collection path and `404` or `405` for each on the entry path. The fake records no `update` or `delete` on `event_history`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:** test_s82.py::test_no_route_changes_or_removes_an_entry
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_no_route_changes_or_removes_an_entry; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-206 — an Organiser's edit after submission is recorded; a draft edit is not
+
+- **Scenario:** Organisers can still edit a request once it is submitted (S-12 recheck, S-13 returned), and those edits are history like a Coordinator's. A draft is still the Organiser's alone (S-82 AC1). Added during implementation and not in the confirmed set.
+- **Pre-conditions:** Signed in as O.
+- **Steps:**
+  1. `PATCH /events/E` with `{"expected_attendance": 150}` on E `submitted` with 120.
+  2. `PATCH /events/E` with `{"name": "Draft"}` on E `draft`.
+- **Test data:** As above. `PATCH /events/E/internal` (the composite's edit-recheck route) records the same way.
+- **Expected:** `200` both times. Step 1 records one row `{actor_id: O, actor_role: "event_organiser", category: "edit", action: "edited", details: {"changes": {"expected_attendance": {"before": 120, "after": 150}}, "significant": true}}`. Step 2 records nothing.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_organisers_edit_after_submission_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-207 — the history scope says who may read the history, and nothing else
+
+- **Scenario:** The composites need the event's name, status, Coordinator and whether it has been safety-reviewed to decide who may read its history. The Lead and Safety Officer have no other route that returns any event. Added during implementation and not in the confirmed set.
+- **Pre-conditions:** E is `planning`, assigned to C, with one `safety_review_history` record.
+- **Steps:**
+  1. `GET /internal/events/E/history-scope`.
+  2. The same with no safety review history.
+  3. The same for a missing event.
+- **Test data:** As above.
+- **Expected:** 1 → `200` with exactly `{"id": E, "name": "Autumn Forum", "status": "planning", "assigned_coordinator_id": C, "safety_reviewed": true}`; no organiser, notes or other column. 2 → `safety_reviewed: false`. 3 → `404`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_history_scope_says_who_may_read_it; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

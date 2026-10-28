@@ -1,6 +1,6 @@
 import { Loader2, LogOut } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import {
@@ -36,6 +36,20 @@ function formatStatus(status) {
 
 function isActiveCoordinator(coordinator) {
   return coordinator.coordinator_active === undefined || coordinator.coordinator_active === true
+}
+
+// S-82: any Lead may read any event's change history.
+function HistoryLink({ event }) {
+  return (
+    <Link
+      to={`/events/${event.id}/history`}
+      aria-label={`Change history for ${event.name}`}
+      className="inline-block font-ui text-sm mt-2 underline-offset-2 hover:underline"
+      style={{ color: C.teal }}
+    >
+      Change history
+    </Link>
+  )
 }
 
 export default function EventCoordinatorLeadDashboard({ role }) {
@@ -196,6 +210,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                   <p className="font-ui text-sm mt-2" style={{ color: C.inkFaint }}>{formatWindow(event)}</p>
                   <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>Expected attendance: {event.expected_attendance}</p>
                   <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>Organiser: {event.organiser?.name || event.organiser_id}{event.organiser?.email && ` · ${event.organiser.email}`}</p>
+                  <HistoryLink event={event} />
                   <div className="flex flex-col sm:flex-row gap-3 mt-5">
                     <label className="sr-only" htmlFor={`coordinator-${event.id}`}>Event Coordinator for {event.name}</label>
                     <select id={`coordinator-${event.id}`} value={choices[event.id] || ''} onChange={(e) => setChoices((current) => ({ ...current, [event.id]: e.target.value }))} className="border rounded-sm px-3 py-2 font-ui text-sm bg-white" style={{ borderColor: C.line, color: C.ink }}>
@@ -249,6 +264,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                 <h3 className="font-display text-lg">{event.name}</h3>
                 <p className="font-ui text-sm">{formatStatus(event.status)} · {formatWindow(event)}</p>
                 <p className="font-ui text-sm">Assigned Coordinator: {inventory.coordinator.name}</p>
+                <HistoryLink event={event} />
                 {event.scope === 'other_lead' && <p className="font-ui text-sm">Responsible Lead: {event.assigning_lead_id}. Read-only; contact that Lead for reassignment.</p>}
                 {event.scope === 'legacy' && <p className="font-ui text-sm">Responsible Lead not recorded. Read-only; controlled provenance review required.</p>}
                 {event.actionable && REASSIGNABLE_STATUSES.has(event.status) && <div className="flex flex-col sm:flex-row gap-3 mt-3">
@@ -306,6 +322,7 @@ export default function EventCoordinatorLeadDashboard({ role }) {
                             <p className="font-ui text-sm mt-2" style={{ color: C.inkFaint }}>{formatWindow(event)}</p>
                             <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>Organiser: {event.organiser?.name || event.organiser_id}</p>
                             <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>Current Coordinator: {event.coordinator?.name || event.assigned_coordinator_id}</p>
+                            <HistoryLink event={event} />
                             {REASSIGNABLE_STATUSES.has(event.status) && (
                               <div className="flex flex-col sm:flex-row gap-3 mt-5">
                                 <label className="sr-only" htmlFor={`reassign-coordinator-${event.id}`}>New Event Coordinator for {event.name}</label>
