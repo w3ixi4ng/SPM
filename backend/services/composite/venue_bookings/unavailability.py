@@ -101,13 +101,15 @@ def flag(booking: dict, blocks: list[dict], venue: dict | None) -> dict:
 
 
 def _date_label(value) -> str:
-    return date.fromisoformat(str(value)).strftime("%d %b %Y")
+    # "1 Nov 2026", never "01 Nov 2026", as in the bookings service.
+    day = date.fromisoformat(str(value)[:10])
+    return f"{day.day} {day:%b %Y}"
 
 
 def message(block: dict, booking: dict) -> str:
     start, end = bounds(block)
     return (
-        f'{block["venue_name"]} is unavailable from {start:%d %b %Y %H:%M} to {end:%d %b %Y %H:%M} '
+        f'{block["venue_name"]} is unavailable from {_date_label(start)} {start:%H:%M} to {_date_label(end)} {end:%H:%M} '
         f'({REASON_LABELS[block["reason"]]}). Your booking on {_date_label(booking["booking_date"])} '
         f'from {str(booking["start_time"])[:5]} to {str(booking["end_time"])[:5]} '
         "needs alternative arrangements."
