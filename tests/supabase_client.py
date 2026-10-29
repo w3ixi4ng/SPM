@@ -12,7 +12,9 @@ import httpx
 from supabase import Client, ClientOptions
 from supabase import create_client as _create_client
 
-CONNECT_RETRIES = 3
+# Backoff runs 0, 0.5, 1, 2, 4s between attempts, so five retries ride out a
+# drop of about 7.5s. Three (1.5s) still let a reset through in CI.
+CONNECT_RETRIES = 5
 # supabase-py's own default request timeout, which a custom client replaces.
 TIMEOUT = httpx.Timeout(120.0)
 

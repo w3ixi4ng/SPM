@@ -25,12 +25,19 @@ def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
     lead = make_user("event_coordinator_lead")
     former = make_user("event_coordinator")
     new = make_user("event_coordinator")
-    event_name = f"Oversight Forum {uuid.uuid4().hex[:6]}"
+    tag = uuid.uuid4().hex[:6]
+    event_name = f"Oversight Forum {tag}"
+    # Tagged, because the overview lists every Coordinator in the project: a
+    # second run sharing it at the same moment would otherwise show two
+    # "Blair Coordinator" cards and the locators would match both.
+    organiser_name = f"Ada Organiser {tag}"
+    former_name = f"Alex Coordinator {tag}"
+    new_name = f"Blair Coordinator {tag}"
 
     for user, name in (
-        (organiser, "Ada Organiser"),
-        (former, "Alex Coordinator"),
-        (new, "Blair Coordinator"),
+        (organiser, organiser_name),
+        (former, former_name),
+        (new, new_name),
     ):
         admin.schema("users").table("users").update({"name": name}).eq(
             "id", user["id"]
@@ -64,8 +71,8 @@ def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
         timeout=20000
     )
 
-    former_group = coordinator_group(page, former, "Alex Coordinator")
-    new_group = coordinator_group(page, new, "Blair Coordinator")
+    former_group = coordinator_group(page, former, former_name)
+    new_group = coordinator_group(page, new, new_name)
     former_group.get_by_text("1 active assignment", exact=True).wait_for(
         timeout=20000
     )
@@ -78,15 +85,15 @@ def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
     event.get_by_text(event_name, exact=True).wait_for()
     event.get_by_text("Submitted", exact=True).wait_for()
     event.get_by_text("2026-11-18 09:00 – 2026-11-18 12:00", exact=True).wait_for()
-    event.get_by_text("Organiser: Ada Organiser", exact=True).wait_for()
-    event.get_by_text("Current Coordinator: Alex Coordinator", exact=True).wait_for()
+    event.get_by_text(f"Organiser: {organiser_name}", exact=True).wait_for()
+    event.get_by_text(f"Current Coordinator: {former_name}", exact=True).wait_for()
 
     event.get_by_label(f"New Event Coordinator for {event_name}").select_option(
         new["id"]
     )
     event.get_by_role("button", name="Reassign event").click()
     page.get_by_text(
-        f"{event_name} was reassigned to Blair Coordinator.", exact=True
+        f"{event_name} was reassigned to {new_name}.", exact=True
     ).wait_for(timeout=30000)
 
     former_group.get_by_text("0 active assignments", exact=True).wait_for(
@@ -95,15 +102,15 @@ def test_lead_overview_tracks_reassignment(page, make_user, sign_in, admin):
     former_group.get_by_text("No active events assigned.", exact=True).wait_for()
     new_group.get_by_text("1 active assignment", exact=True).wait_for(timeout=20000)
     moved = new_group.get_by_role("listitem").filter(has_text=event_name)
-    moved.get_by_text("Current Coordinator: Blair Coordinator", exact=True).wait_for()
+    moved.get_by_text(f"Current Coordinator: {new_name}", exact=True).wait_for()
 
     page.reload()
-    refreshed_new_group = coordinator_group(page, new, "Blair Coordinator")
+    refreshed_new_group = coordinator_group(page, new, new_name)
     refreshed_new_group.get_by_text("1 active assignment", exact=True).wait_for(
         timeout=20000
     )
     refreshed_new_group.get_by_text(event_name, exact=True).wait_for()
-    coordinator_group(page, former, "Alex Coordinator").get_by_text(
+    coordinator_group(page, former, former_name).get_by_text(
         "0 active assignments", exact=True
     ).wait_for()
 
@@ -115,7 +122,8 @@ def test_lead_sees_profileless_coordinator_and_invalid_assignment_separately(
     lead = make_user("event_coordinator_lead")
     former = make_user("event_coordinator")
     profileless = make_user("event_coordinator")
-    admin.schema("users").table("users").update({"name": "Alex Coordinator"}).eq(
+    former_name = f"Alex Coordinator {uuid.uuid4().hex[:6]}"
+    admin.schema("users").table("users").update({"name": former_name}).eq(
         "id", former["id"]
     ).execute()
     admin.schema("users").table("users").delete().eq(
@@ -154,7 +162,7 @@ def test_lead_sees_profileless_coordinator_and_invalid_assignment_separately(
     sign_in(lead)
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator-lead$"), timeout=20000)
 
-    former_group = coordinator_group(page, former, "Alex Coordinator")
+    former_group = coordinator_group(page, former, former_name)
     new_group = page.get_by_role(
         "article", name=f"{profileless['email']} coordinator overview"
     )
