@@ -181,8 +181,23 @@ jobs:
       - name: Start the stack
         run: docker compose --env-file .env.test up -d --build --wait
 
+      # Most of the run is waiting on the remote test project, so two workers
+      # roughly halve it. --dist loadfile keeps each file on one worker, so its
+      # module fixtures and accounts are made once, not once per worker.
+      #
+      # event_requests/test_app.py runs on its own afterwards. Its assignment
+      # tests block every coordinator in the project, then expect a specific
+      # one to be picked -- a coordinator the other worker creates mid-test is
+      # free, wins the pick, and fails the test. Same race as e2e vs
+      # integration, below.
       - name: Run integration tests
-        run: pytest tests/integration -v
+        run: >-
+          pytest tests/integration -v -n 2 --dist loadfile
+          --ignore=tests/integration/composite/event_requests/test_app.py
+
+      - name: Run coordinator assignment tests (serial)
+        if: ${{ !cancelled() }}
+        run: pytest tests/integration/composite/event_requests/test_app.py -v
 
       # Almost every failure here is database setup, not code -- a schema that
       # was never exposed, grants that never ran. The container logs are where

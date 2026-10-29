@@ -799,7 +799,7 @@ apart at a glance:
 | --- | --- | --- |
 | **Unit (pytest)** | `pytest tests/unit` | Nothing |
 | **Unit (node)** | `node --test tests/unit/frontend/test_*.mjs` | Nothing — no `npm ci`, these import `frontend/src/lib/` directly |
-| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration` | The repo secrets below |
+| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration -n 2 --dist loadfile`, with `composite/event_requests/test_app.py` run on its own afterwards -- its coordinator-assignment tests cannot share the project with a second worker | The repo secrets below |
 | **End-to-end (playwright)** | the same stack, plus `playwright install --with-deps chromium`, then `pytest tests/e2e` | The repo secrets below |
 
 Both Docker jobs bring up the **whole** stack, Kong and the frontend included:
