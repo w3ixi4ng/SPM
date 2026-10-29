@@ -32,9 +32,9 @@ def actors(admin):
             admin.auth.admin.delete_user(user_id)
 
 
-def create_booking(booking_ids, *, venue_id=None, start_time='09:00', end_time='12:00'):
+def create_booking(booking_ids, *, event_id=None, venue_id=None, start_time='09:00', end_time='12:00'):
     response = httpx.post(f'{BASE_URL}/bookings', json={
-        'event_id': str(uuid.uuid4()), 'venue_id': venue_id or str(uuid.uuid4()),
+        'event_id': event_id or str(uuid.uuid4()), 'venue_id': venue_id or str(uuid.uuid4()),
         'coordinator_id': str(uuid.uuid4()), 'coordinator_name': 'Test Coordinator',
         'coordinator_email': 'coordinator@example.com', 'booking_date': '2026-11-12',
         'start_time': start_time, 'end_time': end_time, 'event_name': 'spm-test booking decision',
@@ -63,7 +63,19 @@ def test_decisions_persist_without_rewriting_requests(admin, booking_ids, actors
     after = admin.schema('bookings').table('bookings').select('*').eq('id', booking['id']).execute().data[0]
     assert after['status'] == status and after['decided_by'] == staff_id and after['decided_at']
     assert after['decision_alternative'] == payload.get('alternative')
-    audit = {'status', 'decision_reason', 'decision_alternative', 'decided_by', 'decided_at'}
+    primary = {'is_primary', 'primary_selected_by', 'primary_selected_at'}
+    if status == 'confirmed':
+        assert after['is_primary'] is True
+        assert after['primary_selected_by'] == staff_id
+        assert after['primary_selected_at']
+    else:
+        assert after['is_primary'] is False
+        assert after['primary_selected_by'] is None
+        assert after['primary_selected_at'] is None
+    audit = {
+        'status', 'decision_reason', 'decision_alternative', 'decided_by',
+        'decided_at', *primary,
+    }
     assert {k: v for k, v in before.items() if k not in audit} == {k: v for k, v in after.items() if k not in audit}
     assert httpx.post(path, headers=staff, json=payload, timeout=15).status_code == 409
     assert admin.schema('bookings').table('bookings').select('*').eq('id', booking['id']).execute().data[0] == after
@@ -132,3 +144,45 @@ def test_the_database_refuses_a_second_overlapping_confirmed_booking(admin, book
     assert [(row['status'], row['start_time'][:5], row['end_time'][:5]) for row in rows] == [
         ('confirmed', '09:00', '12:00'), ('confirmed', '12:00', '14:00'),
     ]
+
+
+# TC-BOOKINGS-116
+def test_primary_selection_moves_atomically_and_removal_leaves_a_choice(
+    admin, booking_ids, actors
+):
+    _, staff = actors('venue_staff')
+    coordinator_id, coordinator = actors('event_coordinator')
+    event_id = str(uuid.uuid4())
+    first = create_booking(booking_ids, event_id=event_id, start_time='09:00', end_time='10:00')
+    second = create_booking(booking_ids, event_id=event_id, start_time='10:00', end_time='11:00')
+    for row in (first, second):
+        decided = httpx.post(
+            f"{BASE_URL}/bookings/{row['id']}/decision", headers=staff,
+            json={'decision': 'approved'}, timeout=15,
+        )
+        assert decided.status_code == 200, decided.text
+
+    table = admin.schema('bookings').table('bookings')
+    initial = table.select('id,is_primary').eq('event_id', event_id).execute().data
+    assert {row['id']: row['is_primary'] for row in initial} == {
+        first['id']: True, second['id']: False,
+    }
+
+    selected = httpx.put(
+        f"{BASE_URL}/bookings/{second['id']}/primary", headers=coordinator, timeout=15,
+    )
+    assert selected.status_code == 200, selected.text
+    assert selected.json()['is_primary'] is True
+    assert selected.json()['primary_selected_by'] == coordinator_id
+    moved = table.select('id,is_primary').eq('event_id', event_id).execute().data
+    assert {row['id']: row['is_primary'] for row in moved} == {
+        first['id']: False, second['id']: True,
+    }
+
+    removed = httpx.delete(
+        f"{BASE_URL}/bookings/{second['id']}", headers=coordinator, timeout=15,
+    )
+    assert removed.status_code == 204, removed.text
+    booking_ids.remove(second['id'])
+    remaining = table.select('id,is_primary').eq('event_id', event_id).execute().data
+    assert remaining == [{'id': first['id'], 'is_primary': False}]

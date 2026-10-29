@@ -208,7 +208,10 @@ def _block_over(db: Client, booking: dict, gap: Gap = Gap()):
 
 
 def _date_label(value) -> str:
-    return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
+    # "1 Nov 2026", never "01 Nov 2026": the same as every other date the
+    # app shows, whatever the day of the month.
+    day = datetime.fromisoformat(str(value))
+    return f"{day.day} {day:%b %Y}"
 
 
 def _conflict_detail(conflict: dict, gap: Gap = Gap()) -> str:
@@ -261,8 +264,8 @@ def _raise_blocked(block: dict):
     raise HTTPException(
         status_code=409,
         detail=(
-            f'{block["venue_name"]} is unavailable from {start:%d %b %Y %H:%M} '
-            f'to {end:%d %b %Y %H:%M}.'
+            f'{block["venue_name"]} is unavailable from {_date_label(start)} {start:%H:%M} '
+            f'to {_date_label(end)} {end:%H:%M}.'
         ),
     )
 
@@ -446,6 +449,8 @@ _REVIEW_CLEARED = {
     # S-25: preparation belonged to the old confirmed venue and time.
     "venue_preparation_status": "not_started", "venue_preparation_updated_by": None,
     "venue_preparation_updated_at": None, "venue_preparation_version": 0,
+    # S-91: the old venue/time can no longer be the attendee-facing choice.
+    "is_primary": False, "primary_selected_by": None, "primary_selected_at": None,
 }
 
 
@@ -680,6 +685,43 @@ def get_booking(booking_id: UUID, db: Client = Depends(get_db)):
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     return booking
+
+
+@app.put("/bookings/{booking_id}/primary", response_model=BookingRead)
+def select_primary_booking(
+    booking_id: UUID,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-91: atomically move an event's attendee-facing marker.
+
+    The venue_bookings composite proves that this Coordinator is assigned to
+    the event. This atomic boundary independently verifies the session and
+    confirmed state; PostgreSQL serialises the clear-and-set operation.
+    """
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] != "confirmed":
+        raise HTTPException(
+            status_code=409, detail="Only a confirmed venue booking can be primary"
+        )
+    try:
+        result = db.schema(SCHEMA).rpc(
+            "set_primary_booking",
+            {"p_booking_id": str(booking_id), "p_selected_by": str(coordinator.id)},
+        ).execute()
+    except Exception as exc:
+        # The status may change after the read but before the locked RPC.
+        if getattr(exc, "code", None) == "P0001":
+            raise HTTPException(
+                status_code=409, detail="Only a confirmed venue booking can be primary"
+            ) from exc
+        logger.exception("Primary venue selection failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return result.data[0]
 
 
 @app.put("/bookings/{booking_id}/venue-preparation", response_model=BookingRead)

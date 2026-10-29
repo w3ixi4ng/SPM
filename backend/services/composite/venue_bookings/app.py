@@ -44,6 +44,7 @@ app = FastAPI(title="Venue Bookings Service")
 logger = logging.getLogger(__name__)
 
 COORDINATOR_ROLE = "event_coordinator"
+ORGANISER_ROLE = "event_organiser"
 VENUE_STAFF_ROLE = "venue_staff"
 NOT_IN_PLANNING = "A venue can only be requested for an event in planning"
 UNSUITABLE = "This venue can't take this booking"
@@ -421,6 +422,35 @@ async def cancel_venue_booking(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.put("/venue-bookings/{booking_id}/primary")
+async def select_primary_venue_booking(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-91: only the Coordinator assigned to this booking's event chooses
+    which confirmed venue Attendees see."""
+    await _authenticate(request, users, COORDINATOR_ROLE)
+    booking = await _booking_by_id(bookings, booking_id)
+    await _fetch(
+        "Events", events, f'/events/assigned/{booking["event_id"]}',
+        request.cookies, "Event not found",
+    )
+    response = await _call("Bookings", bookings.put(
+        f"/bookings/{booking_id}/primary", cookies=request.cookies,
+    ))
+    if response.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT):
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=(response.json() or {}).get("detail", "Primary venue could not be selected"),
+        )
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    return response.json()
+
+
 @app.get("/venue-bookings")
 async def list_venue_bookings_for_event(
     event_id: UUID,
@@ -430,18 +460,26 @@ async def list_venue_bookings_for_event(
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
 ):
-    """The requests sent for one event, every status, oldest first. The
-    events lookup is what limits this to the Coordinator the event is
-    assigned to -- the same check as submitting one."""
-    await _authenticate(request, users, COORDINATOR_ROLE)
-    await _fetch("Events", events, f"/events/assigned/{event_id}", request.cookies, "Event not found")
+    """Every venue for one event. Its assigned Coordinator and owning
+    Organiser see the complete set; attendee routes use their own filtered
+    projection in event_registrations."""
+    user = await _authenticate(request, users, COORDINATOR_ROLE, ORGANISER_ROLE)
+    event_path = (
+        f"/events/assigned/{event_id}"
+        if user["role"] == COORDINATOR_ROLE
+        else f"/events/{event_id}"
+    )
+    await _fetch("Events", events, event_path, request.cookies, "Event not found")
 
     response = await _get(
         "Bookings", bookings, "/bookings", params={"event_id": str(event_id)}
     )
     if response.status_code != status.HTTP_200_OK:
         raise _unavailable("Bookings")
-    # S-75: flagged for the assigned Coordinator.
+    # S-75 warnings are Coordinator work. The Organiser gets the same venue
+    # rows and primary marker without internal clash controls.
+    if user["role"] == ORGANISER_ROLE:
+        return response.json()
     return await _with_clashes(response.json(), venues, bookings, request.cookies)
 
 

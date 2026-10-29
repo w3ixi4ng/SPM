@@ -2029,6 +2029,38 @@ submission can be cleared. Everything else about S-78 is unchanged.
 - **Evidence:** `test_venue_preparation.py::test_only_venue_staff_can_update`.
 
 ### TC-VENUEBOOKINGS-120 - only live confirmed bookings can be prepared
+
+## S-91 — Designate Primary Venue
+
+### TC-VENUEBOOKINGS-121 — the assigned Coordinator selects a confirmed primary venue
+
+- **Pre-conditions:** The caller is Coordinator C assigned to event E. B1 and B2 are confirmed bookings for E.
+- **Steps:** `PUT /venue-bookings/B2/primary`.
+- **Expected:** The composite verifies C through `/events/assigned/E`, forwards the selection to Bookings, and returns B2 as primary.
+
+### TC-VENUEBOOKINGS-122 — unrelated users cannot select the primary venue
+
+- **Pre-conditions:** B1 belongs to E. Try an unrelated Coordinator, Organiser, Venue Staff, Attendee, and signed-out caller.
+- **Steps:** `PUT /venue-bookings/B1/primary`.
+- **Expected:** The wrong role is `403`, signed out is `401`, and an unrelated Coordinator receives `404` from the assigned-event check. Bookings receives no selection request.
+
+### TC-VENUEBOOKINGS-123 — selection failures are returned honestly
+
+- **Pre-conditions:** The caller is assigned to E. B1 is non-confirmed, missing, or the Bookings dependency fails.
+- **Steps:** Select B1 as primary.
+- **Expected:** A missing booking is `404`; a non-confirmed booking is `409`; a dependency failure is `503`. Nothing is reported as selected.
+
+### TC-VENUEBOOKINGS-124 — Coordinator and Organiser see every venue and the primary marker
+
+- **Pre-conditions:** E has two bookings and B1 is primary. C is assigned to E; O owns E.
+- **Steps:** Each calls `GET /venue-bookings?event_id=E`.
+- **Expected:** Both receive both bookings and the `is_primary` marker. C is checked through `/events/assigned/E`; O through `/events/E`.
+
+### TC-VENUEBOOKINGS-125 — cancelling the primary leaves an explicit choice outstanding
+
+- **Pre-conditions:** B1 is primary and B2 is another confirmed booking for E.
+- **Steps:** C cancels B1 through the existing endpoint, then lists E's bookings.
+- **Expected:** B1 is removed, B2 remains non-primary, and the response contains no primary booking so the UI can prompt C. Cancelling a non-primary leaves B1 primary.
 - **Expected:** Pending, held, rejected, replaced, and missing bookings cannot be updated.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.py::test_nonconfirmed_bookings_are_refused`.

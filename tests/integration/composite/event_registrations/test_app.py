@@ -361,13 +361,14 @@ def test_the_attendees_list_shows_the_primary_venue_and_hides_details_while_rech
                 "room_layouts": ["theatre"], "facilities": [],
                 "operating_hours": [{"day": "fri", "open": "08:00:00", "close": "22:00:00"}], "created_by": organiser["id"],
             }).execute().data[0]["id"])
-        # V2 is booked last but inserted first, so the order of rows is not
-        # what decides the primary venue.
+        # V2 is inserted first. S-91 explicitly selects V1, so row order does
+        # not decide what the Attendee sees.
+        primary_booking_id = None
         for venue_id, label, submitted in (
             (venue_ids[1], "V2", "2026-10-03T00:00:00Z"),
             (venue_ids[0], "V1", "2026-10-01T00:00:00Z"),
         ):
-            bookings.insert({
+            saved = bookings.insert({
                 "event_id": event_id, "venue_id": venue_id, "coordinator_id": organiser["id"],
                 "coordinator_name": "spm-test Coordinator", "coordinator_email": organiser["email"],
                 "booking_date": event["start_date"], "start_time": "18:00", "end_time": "21:00",
@@ -375,7 +376,13 @@ def test_the_attendees_list_shows_the_primary_venue_and_hides_details_while_rech
                 "expected_attendance": 40, "venue_name": names[label], "status": "confirmed",
                 "decided_by": organiser["id"], "decided_at": "2026-10-04T00:00:00Z",
                 "submitted_at": submitted,
-            }).execute()
+            }).execute().data[0]
+            if label == "V1":
+                primary_booking_id = saved["id"]
+        admin.schema("bookings").rpc("set_primary_booking", {
+            "p_booking_id": primary_booking_id,
+            "p_selected_by": organiser["id"],
+        }).execute()
 
         register = f"{GATEWAY_BASE_URL}/event-registrations/events/{event_id}/registration"
         taken = httpx.post(register, headers=attendee["headers"], timeout=20)

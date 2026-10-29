@@ -164,6 +164,9 @@ class BookingRead(BaseModel):
     venue_preparation_updated_by: UUID | None = None
     venue_preparation_updated_at: datetime | None = None
     venue_preparation_version: int = 0
+    is_primary: bool = False
+    primary_selected_by: UUID | None = None
+    primary_selected_at: datetime | None = None
     id: UUID
     event_id: UUID
     venue_id: UUID

@@ -2774,6 +2774,32 @@ Test cases confirmed by the developer on 2026-10-28.
 
 ## TC-FRONTEND-271 — the chosen role is sent with the sign-up
 
+## S-91 — Designate Primary Venue
+
+### TC-FRONTEND-274 — the Coordinator sees and changes the primary venue
+
+- **Pre-conditions:** E has confirmed bookings B1 and B2; B1 is primary.
+- **Steps:** Open E as its assigned Coordinator and choose `Make primary` on B2.
+- **Expected:** Both venues are shown, B1 is labelled Primary, the helper sends `PUT /venue-bookings/B2/primary`, and a successful refresh labels B2 Primary.
+
+### TC-FRONTEND-275 — losing a primary venue produces a clear prompt
+
+- **Pre-conditions:** E has at least one confirmed booking and none is primary after cancellation or replacement.
+- **Steps:** Open or refresh the Coordinator event page.
+- **Expected:** An alert says `Choose a new primary venue so attendees know where to go.` and every confirmed booking offers `Make primary`. A non-primary cancellation does not produce the prompt while another primary remains.
+
+### TC-FRONTEND-276 — the Organiser sees all venues read-only
+
+- **Pre-conditions:** E belongs to Organiser O and has two venue bookings, one primary.
+- **Steps:** O opens the event view.
+- **Expected:** Both venues and their statuses are visible, the primary venue is labelled, and no primary-selection control is present.
+
+### TC-FRONTEND-277 — attendee wording never leaks secondary venues
+
+- **Pre-conditions:** E has a primary and secondary confirmed venue, then a state with no primary.
+- **Steps:** Render public and Attendee event details.
+- **Expected:** Only the primary venue appears in the first state; `Venue to be confirmed` appears in the second.
+
 - **Scenario:** Whichever button was picked is the role the users service receives (AC1).
 - **Pre-conditions:** `fetch` stubbed to record the request and answer `201`.
 - **Steps:** Call `signUp({ name, email, password, role })` once per role.

@@ -37,12 +37,15 @@ import {
   bookingStatusMeta,
   canRequestVenue,
   listVenueBookingsForEvent,
+  primaryVenueErrorMessage,
+  primaryVenuePrompt,
   replacementErrorMessages,
   replacementPath,
   replacementState,
   resolveAlternativeArrangements,
   RESOLUTION_NOTE_MAX,
   shortTime,
+  selectPrimaryVenueBooking,
   validateResolutionNote,
   venueRequestLinkLabel,
   cancelVenueBooking,
@@ -585,6 +588,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
   const [cancelling, setCancelling] = useState(null)
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
+  const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
 
   const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
     (bookings) => setState({ status: 'ready', bookings }),
@@ -612,6 +616,17 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
     await load()
   }
 
+  async function makePrimary(booking) {
+    setPrimaryState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await selectPrimaryVenueBooking(booking.id)
+      await load()
+      setPrimaryState({ bookingId: null, error: null, notice: `${booking.venue_name} is now the primary venue.` })
+    } catch (error) {
+      setPrimaryState({ bookingId: null, error: primaryVenueErrorMessage(error), notice: null })
+    }
+  }
+
   return (
     <section aria-labelledby="venue-requests-heading">
       <div className="flex items-center gap-2 mb-2">
@@ -635,6 +650,12 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venue requests sent yet.</p>
       )}
       {state.status === 'ready' && state.bookings.length > 0 && (
+        <>
+        {primaryVenuePrompt(state.bookings) && (
+          <p role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>
+            {primaryVenuePrompt(state.bookings)}
+          </p>
+        )}
         <ul className="divide-y" aria-label="Venue requests sent">
           {state.bookings.map((booking) => {
             const { label, color } = bookingStatusMeta(booking.status)
@@ -657,6 +678,20 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
                     {label}
                   </span>
+                  {booking.is_primary && (
+                    <strong className="font-ui text-xs" style={{ color: C.teal }}>Primary venue</strong>
+                  )}
+                  {booking.status === 'confirmed' && !booking.is_primary && (
+                    <button
+                      type="button"
+                      onClick={() => makePrimary(booking)}
+                      disabled={primaryState.bookingId !== null}
+                      className="font-ui text-sm underline disabled:opacity-60"
+                      style={{ color: C.teal }}
+                    >
+                      {primaryState.bookingId === booking.id ? 'Saving…' : 'Make primary'}
+                    </button>
+                  )}
                   {canChangeVenueBooking(booking, eventStatus) && (
                     // S-80: this booking only; the others are untouched.
                     <>
@@ -740,7 +775,9 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
             )
           })}
         </ul>
+        </>
       )}
+      {primaryState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{primaryState.error}</p>}
       <div className="flex flex-wrap items-center gap-4 mt-6">
         {canRequest && (
           <Link
@@ -753,7 +790,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
           </Link>
         )}
         <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-          {cancelNotice ?? resolvedNotice ?? notice}
+          {primaryState.notice ?? cancelNotice ?? resolvedNotice ?? notice}
         </p>
       </div>
       {resolving && <ResolvePanel booking={resolving} onClose={closeResolve} onResolved={handleResolved} />}

@@ -51,6 +51,11 @@ create table if not exists bookings.bookings (
   venue_preparation_updated_at  timestamptz,
   venue_preparation_version     integer not null default 0,
 
+  -- S-91: one confirmed booking may be the attendee-facing venue.
+  is_primary                 boolean not null default false,
+  primary_selected_by        uuid,
+  primary_selected_at        timestamptz,
+
   booking_date               date not null,
   start_time                 time without time zone not null,
   end_time                   time without time zone not null,
@@ -93,6 +98,13 @@ create table if not exists bookings.bookings (
       and venue_preparation_version = 0)
     or (venue_preparation_updated_by is not null and venue_preparation_updated_at is not null
       and venue_preparation_version > 0)
+  ),
+
+  constraint bookings_primary_valid check (
+    (is_primary and status = 'confirmed'
+      and primary_selected_by is not null and primary_selected_at is not null)
+    or (not is_primary
+      and primary_selected_by is null and primary_selected_at is null)
   ),
 
   -- One date, so the end is simply after the start. A venue's opening hours
@@ -138,6 +150,9 @@ create table if not exists bookings.bookings (
 -- Venue Staff's pending list: filter by status, oldest first.
 create index if not exists bookings_bookings_status_submitted_at_idx
   on bookings.bookings (status, submitted_at);
+
+create unique index if not exists bookings_one_primary_per_event_idx
+  on bookings.bookings (event_id) where is_primary;
 
 -- 3. Grant access to the backend role. Supabase does not pre-configure access
 --    to custom schemas, so both schema usage and table privileges are needed.
@@ -640,3 +655,127 @@ alter table bookings.bookings add constraint bookings_venue_preparation_audit_va
 notify pgrst, 'reload schema';
 commit;
 -- END S-25 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-91 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- Safe to repeat. Existing events receive their earliest confirmed booking
+-- as the initial primary so the migration preserves attendee information.
+begin;
+
+alter table bookings.bookings
+  add column if not exists is_primary boolean not null default false,
+  add column if not exists primary_selected_by uuid,
+  add column if not exists primary_selected_at timestamptz;
+
+-- Backfill exactly one confirmed booking per event. The decision actor is the
+-- best audit identity; coordinator_id is the fallback for legacy rows.
+with ranked as (
+  select id,
+         row_number() over (
+           partition by event_id order by submitted_at, id
+         ) as position
+  from bookings.bookings
+  where status = 'confirmed'
+)
+update bookings.bookings b
+set is_primary = true,
+    primary_selected_by = coalesce(b.decided_by, b.coordinator_id),
+    primary_selected_at = coalesce(b.decided_at, b.submitted_at)
+from ranked r
+where b.id = r.id and r.position = 1
+  and not exists (
+    select 1 from bookings.bookings current
+    where current.event_id = b.event_id and current.is_primary
+  );
+
+alter table bookings.bookings drop constraint if exists bookings_primary_valid;
+alter table bookings.bookings add constraint bookings_primary_valid check (
+  (is_primary and status = 'confirmed'
+    and primary_selected_by is not null and primary_selected_at is not null)
+  or (not is_primary
+    and primary_selected_by is null and primary_selected_at is null)
+);
+
+create unique index if not exists bookings_one_primary_per_event_idx
+  on bookings.bookings (event_id) where is_primary;
+
+-- First confirmation becomes primary. Losing a confirmed state clears the
+-- marker, but never guesses which remaining venue the Coordinator prefers.
+create or replace function bookings.maintain_primary_booking()
+returns trigger
+language plpgsql
+set search_path = bookings, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(new.event_id::text, 0));
+  if new.status <> 'confirmed' then
+    new.is_primary := false;
+    new.primary_selected_by := null;
+    new.primary_selected_at := null;
+  elsif not exists (
+    select 1 from bookings.bookings b
+    where b.event_id = new.event_id and b.is_primary
+      and (tg_op = 'INSERT' or b.id <> new.id)
+  ) then
+    new.is_primary := true;
+    new.primary_selected_by := coalesce(new.decided_by, new.coordinator_id);
+    new.primary_selected_at := coalesce(new.decided_at, now());
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_maintain_primary_booking on bookings.bookings;
+create trigger bookings_maintain_primary_booking
+  before insert or update of status on bookings.bookings
+  for each row execute function bookings.maintain_primary_booking();
+
+-- Move the marker under one event lock. Clearing then selecting avoids a
+-- transient duplicate while the partial unique index remains the final guard.
+create or replace function bookings.set_primary_booking(
+  p_booking_id uuid,
+  p_selected_by uuid
+)
+returns setof bookings.bookings
+language plpgsql
+security definer
+set search_path = bookings, pg_temp
+as $$
+declare
+  target bookings.bookings%rowtype;
+begin
+  select * into target from bookings.bookings where id = p_booking_id;
+  if not found then return; end if;
+  if target.status <> 'confirmed' then
+    raise exception 'Only a confirmed venue booking can be primary'
+      using errcode = 'P0001';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(target.event_id::text, 0));
+  update bookings.bookings
+     set is_primary = false,
+         primary_selected_by = null,
+         primary_selected_at = null
+   where event_id = target.event_id and is_primary and id <> target.id;
+  update bookings.bookings
+     set is_primary = true,
+         primary_selected_by = p_selected_by,
+         primary_selected_at = now()
+   where id = target.id and status = 'confirmed'
+  returning * into target;
+  if not found then
+    raise exception 'Only a confirmed venue booking can be primary'
+      using errcode = 'P0001';
+  end if;
+  return next target;
+end;
+$$;
+
+revoke execute on function bookings.set_primary_booking(uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function bookings.set_primary_booking(uuid, uuid)
+  to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-91 DATA-PRESERVING MIGRATION

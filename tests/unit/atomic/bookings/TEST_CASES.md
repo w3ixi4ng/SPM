@@ -1227,6 +1227,33 @@ agreed decisions are in the S-61 section of
 - **Evidence:** `test_venue_preparation.py::test_invalid_or_forged_input_never_writes`.
 
 ### TC-BOOKINGS-119 - stale preparation updates cannot overwrite newer work
+
+## S-91 — Designate Primary Venue
+
+### TC-BOOKINGS-120 — a Coordinator selects one confirmed booking as primary
+
+- **Pre-conditions:** Event E has confirmed bookings B1 and B2. B1 is primary. The caller is an Event Coordinator.
+- **Steps:** `PUT /bookings/B2/primary` with the Coordinator session.
+- **Test data:** B1 and B2 belong to E; actor `11111111-1111-4111-8111-111111111111`.
+- **Expected:** `200`; B2 is returned with `is_primary=true`, the actor and current selection time. The atomic operation uses the database RPC that clears B1 and selects B2 in one transaction.
+
+### TC-BOOKINGS-121 — only a confirmed booking can be primary
+
+- **Pre-conditions:** B1 is pending, held, rejected, replaced, or missing.
+- **Steps:** `PUT /bookings/B1/primary` as an Event Coordinator.
+- **Expected:** A non-confirmed booking returns `409` and is not changed; a missing booking returns `404`.
+
+### TC-BOOKINGS-122 — the atomic boundary refuses a non-Coordinator
+
+- **Pre-conditions:** B1 is confirmed.
+- **Steps:** `PUT /bookings/B1/primary` with a Venue Staff, Organiser, Attendee, or no session.
+- **Expected:** `403` for a signed-in wrong role and `401` without a session; no database write occurs.
+
+### TC-BOOKINGS-123 — removing or replacing the primary clears it without guessing a successor
+
+- **Pre-conditions:** B1 is the primary confirmed booking and B2 is another confirmed booking for E.
+- **Steps:** Change B1 away from `confirmed`, or delete B1.
+- **Expected:** E has no primary booking. B2 is not selected automatically, so the Coordinator must make the deliberate replacement selection.
 - **Steps:** Save twice using the same expected version.
 - **Expected:** The first save succeeds and the stale save returns `409`.
 - **Status:** Pass.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
+  Building2,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -49,6 +50,7 @@ import {
   validateRegistrationSettings,
   waitingListLabel,
 } from '../lib/registration.js'
+import { bookingStatusMeta, listVenueBookingsForEvent } from '../lib/venueBookings.js'
 
 const C = {
   ink: '#10192B',
@@ -1096,6 +1098,41 @@ function cancellationFields(event) {
   return Object.fromEntries(Object.keys(NO_CANCELLATION).map((field) => [field, event[field] ?? null]))
 }
 
+function OrganiserVenues({ eventId }) {
+  const [state, setState] = useState({ status: 'loading', bookings: [] })
+
+  useEffect(() => {
+    let active = true
+    listVenueBookingsForEvent(eventId).then(
+      (bookings) => active && setState({ status: 'ready', bookings }),
+      () => active && setState({ status: 'error', bookings: [] }),
+    )
+    return () => { active = false }
+  }, [eventId])
+
+  return (
+    <section aria-labelledby="organiser-venues-heading" className="border rounded-sm p-5 mb-6" style={{ borderColor: C.line }}>
+      <h2 id="organiser-venues-heading" className="font-display text-xl flex items-center gap-2" style={{ color: C.ink }}>
+        <Building2 size={18} aria-hidden="true" style={{ color: C.teal }} /> Event venues
+      </h2>
+      {state.status === 'loading' && <p className="font-ui text-sm mt-3" style={{ color: C.inkFaint }}>Loading venues…</p>}
+      {state.status === 'error' && <p role="alert" className="font-ui text-sm mt-3" style={{ color: C.rose }}>We couldn&apos;t load this event&apos;s venues. Reload to try again.</p>}
+      {state.status === 'ready' && state.bookings.length === 0 && <p className="font-ui text-sm mt-3" style={{ color: C.inkFaint }}>No venue requests yet.</p>}
+      {state.status === 'ready' && state.bookings.length > 0 && (
+        <ul className="mt-3 space-y-2" aria-label="All event venues">
+          {state.bookings.map((booking) => (
+            <li key={booking.id} className="font-ui text-sm flex flex-wrap items-center gap-2" style={{ color: C.ink }}>
+              <span>{booking.venue_name}</span>
+              <span style={{ color: bookingStatusMeta(booking.status).color }}>{bookingStatusMeta(booking.status).label}</span>
+              {booking.is_primary && <strong style={{ color: C.teal }}>Primary venue</strong>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export default function EventRequestForm() {
   const { id: routeId } = useParams()
   const navigate = useNavigate()
@@ -1575,6 +1612,8 @@ export default function EventRequestForm() {
               )}
             </div>
           )}
+
+          {routeId && loadState === 'ready' && <OrganiserVenues eventId={routeId} />}
 
           {routeId && loadState === 'ready' && (cancellation.cancellation_requested_at || canRequestCancellation(cancellationEvent)) && (
             <section aria-label="Cancellation" className="mb-6">
