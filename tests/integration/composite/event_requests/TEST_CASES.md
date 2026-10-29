@@ -392,3 +392,30 @@ trusted Auth metadata holds Coordinator availability.
 - **Actual:** The real S-84 transfer incremented the version, actioned the pending S-88 request, cleared the inactive-owner count, and preserved linked booking, equipment, technical and edit-history data.
 - **Status:** Pass
 - **Evidence:** test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]
+
+---
+
+## S-82 — View Event Change History
+
+## TC-EVENTREQUESTS-123 — real actions show up in the Coordinator's and Lead's history
+
+- **Scenario:** Actions taken through the real services are recorded and read back with names, through Kong (S-82 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied and `events` exposed. Fixtures: Organiser O, Lead L, Coordinators C and C2, all with `spm-event-requests-*` emails. (Since S-83 a Lead assigns explicitly, so no other Coordinator has to be blocked.)
+- **Steps:**
+  1. As O, `POST /api/event-requests` with a valid submitted body.
+  2. As L, `POST /api/event-requests/E/assignment` assigning C.
+  3. As C, `POST /api/events/E/decision` with `{"decision": "approved"}`.
+  4. As C, `GET /api/event-requests/E/history`.
+  5. As L, the same.
+  6. As C2, the same.
+  7. Delete everything created.
+- **Test data:** Event name `S-82 History <6 hex>`, 2026-11-18 09:00–12:00, 40 attendees.
+- **Expected:**
+  - 4 → `200` with three entries, newest first: `request_approved` by C, `coordinator_assigned` by L, and `submitted` by O.
+  - Each actor's `name` is the name stored in `users.users`.
+  - `people` names C.
+  - 5 → the same three entries.
+  - 6 → `404`.
+- **Actual:** Through Kong: three entries newest first (`request_approved` by C, `coordinator_assigned` by L, `submitted` by O) with their stored names; the Lead saw the same entries; C2 got `404`.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s82.py::test_real_actions_show_up_in_the_history; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

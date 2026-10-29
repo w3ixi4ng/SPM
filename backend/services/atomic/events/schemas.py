@@ -824,3 +824,100 @@ class InternalTechnicalSignoff(BaseModel):
 class InternalEventUpdate(EventDraftUpdate):
     organiser_id: UUID
     assigned_coordinator_id: UUID | None = None
+
+
+# S-82: the event change history. Every action maps to the category the
+# Safety Officer's view filters on. The events service records its own
+# actions; the venue and equipment ones arrive from their composites through
+# POST /internal/events/{event_id}/history, which accepts only those.
+EVENT_HISTORY_ACTIONS: dict[str, str] = {
+    "submitted": "submission",
+    "edited": "edit",
+    "request_approved": "review",
+    "request_rejected": "review",
+    "request_returned": "review",
+    "cancellation_requested": "review",
+    "cancellation_approved": "review",
+    "cancellation_declined": "review",
+    "coordinator_assigned": "assignment",
+    "reassignment_requested": "assignment",
+    "coordinator_reassigned": "assignment",
+    "technical_support_assigned": "assignment",
+    "technical_signoff_approved": "equipment",
+    "technical_signoff_declined": "equipment",
+    "equipment_preparation_changed": "equipment",
+    "safety_submitted": "safety",
+    "safety_resubmitted": "safety",
+    "safety_approved": "safety",
+    "safety_changes_requested": "safety",
+    "safety_rejected": "safety",
+}
+COMPOSITE_HISTORY_ACTIONS: dict[str, str] = {
+    "venue_requested": "venue",
+    "venue_request_changed": "venue",
+    "venue_request_withdrawn": "venue",
+    "venue_replacement_requested": "venue",
+    "venue_alternative_resolved": "venue",
+    "venue_held": "venue",
+    "venue_released": "venue",
+    "venue_confirmed": "venue",
+    "venue_rejected": "venue",
+    "equipment_requirement_set": "equipment",
+    "equipment_requirement_removed": "equipment",
+}
+HISTORY_CATEGORIES = {**EVENT_HISTORY_ACTIONS, **COMPOSITE_HISTORY_ACTIONS}
+# The parts of an edit the Operational Safety Check depends on (S-82 AC3).
+SAFETY_EDIT_FIELDS = frozenset({
+    "expected_attendance", "venue", "room_layout",
+    "required_facilities", "required_accessibility",
+})
+SAFETY_HISTORY_CATEGORIES = frozenset({"safety", "venue", "equipment"})
+
+HistoryActorRole = Literal[
+    "event_organiser", "event_coordinator", "event_coordinator_lead",
+    "venue_staff", "technical_support", "safety_officer",
+]
+
+
+class HistoryEntryCreate(BaseModel):
+    """A venue or equipment action from a composite. The time and category
+    are the service's to set, so neither is accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: UUID
+    actor_role: HistoryActorRole
+    action: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("action")
+    @classmethod
+    def composite_action(cls, value):
+        if value not in COMPOSITE_HISTORY_ACTIONS:
+            raise ValueError("not an action this route records")
+        return value
+
+
+class HistoryEntryRead(BaseModel):
+    id: int
+    event_id: UUID
+    # Null only on a backfilled entry whose actor was never stored.
+    actor_id: UUID | None
+    actor_role: str | None
+    category: str
+    action: str
+    details: dict[str, Any]
+    occurred_at: datetime
+
+
+class HistoryScopeRead(BaseModel):
+    """S-82: who may read an event's history, for the composites. No other
+    event detail crosses over."""
+
+    id: UUID
+    name: str | None
+    status: str
+    assigned_coordinator_id: UUID | None
+    # Whether a Safety Officer has ever decided on it, so an event sent back
+    # to planning after a review still counts as having reached them.
+    safety_reviewed: bool

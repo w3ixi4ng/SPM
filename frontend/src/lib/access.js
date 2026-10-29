@@ -35,6 +35,9 @@ export const PERMISSIONS = Object.freeze({
   CHECK_EQUIPMENT_AVAILABILITY: 'equipment:check_availability',
   VIEW_SAFETY_CHECKS: 'safety_checks:view',
   DECIDE_SAFETY_CHECK: 'safety_checks:decide',
+  // S-82: the event_requests and safety_checks composites decide whose
+  // history it is; this only shows the screen to the three roles that have one.
+  VIEW_EVENT_HISTORY: 'event_history:view',
 })
 
 const DASHBOARD_PERMISSION = [PERMISSIONS.VIEW_DASHBOARD]
@@ -78,6 +81,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.REQUEST_VENUE_BOOKING,
       PERMISSIONS.EDIT_EQUIPMENT_REQUIREMENTS,
       PERMISSIONS.VIEW_EQUIPMENT_REQUIREMENTS,
+      PERMISSIONS.VIEW_EVENT_HISTORY,
     ]),
   }),
   event_coordinator_lead: Object.freeze({
@@ -88,6 +92,7 @@ export const ROLE_ACCESS = Object.freeze({
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.VIEW_UNASSIGNED_EVENTS,
       PERMISSIONS.ASSIGN_EVENT_COORDINATOR,
+      PERMISSIONS.VIEW_EVENT_HISTORY,
     ]),
   }),
   venue_staff: Object.freeze({
@@ -131,6 +136,7 @@ export const ROLE_ACCESS = Object.freeze({
       ...DASHBOARD_PERMISSION,
       PERMISSIONS.VIEW_SAFETY_CHECKS,
       PERMISSIONS.DECIDE_SAFETY_CHECK,
+      PERMISSIONS.VIEW_EVENT_HISTORY,
     ]),
   }),
   attendee: Object.freeze({

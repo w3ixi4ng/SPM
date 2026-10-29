@@ -118,7 +118,11 @@ export default function SafetyCheckDetail() {
         {state.status === 'error' && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
         {state.status === 'ready' && (
           <>
-            <h1 className="font-display text-3xl mb-8">{state.detail.event.name}</h1>
+            <h1 className="font-display text-3xl mb-2">{state.detail.event.name}</h1>
+            {/* S-82: attendance, venue, access and equipment changes so far. */}
+            <Link to={`/events/${id}/history`} className="inline-block font-ui text-sm mb-8" style={{ color: C.teal }}>
+              View change history
+            </Link>
             <Evidence detail={state.detail} />
             <section className="mt-10 border-t pt-8" style={{ borderColor: C.line }}>
               <h2 className="font-display text-xl mb-4">Operational safety decision</h2>

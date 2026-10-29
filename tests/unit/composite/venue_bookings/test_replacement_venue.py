@@ -345,7 +345,9 @@ def test_a_replacement_is_stored_linked_with_the_events_details(client, world):
         'venue_name': 'Hall C',
     }
     assert len(world.services.bookings.post.await_args_list) == 1
-    world.services.events.post.assert_not_awaited()
+    # S-82: the one write to Events is the history entry, never the event.
+    posted = [call.args[0] for call in world.services.events.post.await_args_list]
+    assert [path.endswith('/history') for path in posted] == [True]
     world.services.events.patch.assert_not_awaited()
 
 

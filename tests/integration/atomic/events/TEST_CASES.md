@@ -246,3 +246,71 @@ developer on 2026-10-19. Not yet implemented or executed.
 - **Actual:** `200`; published read showed `registration_closed_at` set and `expected_attendance` 40; reopen `200`, then null; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/events/test_s50.py::test_closing_and_reopening_registration_is_saved; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. Needs the S-82 block of `backend/sql/events.sql` applied to the
+test project: the `events.event_history` table, its grants, its trigger, and
+the `events.backfill_event_history` function.
+
+## TC-EVENTS-203 — an appended entry is stored and read back
+
+- **Scenario:** The table exists, is granted, and round-trips through the service.
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied and `events` exposed.
+- **Steps:**
+  1. Through the admin client, create Organiser O, Coordinator C and a `planning` event E owned by O, assigned to C.
+  2. `POST http://localhost:8002/internal/events/E/history` with `{"actor_id": C, "actor_role": "event_coordinator", "action": "venue_requested", "details": {"venue_name": "Hall One"}}`.
+  3. `GET http://localhost:8002/internal/events/E/history`.
+  4. Delete E, C and O.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 2 → `201` with an `id` and an `occurred_at` within 60 s of now. 3 → `200` with that one entry, `category: "venue"`. After 4, no `event_history` row for E remains: deleting the event removes its entries.
+- **Actual:** `201` with an id and a server `occurred_at` within a minute; read back as one `venue` entry; deleting the event left no history rows.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_an_appended_entry_is_stored_and_read_back; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-204 — the database refuses to change or delete an entry
+
+- **Scenario:** History entries cannot be edited or deleted, even with the service key (S-82 AC4).
+- **Pre-conditions:** As TC-EVENTS-203, with one entry for E appended.
+- **Steps:**
+  1. Admin client: `update` that entry's `action` to `"request_rejected"`.
+  2. Admin client: `delete` that entry by `id`.
+  3. Read the entry back.
+  4. Delete E (cleanup).
+- **Test data:** As above.
+- **Expected:** 1 and 2 each raise an API error (Postgres `42501` permission denied); 3 shows the entry unchanged; 4 succeeds and removes the entry with E.
+- **Actual:** Both the update and the delete through the service key raised `42501`; the entry read back unchanged.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_the_database_refuses_to_change_or_delete_an_entry; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-205 — backfill rebuilds what existing events already record, once
+
+- **Scenario:** Events created before S-82 get the history their own columns can prove (developer decision 3b).
+- **Pre-conditions:** Fresh `.env.test` stack, S-82 SQL applied. Through the admin client: O, C, Safety Officer S, Lead L; event E owned by O, assigned to C by L, with:
+  - `submitted_at` `2026-10-01T01:00:00Z`
+  - `decision` `approved`, `decided_at` `2026-10-02T01:00:00Z`
+  - one `edit_history` record by C at `2026-10-03T01:00:00Z` changing `expected_attendance` 120→150
+  - one `safety_review_history` record by S at `2026-10-04T01:00:00Z`, `changes_requested`, reason `Fire exit blocked`
+  - one reassignment request by C at `2026-10-05T01:00:00Z`, reason `Leaving the team`
+  - no `event_history` rows
+- **Steps:**
+  1. `rpc("backfill_event_history", {"p_event_id": E})` on the `events` schema.
+  2. Run step 1 again.
+  3. `GET /internal/events/E/history`.
+  4. Delete everything created.
+- **Test data:** As above.
+- **Expected:** 3 → exactly five entries, every one with `details.backfilled: true`, newest first:
+  | `action` | `actor_id` | `occurred_at` |
+  | --- | --- | --- |
+  | `reassignment_requested` | C | `2026-10-05T01:00:00Z` |
+  | `safety_changes_requested` | S | `2026-10-04T01:00:00Z` |
+  | `edited` | C | `2026-10-03T01:00:00Z` |
+  | `request_approved` | null (who decided was never stored) | `2026-10-02T01:00:00Z` |
+  | `submitted` | O | `2026-10-01T01:00:00Z` |
+
+  Step 2 adds nothing.
+- **Actual:** The first backfill added 5 entries, the second 0; the five came back newest first with the expected actors and times, all `backfilled`.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_backfill_rebuilds_existing_history_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

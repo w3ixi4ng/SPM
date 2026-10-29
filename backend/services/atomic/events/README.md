@@ -67,6 +67,9 @@ because service ports are published for direct testing. See
 | `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
 | `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
 | `GET` | `/internal/events/attendee-view/{event_id}` | S-56: one event's public details plus its `status`, for its registered Attendees' list. `confirmed`, or `planning` / `pending_safety_check` / `safety_changes_requested` after a significant change; any other status is `404`. |
+| `GET` | `/internal/events/{event_id}/history` | S-82: the event's change history, newest first. `?scope=safety` is the Safety Officer's view. See [Change history (S-82)](#change-history-s-82). |
+| `POST` | `/internal/events/{event_id}/history` | S-82: add a venue or equipment entry, from its composite. |
+| `GET` | `/internal/events/{event_id}/history-scope` | S-82: the event's name, status, Coordinator and whether it has been safety-reviewed, for the composites to decide who may read its history. |
 
 Public event endpoints and the S-83/S-84/S-85/S-88 Lead routes authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
@@ -781,6 +784,67 @@ plus `organiser_id` (required, same reason as above) and
 `assigned_coordinator_id` (optional but must match the stored owner; changes
 are rejected with `409`). Same responses as the public route: `200` with the
 updated event, `404` for another organiser's event.
+
+## Change history (S-82)
+
+Every significant action on an event is one row in `events.event_history`:
+who (`actor_id`, `actor_role`), what (`category`, `action`, `details`) and
+when (`occurred_at`, set by the database). Rows can be added and read, never
+changed or deleted: `service_role` has no `UPDATE` or `DELETE` on the table,
+and a trigger refuses both for anyone else. Deleting the event removes its
+rows with it.
+
+The events service records its own actions after each one succeeds. Venue and
+equipment actions arrive from `venue_bookings` and `equipment_requirements`
+through `POST /internal/events/{event_id}/history`. Recording is best effort:
+if the row can't be written, the action still stands and the failure is
+logged at `ERROR`.
+
+| Category | Actions | Recorded by |
+| --- | --- | --- |
+| `submission` | `submitted` (`details.resubmission` after a return) | events |
+| `review` | `request_approved`, `request_rejected`, `request_returned`, `cancellation_requested`, `cancellation_approved`, `cancellation_declined` | events |
+| `assignment` | `coordinator_assigned`, `reassignment_requested`, `coordinator_reassigned`, `technical_support_assigned` | events |
+| `edit` | `edited`: `details.changes` maps each changed field to `{"before", "after"}`. Covers Coordinator edits and Organiser edits once submitted, never drafts. | events |
+| `equipment` | `technical_signoff_approved`, `technical_signoff_declined`, `equipment_preparation_changed` | events |
+| `equipment` | `equipment_requirement_set`, `equipment_requirement_removed` | equipment_requirements |
+| `venue` | `venue_requested`, `venue_request_changed`, `venue_request_withdrawn`, `venue_replacement_requested`, `venue_alternative_resolved`, `venue_held`, `venue_released`, `venue_confirmed`, `venue_rejected` | venue_bookings |
+| `safety` | `safety_submitted`, `safety_resubmitted`, `safety_approved`, `safety_changes_requested`, `safety_rejected` | events |
+
+**`POST /internal/events/{event_id}/history`**
+
+```json
+{"actor_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "actor_role": "venue_staff",
+ "action": "venue_confirmed", "details": {"booking_id": "…", "venue_name": "Hall One"}}
+```
+
+Only the venue and equipment actions above are accepted. `category`,
+`occurred_at` and any other field are refused. `201` with the stored row;
+`404` "Event not found"; `422` for anything else.
+
+**`GET /internal/events/{event_id}/history`**: `200` with the rows, newest
+first:
+
+```json
+[{"id": 12, "event_id": "…", "actor_id": "…", "actor_role": "event_coordinator",
+  "category": "edit", "action": "edited",
+  "details": {"changes": {"expected_attendance": {"before": 120, "after": 150}}, "significant": true},
+  "occurred_at": "2026-10-27T06:05:00Z"}]
+```
+
+`?scope=safety` keeps the `safety`, `venue` and `equipment` rows, plus edits cut
+down to `expected_attendance`, `venue`, `room_layout`, `required_facilities`
+and `required_accessibility`. An edit that touched none of those is left out.
+Any other scope is `422`; a missing event `404`.
+
+**`GET /internal/events/{event_id}/history-scope`**: `200` with
+`{"id", "name", "status", "assigned_coordinator_id", "safety_reviewed"}`, or
+`404`.
+
+Events created before S-82 were backfilled once by
+`events.backfill_event_history()` in the S-82 SQL block, from what their own
+columns record. Who decided a request was never stored, so those entries have
+no actor.
 
 ## Errors
 

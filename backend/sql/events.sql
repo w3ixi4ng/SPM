@@ -1141,3 +1141,134 @@ alter table events.events add constraint events_registration_closed_needs_regist
 notify pgrst, 'reload schema';
 commit;
 -- END S-50 CLOSE REGISTRATION EARLY
+
+-- BEGIN S-82 EVENT CHANGE HISTORY
+-- Every installation: run through END S-82 in BOTH dev and test. Safe to run
+-- repeatedly and data-preserving: it adds a table and backfills it from what
+-- existing events already record, once per event.
+begin;
+
+-- One row per significant action on an event: who (actor), what (action,
+-- details) and when (occurred_at, server time). Append-only -- see the
+-- revoke and trigger below. actor_id has no foreign key: users live in the
+-- users schema, and an entry outlives the account that made it.
+create table if not exists events.event_history (
+  id          bigint generated always as identity primary key,
+  event_id    uuid not null references events.events (id) on delete cascade,
+  -- Null only for a backfilled entry whose actor was never stored.
+  actor_id    uuid,
+  actor_role  text,
+  category    text not null check (category in (
+    'submission', 'review', 'assignment', 'edit', 'venue', 'equipment', 'safety'
+  )),
+  action      text not null check (btrim(action) <> ''),
+  details     jsonb not null default '{}'::jsonb check (jsonb_typeof(details) = 'object'),
+  occurred_at timestamptz not null default now(),
+  constraint event_history_actor_has_role
+    check (actor_id is null or actor_role is not null)
+);
+create index if not exists event_history_event_occurred
+  on events.event_history (event_id, occurred_at desc, id desc);
+
+-- Entries cannot be edited or deleted (S-82 AC4). The default privileges
+-- above grant service_role everything on new tables, so take the writes
+-- back. The trigger also stops the table owner, e.g. from the SQL Editor.
+revoke update, delete, truncate on events.event_history from service_role, anon, authenticated;
+grant select, insert on events.event_history to service_role;
+
+-- A delete is allowed only as the cascade from deleting the event itself,
+-- which has already removed the event row by the time this runs.
+create or replace function events.event_history_append_only()
+returns trigger language plpgsql as $$
+begin
+  if tg_op = 'DELETE'
+     and not exists (select 1 from events.events where id = old.event_id) then
+    return old;
+  end if;
+  raise exception 'Event history entries cannot be changed or deleted'
+    using errcode = '42501';
+end;
+$$;
+drop trigger if exists event_history_append_only on events.event_history;
+create trigger event_history_append_only
+  before update or delete on events.event_history
+  for each row execute function events.event_history_append_only();
+
+alter table events.event_history enable row level security;
+
+-- Events created before S-82 get the history their own columns can prove.
+-- Skips any event that already has an entry, backfilled or live, so it runs
+-- once per event however often it is called and never doubles a live entry. Who decided a request was never stored,
+-- so those entries have no actor. Returns the number of entries added.
+create or replace function events.backfill_event_history(p_event_id uuid default null)
+returns integer language plpgsql as $$
+declare added integer;
+begin
+  with todo as (
+    select e.* from events.events e
+    where (p_event_id is null or e.id = p_event_id)
+      and not exists (select 1 from events.event_history h where h.event_id = e.id)
+  ),
+  rows as (
+    select id as event_id, organiser_id as actor_id, 'event_organiser' as actor_role,
+           'submission' as category, 'submitted' as action,
+           jsonb_build_object('backfilled', true) as details, submitted_at as occurred_at
+      from todo where submitted_at is not null
+    union all
+    select id, null, null, 'review', 'request_' || decision,
+           jsonb_build_object('reason', decision_reason, 'comment', decision_comment, 'backfilled', true),
+           decided_at
+      from todo where decision is not null and decided_at is not null
+    union all
+    select t.id, (r ->> 'changed_by')::uuid, 'event_coordinator', 'edit', 'edited',
+           jsonb_build_object('changes', r -> 'changes', 'backfilled', true),
+           (r ->> 'changed_at')::timestamptz
+      from todo t, jsonb_array_elements(t.edit_history) r
+    union all
+    select t.id, (r ->> 'safety_officer_id')::uuid, 'safety_officer', 'safety',
+           'safety_' || (r ->> 'decision'),
+           jsonb_build_object('reason', r ->> 'reason', 'backfilled', true),
+           (r ->> 'decided_at')::timestamptz
+      from todo t, jsonb_array_elements(t.safety_review_history) r
+    union all
+    select q.event_id, q.requester_id, 'event_coordinator', 'assignment', 'reassignment_requested',
+           jsonb_build_object('reason', q.reason, 'backfilled', true), q.created_at
+      from events.reassignment_requests q join todo t on t.id = q.event_id
+    union all
+    select id, cancellation_requested_by, 'event_organiser', 'review', 'cancellation_requested',
+           jsonb_build_object('reason', cancellation_reason, 'backfilled', true),
+           cancellation_requested_at
+      from todo where cancellation_requested_by is not null and cancellation_requested_at is not null
+    union all
+    select id, cancellation_decided_by, 'event_coordinator', 'review',
+           'cancellation_' || cancellation_decision,
+           jsonb_build_object('reason', cancellation_decision_reason, 'backfilled', true),
+           cancellation_decided_at
+      from todo where cancellation_decided_by is not null and cancellation_decided_at is not null
+    union all
+    select id, technical_signoff_by, 'technical_support', 'equipment',
+           'technical_signoff_' || technical_signoff_decision,
+           jsonb_build_object('reason', technical_signoff_reason, 'backfilled', true),
+           technical_signoff_at
+      from todo where technical_signoff_by is not null and technical_signoff_at is not null
+    union all
+    select id, equipment_preparation_updated_by, 'technical_support', 'equipment',
+           'equipment_preparation_changed',
+           jsonb_build_object('from', null, 'to', equipment_preparation_status, 'backfilled', true),
+           equipment_preparation_updated_at
+      from todo where equipment_preparation_updated_by is not null
+  )
+  insert into events.event_history (event_id, actor_id, actor_role, category, action, details, occurred_at)
+  select event_id, actor_id, actor_role, category, action, details, occurred_at from rows;
+  get diagnostics added = row_count;
+  return added;
+end;
+$$;
+revoke execute on function events.backfill_event_history(uuid) from public, anon, authenticated;
+grant execute on function events.backfill_event_history(uuid) to service_role;
+
+select events.backfill_event_history();
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-82 EVENT CHANGE HISTORY

@@ -402,3 +402,67 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_queue_and_approval_use_new_stage`
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. `GET /safety-checks/{event_id}/history` returns the safety view
+of an event's history (`scope=safety` from Events, TC-EVENTS-201) to any
+Safety Officer, once the event has entered the Operational Safety Check
+(developer decision 7a). An event has entered it when its status is
+`pending_safety_check`, `safety_changes_requested`, `safety_rejected`,
+`confirmed` or `preparation`, or when it has any `safety_review_history`. The
+last case covers an event sent back to `planning` after a significant change.
+
+**Shared test data.** Event E `11111111-1111-4111-8111-111111111111`
+"Autumn Forum"; Safety Officer S `55555555-5555-4555-8555-555555555555`
+"Sam Safety"; Coordinator C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` "Alex
+Coordinator".
+
+## TC-SAFETYCHECKS-027 — a Safety Officer reads the safety view
+
+- **Scenario:** The Safety Officer sees attendance, venue, access and equipment changes and the safety decisions, with names (S-82 AC3).
+- **Pre-conditions:** Signed in as S. E is `pending_safety_check`. Events `scope=safety` returns two entries: `edited` by C, changes `{"expected_attendance": {"before": 120, "after": 150}}`; `venue_confirmed` by Venue Staff `77777777-7777-4777-8777-777777777777` "Val Venue".
+- **Steps:** `GET /safety-checks/E/history`.
+- **Test data:** As above.
+- **Expected:** `200` with `event_id`, `event_name: "Autumn Forum"`, both entries in order with `actor` `{id, name, role}` filled in, and `people`, the same shape as TC-EVENTREQUESTS-117. Events was called with `scope=safety`, never without it.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_safety_officer_reads_the_safety_view; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-SAFETYCHECKS-028 — only events that entered the safety check are shown
+
+- **Scenario:** A Safety Officer cannot read the history of an event that has never reached them.
+- **Pre-conditions:** Signed in as S.
+- **Steps:** `GET /safety-checks/E/history` with E in each state below.
+- **Test data / Expected:**
+  | E | Response |
+  | --- | --- |
+  | `pending_safety_check`, `safety_changes_requested`, `safety_rejected`, `confirmed`, `preparation` | `200` |
+  | `planning` with one `safety_review_history` record | `200` |
+  | `planning` with none; `submitted`; `draft`; `rejected` | `404` "Event not found" |
+  | No such event | `404` "Event not found" |
+
+  The Events history read is never called on a `404`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_only_events_that_entered_the_safety_check_are_shown; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-SAFETYCHECKS-029 — only Safety Officers use this route
+
+- **Scenario:** Other roles are turned away.
+- **Pre-conditions:** E is `pending_safety_check`.
+- **Steps / Test data / Expected:** No session → `401`. `event_coordinator`, `event_coordinator_lead`, `event_organiser`, `technical_support`, `venue_staff`, `attendee` → `403`. The Events history read is never called.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_only_safety_officers_use_this_route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-SAFETYCHECKS-030 — a service that does not answer is a 502
+
+- **Scenario:** The safety view is never shown half-filled.
+- **Pre-conditions:** As S; E `pending_safety_check`.
+- **Steps / Test data / Expected:** Events history `500` or timeout → `502` "Events service unavailable"; Users profiles `500` → `502` "Users service unavailable".
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

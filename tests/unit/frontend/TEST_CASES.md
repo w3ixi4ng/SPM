@@ -2810,3 +2810,81 @@ Test cases confirmed by the developer on 2026-10-28.
 - **Actual:** Both requests were `POST /api/users/signup` with the chosen role in the body; validation returned `{}` for both.
 - **Status:** Pass
 - **Evidence:** test_sign_up.mjs::the chosen role is sent with the sign-up; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## S-82 — View Event Change History
+
+`test_event_history.mjs`, importing `frontend/src/lib/eventHistory.js`.
+
+## TC-FRONTEND-274 — each role reads history from its own route
+
+- **Scenario:** The screen asks the right service for the signed-in role.
+- **Steps:** `historyPath(role, "E1")` for each role.
+- **Test data / Expected:**
+  | Role | Result |
+  | --- | --- |
+  | `event_coordinator`, `event_coordinator_lead` | `"/event-requests/E1/history"` |
+  | `safety_officer` | `"/safety-checks/E1/history"` |
+  | `event_organiser`, `technical_support`, `venue_staff`, `attendee`, `undefined` | `null` |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::each role reads history from its own route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-FRONTEND-275 — each action reads as a plain sentence
+
+- **Scenario:** An entry says what happened in the product's voice.
+- **Steps:** `describeEntry(entry, people)`.
+- **Test data / Expected:** `people = {"C": "Alex Coordinator", "C2": "Blair Coordinator", "T": "Tay Support"}`:
+  | `action` / `details` | Result |
+  | --- | --- |
+  | `submitted`, `{}` | "Submitted the event request" |
+  | `submitted`, `{"resubmission": true}` | "Resubmitted the event request" |
+  | `request_approved` | "Approved the event request" |
+  | `request_returned`, `{"reason": "Add a contact"}` | "Returned the event request: Add a contact" |
+  | `coordinator_assigned`, `{"coordinator_id": "C"}` | "Assigned Alex Coordinator" |
+  | `coordinator_reassigned`, `{"from_coordinator_id": "C", "to_coordinator_id": "C2"}` | "Reassigned from Alex Coordinator to Blair Coordinator" |
+  | `technical_support_assigned`, `{"technical_support_id": "T"}` | "Assigned Tay Support to technical support" |
+  | `venue_confirmed`, `{"venue_name": "Hall One"}` | "Confirmed Hall One" |
+  | `venue_rejected`, `{"venue_name": "Hall One", "reason": "Under renovation"}` | "Rejected Hall One: Under renovation" |
+  | `equipment_requirement_set`, `{"item_name": "Projector", "from_quantity": 2, "to_quantity": 5}` | "Changed Projector from 2 to 5" |
+  | `safety_changes_requested`, `{"reason": "Fire exit blocked"}` | "Requested safety changes: Fire exit blocked" |
+  | `coordinator_assigned`, `{"coordinator_id": "Z"}` (not in `people`) | "Assigned a removed account" |
+  | an action the page does not know, `"made_up"` | "Made up" |
+
+  Every action in TC-EVENTS-188 to -196, TC-VENUEBOOKINGS-122 to -123 and TC-EQUIPMENTREQUIREMENTS-032 has a sentence that is not the fallback.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::each action reads as a plain sentence; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-FRONTEND-276 — an edit lists each changed field
+
+- **Scenario:** An edit shows field labels with before and after, so the reader sees exactly what changed.
+- **Steps:** `describeChanges(entry.details.changes)`.
+- **Test data:** `{"expected_attendance": {"before": 120, "after": 150}, "internal_notes": {"before": null, "after": "Check lift access"}, "required_accessibility": {"before": ["lift"], "after": ["lift", "hearing_loop"]}, "start_date": {"before": "2026-11-18", "after": "2026-11-19"}}`.
+- **Expected:**
+  ```
+  [
+    "Expected attendance: 120 → 150",
+    "Internal notes: (none) → Check lift access",
+    "Accessibility: Lift → Lift, Hearing loop",
+    "Start date: 18 Nov 2026 → 19 Nov 2026"
+  ]
+  ```
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::an edit lists each changed field; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-FRONTEND-277 — who and when are shown plainly
+
+- **Scenario:** Every entry says who, in which role, and when, in Singapore time.
+- **Steps:** `entryActor(entry)` and `entryTime(entry)`.
+- **Test data / Expected:**
+  | Entry | Result |
+  | --- | --- |
+  | `actor: {"name": "Blair Coordinator", "role": "event_coordinator"}` | "Blair Coordinator, Event Coordinator" |
+  | `actor: {"name": null, "role": "venue_staff"}` | "A removed account, Venue Staff" |
+  | `actor: null` (backfilled) | "Not recorded" |
+  | `occurred_at: "2026-10-27T06:05:00Z"` | "27 Oct 2026, 2:05 pm" |
+  | `occurred_at: "2026-10-27T16:30:00Z"` | "28 Oct 2026, 12:30 am" |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::who and when are shown plainly; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree

@@ -451,3 +451,19 @@ in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Both saves returned `200`; the stored actor, timestamp, status and versions were correct; the stale write returned `409`; the Coordinator write returned `403`.
 - **Status:** Pass.
 - **Evidence:** `tests/integration/composite/venue_bookings/test_venue_preparation.py::test_venue_preparation_round_trip`; S-25 SQL applied to both projects; fresh `.env.test` stack; full integration run on 2026-10-25: 74 passed, 5 skipped.
+
+
+## S-82 — View Event Change History
+
+## TC-VENUEBOOKINGS-126 - venue actions reach the event's history
+- **Scenario:** A real request and confirmation cross from venue_bookings into the events history (S-82 AC1).
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied. Through the admin client: Coordinator C, Venue Staff V, a `planning` event E assigned to C, and a venue "S-82 Hall <6 hex>" with operating hours covering the slot.
+- **Steps:**
+  1. As C, `POST /api/venue-bookings` for E at that venue, 2026-11-20 09:00–12:00.
+  2. As V, `POST /api/venue-bookings/<id>/decision` with `{"decision": "approved"}`.
+  3. `GET http://localhost:8002/internal/events/E/history`.
+  4. Delete everything created.
+- **Expected:** 3 → newest first, `venue_confirmed` by V then `venue_requested` by C. Both have `category: "venue"` and the booking's id and venue name in `details`.
+- **Actual:** Events history held `venue_confirmed` by V then `venue_requested` by C, both `venue`, with the booking's id and venue name.
+- **Status:** Pass.
+- **Evidence:** `tests/integration/composite/venue_bookings/test_s82.py::test_venue_actions_reach_the_event_history`; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.

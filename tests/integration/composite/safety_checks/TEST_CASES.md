@@ -78,3 +78,24 @@ S-77/S-87 targeted integration regression run passed all 8 cases.
 - **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_submission_through_to_confirmed`
+
+---
+
+## S-82 — View Event Change History
+
+## TC-SAFETYCHECKS-104 — the Safety Officer sees the safety review's history and nothing else
+
+- **Scenario:** Through the real services, a safety decision and an attendance edit are visible to the Safety Officer; the submission, assignment and contact edit are not (S-82 AC1, AC3).
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied. Through the admin client: Organiser O, Coordinator C, Safety Officer S; event E `planning` with 120 expected, assigned to C, with its booking confirmed, Technical Support's sign-off and preparation `ready` all seeded directly, so the only history is what the steps do.
+- **Steps:**
+  1. As C, `PATCH /events/assigned/E` changing `contact_phone` to `91234567`.
+  2. As C, `PATCH /events/assigned/E` changing `expected_attendance` 120→150, with `impact_accepted: true`.
+  3. As C, `POST /safety-checks/coordinator/events/E/submit`.
+  4. As S, `POST /safety-checks/E/decision` with `{"decision": "changes_requested", "reason": "Fire exit blocked"}`.
+  5. As S, `GET /safety-checks/E/history`.
+  6. Delete everything created.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 5 → `200` with exactly three entries, newest first: `safety_changes_requested` by S (`details.reason` "Fire exit blocked"), `safety_submitted` by C, and `edited` by C with `details.changes` holding only `expected_attendance` `{before: 120, after: 150}`. The `contact_phone` edit is absent.
+- **Actual:** Exactly three entries: `safety_changes_requested` by S with the reason, `safety_submitted` by C, and the attendance edit cut to `expected_attendance` 120→150; the contact phone edit was absent.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/safety_checks/test_s82.py::test_the_safety_officer_sees_the_safety_history; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
