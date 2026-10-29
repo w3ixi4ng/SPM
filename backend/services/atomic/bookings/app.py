@@ -208,7 +208,10 @@ def _block_over(db: Client, booking: dict, gap: Gap = Gap()):
 
 
 def _date_label(value) -> str:
-    return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
+    # "1 Nov 2026", never "01 Nov 2026": the same as every other date the
+    # app shows, whatever the day of the month.
+    day = datetime.fromisoformat(str(value))
+    return f"{day.day} {day:%b %Y}"
 
 
 def _conflict_detail(conflict: dict, gap: Gap = Gap()) -> str:
@@ -261,8 +264,8 @@ def _raise_blocked(block: dict):
     raise HTTPException(
         status_code=409,
         detail=(
-            f'{block["venue_name"]} is unavailable from {start:%d %b %Y %H:%M} '
-            f'to {end:%d %b %Y %H:%M}.'
+            f'{block["venue_name"]} is unavailable from {_date_label(start)} {start:%H:%M} '
+            f'to {_date_label(end)} {end:%H:%M}.'
         ),
     )
 
