@@ -35,6 +35,8 @@ class RegistrationStatus(BaseModel):
     joined_at: datetime | None = None
     # S-52: place in line, 1 = next; null unless waitlisted.
     position: int | None = None
+    # S-55: a freed place is held for this Attendee until they answer.
+    offered: bool = False
 
 
 class WaitingListStatus(BaseModel):
@@ -84,7 +86,8 @@ class MyRegistration(BaseModel):
     start_time: time | None
     end_date: date | None
     end_time: time | None
-    status: Literal["confirmed", "waitlisted"]
+    # S-55: "offered" -- a waiting-list entry a freed place is held for.
+    status: Literal["confirmed", "waitlisted", "offered"]
     registered_at: datetime | None
     joined_at: datetime | None
     position: int | None

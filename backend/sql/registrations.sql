@@ -171,3 +171,207 @@ grant execute on function registrations.withdraw(uuid, uuid, integer) to service
 
 notify pgrst, 'reload schema';
 -- END S-53 WITHDRAW REGISTRATION
+
+-- BEGIN S-55 WAITING LIST OFFERS
+-- Existing installations: run through END S-55 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving. Needs the S-50 and S-53 blocks above.
+--
+-- A freed place is offered to whoever has waited longest, never given: only
+-- their own acceptance registers them. While the offer is open it counts as
+-- a taken place, so no one else -- newcomer or further down the line -- can
+-- take it. There is no expiry; declining passes it on.
+
+-- Set when this entry was offered a freed place; null while still waiting.
+alter table registrations.waiting_list
+  add column if not exists offered_at timestamptz;
+
+-- Places held plus open offers: what a capacity is measured against.
+create or replace function registrations.places_claimed(p_event_id uuid)
+returns bigint
+language sql
+stable
+set search_path = ''
+as $$
+  select
+    (select count(*) from registrations.registrations where event_id = p_event_id)
+    + (select count(*) from registrations.waiting_list
+       where event_id = p_event_id and offered_at is not null);
+$$;
+
+-- Offers the place to the first entry not yet offered one, if a place is
+-- genuinely free. Callers hold the per-event lock.
+create or replace function registrations.offer_next(p_event_id uuid, p_capacity integer)
+returns registrations.waiting_list
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_offered registrations.waiting_list;
+begin
+  if registrations.places_claimed(p_event_id) < p_capacity then
+    update registrations.waiting_list
+    set offered_at = now()
+    where id = (
+      select id from registrations.waiting_list
+      where event_id = p_event_id and offered_at is null
+      order by created_at, id
+      limit 1
+    )
+    returning * into v_offered;
+  end if;
+  return v_offered;
+end;
+$$;
+
+-- S-50's register, now counting open offers as taken.
+--   SP050 -- the event is full
+--   23505 -- this Attendee already holds a place
+create or replace function registrations.register(
+  p_event_id    uuid,
+  p_attendee_id uuid,
+  p_capacity    integer
+)
+returns setof registrations.registrations
+language plpgsql
+set search_path = ''
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  if exists (
+    select 1 from registrations.registrations
+    where event_id = p_event_id and attendee_id = p_attendee_id
+  ) then
+    raise exception 'already registered' using errcode = '23505';
+  end if;
+
+  if registrations.places_claimed(p_event_id) >= p_capacity then
+    raise exception 'event full' using errcode = 'SP050';
+  end if;
+
+  return query
+    insert into registrations.registrations (event_id, attendee_id)
+    values (p_event_id, p_attendee_id)
+    returning *;
+end;
+$$;
+
+-- S-53's withdraw, now offering the freed place instead of filling it.
+--   SP053 -- this Attendee holds no place at this event
+-- Returns {"withdrawn": <row>, "offered": <waiting-list row> | null}.
+create or replace function registrations.withdraw(
+  p_event_id    uuid,
+  p_attendee_id uuid,
+  p_capacity    integer
+)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_withdrawn registrations.registrations;
+  v_offered   registrations.waiting_list;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  delete from registrations.registrations
+  where event_id = p_event_id and attendee_id = p_attendee_id
+  returning * into v_withdrawn;
+
+  if v_withdrawn.id is null then
+    raise exception 'not registered' using errcode = 'SP053';
+  end if;
+
+  v_offered := registrations.offer_next(p_event_id, p_capacity);
+
+  return jsonb_build_object(
+    'withdrawn', to_jsonb(v_withdrawn),
+    'offered', case when v_offered.id is null then null else to_jsonb(v_offered) end
+  );
+end;
+$$;
+
+-- The invited Attendee takes the held place. No capacity check: the offer
+-- already holds it.
+--   SP055 -- this Attendee has no open offer for this event
+create or replace function registrations.accept_offer(
+  p_event_id    uuid,
+  p_attendee_id uuid
+)
+returns setof registrations.registrations
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_entry registrations.waiting_list;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  delete from registrations.waiting_list
+  where event_id = p_event_id and attendee_id = p_attendee_id
+    and offered_at is not null
+  returning * into v_entry;
+
+  if v_entry.id is null then
+    raise exception 'no open offer' using errcode = 'SP055';
+  end if;
+
+  return query
+    insert into registrations.registrations (event_id, attendee_id)
+    values (p_event_id, p_attendee_id)
+    returning *;
+end;
+$$;
+
+-- The invited Attendee passes: they leave the waiting list and the place is
+-- offered to the next in line.
+--   SP055 -- this Attendee has no open offer for this event
+-- Returns {"declined": <waiting-list row>, "offered": <waiting-list row> | null}.
+create or replace function registrations.decline_offer(
+  p_event_id    uuid,
+  p_attendee_id uuid,
+  p_capacity    integer
+)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_declined registrations.waiting_list;
+  v_offered  registrations.waiting_list;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  delete from registrations.waiting_list
+  where event_id = p_event_id and attendee_id = p_attendee_id
+    and offered_at is not null
+  returning * into v_declined;
+
+  if v_declined.id is null then
+    raise exception 'no open offer' using errcode = 'SP055';
+  end if;
+
+  v_offered := registrations.offer_next(p_event_id, p_capacity);
+
+  return jsonb_build_object(
+    'declined', to_jsonb(v_declined),
+    'offered', case when v_offered.id is null then null else to_jsonb(v_offered) end
+  );
+end;
+$$;
+
+revoke all on function registrations.places_claimed(uuid) from public, anon, authenticated;
+revoke all on function registrations.offer_next(uuid, integer) from public, anon, authenticated;
+revoke all on function registrations.register(uuid, uuid, integer) from public, anon, authenticated;
+revoke all on function registrations.withdraw(uuid, uuid, integer) from public, anon, authenticated;
+revoke all on function registrations.accept_offer(uuid, uuid) from public, anon, authenticated;
+revoke all on function registrations.decline_offer(uuid, uuid, integer) from public, anon, authenticated;
+grant execute on function registrations.places_claimed(uuid) to service_role;
+grant execute on function registrations.offer_next(uuid, integer) to service_role;
+grant execute on function registrations.register(uuid, uuid, integer) to service_role;
+grant execute on function registrations.withdraw(uuid, uuid, integer) to service_role;
+grant execute on function registrations.accept_offer(uuid, uuid) to service_role;
+grant execute on function registrations.decline_offer(uuid, uuid, integer) to service_role;
+
+notify pgrst, 'reload schema';
+-- END S-55 WAITING LIST OFFERS

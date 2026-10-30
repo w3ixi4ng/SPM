@@ -4,7 +4,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
 import {
+  acceptOffer,
   canWithdraw,
+  declineOffer,
+  declinePrompt,
   describeRegistration,
   formatEventWhen,
   getMyRegistration,
@@ -84,8 +87,9 @@ function Fact({ icon: Icon, label, children }) {
 // The page's one bold moment: where registration stands right now, with a
 // live countdown to the next change, and the action that goes with it.
 // S-53: giving up a place can't be undone -- registering again may mean the
-// back of the waiting list -- so it asks first, inline.
-function WithdrawControl({ event, onWithdraw, withdrawing }) {
+// back of the waiting list -- so it asks first, inline. S-55: declining a held
+// place asks the same way.
+function ConfirmControl({ label, prompt, confirm, busyLabel, keepLabel, onConfirm, busy, className = '' }) {
   const [confirming, setConfirming] = useState(false)
   const trigger = useRef(null)
   const keep = useRef(null)
@@ -103,10 +107,10 @@ function WithdrawControl({ event, onWithdraw, withdrawing }) {
         ref={trigger}
         type="button"
         onClick={() => setConfirming(true)}
-        className="csp-ghost mt-5 px-5 py-3 rounded-sm font-ui text-sm font-medium border"
+        className={`csp-ghost px-5 py-3 rounded-sm font-ui text-sm font-medium border ${className}`}
         style={{ borderColor: C.paper, color: C.paper }}
       >
-        Withdraw registration
+        {label}
       </button>
     )
   }
@@ -114,31 +118,31 @@ function WithdrawControl({ event, onWithdraw, withdrawing }) {
     <div
       className="mt-5 pt-5 border-t"
       style={{ borderColor: C.lineOnInk }}
-      onKeyDown={(e) => { if (e.key === 'Escape' && !withdrawing) setConfirming(false) }}
+      onKeyDown={(e) => { if (e.key === 'Escape' && !busy) setConfirming(false) }}
     >
       <p className="font-ui text-sm leading-relaxed max-w-sm mb-4" style={{ color: C.paper }}>
-        {withdrawPrompt(event)}
+        {prompt}
       </p>
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          onClick={onWithdraw}
-          disabled={withdrawing}
+          onClick={onConfirm}
+          disabled={busy}
           className="csp-primary inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium transition-transform duration-200 disabled:opacity-70"
           style={{ backgroundColor: C.teal, color: C.paper }}
         >
-          {withdrawing && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
-          {withdrawing ? 'Withdrawing…' : 'Withdraw'}
+          {busy && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+          {busy ? busyLabel : confirm}
         </button>
         <button
           ref={keep}
           type="button"
           onClick={() => setConfirming(false)}
-          disabled={withdrawing}
+          disabled={busy}
           className="csp-ghost px-5 py-3 rounded-sm font-ui font-medium border disabled:opacity-70"
           style={{ borderColor: C.paper, color: C.paper }}
         >
-          Keep my place
+          {keepLabel}
         </button>
       </div>
     </div>
@@ -147,7 +151,7 @@ function WithdrawControl({ event, onWithdraw, withdrawing }) {
 
 function RegistrationPanel({
   event, now, auth, registration, onRegister, onJoinWaitingList, registering, error,
-  withdrawn, onWithdraw, withdrawing,
+  withdrawn, onWithdraw, withdrawing, declined, onAccept, onDecline, answering,
 }) {
   const navigate = useNavigate()
   const { state, status } = describeRegistration(event, now)
@@ -164,8 +168,48 @@ function RegistrationPanel({
           You&apos;re registered for this event.
         </p>
         {canWithdraw(event, now) && (
-          <WithdrawControl event={event} onWithdraw={onWithdraw} withdrawing={withdrawing} />
+          <ConfirmControl
+            label="Withdraw registration"
+            prompt={withdrawPrompt(event)}
+            confirm="Withdraw"
+            busyLabel="Withdrawing…"
+            keepLabel="Keep my place"
+            onConfirm={onWithdraw}
+            busy={withdrawing}
+            className="mt-5"
+          />
         )}
+      </>
+    )
+  } else if (registration?.offered) {
+    // S-55: the place is held, not given -- only Accept place registers.
+    action = (
+      <>
+        <p className="flex items-center gap-2 font-ui text-base leading-relaxed max-w-sm" style={{ color: C.paper }}>
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: C.amber }} aria-hidden="true" />
+          A place is being held for you. Accept it to register, or decline to pass it to the next person.
+        </p>
+        <div className="mt-5 flex flex-wrap items-start gap-3">
+          <button
+            type="button"
+            onClick={onAccept}
+            disabled={answering}
+            className="csp-primary inline-flex items-center gap-2 px-5 py-3 rounded-sm font-ui font-medium transition-transform duration-200 disabled:opacity-70"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {answering && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+            {answering ? 'Accepting…' : 'Accept place'}
+          </button>
+          <ConfirmControl
+            label="Decline"
+            prompt={declinePrompt()}
+            confirm="Decline"
+            busyLabel="Declining…"
+            keepLabel="Keep my offer"
+            onConfirm={onDecline}
+            busy={answering}
+          />
+        </div>
       </>
     )
   } else if (registration?.waitlisted) {
@@ -216,7 +260,10 @@ function RegistrationPanel({
       className="rise-in rounded-sm p-7 sm:p-8"
       style={{ backgroundColor: C.ink, animationDelay: '120ms' }}
     >
-      <p className="font-ui text-sm mb-2" style={{ color: C.paperDim }}>{status}</p>
+      {/* "Full -- join the waiting list" would mislead someone a place is held for. */}
+      {!registration?.offered && (
+        <p className="font-ui text-sm mb-2" style={{ color: C.paperDim }}>{status}</p>
+      )}
       {countdown && (
         <p className="mb-6" aria-live="polite">
           <span className="block font-ui text-xs" style={{ color: C.paperDim }}>{countdown.label}</span>
@@ -229,6 +276,12 @@ function RegistrationPanel({
         <p role="status" className="flex items-center gap-2 font-ui text-base mb-5" style={{ color: C.paper }}>
           <span className="w-2 h-2 rounded-full border" style={{ borderColor: C.paperDim }} aria-hidden="true" />
           You&apos;ve withdrawn from this event.
+        </p>
+      )}
+      {declined && (
+        <p role="status" className="flex items-center gap-2 font-ui text-base mb-5" style={{ color: C.paper }}>
+          <span className="w-2 h-2 rounded-full border" style={{ borderColor: C.paperDim }} aria-hidden="true" />
+          You&apos;ve declined the place and left the waiting list.
         </p>
       )}
       {action}
@@ -252,6 +305,9 @@ export default function PublicEvent() {
   // S-53: shown once, after withdrawing; a reload starts without it.
   const [withdrawn, setWithdrawn] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
+  // S-55: answering a held place; the decline message is shown once.
+  const [answering, setAnswering] = useState(false)
+  const [declined, setDeclined] = useState(false)
   // Bumped by Register / Join the waiting list, so a status lookup that
   // started before the click can't overwrite what the click returned.
   const actions = useRef(0)
@@ -289,6 +345,7 @@ export default function PublicEvent() {
     setRegistering(true)
     setRegisterError(null)
     setWithdrawn(false)
+    setDeclined(false)
     try {
       setRegistration(await registerForEvent(id))
     } catch (error) {
@@ -306,6 +363,7 @@ export default function PublicEvent() {
     setRegistering(true)
     setRegisterError(null)
     setWithdrawn(false)
+    setDeclined(false)
     try {
       const joined = await joinWaitingList(id)
       setRegistration({
@@ -330,8 +388,37 @@ export default function PublicEvent() {
       setRegisterError(error.message)
     } finally {
       setWithdrawing(false)
-      // The freed place may have gone to the next person waiting, so the
+      // The freed place may now be held for the next person waiting, so the
       // event can be full again.
+      refreshEvent()
+    }
+  }
+
+  async function handleAccept() {
+    actions.current += 1
+    setAnswering(true)
+    setRegisterError(null)
+    try {
+      setRegistration(await acceptOffer(id))
+    } catch (error) {
+      setRegisterError(error.message)
+    } finally {
+      setAnswering(false)
+    }
+  }
+
+  async function handleDecline() {
+    actions.current += 1
+    setAnswering(true)
+    setRegisterError(null)
+    try {
+      setRegistration(await declineOffer(id))
+      setDeclined(true)
+    } catch (error) {
+      setRegisterError(error.message)
+    } finally {
+      setAnswering(false)
+      // The place is now held for the next in line.
       refreshEvent()
     }
   }
@@ -420,6 +507,10 @@ export default function PublicEvent() {
               withdrawn={withdrawn}
               onWithdraw={handleWithdraw}
               withdrawing={withdrawing}
+              declined={declined}
+              onAccept={handleAccept}
+              onDecline={handleDecline}
+              answering={answering}
             />
           </div>
         )}

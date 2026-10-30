@@ -125,6 +125,8 @@ venues, users and registrations services against the test Supabase project.
 
 ## TC-EVENTREGISTRATIONS-106 — withdrawing frees the place for the next in line (S-53)
 
+> **Retired by S-55 (2026-10-30).** A freed place is now offered, not given. See TC-EVENTREGISTRATIONS-108. The record below is S-53's last run.
+
 - **Scenario:** Through Kong against the test project: a registered Attendee withdraws, is no longer registered, and the first Attendee waiting gets the place and a notification, first come, first served (S-53 AC1–AC4). Also proves the `waiting_list_promotion` kind is allowed by the real `notifications.notifications` constraint.
 - **Pre-conditions:** Fresh `.env.test` stack; the S-53 blocks of `registrations.sql` and `notifications.sql` applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT), starting ten days out, no confirmed venue; Attendees A, B ("S-53 Test Attendee B") and C.
 - **Steps:**
@@ -160,3 +162,24 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; P's row confirmed with its dates, 18:00:00–21:00:00 and V1's name; after `planning`, still listed with `details_confirmed` false and dates, times and venue null; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_the_attendees_list_shows_the_primary_venue_and_hides_details_while_rechecked; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; with the rest of this suite and `tests/integration/atomic/events`: 18 passed; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-108 — a freed place is offered first come, first served, and taken only by accepting (S-55)
+
+- **Scenario:** Through Kong against the test project: A's withdrawal invites B without registering B. The held place keeps a newcomer out. B's decline invites C, and C's acceptance registers C. Each invitation reaches the right inbox (S-55 AC1, AC2). This also proves the real `notifications.notifications` constraint allows the `waiting_list_offer` kind.
+- **Pre-conditions:** Fresh `.env.test` stack; the S-55 blocks of `registrations.sql` and `notifications.sql` applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open yesterday to tomorrow (SGT), starting ten days out, no confirmed venue; Attendees A, B, C and D.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As B, then as C, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As A, `DELETE /api/event-registrations/events/P/registration`.
+  4. As B, `GET /api/event-registrations/events/P/registration`; as C, the same; as B, `GET /api/notifications`.
+  5. As D, `POST /api/event-registrations/events/P/registration`.
+  6. As C, `POST /api/event-registrations/events/P/waiting-list/offer`.
+  7. As B, `DELETE /api/event-registrations/events/P/waiting-list/offer`.
+  8. As C, `GET /api/notifications`; then `POST /api/event-registrations/events/P/waiting-list/offer`.
+  9. As C, `GET /api/event-registrations/events/P/registration` and `GET /api/notifications`; as B, `GET /api/event-registrations/events/P/registration`.
+  10. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `201` twice. 3 → `200`, `"registered": false`. 4 → B `"registered": false, "waitlisted": true, "offered": true`. C `"waitlisted": true, "offered": false`. B's inbox has exactly one `waiting_list_offer` row for P, with a message starting "A place opened up at {P's name}," and containing "venue to be confirmed" and "It's held for you: accept it on the event page to register.". It has no `waiting_list_promotion` or `registration_confirmation` row. 5 → `409` "This event is full. You can join the waiting list.". 6 → `404` "You don't have a place on offer for this event.". 7 → `200`, `"waitlisted": false`. 8 → C's inbox has exactly one `waiting_list_offer` row for P, then `201` `"registered": true`. 9 → C `"registered": true, "offered": false`, and C's inbox now also has one `registration_confirmation` for P. B `"registered": false, "waitlisted": false`. 10 leaves no rows.
+- **Actual:** `201`; B and C joined; A's withdrawal `200`; B waitlisted with `offered` true, C `offered` false; B's inbox one `waiting_list_offer` with the expected opening, "venue to be confirmed" and the held line, no promotion or confirmation; D `409` "This event is full. You can join the waiting list."; C's accept `404`; B's decline `200`; C invited once, then accepted `201`; C registered with one `registration_confirmation`; B neither registered nor waiting; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_a_freed_place_is_offered_first_come_first_served_and_taken_only_by_accepting; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; full `tests/integration`: 104 passed, 5 skipped; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree

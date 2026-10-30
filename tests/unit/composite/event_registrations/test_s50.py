@@ -181,7 +181,7 @@ def test_the_attendees_status_shows_the_waiting_list(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": True, "joined_at": JOINED_AT, "position": 1,
+        "waitlisted": True, "joined_at": JOINED_AT, "position": 1, "offered": False,
     }
 
     _waiting(services, EVENT_E)

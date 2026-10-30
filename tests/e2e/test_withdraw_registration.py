@@ -1,9 +1,8 @@
-"""TC-E2E-257 -- S-53: a registered Attendee withdraws from the event page,
-and the Attendee first on the waiting list takes the place and is told so.
+"""TC-E2E-257 -- S-53: a registered Attendee withdraws from the event page.
 
-What only a browser proves: the inline confirmation, the page switching from
-registered to the waiting list as the freed place goes to someone else, and
-both Attendees' dashboards agreeing through Kong."""
+What only a browser proves: the inline confirmation, and the page switching
+from registered to the waiting list as the freed place is held for the next in
+line. S-55 moved what that Attendee sees to test_waiting_list_offer.py."""
 
 import re
 import uuid
@@ -11,7 +10,7 @@ import uuid
 from playwright.sync_api import expect
 
 from .conftest import requires_env
-from .test_cap_registration import _confirmed_event, _sign_out
+from .test_cap_registration import _confirmed_event
 
 pytestmark = requires_env
 
@@ -20,16 +19,11 @@ WITHDRAWN = "You've withdrawn from this event."
 
 
 # --- TC-E2E-257 -----------------------------------------------------------
-def test_an_attendee_withdraws_and_the_next_in_line_gets_the_place(
-    admin, page, make_user, sign_in
-):
+def test_an_attendee_withdraws_from_the_event_page(admin, page, make_user, sign_in):
     organiser = make_user("event_organiser")
     first = make_user("attendee")
     second = make_user("attendee")
     third = make_user("attendee")
-    admin.schema("users").table("users").update({"name": "S-53 E2E Attendee B"}).eq(
-        "id", second["id"]
-    ).execute()
     name = f"Small Workshop {uuid.uuid4().hex[:6]}"
     event = _confirmed_event(admin, organiser, name, expected_attendance=1)
     registrations = admin.schema("registrations")
@@ -47,7 +41,7 @@ def test_an_attendee_withdraws_and_the_next_in_line_gets_the_place(
     page.goto(public)
     page.get_by_role("button", name="Withdraw registration").click()
     expect(page.get_by_text(
-        f"Withdraw from {name}? Your place goes to the next person on the waiting list."
+        f"Withdraw from {name}? Your place will be offered to the next person on the waiting list."
     )).to_be_visible(timeout=20000)
     page.get_by_role("button", name="Keep my place").click()
     expect(page.get_by_text(REGISTERED)).to_be_visible()
@@ -69,23 +63,3 @@ def test_an_attendee_withdraws_and_the_next_in_line_gets_the_place(
     mine = page.get_by_role("region", name="Your registrations")
     expect(mine).to_be_visible(timeout=20000)
     expect(mine.get_by_role("listitem").filter(has_text=name)).to_have_count(0)
-    _sign_out(page)
-
-    sign_in(second)
-    page.wait_for_url(re.compile(r"/dashboard/attendee$"), timeout=20000)
-    row = page.get_by_role("region", name="Your registrations").get_by_role(
-        "listitem"
-    ).filter(has_text=name)
-    expect(row.get_by_text("Confirmed", exact=True)).to_be_visible(timeout=20000)
-    inbox = page.get_by_role("region", name="Notifications")
-    expect(inbox.get_by_text(
-        f"A place opened up: you're now registered for {name}, "
-    )).to_be_visible(timeout=20000)
-    _sign_out(page)
-
-    sign_in(third)
-    page.wait_for_url(re.compile(r"/dashboard/attendee$"), timeout=20000)
-    page.goto(public)
-    expect(page.get_by_text("You're on the waiting list. You're next in line.")).to_be_visible(
-        timeout=20000
-    )

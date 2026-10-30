@@ -11,6 +11,7 @@ NotificationKind = Literal[
     "venue_hold_expiry",
     "registration_confirmation",
     "waiting_list_promotion",
+    "waiting_list_offer",
 ]
 
 

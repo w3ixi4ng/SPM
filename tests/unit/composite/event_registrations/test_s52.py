@@ -51,7 +51,7 @@ def test_the_attendees_status_gives_their_place_in_line(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": True, "joined_at": A_JOINED, "position": 2,
+        "waitlisted": True, "joined_at": A_JOINED, "position": 2, "offered": False,
     }
 
     services["registrations"].waiting[EVENT_E] = [_row(ATTENDEE_B, "2026-11-05T04:00:00Z")]

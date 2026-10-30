@@ -153,6 +153,7 @@ def test_registering_inside_the_period_takes_a_place(client, services):
         "waitlisted": False,
         "joined_at": None,
         "position": None,
+        "offered": False,
     }
     services["registrations"].post.assert_awaited_once_with(
         "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2}
@@ -199,7 +200,7 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT,
-        "waitlisted": False, "joined_at": None, "position": None,
+        "waitlisted": False, "joined_at": None, "position": None, "offered": False,
     }
     services["registrations"].get.assert_awaited_with(
         f"/registrations/events/{EVENT_E}/attendees/{ATTENDEE_A}"
@@ -212,7 +213,7 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": False, "joined_at": None, "position": None,
+        "waitlisted": False, "joined_at": None, "position": None, "offered": False,
     }
 
 
@@ -597,6 +598,7 @@ REGISTERED_E = {
     "waitlisted": False,
     "joined_at": None,
     "position": None,
+    "offered": False,
 }
 
 

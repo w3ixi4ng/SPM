@@ -1,8 +1,7 @@
 """S-53: a registered Attendee withdraws until the event starts.
 
-TC-EVENTREGISTRATIONS-036..041. The registrations service gives the freed
-place to whoever has waited longest in the same step; this composite only
-checks who may withdraw and when, then tells the promoted Attendee.
+TC-EVENTREGISTRATIONS-036..041. S-55 retired 039 and 040: the freed place is
+now offered, not given, and test_s55.py covers telling the next in line.
 """
 
 from datetime import datetime, timezone
@@ -12,36 +11,24 @@ import pytest
 
 from .conftest import ATTENDEE_A, EVENT_E, me, published, response, sgt
 
-ATTENDEE_B = "44444444-4444-4444-8444-444444444444"
-PROMOTED_ID = "99999999-9999-4999-8999-999999999999"
 WITHDRAW_E = f"/event-registrations/events/{EVENT_E}/registration"
 NOT_REGISTERED = "You're not registered for this event."
 STARTED = "This event has already started. You can no longer withdraw."
 WITHDRAWN = {
     "event_id": EVENT_E, "registered": False, "registered_at": None,
-    "waitlisted": False, "joined_at": None, "position": None,
+    "waitlisted": False, "joined_at": None, "position": None, "offered": False,
 }
 A_ROW = {"id": "r-a", "event_id": EVENT_E, "attendee_id": ATTENDEE_A,
          "created_at": "2026-11-05T04:00:00Z"}
-B_ROW = {"id": PROMOTED_ID, "event_id": EVENT_E, "attendee_id": ATTENDEE_B,
-         "created_at": "2026-11-06T04:00:00Z"}
-BEN = {"id": ATTENDEE_B, "name": "Ben Lee", "email": "ben@example.com"}
 
 
 @pytest.fixture
 def withdrawing(services):
-    """A holds a place at E; no one is waiting unless a test promotes B."""
+    """A holds a place at E; no one is waiting."""
     services["registrations"].post.return_value = response(
-        200, {"withdrawn": A_ROW, "promoted": None}
+        200, {"withdrawn": A_ROW, "offered": None}
     )
-    services["users"].post.return_value = response(200, [BEN])
     return services
-
-
-def _promote_b(services):
-    services["registrations"].post.return_value = response(
-        200, {"withdrawn": A_ROW, "promoted": B_ROW}
-    )
 
 
 def _event_e_is(services, **changes):
@@ -53,14 +40,6 @@ def _event_e_is(services, **changes):
         return await base(path, **kwargs)
 
     services["events"].get.side_effect = events_get
-
-
-def _sent_rows(services):
-    return [
-        row
-        for call in services["notifications"].post.call_args_list
-        for row in call.kwargs["json"]["notifications"]
-    ]
 
 
 # --- TC-EVENTREGISTRATIONS-036 --------------------------------------------
@@ -147,93 +126,6 @@ def test_withdrawing_without_a_place(client, withdrawing):
     assert result.json() == {"detail": NOT_REGISTERED}
     assert withdrawing["registrations"].waiting[EVENT_E] == [A_ROW]
     withdrawing["notifications"].post.assert_not_called()
-
-
-# --- TC-EVENTREGISTRATIONS-039 --------------------------------------------
-PROMOTION = (
-    "A place opened up: you're now registered for Alumni networking evening, "
-    "20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ben Lee. "
-    "Email: ben@example.com."
-)
-
-
-def test_the_promoted_attendee_is_notified(client, withdrawing):
-    _promote_b(withdrawing)
-
-    result = client.delete(WITHDRAW_E)
-
-    assert result.status_code == 200
-    assert result.json() == WITHDRAWN
-    withdrawing["users"].post.assert_awaited_once_with(
-        "/internal/users/profiles", json={"ids": [ATTENDEE_B]}
-    )
-    assert _sent_rows(withdrawing) == [
-        {
-            "recipient_id": ATTENDEE_B,
-            "event_id": EVENT_E,
-            "event_name": "Alumni networking evening",
-            "kind": "waiting_list_promotion",
-            "message": PROMOTION,
-            "deduplication_key": f"waiting_list_promotion:{PROMOTED_ID}",
-        }
-    ]
-
-
-def test_a_promotion_without_a_confirmed_venue(client, withdrawing):
-    _promote_b(withdrawing)
-    withdrawing["bookings"].get.side_effect = None
-    withdrawing["bookings"].get.return_value = response(200, [])
-
-    client.delete(WITHDRAW_E)
-
-    (row,) = _sent_rows(withdrawing)
-    assert "9:00 pm, venue to be confirmed. Name: Ben Lee." in row["message"]
-
-
-def test_a_promotion_after_registration_has_closed(client, withdrawing, clock):
-    clock.now = sgt("2026-11-16T12:00")
-    _promote_b(withdrawing)
-
-    assert client.delete(WITHDRAW_E).status_code == 200
-    assert [row["recipient_id"] for row in _sent_rows(withdrawing)] == [ATTENDEE_B]
-
-
-# --- TC-EVENTREGISTRATIONS-040 --------------------------------------------
-def _notifications_fail(services):
-    services["notifications"].post.return_value = response(500, {"detail": "boom"})
-
-
-def _notifications_unreachable(services):
-    services["notifications"].post.side_effect = httpx.ConnectError("down")
-
-
-def _profiles_fail(services):
-    services["users"].post.return_value = response(500, {"detail": "boom"})
-
-
-def _venues_unreadable(services):
-    services["bookings"].get.side_effect = None
-    services["bookings"].get.return_value = response(500, {"detail": "boom"})
-
-
-@pytest.mark.parametrize(
-    ("failure", "sends"),
-    [
-        (_notifications_fail, True),
-        (_notifications_unreachable, True),
-        (_profiles_fail, False),
-        (_venues_unreadable, False),
-    ],
-)
-def test_a_failed_notification_keeps_the_withdrawal(client, withdrawing, failure, sends):
-    _promote_b(withdrawing)
-    failure(withdrawing)
-
-    result = client.delete(WITHDRAW_E)
-
-    assert result.status_code == 200
-    assert result.json() == WITHDRAWN
-    assert withdrawing["notifications"].post.called is sends
 
 
 # --- TC-EVENTREGISTRATIONS-041 --------------------------------------------

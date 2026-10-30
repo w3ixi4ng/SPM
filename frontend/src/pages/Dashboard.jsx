@@ -125,7 +125,7 @@ function MyRegistrations() {
               <p className="mt-1 flex items-center gap-2 font-ui text-xs" style={{ color: C.inkFaint }}>
                 <span
                   className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: registration.status === 'waitlisted' ? C.amber : C.green }}
+                  style={{ backgroundColor: registration.status === 'confirmed' ? C.green : C.amber }}
                   aria-hidden="true"
                 />
                 {registrationStatusLabel(registration)}

@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  acceptOffer,
   attendeeCountLabel,
   canWithdraw,
   closeRegistration,
+  declineOffer,
+  declinePrompt,
   describeRegistration,
   formatEventWhen,
   joinWaitingList,
@@ -302,7 +305,7 @@ test('withdrawing goes to the composite', async (t) => {
 test('the withdraw confirmation says what happens', () => {
   assert.equal(
     withdrawPrompt({ name: 'Alumni networking evening' }),
-    'Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list.',
+    'Withdraw from Alumni networking evening? Your place will be offered to the next person on the waiting list.',
   )
 })
 
@@ -349,4 +352,47 @@ test('a waiting-list entry shows no venue', () => {
   assert.deepEqual(registrationDetails(row), {
     when: formatEventWhen(row), venue: null, pending: null,
   })
+})
+
+// --- S-55 -----------------------------------------------------------------
+
+// --- TC-FRONTEND-278 -------------------------------------------------------
+test('an offered place reads "Place offered" on the dashboard', () => {
+  const offered = {
+    status: 'offered',
+    position: 1,
+    start_date: '2026-11-20',
+    start_time: '18:00:00',
+    end_date: '2026-11-20',
+    end_time: '21:00:00',
+    details_confirmed: true,
+  }
+  assert.equal(registrationStatusLabel(offered), 'Place offered')
+  assert.deepEqual(registrationDetails(offered), {
+    when: '20 Nov 2026, 6:00 pm to 9:00 pm', venue: null, pending: null,
+  })
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 2 }), 'Waiting list · 2nd in line')
+  assert.equal(registrationStatusLabel({ status: 'confirmed' }), 'Confirmed')
+})
+
+// --- TC-FRONTEND-280 -------------------------------------------------------
+test('accepting and declining go to the composite', async (t) => {
+  const calls = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ registered: options.method === 'POST' }), { status: 200 })
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  assert.deepEqual(await acceptOffer('E'), { registered: true })
+  assert.deepEqual(await declineOffer('E'), { registered: false })
+  assert.deepEqual(
+    calls.map((call) => [call.options.method, call.url]),
+    [
+      ['POST', '/api/event-registrations/events/E/waiting-list/offer'],
+      ['DELETE', '/api/event-registrations/events/E/waiting-list/offer'],
+    ],
+  )
+  assert.equal(declinePrompt(), "Decline this place? You'll leave the waiting list.")
 })

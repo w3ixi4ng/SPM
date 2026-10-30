@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   listNotifications,
   notificationErrorMessage,
+  notificationLink,
 } from '../../../frontend/src/lib/notifications.js'
 
 // --- TC-FRONTEND-094 -----------------------------------------------------
@@ -63,4 +64,14 @@ test('organiser and coordinator dashboards render the persistent inbox states', 
   assert.match(panel, /No notifications yet\./)
   assert.match(panel, /role="alert"/)
   assert.doesNotMatch(panel, /email|sms|push/i)
+})
+
+// --- TC-FRONTEND-279 -----------------------------------------------------
+test('the invitation links to its event', () => {
+  const event = '11111111-1111-4111-8111-111111111111'
+  assert.deepEqual(notificationLink({ kind: 'waiting_list_offer', event_id: event }), {
+    href: `/public/events/${event}`, label: 'View event',
+  })
+  assert.equal(notificationLink({ kind: 'registration_confirmation', event_id: event }), null)
+  assert.equal(notificationLink({ kind: 'event_assignment', event_id: event }), null)
 })

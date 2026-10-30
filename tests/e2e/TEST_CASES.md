@@ -1461,21 +1461,19 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 
 ## S-53 — Withdraw Registration
 
-## TC-E2E-257 — an Attendee withdraws and the next in line gets the place
+## TC-E2E-257 — an Attendee withdraws from the event page
 
-- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, is no longer registered, and the Attendee first on the waiting list is moved to Confirmed and notified (S-53 AC1–AC4).
+- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, and is no longer registered (S-53 AC1, AC2). Amended by S-55 (2026-10-30): what happens to the next in line moved to TC-E2E-264, because the place is now offered, not given. The old steps 5–6 are dropped.
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-53 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B ("S-53 E2E Attendee B") and C; A holds P's one place; B, then C, are on P's waiting list.
 - **Steps:**
   1. As A, open `/public/events/P` and click **Withdraw registration**.
   2. Click **Keep my place**.
   3. Click **Withdraw registration**, then **Withdraw**.
   4. Reload; open the dashboard.
-  5. As B, open the dashboard.
-  6. As C, open `/public/events/P`.
-- **Expected:** 1 → "Withdraw from {P's name}? Your place goes to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (B took the place), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard has no row for P. 5 → the row for P reads "Confirmed", and Notifications shows "A place opened up: you're now registered for {P's name}, …". 6 → "You're on the waiting list. You're next in line."
-- **Actual:** Chromium: the prompt showed with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard; B's row read Confirmed with "A place opened up: you're now registered for {P}, …" in Notifications; C saw "You're on the waiting list. You're next in line."
+- **Expected:** 1 → "Withdraw from {P's name}? Your place will be offered to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (the place is held for B), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard has no row for P.
+- **Actual:** Chromium: the prompt showed the S-55 wording with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard.
 - **Status:** Pass
-- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_and_the_next_in_line_gets_the_place[chromium]; run headed with `--slowmo 600`: 1 passed in 46 s; with the S-48/49/50/52 registration journeys headless: 8 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_from_the_event_page[chromium]; full `tests/e2e`: 67 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
 
 ## S-93 confirmed specification — inactive Coordinator handoff in Chromium
 
@@ -1590,3 +1588,24 @@ Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `orig
 - **Actual:** The Organiser submitted and reloaded a mixed proposal; the assigned Coordinator saw it, the unrelated Coordinator did not, and accepted event and linked arrangements stayed unchanged.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; both S-59 Chromium cases passed on 2026-10-30 after the frontend guard fix.
+
+## S-55 — Notify Waitlisted Attendee of Opening
+
+## TC-E2E-264 — a freed place is offered to the first in line, who must accept it
+
+- **Scenario:** In a real browser: when a place frees up, the Attendee first on the waiting list is invited and finds the offer from their notification and dashboard. Declining passes it to the next in line, who is registered only once they accept (S-55 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-55 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B and C; A holds P's one place; B, then C, are on P's waiting list.
+- **Steps:**
+  1. As A, open `/public/events/P`, click **Withdraw registration**, then **Withdraw**.
+  2. As B, open the dashboard.
+  3. Click **View event** on the invitation.
+  4. Click **Decline**, then **Keep my offer**.
+  5. Click **Decline**, then **Decline** in the confirmation.
+  6. As C, open the dashboard, then `/public/events/P`.
+  7. Click **Accept place**.
+  8. Open the dashboard.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → "You've withdrawn from this event." 2 → P's row reads "Place offered", not "Confirmed". Notifications shows "A place opened up at {P's name}, …It's held for you: accept it on the event page to register." with a **View event** link. 3 → `/public/events/P` shows "A place is being held for you. Accept it to register, or decline to pass it to the next person." with **Accept place** and **Decline**, and no "You're registered for this event.". 4 → "Decline this place? You'll leave the waiting list." with **Decline** and **Keep my offer**. Keep my offer closes it, and the held message is still shown. 5 → "You've declined the place and left the waiting list.", and **Join the waiting list** is shown (the place is now held for C). 6 → C's row reads "Place offered" and C's Notifications shows the same invitation. The event page shows the held message and **Accept place**. 7 → "You're registered for this event." 8 → P's row reads "Confirmed", and Notifications shows "Registration confirmed: {P's name}, …".
+- **Actual:** Chromium: A withdrew; B's row read "Place offered" (not Confirmed) with the invitation and View event link; the link opened P's page with the held message and Accept place, no registered line; Keep my offer kept the offer; Decline showed the declined message and Join the waiting list; C's row read "Place offered" with the invitation; Accept place showed "You're registered for this event."; C's dashboard read Confirmed with "Registration confirmed: {P}, …".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_waiting_list_offer.py::test_a_freed_place_is_offered_to_the_first_in_line_who_must_accept_it[chromium]; full `tests/e2e`: 67 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
