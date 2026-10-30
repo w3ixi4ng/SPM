@@ -189,6 +189,37 @@ def test_a_venue_unavailable_notification_is_accepted(client, db):
     assert response.json()[0]["kind"] == "venue_unavailable"
 
 
+def test_an_equipment_unavailable_notification_is_accepted_and_idempotent(client, db):
+    row = {
+        **VENUE_UNAVAILABLE,
+        "kind": "equipment_unavailable",
+        "message": (
+            "Equipment availability changed for Projector: the item is under maintenance. "
+            "This affects Alumni talk. Arrange replacement equipment before the event."
+        ),
+        "deduplication_key": (
+            "equipment_unavailable:22222222-2222-4222-8222-222222222222:"
+            "2026-11-10T01:00:00Z:33333333-3333-4333-8333-333333333333:"
+            f"{RECIPIENT}"
+        ),
+    }
+    stored = {**row, "id": 1, "created_at": "2026-11-10T01:00:00Z"}
+    operation = db.schema.return_value.table.return_value.upsert.return_value
+    operation.execute.side_effect = [
+        SimpleNamespace(data=[stored]),
+        SimpleNamespace(data=[stored]),
+    ]
+
+    first = client.post("/internal/notifications", json={"notifications": [row]})
+    second = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert first.status_code == second.status_code == 201
+    assert first.json() == second.json()
+    assert first.json()[0]["kind"] == "equipment_unavailable"
+    for call in db.schema.return_value.table.return_value.upsert.call_args_list[-2:]:
+        assert call.kwargs == {"on_conflict": "deduplication_key"}
+
+
 def test_an_unknown_kind_is_still_refused(client, db):
     response = client.post(
         "/internal/notifications",

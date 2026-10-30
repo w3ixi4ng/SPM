@@ -30,7 +30,7 @@ create table if not exists notifications.notifications (
   constraint notifications_deduplication_key_not_blank
     check (btrim(deduplication_key) <> ''),
   constraint notifications_kind_allowed
-    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled'))
+    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'registration_withdrawn', 'event_cancelled'))
 );
 
 -- BEGIN S-69 EVENT CANCELLED
@@ -46,6 +46,18 @@ alter table notifications.notifications add constraint notifications_kind_allowe
 
 notify pgrst, 'reload schema';
 -- END S-69 EVENT CANCELLED
+
+-- BEGIN S-71 EQUIPMENT AVAILABILITY NOTIFICATION
+-- Existing installations: run this block in BOTH dev and test. Safe to
+-- repeat; it changes only the allowed notification-kind constraint and keeps
+-- every notification kind already present in shared Sprint 4 deployments.
+alter table notifications.notifications
+  drop constraint if exists notifications_kind_allowed;
+alter table notifications.notifications add constraint notifications_kind_allowed
+  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'registration_withdrawn', 'event_cancelled'));
+
+notify pgrst, 'reload schema';
+-- END S-71 EQUIPMENT AVAILABILITY NOTIFICATION
 
 -- Every inbox query filters by recipient and shows newest first.
 create index if not exists notifications_recipient_created_idx

@@ -170,7 +170,7 @@ test('equipment detail and update use authenticated Kong routes', async () => {
 
   assert.deepEqual(calls.map(({ url, options }) => [options.method ?? 'GET', url]), [
     ['GET', '/api/equipment/item%2F1'],
-    ['PUT', '/api/equipment/item%2F1'],
+    ['PUT', '/api/equipment-requirements/equipment/item%2F1'],
   ])
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
   assert.deepEqual(JSON.parse(calls[1].options.body), {
@@ -215,7 +215,7 @@ test('retirement uses the authenticated item action without a lifecycle payload'
   }
 
   assert.deepEqual(calls.map(({ url, options }) => [options.method, url]), [
-    ['POST', '/api/equipment/item%2F1/retire'],
+    ['POST', '/api/equipment-requirements/equipment/item%2F1/retire'],
   ])
   assert.equal(calls[0].options.credentials, 'include')
   assert.equal(calls[0].options.body, undefined)

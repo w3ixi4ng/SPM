@@ -210,3 +210,15 @@ Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
 - **Actual:** `201` with kind `event_cancelled`; `venue_closed` `422`.
 - **Status:** Pass
 - **Evidence:** test_app.py::test_an_event_cancellation_is_accepted; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## S-71 — Notify Coordinator — Availability Change
+
+### TC-NOTIFICATIONS-014 — equipment availability notices are accepted and deduplicated
+
+- **Scenario:** The notification store recognises the equipment availability kind and preserves one notice when delivery is retried.
+- **Pre-conditions:** Empty fake notification storage.
+- **Steps:** Twice `POST /internal/notifications` with the same `equipment_unavailable` row and deduplication key.
+- **Expected:** Both calls return `201`; storage contains one row identifying the event, affected equipment and recipient.
+- **Actual:** Both calls returned the same stored row through an upsert on the deduplication key.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_equipment_unavailable_notification_is_accepted_and_idempotent`; 2026-10-30, branch `S-71/notify-coordinator-availability-change`

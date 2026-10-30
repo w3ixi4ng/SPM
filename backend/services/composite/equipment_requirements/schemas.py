@@ -2,7 +2,33 @@
 
 from enum import Enum
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+
+
+class EquipmentUpdate(BaseModel):
+    """The catalogue fields Technical Support may change through S-71."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = Field(min_length=1)
+    description: str | None = None
+    storage_location: str | None = Field(default=None, max_length=200)
+    total_quantity: PositiveInt
+    operational_status: Literal["available", "unavailable", "maintenance"]
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def strip_type(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("description", "storage_location", mode="before")
+    @classmethod
+    def blank_optional_text_is_none(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class RequirementQuantity(BaseModel):
