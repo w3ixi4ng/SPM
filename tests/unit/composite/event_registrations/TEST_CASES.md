@@ -596,7 +596,8 @@ Route: `DELETE /event-registrations/events/{id}/registration`. Clock
 `2026-11-05 12:00` SGT unless stated; E starts `2026-11-20 18:00`. Attendee A
 (Ada Lovelace, `ada@example.com`) is signed in unless stated. The
 registrations fake answers `POST /registrations/withdrawals` with `200`
-`{"withdrawn": <A's row>, "promoted": null}` unless stated. Attendee B is
+`{"withdrawn": <A's row>, "promoted": null}` unless stated. (S-55 renames
+`promoted` to `offered`; see the S-55 section.) Attendee B is
 `44444444-4444-4444-8444-444444444444`, "Ben Lee", `ben@example.com`; B's
 promoted row id is `99999999-9999-4999-8999-999999999999`.
 
@@ -606,10 +607,10 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
 - **Pre-conditions:** As above; no one is promoted.
 - **Steps:** `DELETE /event-registrations/events/E/registration`.
 - **Test data:** As above.
-- **Expected:** `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null}`. The registrations service gets exactly one `POST /registrations/withdrawals` with `{"event_id": E, "attendee_id": A, "capacity": 2}`: A is taken from the session, and capacity is E's `expected_attendance`. No notification is sent.
-- **Actual:** `200` with the not-registered body; one `POST /registrations/withdrawals` `{E, A, capacity 2}`; no notification.
+- **Expected:** `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null}` (S-55 adds `"offered": false`). The registrations service gets exactly one `POST /registrations/withdrawals` with `{"event_id": E, "attendee_id": A, "capacity": 2}`: A is taken from the session, and capacity is E's `expected_attendance`. No notification is sent.
+- **Actual:** `200` with the not-registered body including `offered` false; one `POST /registrations/withdrawals` `{E, A, capacity 2}`; no notification.
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_a_registered_attendee_withdraws; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_a_registered_attendee_withdraws; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
 
 ## TC-EVENTREGISTRATIONS-037 — withdrawing is open until the event starts
 
@@ -648,6 +649,8 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
 
 ## TC-EVENTREGISTRATIONS-039 — the promoted Attendee is notified
 
+> **Retired by S-55 (2026-10-30).** A freed place is now offered, not given. See TC-EVENTREGISTRATIONS-054. The record below is S-53's last run.
+
 - **Scenario:** When the freed place goes to the next Attendee in line, they get one notification with the event and entry details (S-53 AC3, AC4).
 - **Pre-conditions:** Registrations answers `200` with `promoted` = B's row for E (id `9999…9999`). Users `POST /internal/users/profiles` `{"ids": [B]}` answers B's profile.
 - **Steps:** `DELETE /event-registrations/events/E/registration`.
@@ -658,6 +661,8 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
 - **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_the_promoted_attendee_is_notified, ::test_a_promotion_without_a_confirmed_venue, ::test_a_promotion_after_registration_has_closed; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
 
 ## TC-EVENTREGISTRATIONS-040 — a failed notification doesn't undo the withdrawal
+
+> **Retired by S-55 (2026-10-30).** See TC-EVENTREGISTRATIONS-055. The record below is S-53's last run.
 
 - **Scenario:** The place has already moved, so a notification that can't be built or stored is logged and the withdrawal still succeeds.
 - **Pre-conditions:** As TC-EVENTREGISTRATIONS-039, except as in each row.
@@ -823,3 +828,148 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 - **Actual:** Both → `502` "Bookings service unavailable".
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_bookings_service_fails (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## S-55 — Notify Waitlisted Attendee of Opening
+
+Developer decisions (2026-10-30):
+
+- A place freed before the event starts is **offered** to the first Attendee
+  on the waiting list (first come, first served). They are **not** registered.
+  This replaces S-53's automatic promotion: TC-EVENTREGISTRATIONS-039 and -040
+  are retired in favour of -054 and -055.
+- The offer is held for them. It counts as a taken place, so the event stays
+  full to everyone else and nobody further down the line can take it.
+- It has no expiry. It stays open until the invited Attendee accepts or
+  declines, or the event starts. Declining takes them off the waiting list and
+  offers the place to the next in line.
+- Places are freed only by a withdrawal (S-53) or a decline. A raised expected
+  attendance is out of scope.
+- Offering, accepting and declining are open until the event starts (SGT),
+  whatever the registration period or an Organiser close says. At the start
+  itself, accepting and declining are refused.
+- The invited Attendee gets one in-app notification of kind
+  `waiting_list_offer`: "A place opened up at {event}, {S-49 date/time}, at
+  {venues}. It's held for you: accept it on the event page to register."
+  Accepting sends the S-49 `registration_confirmation`. As before, a
+  notification that can't be built or stored is logged and the request still
+  succeeds.
+- The Organiser's view is unchanged: the invited Attendee stays at the top of
+  their waiting list until they answer (my default, not asked).
+
+Routes: accept `POST /event-registrations/events/{id}/waiting-list/offer`,
+decline `DELETE /event-registrations/events/{id}/waiting-list/offer`. The status
+body (`RegistrationStatus`) gains `offered: bool`. Clock, E, A and B as in S-53
+above: E has `expected_attendance` 2 and starts `2026-11-20 18:00`. C is
+`55555555-5555-4555-8555-555555555555`, "Cy Tan", `cy@example.com`. B's
+waiting-list row id is `77777777-7777-4777-8777-777777777777` and C's is
+`88888888-8888-4888-8888-888888888888`.
+
+## TC-EVENTREGISTRATIONS-054 — a withdrawal invites the next in line instead of registering them
+
+- **Scenario:** When A withdraws and a place frees up, B is invited and told so. B is not registered (S-55 AC1, AC2).
+- **Pre-conditions:** Registrations answers `POST /registrations/withdrawals` with `200` `{"withdrawn": <A's row>, "offered": <B's waiting-list row, offered_at set>}`. Users `POST /internal/users/profiles` `{"ids": [B]}` answers B's profile. E's one confirmed primary venue is "Seminar Room 2-1".
+- **Steps:** As A, `DELETE /event-registrations/events/E/registration`.
+- **Test data:** As above. Variants: no confirmed venue; clock `2026-11-16 12:00` (after registration closed).
+- **Expected:** `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null, "offered": false}`. Exactly one `POST /internal/notifications` with one row: `recipient_id` B, `event_id` E, `event_name` "Alumni networking evening", `kind` `waiting_list_offer`, `deduplication_key` `waiting_list_offer:77777777-7777-4777-8777-777777777777`, `message` "A place opened up at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. It's held for you: accept it on the event page to register.". No row is addressed to A. No `waiting_list_promotion` or `registration_confirmation` is sent, and the composite never calls `POST /registrations` for B. With no venue: "…9:00 pm, venue to be confirmed. It's held for you: …". After registration closed, the invitation is still sent.
+- **Actual:** `200` not-holding body; one profile lookup for B; exactly one `waiting_list_offer` row to B with the expected message and key; none to A; only `POST /registrations/withdrawals` called; no-venue wording "venue to be confirmed. It's held for you: …"; also sent after registration closed.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_a_withdrawal_invites_the_next_in_line, ::test_an_invitation_without_a_confirmed_venue, ::test_an_invitation_after_registration_has_closed; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-055 — a failed invitation doesn't undo the withdrawal
+
+- **Scenario:** The withdrawal and the offer are already recorded, so an invitation that can't be built or stored is logged and the withdrawal still succeeds.
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-054, except as in each row.
+- **Steps:** As A, `DELETE /event-registrations/events/E/registration`.
+- **Test data / Expected:**
+  | Failure | Result |
+  | --- | --- |
+  | Notifications answers `500` | `200`, same body as TC-EVENTREGISTRATIONS-054 |
+  | Notifications unreachable (`ConnectError`) | `200`, same body |
+  | Users profiles answers `500` | `200`, same body; no notification sent |
+  | Bookings answers `500` (venues unreadable) | `200`, same body; no notification sent |
+- **Actual:** All four failures `200` with the same body; notifications attempted for the first two, not sent for the last two.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_a_failed_invitation_keeps_the_withdrawal; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-056 — a held offer counts as a taken place
+
+- **Scenario:** While B's offer is open, the event reads as full to everyone else and offers them the waiting list, not a place (S-55 AC1: the place goes to B, first come, first served).
+- **Pre-conditions:** E has `expected_attendance` 2. Registrations holds one place (A). The waiting list is B (`offered_at` set) then C (`offered_at` null). Attendee D (`66666666-6666-4666-8666-666666666666`) is signed in for the last two rows.
+- **Steps / Expected:**
+  | Request | Result |
+  | --- | --- |
+  | `GET /event-registrations/events/E` | `200`, `"is_full": true` |
+  | `GET /event-registrations/events` | E's entry has `"is_full": true` |
+  | As D, `POST /event-registrations/events/E/waiting-list` | `201`; joining is allowed, not refused with "This event still has places." |
+  | Same, with B's `offered_at` null (no offer held) | `409` "This event still has places. Register instead." |
+- **Test data:** As above.
+- **Actual:** Event and list both `is_full` true; D joined `201` at position 3; with no offer held, `409` "This event still has places. Register instead."
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_a_held_offer_counts_as_a_taken_place, ::test_a_newcomer_can_join_the_waiting_list_while_an_offer_is_held, ::test_without_an_open_offer_the_place_is_free; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-057 — the invited Attendee's status shows the offer
+
+- **Scenario:** The event page can tell an invited Attendee from one still waiting (S-55 AC1).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-056. Registrations answers `404` for B's and C's place lookups.
+- **Steps:** `GET /event-registrations/events/E/registration` as B, as C, then as A (registered).
+- **Test data:** As above.
+- **Expected:** B → `{"registered": false, "waitlisted": true, "joined_at": <B's>, "position": 1, "offered": true, ...}`. C → `"waitlisted": true, "position": 2, "offered": false`. A → `"registered": true, "offered": false`.
+- **Actual:** B waitlisted at 1 with `offered` true; C at 2 with `offered` false; A registered with `offered` false.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_the_invited_attendees_status_shows_the_offer; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-058 — the invited Attendee accepts and is registered
+
+- **Scenario:** B takes the held place by their own action, gets a place and gets the S-49 confirmation (S-55 AC2).
+- **Pre-conditions:** As B. Registrations answers `POST /registrations/offers/acceptances` with `201` and B's new place (id `99999999-9999-4999-8999-999999999999`, `created_at` `2026-11-06T04:00:00+00:00`). E's primary venue is "Seminar Room 2-1".
+- **Steps:** `POST /event-registrations/events/E/waiting-list/offer`.
+- **Test data:** Clock variants: `2026-11-05 12:00`; `2026-11-16 12:00` (period closed); `2026-11-05 12:00` with `registration_closed_at` set (Organiser closed).
+- **Expected:** All three → `201` `{"event_id": E, "registered": true, "registered_at": "2026-11-06T04:00:00Z", "offered": false, ...}`. Registrations gets exactly one `POST /registrations/offers/acceptances` `{"event_id": E, "attendee_id": B}`, with B taken from the session. Exactly one notification is sent: `recipient_id` B, `kind` `registration_confirmation`, key `registration_confirmation:9999…9999`, message "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ben Lee. Email: ben@example.com.". If notifications answers `500`, it is still `201`.
+- **Actual:** All three clocks `201` registered at `2026-11-06T04:00:00Z`; one `POST /registrations/offers/acceptances` `{E, B}`; one `registration_confirmation` to B with the S-49 message and key; notifications `500` still `201`.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_the_invited_attendee_accepts_and_is_registered, ::test_a_failed_confirmation_keeps_the_acceptance; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-059 — the invited Attendee declines and the next in line is invited
+
+- **Scenario:** B passes on the place: B leaves the waiting list and C, next in line, is invited (S-55 AC1).
+- **Pre-conditions:** As B. Registrations answers `POST /registrations/offers/declines` per row.
+- **Steps:** `DELETE /event-registrations/events/E/waiting-list/offer`.
+- **Test data / Expected:** Registrations always gets exactly one `POST /registrations/offers/declines` `{"event_id": E, "attendee_id": B, "capacity": 2}`. The response is always `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null, "offered": false}`.
+  | Registrations answers | Notifications |
+  | --- | --- |
+  | `{"declined": <B's row>, "offered": <C's row>}` | exactly one `waiting_list_offer` row to C, key `waiting_list_offer:8888…8888`, same message as TC-EVENTREGISTRATIONS-054; none to B |
+  | `{"declined": <B's row>, "offered": null}` | none sent |
+  | C offered, notifications answers `500` | still `200` |
+- **Actual:** `200` not-holding body each time; one `POST /registrations/offers/declines` `{E, B, capacity 2}`; C offered → one `waiting_list_offer` to C; none when no one is offered; notifications `500` still `200`.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_declining_invites_the_next_in_line, ::test_declining_with_no_one_else_waiting, ::test_a_failed_invitation_keeps_the_decline; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-060 — who may accept or decline, and when
+
+- **Scenario:** Only a signed-in Attendee holding the offer, before the event starts, can answer it.
+- **Pre-conditions:** As in each row. Each row is run against both routes (accept `POST`, decline `DELETE` on `/event-registrations/events/{id}/waiting-list/offer`).
+- **Steps:** Send the request.
+- **Test data / Expected:**
+  | Situation | Result |
+  | --- | --- |
+  | Users `/users/me` answers `401` | `401` "Sign in to respond to this offer."; registrations not called |
+  | Signed in as an `event_organiser` | `403` "Only attendee accounts can register for events."; registrations not called |
+  | Event id not public (events answers `404` "Event not found.") | `404` "Event not found."; registrations not called |
+  | Clock `2026-11-20 18:00` SGT (the start) | `409` "This event has already started. The place can no longer be taken."; registrations not called |
+  | Clock `2026-11-20 17:59` SGT | accepted/declined as normal |
+  | Registrations answers `404` (C, who holds no offer) | `404` "You don't have a place on offer for this event."; no notification |
+  | Registrations answers `500`, or is unreachable | `502` "Registrations service unavailable"; no notification |
+- **Actual:** Both routes: `401` "Sign in to respond to this offer."; `403`; unknown event `404`; 18:00 `409` with the started message and registrations not called, 17:59 answered; no offer `404`; registrations `500`/unreachable `502`; no notification on any refusal.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_answering_needs_a_signed_in_attendee, ::test_answering_an_offer_for_an_event_that_isnt_public, ::test_answering_is_open_until_the_event_starts, ::test_answering_without_an_offer, ::test_answering_when_the_registrations_service_fails; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-061 — the dashboard shows an offer
+
+- **Scenario:** "Your registrations" lists the event with an offer, so the invited Attendee can find it from their dashboard (S-55 AC1).
+- **Pre-conditions:** As B. Registrations holds no place for B. B's waiting list holds B's row for E with `offered_at` set. E is `confirmed`, with primary venue "Seminar Room 2-1".
+- **Steps:** `GET /event-registrations/me/registrations`.
+- **Test data:** Variant: B's row with `offered_at` null.
+- **Expected:** One row for E: `"status": "offered"`, `"position": 1`, `"joined_at"` B's, `"registered_at": null`, `"venue": null` (only a held place shows where), with E's date and time. Variant: `"status": "waitlisted"` as before (S-52). As with a waiting-list entry, it is listed only while E is `confirmed`.
+- **Actual:** Offered row `status` "offered", position 1, B's join time, no venue, E's date and time; not offered → "waitlisted"; not listed while E is `planning`.
+- **Status:** Pass
+- **Evidence:** test_s55.py::test_the_dashboard_shows_an_offer, ::test_an_offer_is_listed_only_while_the_event_is_confirmed; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree

@@ -183,3 +183,14 @@ against a real table is proven by TC-VENUEBOOKINGS-110.
 - **Actual:** `201` with the row, `kind` `waiting_list_promotion`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_waiting_list_promotion_is_accepted`; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-NOTIFICATIONS-012 — a waiting-list offer is accepted
+
+- **Scenario:** The inbox accepts the S-55 kind, so the next Attendee in line can be invited to take a freed place (S-55 AC1). `waiting_list_promotion` stays allowed for rows S-53 already wrote.
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` with one row of kind `waiting_list_offer`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`, event `11111111-1111-4111-8111-111111111111`, event name "Alumni networking evening", message "A place opened up at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. It's held for you: accept it on the event page to register.", key `waiting_list_offer:77777777-7777-4777-8777-777777777777`.
+- **Expected:** `201` with the row, `kind` `waiting_list_offer`. A row of kind `waiting_list_promotion` is still `201`. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with kind `waiting_list_offer`; `waiting_list_promotion` still `201`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_a_waiting_list_offer_is_accepted; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree

@@ -19,8 +19,10 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `GET` | `/event-registrations/events/{event_id}` | none | One confirmed event's public details. |
 | `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open, the Organiser hasn't closed it, and a place is left (S-50). |
 | `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered, or on the waiting list. |
-| `DELETE` | `/event-registrations/events/{event_id}/registration` | Attendee | S-53: withdraw the signed-in Attendee's place, until the event starts. The next Attendee waiting takes it and is notified. |
+| `DELETE` | `/event-registrations/events/{event_id}/registration` | Attendee | S-53: withdraw the signed-in Attendee's place, until the event starts. S-55: the freed place is held for the next Attendee waiting, who is invited to take it. |
 | `POST` | `/event-registrations/events/{event_id}/waiting-list` | Attendee | S-50: join a full event's waiting list. |
+| `POST` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: take the place held for the signed-in Attendee, until the event starts. |
+| `DELETE` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: decline it; the Attendee leaves the waiting list and the next in line is invited. |
 | `GET` | `/event-registrations/me/registrations` | Attendee | The events the signed-in Attendee is registered for or waiting for (S-52), soonest first, with each held place's confirmed date, time and primary venue (S-56). |
 | `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
@@ -66,13 +68,17 @@ attendance, contacts or internal notes is ever included.
 **Registration** (`201` from `POST`, `200` from `GET`):
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null, "position": null}
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null, "position": null, "offered": false}
 ```
 
 `GET` answers `{"registered": false, "registered_at": null, ...}` when the
 Attendee holds no place, with `"waitlisted": true`, `joined_at` and
 `position` if they are on the waiting list. `position` (S-52) is their place
-in line, first come, first served: `1` is next.
+in line, first come, first served: `1` is next. `offered` (S-55) is `true`
+while a freed place is held for them.
+
+S-55: an open offer counts as a taken place, so the event's `is_full` stays
+`true` and newcomers are offered the waiting list, not a place.
 
 **Waiting list** (`201` from `POST /events/{event_id}/waiting-list`):
 
@@ -154,7 +160,7 @@ server's clock, opening is inclusive and closing is exclusive.
 ```
 
 S-52: `status` is `confirmed` for a place and `waitlisted` for a waiting-list
-entry, which has `joined_at` and its place in line instead of
+entry (S-55: `offered` when a freed place is held for it), which has `joined_at` and its place in line instead of
 `registered_at`.
 
 S-56: `details_confirmed` is `true` while the event is `confirmed`. If a
@@ -175,16 +181,17 @@ service unavailable" if the venue can't be read.
 Attendee's status afterwards, the same shape as the `GET`:
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null}
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null, "offered": false}
 ```
 
 Allowed until the event's `start_date` + `start_time`, Singapore time, even
-after the registration period ends or the Organiser closes it. The
-registrations service gives the freed place to the Attendee who has waited
-longest, up to the event's `expected_attendance`. That Attendee gets one
-`waiting_list_promotion` notification: "A place opened up: you're now
-registered for {event}, {date and time}, at {venues}. Name: {name}. Email:
-{email}." Like the S-49 confirmation it is best effort: if it can't be built
+after the registration period ends or the Organiser closes it. S-55: the
+registrations service offers the freed place to the Attendee who has waited
+longest, up to the event's `expected_attendance`. They are **not** registered:
+the place is held for them until they accept or decline, with no expiry. They
+get one `waiting_list_offer` notification: "A place opened up at {event},
+{date and time}, at {venues}. It's held for you: accept it on the event page to
+register." Like the S-49 confirmation it is best effort: if it can't be built
 or stored, the failure is logged and the withdrawal still answers `200`.
 
 | Status | When | `detail` |
@@ -194,6 +201,23 @@ or stored, the failure is logged and the withdrawal still answers `200`.
 | `404` | Not a confirmed event | "Event not found." |
 | `404` | The Attendee holds no place (including only waiting) | "You're not registered for this event." |
 | `409` | The event has started | "This event has already started. You can no longer withdraw." |
+| `502` | Users, Events or Registrations did not answer | "Registrations service unavailable" (or Users, Events) |
+
+**Offer** (S-55). `POST /events/{event_id}/waiting-list/offer` takes the held
+place: `201` with the registration status (`"registered": true`), and the
+S-49 `registration_confirmation` notification. `DELETE` on the same path
+declines: `200` with `"registered": false, "waitlisted": false`, and the
+place is offered to the next in line, who gets a `waiting_list_offer`
+notification. Both are open until the event starts, whatever the
+registration period or an Organiser close says.
+
+| Status | When | `detail` |
+| --- | --- | --- |
+| `401` | Not signed in | "Sign in to respond to this offer." |
+| `403` | Not an Attendee | "Only attendee accounts can register for events." |
+| `404` | Not a confirmed event | "Event not found." |
+| `404` | No place is held for this Attendee | "You don't have a place on offer for this event." |
+| `409` | The event has started | "This event has already started. The place can no longer be taken." |
 | `502` | Users, Events or Registrations did not answer | "Registrations service unavailable" (or Users, Events) |
 
 **Event attendees** (`200` from `GET /events/{event_id}/attendees`):

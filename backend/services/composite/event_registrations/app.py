@@ -4,8 +4,9 @@ S-49: a recorded registration sends the Attendee an in-app confirmation.
 S-50: registration capped at the event's expected attendance -- the figure the
 S-35 venue check uses -- with a waiting list once it is full, and the
 Organiser's own decision to close registration early.
-S-53: an Attendee withdraws until the event starts, and the freed place goes
-to whoever has waited longest, who is told so.
+S-53: an Attendee withdraws until the event starts.
+S-55: a freed place is offered to whoever has waited longest -- held for them,
+never given -- and they take it or pass it on themselves.
 
 Anyone may read a confirmed event's public details. Registering needs a
 signed-in Attendee, an event that asks for registration, and a moment inside
@@ -60,6 +61,10 @@ REGISTRATIONS_FULL = "This event is full."
 SIGN_IN_TO_WITHDRAW = "Sign in to withdraw your registration."
 ALREADY_STARTED = "This event has already started. You can no longer withdraw."
 NOT_REGISTERED = "You're not registered for this event."
+# S-55
+SIGN_IN_TO_RESPOND = "Sign in to respond to this offer."
+OFFER_STARTED = "This event has already started. The place can no longer be taken."
+NO_OFFER = "You don't have a place on offer for this event."
 
 
 @app.exception_handler(RequestValidationError)
@@ -152,8 +157,13 @@ async def _venue_names(
 
 
 async def _places_taken(event_id: str, registrations: httpx.AsyncClient) -> int:
-    rows = await _json("Registrations", registrations.get(f"/registrations/events/{event_id}"))
-    return len(rows)
+    """Places held plus, S-55, places held open for an invited Attendee: an
+    offered place is no more free to others than a taken one."""
+    rows, waiting = await asyncio.gather(
+        _json("Registrations", registrations.get(f"/registrations/events/{event_id}")),
+        _json("Registrations", registrations.get(f"/registrations/waiting-list/events/{event_id}")),
+    )
+    return len(rows) + sum(1 for row in waiting if row.get("offered_at"))
 
 
 def _is_full(event: dict, taken: int) -> bool:
@@ -212,9 +222,8 @@ def _check_period(event: dict, now: datetime) -> None:
         raise HTTPException(status_code=409, detail=CLOSED_BY_ORGANISER)
 
 
-def _entry_details(event: dict, venues: list[str], user: dict) -> str:
-    """S-49 wording: the event, its date and time, its venue, and the
-    Attendee's name and email."""
+def _event_summary(event: dict, venues: list[str]) -> str:
+    """The event, its date and time, and its venue, in the S-49 wording."""
     start_date = date.fromisoformat(event["start_date"])
     end_date = date.fromisoformat(event["end_date"])
     starts = f"{_day(start_date)}, {_clock(time.fromisoformat(event['start_time']))}"
@@ -222,44 +231,55 @@ def _entry_details(event: dict, venues: list[str], user: dict) -> str:
     if end_date != start_date:
         ends = f"{_day(end_date)}, {ends}"
     where = f"at {', '.join(venues)}" if venues else "venue to be confirmed"
+    return f"{event['name']}, {starts} – {ends}, {where}"
+
+
+def _confirmation(event: dict, venues: list[str], user: dict) -> str:
+    """S-49: the event and the Attendee's entry details, name and email."""
     return (
-        f"{event['name']}, {starts} – {ends}, {where}. "
+        f"Registration confirmed: {_event_summary(event, venues)}. "
         f"Name: {user['name']}. Email: {user['email']}."
     )
 
 
-# The opening words of each notification an Attendee is sent about a place.
-CONFIRMATION = ("registration_confirmation", "Registration confirmed: ")
-# S-53: the place freed by a withdrawal went to this Attendee.
-PROMOTION = ("waiting_list_promotion", "A place opened up: you're now registered for ")
+def _offer(event: dict, venues: list[str], user: dict) -> str:
+    """S-55: an invitation, not a registration -- the place is only held."""
+    return (
+        f"A place opened up at {_event_summary(event, venues)}. "
+        "It's held for you: accept it on the event page to register."
+    )
+
+
+# Each notification an Attendee is sent about a place: its kind and wording.
+CONFIRMATION = ("registration_confirmation", _confirmation)
+# S-55: a freed place is held for this Attendee. Keyed by their waiting-list
+# entry, which is only ever offered a place once.
+OFFER = ("waiting_list_offer", _offer)
 
 
 async def _send_notice(
-    notice: tuple[str, str], event: dict, user: dict, registration: dict,
-    bookings, venues, notifications,
+    notice, event: dict, user: dict, row: dict, bookings, venues, notifications,
 ) -> None:
     """Best effort: the place is already recorded, so a notice that can't be
     built or stored is logged rather than failing the request that made it."""
-    kind, opening = notice
+    kind, wording = notice
     try:
         names = await _venue_names(str(event["id"]), bookings, venues)
-        row = {
+        notification = {
             "recipient_id": user["id"],
             "event_id": str(event["id"]),
             "event_name": event["name"],
             "kind": kind,
-            "message": opening + _entry_details(event, names, user),
-            "deduplication_key": f"{kind}:{registration['id']}",
+            "message": wording(event, names, user),
+            "deduplication_key": f"{kind}:{row['id']}",
         }
         response = await notifications.post(
-            "/internal/notifications", json={"notifications": [row]}
+            "/internal/notifications", json={"notifications": [notification]}
         )
         if response.status_code != 201:
-            logger.error(
-                "%s not stored for %s: %s", kind, registration["id"], response.status_code
-            )
+            logger.error("%s not stored for %s: %s", kind, row["id"], response.status_code)
     except Exception as exc:
-        logger.exception("%s not sent for %s", kind, registration["id"], exc_info=exc)
+        logger.exception("%s not sent for %s", kind, row["id"], exc_info=exc)
 
 
 @app.get("/event-registrations/events", response_model=list[PublicEvent])
@@ -351,6 +371,21 @@ async def _profile(user_id: str, users: httpx.AsyncClient) -> dict:
     return found[0]
 
 
+async def _invite(
+    offered: dict | None, event: dict, users, bookings, venues, notifications
+) -> None:
+    """S-55: tell the Attendee a freed place is held for them. Best effort, as
+    the offer is already recorded."""
+    if not offered:
+        return
+    try:
+        profile = await _profile(offered["attendee_id"], users)
+    except Exception as exc:
+        logger.exception("waiting_list_offer not sent for %s", offered["id"], exc_info=exc)
+        return
+    await _send_notice(OFFER, event, profile, offered, bookings, venues, notifications)
+
+
 @app.delete(
     "/event-registrations/events/{event_id}/registration",
     response_model=RegistrationStatus,
@@ -367,8 +402,9 @@ async def withdraw(
     now: datetime = Depends(get_now),
 ):
     """S-53: open until the event starts, whether or not registration still
-    is. The registrations service gives the freed place to the next Attendee
-    waiting in the same step, capped at the event's expected attendance."""
+    is. S-55: the registrations service offers the freed place to the next
+    Attendee waiting in the same step, capped at the event's expected
+    attendance; they are invited, not registered."""
     user = await _attendee(request, users, signed_out=SIGN_IN_TO_WITHDRAW)
     event = await _published_event(event_id, events)
     if _has_started(event, now):
@@ -389,18 +425,91 @@ async def withdraw(
         raise HTTPException(status_code=404, detail=NOT_REGISTERED)
     if response.status_code != 200:
         raise _unavailable("Registrations")
-    promoted = response.json().get("promoted")
-    if promoted:
-        try:
-            profile = await _profile(promoted["attendee_id"], users)
-        except Exception as exc:
-            logger.exception(
-                "waiting_list_promotion not sent for %s", promoted["id"], exc_info=exc
-            )
-        else:
-            await _send_notice(
-                PROMOTION, event, profile, promoted, bookings, venues, notifications
-            )
+    await _invite(response.json().get("offered"), event, users, bookings, venues, notifications)
+    return {"event_id": event_id, "registered": False, "registered_at": None}
+
+
+async def _offer_response(request: Request, event_id: UUID, users, events, now) -> tuple[dict, dict]:
+    """S-55: who may answer an offer, and until when -- the event's start,
+    whatever the registration period or an Organiser close says."""
+    user = await _attendee(request, users, signed_out=SIGN_IN_TO_RESPOND)
+    event = await _published_event(event_id, events)
+    if _has_started(event, now):
+        raise HTTPException(status_code=409, detail=OFFER_STARTED)
+    return user, event
+
+
+@app.post(
+    "/event-registrations/events/{event_id}/waiting-list/offer",
+    response_model=RegistrationStatus,
+    status_code=201,
+)
+async def accept_offer(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+    now: datetime = Depends(get_now),
+):
+    """S-55: the invited Attendee takes the place held for them. This is the
+    only way off the waiting list into a place."""
+    user, event = await _offer_response(request, event_id, users, events, now)
+    response = await _call(
+        "Registrations",
+        registrations.post(
+            "/registrations/offers/acceptances",
+            json={"event_id": str(event_id), "attendee_id": user["id"]},
+        ),
+    )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail=NO_OFFER)
+    if response.status_code == 409:
+        raise HTTPException(status_code=409, detail=response.json()["detail"])
+    if response.status_code != 201:
+        raise _unavailable("Registrations")
+    row = response.json()
+    await _send_notice(CONFIRMATION, event, user, row, bookings, venues, notifications)
+    return {"event_id": event_id, "registered": True, "registered_at": row["created_at"]}
+
+
+@app.delete(
+    "/event-registrations/events/{event_id}/waiting-list/offer",
+    response_model=RegistrationStatus,
+)
+async def decline_offer(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+    now: datetime = Depends(get_now),
+):
+    """S-55: the invited Attendee passes. They leave the waiting list, and the
+    place is offered to the next in line in the same step."""
+    user, event = await _offer_response(request, event_id, users, events, now)
+    response = await _call(
+        "Registrations",
+        registrations.post(
+            "/registrations/offers/declines",
+            json={
+                "event_id": str(event_id),
+                "attendee_id": user["id"],
+                "capacity": event.get("expected_attendance") or 0,
+            },
+        ),
+    )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail=NO_OFFER)
+    if response.status_code != 200:
+        raise _unavailable("Registrations")
+    await _invite(response.json().get("offered"), event, users, bookings, venues, notifications)
     return {"event_id": event_id, "registered": False, "registered_at": None}
 
 
@@ -432,6 +541,7 @@ async def get_my_registration(
         "waitlisted": waiting is not None,
         "joined_at": waiting["created_at"] if waiting else None,
         "position": await _place_in_line(event_id, user["id"], registrations) if waiting else None,
+        "offered": bool(waiting and waiting.get("offered_at")),
     }
 
 
@@ -620,7 +730,9 @@ async def list_my_registrations(
     entries = [
         *({"status": "confirmed", "registered_at": row["created_at"], "joined_at": None,
            "position": None} for row in places),
-        *({"status": "waitlisted", "registered_at": None, "joined_at": row["created_at"],
+        # S-55: an entry a freed place is held for reads "offered".
+        *({"status": "offered" if row.get("offered_at") else "waitlisted",
+           "registered_at": None, "joined_at": row["created_at"],
            "position": position} for row, position in zip(waiting, positions)),
     ]
     shown = [

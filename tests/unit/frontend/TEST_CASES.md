@@ -2658,13 +2658,13 @@ row reads "Confirmed" (green dot) or "Waiting list · 3rd in line" (amber dot).
 
 ## TC-FRONTEND-264 — the withdraw confirmation says what happens
 
-- **Scenario:** Before withdrawing, the inline confirmation names the event and says where the place goes (S-53 AC3).
+- **Scenario:** Before withdrawing, the inline confirmation names the event and says where the place goes (S-53 AC3). Amended by S-55 (2026-10-30): the place is now offered, not given.
 - **Steps:** `withdrawPrompt(event)`.
 - **Test data:** `{name: "Alumni networking evening"}`.
-- **Expected:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
-- **Actual:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
+- **Expected:** "Withdraw from Alumni networking evening? Your place will be offered to the next person on the waiting list."
+- **Actual:** "Withdraw from Alumni networking evening? Your place will be offered to the next person on the waiting list."
 - **Status:** Pass
-- **Evidence:** test_registration.mjs::the withdraw confirmation says what happens; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Evidence:** test_registration.mjs::the withdraw confirmation says what happens; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
 
 ## S-93 confirmed specification — leaving Coordinator Lead view
 
@@ -2939,3 +2939,45 @@ Frontend unit run: 210 passed. The rendered S-59 cases below were verified throu
 - **Actual:** The assigned Coordinator saw the pending comparison after a simulated 502 and retry; an unrelated Coordinator saw no proposal; no Accept control appeared.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-30.
+
+## S-55 — Notify Waitlisted Attendee of Opening
+
+Developer decisions (2026-10-30): a freed place is held for the first Attendee in line, who is invited to take it. The event page tells them "A place is being held for you. Accept it to register, or decline to pass it to the next person." with **Accept place** (primary) and **Decline** (ghost, with an inline confirm: "Decline this place? You'll leave the waiting list." / **Decline** / **Keep my offer**). After a decline, "You've declined the place and left the waiting list." is shown once. The dashboard row reads "Place offered" in amber. The invitation notification has a **View event** link to the event page. Page components are covered by TC-E2E-264; these cases cover the `frontend/src/lib/` helpers they use.
+
+## TC-FRONTEND-278 — an offered place reads "Place offered" on the dashboard
+
+- **Scenario:** A "Your registrations" row holding an offer is labelled so, and shows no venue, like a waiting-list entry (S-55 AC1).
+- **Steps:** `registrationStatusLabel(row)`; `registrationDetails(row)`.
+- **Test data / Expected:**
+  | `row` | Label | Details |
+  | --- | --- | --- |
+  | `{status: "offered", position: 1, start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", details_confirmed: true}` | "Place offered" | `when` "20 Nov 2026, 6:00 pm to 9:00 pm", `venue` `null` |
+  | `{status: "waitlisted", position: 2}` | "Waiting list · 2nd in line" (unchanged) | — |
+  | `{status: "confirmed"}` | "Confirmed" (unchanged) | — |
+- **Actual:** "Place offered" with `when` "20 Nov 2026, 6:00 pm to 9:00 pm" and `venue` null; "Waiting list · 2nd in line"; "Confirmed".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::an offered place reads "Place offered" on the dashboard; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-FRONTEND-279 — the invitation links to its event
+
+- **Scenario:** A `waiting_list_offer` notification links to the event page where the place can be accepted. Other notifications stay plain text (S-55 AC1).
+- **Steps:** `notificationLink(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{kind: "waiting_list_offer", event_id: "11111111-1111-4111-8111-111111111111"}` | `{href: "/public/events/11111111-1111-4111-8111-111111111111", label: "View event"}` |
+  | `{kind: "registration_confirmation", event_id: "1111…1111"}` | `null` |
+  | `{kind: "event_assignment", event_id: "1111…1111"}` | `null` |
+- **Actual:** `{href: "/public/events/1111…1111", label: "View event"}`; `null`; `null`.
+- **Status:** Pass
+- **Evidence:** test_notifications.mjs::the invitation links to its event; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-FRONTEND-280 — accepting and declining go to the composite
+
+- **Scenario:** The page's two answers reach the routes the composite serves.
+- **Steps:** `acceptOffer("E")`; `declineOffer("E")`, with `fetch` stubbed.
+- **Test data:** Event id `E`.
+- **Expected:** `acceptOffer` sends `POST /api/event-registrations/events/E/waiting-list/offer`. `declineOffer` sends `DELETE` to the same path. Both return the parsed body. `declinePrompt()` returns "Decline this place? You'll leave the waiting list.".
+- **Actual:** `POST` then `DELETE` to `/api/event-registrations/events/E/waiting-list/offer`, each returning the parsed body; `declinePrompt()` "Decline this place? You'll leave the waiting list."
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::accepting and declining go to the composite; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree

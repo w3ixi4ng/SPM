@@ -255,3 +255,28 @@ def test_a_waiting_list_promotion_is_accepted(client, db):
 
     assert response.status_code == 201
     assert response.json()[0]["kind"] == "waiting_list_promotion"
+
+
+# --- TC-NOTIFICATIONS-012 -------------------------------------------------
+WAITING_LIST_OFFER = {
+    "recipient_id": "44444444-4444-4444-8444-444444444444",
+    "event_id": "11111111-1111-4111-8111-111111111111",
+    "event_name": "Alumni networking evening",
+    "kind": "waiting_list_offer",
+    "message": (
+        "A place opened up at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+        "at Seminar Room 2-1. It's held for you: accept it on the event page to register."
+    ),
+    "deduplication_key": "waiting_list_offer:77777777-7777-4777-8777-777777777777",
+}
+
+
+def test_a_waiting_list_offer_is_accepted(client, db):
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    stored = {"id": 1, "created_at": "2026-11-06T04:00:00Z"}
+
+    for row in (WAITING_LIST_OFFER, WAITING_LIST_PROMOTION):
+        upsert.execute.return_value = SimpleNamespace(data=[{**row, **stored}])
+        response = client.post("/internal/notifications", json={"notifications": [row]})
+        assert response.status_code == 201
+        assert response.json()[0]["kind"] == row["kind"]

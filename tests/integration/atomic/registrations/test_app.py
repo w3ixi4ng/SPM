@@ -143,57 +143,65 @@ def test_waiting_list_order_and_an_attendees_entries(admin):
     assert table.select("id").in_("event_id", [event_e, event_f]).execute().data == []
 
 
-# --- TC-REGISTRATIONS-106 -------------------------------------------------
-def test_withdrawing_promotes_the_first_in_line(admin):
+# --- TC-REGISTRATIONS-107 -------------------------------------------------
+# S-55 retired TC-REGISTRATIONS-106: a freed place is now offered, not given.
+def test_a_freed_place_is_held_for_the_first_in_line_until_they_answer(admin):
     event_id = str(uuid.uuid4())
-    attendee_a, attendee_b, attendee_c = (str(uuid.uuid4()) for _ in range(3))
+    attendee_a, attendee_b, attendee_c, attendee_d = (str(uuid.uuid4()) for _ in range(4))
     places = admin.schema("registrations").table("registrations")
     waiting = admin.schema("registrations").table("waiting_list")
 
-    def withdraw(attendee_id, capacity):
+    def post(path, attendee_id, **extra):
         return httpx.post(
-            f"{BASE_URL}/registrations/withdrawals",
-            json={"event_id": event_id, "attendee_id": attendee_id, "capacity": capacity},
+            f"{BASE_URL}/registrations{path}",
+            json={"event_id": event_id, "attendee_id": attendee_id, **extra},
             timeout=20,
         )
 
-    def attendees(path):
-        listed = httpx.get(f"{BASE_URL}/registrations/{path}/{event_id}", timeout=20)
-        assert listed.status_code == 200, listed.text
-        return [row["attendee_id"] for row in listed.json()]
+    def listed(path):
+        found = httpx.get(f"{BASE_URL}/registrations/{path}/{event_id}", timeout=20)
+        assert found.status_code == 200, found.text
+        return found.json()
 
     try:
-        taken = httpx.post(
-            f"{BASE_URL}/registrations",
-            json={"event_id": event_id, "attendee_id": attendee_a, "capacity": 1},
-            timeout=20,
-        )
-        assert taken.status_code == 201, taken.text
+        assert post("", attendee_a, capacity=1).status_code == 201
         for attendee_id in (attendee_b, attendee_c):
-            joined = httpx.post(
-                f"{BASE_URL}/registrations/waiting-list",
-                json={"event_id": event_id, "attendee_id": attendee_id},
-                timeout=20,
-            )
+            joined = post("/waiting-list", attendee_id)
             assert joined.status_code == 201, joined.text
 
-        freed = withdraw(attendee_a, 1)
+        freed = post("/withdrawals", attendee_a, capacity=1)
         assert freed.status_code == 200, (
-            f"{freed.text} -- check the S-53 block of registrations.sql is applied"
+            f"{freed.text} -- check the S-55 block of registrations.sql is applied"
         )
         assert freed.json()["withdrawn"]["attendee_id"] == attendee_a
-        assert freed.json()["promoted"]["attendee_id"] == attendee_b
-        assert attendees("events") == [attendee_b]
-        assert attendees("waiting-list/events") == [attendee_c]
+        assert freed.json()["offered"]["attendee_id"] == attendee_b
+        assert freed.json()["offered"]["offered_at"]
 
-        again = withdraw(attendee_a, 1)
-        assert again.status_code == 404, again.text
-        assert again.json()["detail"] == "You're not registered for this event."
+        # B is invited, not registered, and holds the place.
+        assert listed("events") == []
+        line = listed("waiting-list/events")
+        assert [row["attendee_id"] for row in line] == [attendee_b, attendee_c]
+        assert line[0]["offered_at"] and line[1]["offered_at"] is None
 
-        no_room = withdraw(attendee_b, 0)
-        assert no_room.status_code == 200, no_room.text
-        assert no_room.json()["promoted"] is None
-        assert attendees("waiting-list/events") == [attendee_c]
+        newcomer = post("", attendee_d, capacity=1)
+        assert newcomer.status_code == 409, newcomer.text
+        assert newcomer.json()["detail"] == "This event is full."
+
+        jumped = post("/offers/acceptances", attendee_c)
+        assert jumped.status_code == 404, jumped.text
+        assert jumped.json()["detail"] == "You don't have a place on offer for this event."
+
+        declined = post("/offers/declines", attendee_b, capacity=1)
+        assert declined.status_code == 200, declined.text
+        assert declined.json()["declined"]["attendee_id"] == attendee_b
+        assert declined.json()["offered"]["attendee_id"] == attendee_c
+
+        accepted = post("/offers/acceptances", attendee_c)
+        assert accepted.status_code == 201, accepted.text
+        assert accepted.json()["attendee_id"] == attendee_c
+
+        assert [row["attendee_id"] for row in listed("events")] == [attendee_c]
+        assert listed("waiting-list/events") == []
     finally:
         places.delete().eq("event_id", event_id).execute()
         waiting.delete().eq("event_id", event_id).execute()

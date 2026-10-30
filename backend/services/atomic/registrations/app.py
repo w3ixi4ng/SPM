@@ -15,6 +15,9 @@ from supabase import Client
 
 from database import get_db
 from schemas import (
+    OfferAcceptanceCreate,
+    OfferDeclineCreate,
+    OfferDeclineRead,
     RegistrationCreate,
     RegistrationRead,
     WaitingListCreate,
@@ -34,11 +37,14 @@ UNIQUE_VIOLATION = "23505"
 EVENT_FULL = "SP050"
 # Raised by registrations.withdraw when the Attendee holds no place.
 NOT_HELD = "SP053"
+# Raised by registrations.accept_offer / decline_offer without an open offer.
+NO_OFFER_HELD = "SP055"
 ALREADY_REGISTERED = "You're already registered for this event."
 NOT_REGISTERED = "You're not registered for this event."
 FULL = "This event is full."
 ALREADY_WAITING = "You're already on the waiting list for this event."
 NOT_WAITING = "You're not on the waiting list for this event."
+NO_OFFER = "You don't have a place on offer for this event."
 
 
 @app.exception_handler(RequestValidationError)
@@ -71,6 +77,8 @@ def _execute(operation, *, duplicate: str = ALREADY_REGISTERED):
             raise HTTPException(status_code=409, detail=FULL) from exc
         if exc.code == NOT_HELD:
             raise HTTPException(status_code=404, detail=NOT_REGISTERED) from exc
+        if exc.code == NO_OFFER_HELD:
+            raise HTTPException(status_code=404, detail=NO_OFFER) from exc
         logger.exception("Registration storage operation failed", exc_info=exc)
         raise _storage_unavailable() from exc
     except Exception as exc:
@@ -111,14 +119,49 @@ def create_registration(payload: RegistrationCreate, db: Client = Depends(get_db
     return result.data[0]
 
 
-# S-53: the place is given up and, in the same locked step, handed to the
-# Attendee who has waited longest.
+# S-53: the place is given up and, in the same locked step, S-55: offered to
+# the Attendee who has waited longest -- held for them, not given.
 @app.post("/registrations/withdrawals", response_model=WithdrawalRead)
 def withdraw(payload: WithdrawalCreate, db: Client = Depends(get_db)):
     params = payload.model_dump(mode="json")
     result = _execute(
         db.schema(SCHEMA).rpc(
             "withdraw",
+            {
+                "p_event_id": params["event_id"],
+                "p_attendee_id": params["attendee_id"],
+                "p_capacity": params["capacity"],
+            },
+        )
+    )
+    if not result.data:
+        raise _storage_unavailable()
+    return result.data
+
+
+# S-55: only the invited Attendee's own acceptance registers them.
+@app.post("/registrations/offers/acceptances", response_model=RegistrationRead, status_code=201)
+def accept_offer(payload: OfferAcceptanceCreate, db: Client = Depends(get_db)):
+    params = payload.model_dump(mode="json")
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "accept_offer",
+            {"p_event_id": params["event_id"], "p_attendee_id": params["attendee_id"]},
+        )
+    )
+    if not result.data:
+        raise _storage_unavailable()
+    return result.data[0]
+
+
+# S-55: declining leaves the waiting list and, in the same locked step, offers
+# the place to the next in line.
+@app.post("/registrations/offers/declines", response_model=OfferDeclineRead)
+def decline_offer(payload: OfferDeclineCreate, db: Client = Depends(get_db)):
+    params = payload.model_dump(mode="json")
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "decline_offer",
             {
                 "p_event_id": params["event_id"],
                 "p_attendee_id": params["attendee_id"],

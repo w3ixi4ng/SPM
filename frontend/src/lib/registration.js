@@ -217,7 +217,9 @@ export function waitingListPlace(position) {
 }
 
 // S-52: whether a "Your registrations" row is a place or a waiting-list entry.
+// S-55: or a waiting-list entry a freed place is held for.
 export function registrationStatusLabel(row) {
+  if (row?.status === 'offered') return 'Place offered'
   if (row?.status !== 'waitlisted') return 'Confirmed'
   return row.position ? `Waiting list · ${placeInLine(row.position)}` : 'Waiting list'
 }
@@ -230,7 +232,10 @@ export const DETAILS_PENDING =
 
 export function registrationDetails(row) {
   if (row?.details_confirmed === false) return { when: null, venue: null, pending: DETAILS_PENDING }
-  const venue = row?.status === 'waitlisted' ? null : row?.venue || 'Venue to be confirmed'
+  // Only a held place shows where; an offer isn't a place until accepted.
+  const venue = row?.status === 'waitlisted' || row?.status === 'offered'
+    ? null
+    : row?.venue || 'Venue to be confirmed'
   return { when: formatEventWhen(row), venue, pending: null }
 }
 
@@ -247,13 +252,31 @@ export function canWithdraw(event, now = new Date()) {
 }
 
 export function withdrawPrompt(event) {
-  return `Withdraw from ${event.name}? Your place goes to the next person on the waiting list.`
+  return `Withdraw from ${event.name}? Your place will be offered to the next person on the waiting list.`
 }
 
-// S-53: gives up the signed-in Attendee's place; the next person waiting
-// takes it.
+// S-53: gives up the signed-in Attendee's place; S-55: it is offered to the
+// next person waiting.
 export function withdrawRegistration(id) {
   return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/registration`, {
     method: 'DELETE',
   })
+}
+
+// S-55: a freed place held for the signed-in Attendee. Only accepting
+// registers them; declining leaves the waiting list and passes it on.
+export function acceptOffer(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/waiting-list/offer`, {
+    method: 'POST',
+  })
+}
+
+export function declineOffer(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/waiting-list/offer`, {
+    method: 'DELETE',
+  })
+}
+
+export function declinePrompt() {
+  return "Decline this place? You'll leave the waiting list."
 }
