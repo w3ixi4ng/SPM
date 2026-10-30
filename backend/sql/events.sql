@@ -1376,3 +1376,55 @@ grant all on events.change_requests to service_role;
 notify pgrst, 'reload schema';
 commit;
 -- END S-59 EVENT CHANGE REQUESTS
+
+-- BEGIN S-69 CANCEL A SAFETY-CHECKED EVENT
+-- Existing installations: run through END S-69 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving.
+--
+-- S-62 lets an Organiser ask to cancel a confirmed event, and S-61 lets the
+-- Coordinator approve it, but the S-17 rule above only allowed a
+-- safety-approved event to be `confirmed` or `preparation`, so approving
+-- failed with 23514. Cancelling keeps the Safety Officer's decision as it was
+-- -- it is history, like the Coordinator's -- so `cancelled` is allowed in
+-- the two branches where the check has been decided and the event can still
+-- be cancelled. A safety-rejected event is not cancellable (S-62), so its
+-- branch is unchanged.
+alter table events.events drop constraint if exists events_safety_state_consistent;
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in (
+        'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+      )
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status in ('confirmed', 'preparation', 'cancelled')
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status in ('planning', 'cancelled')
+    )
+  ) not valid;
+
+notify pgrst, 'reload schema';
+-- END S-69 CANCEL A SAFETY-CHECKED EVENT

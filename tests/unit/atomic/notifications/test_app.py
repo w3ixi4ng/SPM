@@ -280,3 +280,36 @@ def test_a_waiting_list_offer_is_accepted(client, db):
         response = client.post("/internal/notifications", json={"notifications": [row]})
         assert response.status_code == 201
         assert response.json()[0]["kind"] == row["kind"]
+
+
+# --- TC-NOTIFICATIONS-013 ------------------------------------------------------
+EVENT_CANCELLED = {
+    "recipient_id": "44444444-4444-4444-8444-444444444444",
+    "event_id": "11111111-1111-4111-8111-111111111111",
+    "event_name": "Alumni networking evening",
+    "kind": "event_cancelled",
+    "message": (
+        "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. "
+        "It will not take place."
+    ),
+    "deduplication_key": (
+        "event_cancelled:11111111-1111-4111-8111-111111111111:44444444-4444-4444-8444-444444444444"
+    ),
+}
+
+
+def test_an_event_cancellation_is_accepted(client, db):
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.return_value = SimpleNamespace(
+        data=[{**EVENT_CANCELLED, "id": 1, "created_at": "2026-11-06T04:00:00Z"}]
+    )
+
+    response = client.post("/internal/notifications", json={"notifications": [EVENT_CANCELLED]})
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == "event_cancelled"
+    refused = client.post(
+        "/internal/notifications",
+        json={"notifications": [{**EVENT_CANCELLED, "kind": "venue_closed"}]},
+    )
+    assert refused.status_code == 422
