@@ -1463,8 +1463,8 @@ Events fake history for E, newest first:
 
 ## S-59 — Request Event Changes (confirmed specification)
 
-Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Full Python unit suite: 1,545 passed, 17 skipped; full integration suite: 92 passed, 5 skipped on the confirmed TEST SQL and fresh stack.
-Full Python unit run: 1,545 passed, 17 skipped; focused composite S-59 cases passed where marked below.
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full Python unit suite: 1,659 passed, 17 skipped; full TEST integration suite: 104 passed, 5 skipped.
+Full Python unit run: 1,659 passed, 17 skipped; focused composite S-59 cases passed where marked below.
 
 The composite authenticates through Users and coordinates Events and Equipment
 over HTTP. The Events service owns proposal persistence; this service owns no
@@ -1479,7 +1479,7 @@ table and does not write accepted Equipment requirements.
 - **Expected:** O reaches Events and gets `201`; unauthenticated gets `401`, other roles `403`, unrelated U `404`. Forged actor is rejected; the composite forwards only trusted O identity and makes no Equipment or Events write for denied callers.
 - **Actual:** Trusted Organiser submission succeeded; other roles and an unrelated Organiser were denied.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/composite/event_requests/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
 
 ## TC-EVENTREQUESTS-118 — equipment proposal is a snapshot, not an accepted write
 
@@ -1490,7 +1490,7 @@ table and does not write accepted Equipment requirements.
 - **Expected:** Proposal records item IDs and desired quantities, with accepted 2/4 baseline and explicit microphone removal; no Equipment PUT/DELETE occurs. GET returns the same snapshot for comparison, including a retired item in the accepted baseline if it already existed.
 - **Actual:** Equipment quantities and removal were saved only as snapshots; no Equipment mutation occurred.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/composite/event_requests/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
 
 ## TC-EVENTREQUESTS-119 — effective no-op and invalid equipment are refused
 
@@ -1501,7 +1501,7 @@ table and does not write accepted Equipment requirements.
 - **Expected:** Effective no-op and invalid values get `422`; none writes a request. Existing retired requirements may remain in the snapshot, but cannot be newly added. Date/time and existing registration settings remain internally consistent.
 - **Actual:** Normalized no-op, unknown item and duplicate equipment IDs were rejected.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/composite/event_requests/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
 
 ## TC-EVENTREQUESTS-120 — only the current Coordinator sees the comparison
 
@@ -1512,7 +1512,7 @@ table and does not write accepted Equipment requirements.
 - **Expected:** C and O initially see current versus proposed values and pending status; D and unrelated Organiser get `404`, anonymous `401`. After reassignment D sees R and C gets `404`. Ordinary Lead supervisory scope is unchanged.
 - **Actual:** The current Coordinator read used the assigned-event route; unrelated access returned 404.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/composite/event_requests/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
 
 ## TC-EVENTREQUESTS-121 — downstream failures do not fake success
 
@@ -1523,7 +1523,7 @@ table and does not write accepted Equipment requirements.
 - **Expected:** The composite returns safe `502` for unavailable dependencies and never returns a created request without Events confirmation. Equipment is never mutated; E stays at 120. Retrying after recovery creates one pending request or reports an existing one, never two.
 - **Actual:** Duplicate responses and dependency timeouts did not report success or mutate accepted services.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/composite/event_requests/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
 
 ## TC-EVENTREQUESTS-122 — stale and concurrent submissions have one outcome
 
@@ -1534,7 +1534,7 @@ table and does not write accepted Equipment requirements.
 - **Expected:** At most one proposal is pending; competing or stale submissions return `409` with reload guidance. The winner's baseline is the accepted version it compared against; E remains at its independently accepted value. No request silently treats stale equipment or event details as current.
 - **Actual:** An observed Equipment race returned 409 in unit tests; two concurrent live submissions produced exactly one pending request and a 201/409 outcome.
 - **Status:** Pass
-- **Evidence:** `tests/unit/composite/event_requests/test_s59.py`; `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`, 2026-10-28.
+- **Evidence:** `tests/unit/composite/event_requests/test_s59.py`; `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`, 2026-10-30.
 
 ## TC-EVENTREQUESTS-123 — existing assignment and edit routes keep their scope
 
@@ -1545,4 +1545,4 @@ table and does not write accepted Equipment requirements.
 - **Expected:** Existing Lead scope, reassignment history and S-18 behaviour remain; R follows the current Coordinator for read access, stays pending, and never updates E's accepted attendance. No proposal creation invokes S-60 review or arrangement resolution.
 - **Actual:** The full existing event-management unit regression suite passed with S-59 routes added.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/composite/event_requests/test_s59.py` plus existing S-83/S-84/S-85/S-88/S-18 cases.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py` plus existing S-83/S-84/S-85/S-88/S-18 cases.

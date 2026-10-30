@@ -2893,8 +2893,8 @@ Test cases confirmed by the developer on 2026-10-28.
 
 ## S-59 — Request Event Changes (confirmed specification)
 
-Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Full frontend unit suite: 198 passed; full Chromium regression: 59 passed before the final submission-guard fix; both S-59 browser cases passed after that fix.
-Frontend unit run: 198 passed. The rendered S-59 cases below were verified through Chromium against the fresh TEST stack.
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full frontend unit suite: 210 passed; full Chromium TEST regression: 66 passed; lint and production build passed.
+Frontend unit run: 210 passed. The rendered S-59 cases below were verified through Chromium against the fresh TEST stack.
 
 ## TC-FRONTEND-267 — Request Changes is offered only on eligible owned events
 
@@ -2905,7 +2905,7 @@ Frontend unit run: 198 passed. The rendered S-59 cases below were verified throu
 - **Expected:** The action appears only for the seven confirmed eligible states and the owning Organiser, including an unassigned submitted event; it opens a form with accepted values prefilled. Ineligible state/role has no action, and a server denial still produces a controlled error if the route is opened directly.
 - **Actual:** The eligibility helper allowed exactly the seven approved states; Chromium opened the separate form for an owned confirmed event with accepted values prefilled, while role and direct-route denial checks passed in backend tests.
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; backend S-59 role tests, 2026-10-28.
+- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; backend S-59 role tests, 2026-10-30.
 
 ## TC-FRONTEND-268 — comparison makes accepted and proposed data distinct
 
@@ -2916,7 +2916,7 @@ Frontend unit run: 198 passed. The rendered S-59 cases below were verified throu
 - **Expected:** Accepted and proposed values are labelled separately; only the three changed fields are marked. Submit is disabled or refused for an effective no-op. Pending status and server timestamp appear after success and reload. Existing booking, equipment, Technical Support and attendee arrangements are labelled as applying to accepted details only; the proposal needs review and no approval is claimed.
 - **Actual:** The form disabled an effective no-op; the pending comparison marked attendance, layout and equipment as changed and showed accepted and proposed values after reload with an unreviewed-arrangements notice.
 - **Status:** Pass
-- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; both tests in `tests/e2e/test_request_event_changes.py`, Chromium, 2026-10-28.
+- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; both tests in `tests/e2e/test_request_event_changes.py`, Chromium, 2026-10-30.
 
 ## TC-FRONTEND-269 — loading, failure and duplicate responses are controlled
 
@@ -2927,7 +2927,7 @@ Frontend unit run: 198 passed. The rendered S-59 cases below were verified throu
 - **Expected:** Distinct loading/error/empty states; only one in-flight POST; success shows saved pending comparison. `422` identifies fields, `409` prompts reload and shows the current request, and `502` shows a retryable controlled error. Accepted event values never change in local state because a proposal was sent.
 - **Actual:** Browser tests observed a load error and retry, 422/409/502 submission errors, a successful 201 and pending comparison after reload. Two synchronous clicks produced one POST after the submission guard was added.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_request_event_changes.py::test_change_request_form_recovers_from_loading_and_submission_errors[chromium]`; frontend unit API helper test, 2026-10-28.
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_change_request_form_recovers_from_loading_and_submission_errors[chromium]`; frontend unit API helper test, 2026-10-30.
 
 ## TC-FRONTEND-270 — assigned Coordinator sees the same pending proposal
 
@@ -2938,4 +2938,4 @@ Frontend unit run: 198 passed. The rendered S-59 cases below were verified throu
 - **Expected:** C sees the proposed changes and accepted values with a clear unreviewed-arrangements message, without an Accept button or S-60 impact-review control. D's denied read reveals no proposal; loading and error states are distinct and retryable.
 - **Actual:** The assigned Coordinator saw the pending comparison after a simulated 502 and retry; an unrelated Coordinator saw no proposal; no Accept control appeared.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-28.
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-30.

@@ -3199,8 +3199,8 @@ The Supabase fake records every `insert` made on `event_history`.
 
 ## S-59 — Request Event Changes (confirmed specification)
 
-Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Full Python unit suite: 1,545 passed, 17 skipped; full integration suite: 92 passed, 5 skipped on the confirmed TEST SQL and fresh stack.
-Full Python unit run: 1,545 passed, 17 skipped; focused Events S-59 cases passed where marked below.
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full Python unit suite: 1,659 passed, 17 skipped; full TEST integration suite: 104 passed, 5 skipped.
+Full Python unit run: 1,659 passed, 17 skipped; focused Events S-59 cases passed where marked below.
 
 Customer criteria were verified against `Product_backlog_final.xlsx`, Product
 Backlog row 62 (S-59); row 63 assigns impact review and acceptance to S-60.
@@ -3221,7 +3221,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** O gets `201` in the seven confirmed eligible states, including an unassigned submitted event. Other states get `409`; U gets `404` without event data; C and Lead get `403`; anonymous gets `401`. No rejected attempt creates a request or changes E.
 - **Actual:** Seven eligible states, including unassigned submitted, created a proposal; denied statuses and roles did not insert.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
 
 ## TC-EVENTS-188 — date, time and duration remain consistent
 
@@ -3232,7 +3232,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Valid proposals record the resulting start/end fields and derived durations of 210 or 240 minutes; accepted E remains 09:00–12:00. Invalid intervals get `422` with field errors and no insert. Multi-day events follow the existing end-after-start rule.
 - **Actual:** Valid date/time/duration changes remained in the proposal; invalid same-day end was rejected.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
 
 ## TC-EVENTS-189 — attendance and venue proposals keep accepted values intact
 
@@ -3243,7 +3243,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Each valid request returns `201` with exactly the changed fields and the accepted comparison baseline; E's accepted fields do not change. Unknown option gets `422`; list order/duplicates alone are not counted as changes.
 - **Actual:** Attendance, venue, layout and facilities changes were serialized into the proposal while accepted data was not updated.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
 
 ## TC-EVENTS-190 — request identity, time, status and baseline are server owned
 
@@ -3254,7 +3254,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Forged server fields get `422`. Valid request records E's ID, trusted O ID, server timestamp, `pending` status, accepted baseline 120 and proposed 150. E remains at 120 in `submitted` status.
 - **Actual:** Forged server fields were rejected; the persisted row used the authenticated Organiser, server timestamp, pending status and accepted attendance 120 baseline while E remained unchanged.
 - **Status:** Pass
-- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced`, 2026-10-28.
+- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced`, 2026-10-30.
 
 ## TC-EVENTS-191 — no-op and duplicate requests cannot be stored
 
@@ -3265,7 +3265,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Empty/equal proposals get `422` without rows; exactly one real pending request is stored. A duplicate or concurrent loser gets `409` and does not replace the first proposal or change E.
 - **Actual:** No-op and duplicate submissions were rejected; concurrent requests to TEST Supabase left exactly one pending row and returned 201/409.
 - **Status:** Pass
-- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`, 2026-10-28.
+- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`, 2026-10-30.
 
 ## TC-EVENTS-192 — read access follows the current event assignment
 
@@ -3276,7 +3276,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Initially O and C get `200` with current-versus-proposed values; D and other organiser get `404`; anonymous gets `401`. After transfer D gets `200`, C gets `404`; Lead scope is not broadened.
 - **Actual:** Owner/current-Coordinator reads passed; simulated reassignment moved read access to the new Coordinator.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
 
 ## TC-EVENTS-193 — failures and stale event state leave accepted data unchanged
 
@@ -3287,7 +3287,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Storage failure yields controlled `500`/`502`, stale status yields `409`, and neither changes accepted attendance, status, venue, equipment or historical rows. No pending request survives a failed write.
 - **Actual:** Storage conflicts and failures returned controlled errors without an accepted-event update.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
 
 ## TC-EVENTS-194 — existing direct edits cannot bypass a pending proposal
 
@@ -3298,7 +3298,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** O cannot directly change any S-59 eligible accepted field on submitted E; response directs the user to Request Changes and E stays at 120. Unrelated permitted edits and C's S-18 workflow retain their existing rules; S-59 does not silently accept R.
 - **Actual:** A pending request blocked a direct accepted-field PATCH with 409.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py` plus S-13/S-18 regressions.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py` plus S-13/S-18 regressions.
 
 ## TC-EVENTS-195 — arrangements and lifecycle remain attached to accepted data
 
@@ -3309,7 +3309,7 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** No Events update occurs; E stays confirmed with the same Technical Support assignment, safety decision and history. R marks proposed arrangements as unreviewed. The cross-service booking, equipment and attendee preservation is verified in TC-EVENTREQUESTS-201.
 - **Actual:** Unit tests verified no Events update; Chromium verified that booking, Equipment requirements, Technical Support sign-off and attendee registration remained attached to accepted event data.
 - **Status:** Pass
-- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-28.
+- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-30.
 
 ## TC-EVENTS-196 — direct atomic proposal writes require trusted composite access
 
@@ -3320,4 +3320,4 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Expected:** Direct calls get `403` before storage access. The composite call succeeds only with its server-held credential, and atomic Events still verifies O's trusted session/ownership; caller-supplied actor, timestamp and baseline fields cannot override the validated values.
 - **Actual:** Missing or forged service credentials were rejected before persistence.
 - **Status:** Pass
-- **Evidence:** Local 2026-10-27 run; `tests/unit/atomic/events/test_s59.py`.
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.

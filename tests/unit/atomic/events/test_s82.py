@@ -95,6 +95,7 @@ def tables():
         "events": Table(),
         "event_history": Table(insert=[[{"id": 1}]]),
         "reassignment_requests": Table(),
+        "change_requests": Table(select=[[]]),
     }
 
 

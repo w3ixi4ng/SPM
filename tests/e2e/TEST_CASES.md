@@ -1578,7 +1578,7 @@ header.
 
 ## S-59 — Request Event Changes (confirmed specification)
 
-Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack verified against TEST Supabase; full Chromium regression passed 59 tests before the final submission-guard fix, then both S-59 Chromium cases passed against the rebuilt frontend.
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full Chromium regression: 66 passed.
 
 ## TC-E2E-259 — Organiser proposal persists and assigned Coordinator sees it
 
@@ -1589,4 +1589,4 @@ Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` work
 - **Expected:** Request Changes starts with accepted values; submitting yields a pending proposal and no event mutation. O and C see accepted 120/theatre/2 beside proposed 150/banquet/3 after reload, with a server time and a statement that existing arrangements apply to accepted details only. D sees no proposal. E remains confirmed at 120, the booking and sign-off remain, and Equipment still records projector quantity 2. No S-60 Accept action appears.
 - **Actual:** The Organiser submitted and reloaded a mixed proposal; the assigned Coordinator saw it, the unrelated Coordinator did not, and accepted event and linked arrangements stayed unchanged.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; both S-59 Chromium cases passed on 2026-10-28 after the frontend guard fix.
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; both S-59 Chromium cases passed on 2026-10-30 after the frontend guard fix.

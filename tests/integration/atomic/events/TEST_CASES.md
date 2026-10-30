@@ -317,7 +317,7 @@ the `events.backfill_event_history` function.
 
 ## S-59 — Request Event Changes (confirmed specification)
 
-Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack verified against TEST Supabase; full integration suite: 92 passed, 5 skipped, plus one subsequently added stale-baseline case passed.
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full integration suite: 104 passed, 5 skipped.
 
 ## TC-EVENTS-201 — proposal SQL persists separately and enforces one pending row
 
@@ -328,4 +328,4 @@ Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` work
 - **Expected:** First POST `201`; E stays at 120 and its status/assignment are unchanged. Proposal persists after reload with O's Auth ID, server timestamp, baseline 120, proposed 150, pending status. A second/concurrent insert fails safely with one pending row; cleanup leaves no rows.
 - **Actual:** Proposal persisted separately from the unchanged event; the duplicate and concurrent insert checks left one pending row and cleanup completed.
 - **Status:** Pass
-- **Evidence:** `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced` and `::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; full integration suite 92 passed, 5 skipped, plus the added stale-baseline test passed on 2026-10-28.
+- **Evidence:** `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced` and `::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; full integration suite 104 passed, 5 skipped on 2026-10-30.

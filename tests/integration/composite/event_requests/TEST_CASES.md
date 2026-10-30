@@ -422,7 +422,7 @@ trusted Auth metadata holds Coordinator availability.
 
 ## S-59 — Request Event Changes (confirmed specification)
 
-Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack verified against TEST Supabase; full integration suite: 92 passed, 5 skipped, plus one subsequently added S-59 integration case passed.
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full integration suite: 104 passed, 5 skipped.
 
 ## TC-EVENTREQUESTS-201 — proposal crosses Users, Events and Equipment without changing arrangements
 
@@ -433,7 +433,7 @@ Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` work
 - **Expected:** POST `201`; O and C see one pending comparison with trusted O ID and server timestamp after reload, D gets `404`. E stays confirmed at 120; Equipment still holds quantity 2; booking, sign-off and attendee remain. The proposal explicitly says these accepted arrangements have not been reviewed for the proposed details; cleanup leaves no rows.
 - **Actual:** A mixed attendance, layout and equipment proposal was visible to its owner and assigned Coordinator, hidden from an unrelated Coordinator, and left the accepted event, booking, equipment requirement, Technical Support sign-off and attendee registration unchanged.
 - **Status:** Pass
-- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_mixed_proposal_preserves_accepted_arrangements`; focused run passed on 2026-10-28 after the full integration suite (92 passed, 5 skipped).
+- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_mixed_proposal_preserves_accepted_arrangements`; full integration suite 104 passed, 5 skipped on 2026-10-30.
 
 ## TC-EVENTREQUESTS-202 — failed, duplicate and stale submissions remain safe
 
@@ -444,4 +444,4 @@ Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` work
 - **Expected:** Empty request `422`; exactly one concurrent proposal `201`, the other `409`; duplicate and stale attempts `409`. The winning request is unchanged, no partial row remains, and E's accepted attendance reflects only the separate S-18 edit (130), never the proposals.
 - **Actual:** Invalid submission was rejected; concurrent submissions produced one pending request; an atomic Events submission with an old event baseline returned 409 after an accepted edit, leaving the accepted value and request rows unchanged.
 - **Status:** Pass
-- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`; `tests/integration/atomic/events/test_s59.py::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; 2026-10-28.
+- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`; `tests/integration/atomic/events/test_s59.py::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; 2026-10-30.
