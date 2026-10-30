@@ -194,3 +194,19 @@ against a real table is proven by TC-VENUEBOOKINGS-110.
 - **Actual:** `201` with kind `waiting_list_offer`; `waiting_list_promotion` still `201`.
 - **Status:** Pass
 - **Evidence:** test_app.py::test_a_waiting_list_offer_is_accepted; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-69 — Notify Attendee — Event Cancelled
+
+Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30.
+
+## TC-NOTIFICATIONS-013 — an event cancellation is accepted
+
+- **Scenario:** The inbox accepts the S-69 kind, so Attendees can be told an event they hold a place at, or are waiting for, has been cancelled (S-69 AC1).
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` with one row of kind `event_cancelled`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`, event `11111111-1111-4111-8111-111111111111`, event name "Alumni networking evening", message "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.", key `event_cancelled:11111111-1111-4111-8111-111111111111:44444444-4444-4444-8444-444444444444`.
+- **Expected:** `201` with the row, `kind` `event_cancelled`. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with kind `event_cancelled`; `venue_closed` `422`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_an_event_cancellation_is_accepted; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`

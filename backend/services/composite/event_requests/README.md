@@ -55,7 +55,7 @@ Event Coordinators.
 | `POST` | `/event-requests/{event_id}/reassignment` | Responsible Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
-| `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. |
+| `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. S-69: approving notifies every Attendee registered or waiting. |
 | `GET` | `/event-requests/{event_id}/history` | Assigned Event Coordinator, or any Event Coordinator Lead | S-82: who changed or decided what on the event, and when, with names. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
@@ -362,17 +362,30 @@ is passed on unchanged.
 - **Approved:** the event becomes `cancelled`, and then every venue booking
   for it is deleted through the bookings service, so its times show as
   available. Equipment needs no call, because only `planning` and `confirmed`
-  events reserve it. The response is `200` with the event plus
-  `released_bookings`:
+  events reserve it. S-69: then every Attendee holding a place or on the
+  waiting list (an offered place included) gets one in-app `event_cancelled`
+  notification, read from the registrations service and sent to the
+  notifications service in batches of 20:
+
+  ```text
+  Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.
+  ```
+
+  An event ending on a later day reads `20 Nov 2026, 6:00 pm – 21 Nov 2026,
+  12:30 am`. No reason is included. Each is deduplicated on
+  `event_cancelled:{event id}:{attendee id}`, so approving again never
+  notifies anyone twice. The response is `200` with the event plus
+  `released_bookings` and `notified_attendees`:
 
 ```json
-{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2}
+{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2, "notified_attendees": 4}
 ```
 
 | Status | Detail | Meaning |
 | --- | --- | --- |
 | `502` | `The events service is unavailable. Nothing was changed.` | No decision was recorded. |
 | `502` | `The event is cancelled, but its venue bookings were not released. Approve again to release them.` | Approving again is safe. The event is not written a second time, and the bookings are removed. |
+| `502` | `The event is cancelled, but its attendees were not notified. Approve again to notify them.` | S-69: the registrations or notifications service failed. Approving again sends the notifications; anyone already notified is not notified twice. |
 
 ## Change history (S-82)
 
@@ -427,6 +440,7 @@ on file is `null`, and a backfilled entry whose actor was never recorded has
 | `EVENTS_SERVICE_URL` | Events service, e.g. `http://events:8002`. |
 | `NOTIFICATIONS_SERVICE_URL` | Notifications service, e.g. `http://notifications:8006`. |
 | `BOOKINGS_SERVICE_URL` | S-61: bookings service, e.g. `http://bookings:8004`. |
+| `REGISTRATIONS_SERVICE_URL` | S-69: registrations service, e.g. `http://registrations:8007`. |
 | `ASSIGNMENT_SERVICE_SECRET` | Independent random service credential shared only with Events for S-83/S-84 writes. |
 
 ## Running and tests

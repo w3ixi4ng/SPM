@@ -1546,3 +1546,92 @@ table and does not write accepted Equipment requirements.
 - **Actual:** The full existing event-management unit regression suite passed with S-59 routes added.
 - **Status:** Pass
 - **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py` plus existing S-83/S-84/S-85/S-88/S-18 cases.
+
+## S-69 — Notify Attendee — Event Cancelled
+
+Acceptance criteria (developer, 2026-10-30): a notification is sent to all
+currently-registered Attendees when the event's status changes to Cancelled;
+it identifies the event and states it has been cancelled; it is sent at the
+time the cancellation is confirmed.
+
+Developer's answers, 2026-10-30: Attendees on the waiting list -- including
+one holding an offered place (S-55) -- are notified too. The message carries
+no reason: approval records none, and the Organiser's request reason is
+written for the Coordinator.
+
+The cancellation is confirmed when the assigned Coordinator approves it
+(S-61, `POST /event-requests/{id}/cancellation-decision`). After the events
+service records it and the bookings are released, the composite reads the
+event's places (`GET /registrations/events/{id}`) and waiting list
+(`GET /registrations/waiting-list/events/{id}`) and posts one `event_cancelled`
+notification per Attendee to `POST /internal/notifications`, in batches of at
+most 20 (the service's limit). Each is deduplicated on
+`event_cancelled:{event id}:{attendee id}`, so approving again -- how S-61
+retries a failed step -- never notifies anyone twice.
+
+Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30.
+
+Event E (`22222222-2222-4222-8222-222222222222`) "Alumni networking evening",
+`2026-11-20` 18:00–21:00. Coordinator C is assigned and E has a pending
+cancellation request. Events fake answers the decision `200` with E
+`cancelled`, `cancellation_decision` `approved`; bookings fake answers the
+release `200` `{"deleted": []}`. Attendees A and B hold places; W is waiting;
+O holds an offered place (waiting-list row with `offered_at` set).
+
+## TC-EVENTREQUESTS-124 — approving a cancellation notifies everyone registered or waiting
+
+- **Scenario:** Every Attendee holding a place, waiting, or holding an offer gets one notification naming the event and saying it is cancelled, as the cancellation is confirmed (S-69 AC1, AC2, AC3).
+- **Pre-conditions:** As above. Registrations fake: places A, B; waiting list W, O. Notifications fake answers `201`.
+- **Steps:** As C, `POST /event-requests/E/cancellation-decision` `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `200`, body includes `"status": "cancelled"` and `"notified_attendees": 4`. Notifications received one `POST /internal/notifications` with exactly four rows, recipients A, B, W, O, each:
+  `{"recipient_id": <id>, "event_id": "E", "event_name": "Alumni networking evening", "kind": "event_cancelled", "message": "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.", "deduplication_key": "event_cancelled:E:<id>"}`.
+  The bookings release ran before the notifications were sent.
+- **Actual:** `200`, `cancelled`, `notified_attendees` 4; one batch with exactly the four rows for A, B, W, O; bookings released before notifying.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_approving_a_cancellation_notifies_everyone_registered_or_waiting; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-125 — the message names an event ending on a later day in full
+
+- **Scenario:** The event is identified by name, date and time, in the same wording as the S-49 confirmation (S-69 AC2).
+- **Pre-conditions:** As TC-EVENTREQUESTS-124, but E ends `2026-11-21` 00:30; only A holds a place.
+- **Steps:** Approve as C.
+- **Test data:** As above.
+- **Expected:** A's message is exactly "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 21 Nov 2026, 12:30 am. It will not take place."
+- **Actual:** "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 21 Nov 2026, 12:30 am. It will not take place."
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_the_message_names_an_event_ending_on_a_later_day_in_full; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-126 — large events are notified in batches of 20
+
+- **Scenario:** Every Attendee is notified however many there are (S-69 AC1).
+- **Pre-conditions:** As TC-EVENTREQUESTS-124, but 23 Attendees hold places and 2 are waiting.
+- **Steps:** Approve as C.
+- **Test data:** 25 distinct attendee ids.
+- **Expected:** `200`, `"notified_attendees": 25`. Two `POST /internal/notifications` calls, of 20 and 5 rows; together each of the 25 recipients exactly once.
+- **Actual:** `200`, `notified_attendees` 25; batches of 20 and 5 covering all 25 once.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_large_events_are_notified_in_batches_of_20; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-127 — no one is notified unless a cancellation is confirmed
+
+- **Scenario:** Declining leaves the event as it was, so no Attendee hears anything; an approved event with no one registered sends nothing (S-69 AC1, AC3).
+- **Pre-conditions:** (a) The events fake answers the decision `200` with `cancellation_decision` `declined` and E still `confirmed`. (b) As TC-EVENTREQUESTS-124 but both registrations lists are `[]`. (c) The events fake answers `403`.
+- **Steps:** `POST /event-requests/E/cancellation-decision` once per pre-condition, (a) with `{"decision": "declined", "reason": "Go ahead as planned"}`.
+- **Test data:** As above.
+- **Expected:** (a) `200`, registrations and notifications never called. (b) `200` with `"notified_attendees": 0`, notifications never called. (c) `403` passed through, registrations and notifications never called.
+- **Actual:** (a) `200`, registrations and notifications not called; (b) `200`, `notified_attendees` 0, notifications not called; (c) `403`, neither called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_no_one_is_notified_unless_a_cancellation_is_confirmed; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-128 — a failed notification is retried by approving again
+
+- **Scenario:** If the Attendees can't be told, the Coordinator is told so, and approving again sends the notifications without duplicating any (S-69 AC1, AC3; the S-61 retry pattern).
+- **Pre-conditions:** As TC-EVENTREQUESTS-124. In turn: (a) the registrations fake raises `httpx.ConnectError`; (b) the notifications fake answers `500`. Then (c) both answer normally, and the events fake answers the repeated approval `200` with E unchanged (S-61: approving again is a no-op).
+- **Steps:** Approve as C for (a), (b), then (c).
+- **Test data:** As above.
+- **Expected:** (a), (b) → `502` "The event is cancelled, but its attendees were not notified. Approve again to notify them." (c) → `200`, `"notified_attendees": 4`, with the same four `deduplication_key`s as TC-EVENTREQUESTS-124.
+- **Actual:** (a), (b) `502` with the expected detail; (c) `200`, `notified_attendees` 4, the same four deduplication keys.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_a_failed_notification_is_retried_by_approving_again; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`

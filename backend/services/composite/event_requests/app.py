@@ -7,7 +7,9 @@ Owns no table of its own; every write ends up in ``events.events`` by way of
 the events service's internal routes.
 """
 
+import asyncio
 import logging
+from datetime import date, time
 from uuid import UUID
 
 import httpx
@@ -15,7 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_users_client
+from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_registrations_client, get_users_client
 from schemas import (
     CancellationDecision,
     CoordinatorAssignmentCreate,
@@ -508,6 +510,88 @@ _BOOKINGS_NOT_RELEASED = (
 )
 
 
+# S-69: approving a cancellation tells everyone holding a place or waiting.
+_ATTENDEES_NOT_NOTIFIED = (
+    "The event is cancelled, but its attendees were not notified. "
+    "Approve again to notify them."
+)
+# The notifications service accepts at most this many rows per request.
+_NOTIFICATION_BATCH = 20
+
+
+def _day(moment: date) -> str:
+    return f"{moment.day} {moment:%b %Y}"
+
+
+def _clock(moment: time) -> str:
+    hour = moment.hour % 12 or 12
+    meridiem = "am" if moment.hour < 12 else "pm"
+    return f"{hour}:{moment:%M} {meridiem}"
+
+
+def _cancelled_message(event: dict) -> str:
+    """The event and when it was to happen, in the S-49 confirmation's
+    wording. No reason: approval records none, and the Organiser's request
+    reason was written for the Coordinator."""
+    if not (event.get("start_date") and event.get("start_time")
+            and event.get("end_date") and event.get("end_time")):
+        return f"Event cancelled: {event['name']}. It will not take place."
+    start_date = date.fromisoformat(event["start_date"])
+    end_date = date.fromisoformat(event["end_date"])
+    starts = f"{_day(start_date)}, {_clock(time.fromisoformat(event['start_time']))}"
+    ends = _clock(time.fromisoformat(event["end_time"]))
+    if end_date != start_date:
+        ends = f"{_day(end_date)}, {ends}"
+    return f"Event cancelled: {event['name']}, {starts} – {ends}. It will not take place."
+
+
+async def _notify_cancelled(
+    event: dict,
+    registrations: httpx.AsyncClient,
+    notifications: httpx.AsyncClient,
+) -> int:
+    """One notification per Attendee holding a place or on the waiting list
+    (an offered place included). Deduplicated per Attendee, so approving
+    again to retry never notifies anyone twice. Returns how many."""
+    event_id = event["id"]
+    try:
+        places, waiting = await asyncio.gather(
+            registrations.get(f"/registrations/events/{event_id}"),
+            registrations.get(f"/registrations/waiting-list/events/{event_id}"),
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Registrations service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED) from exc
+    if places.status_code != status.HTTP_200_OK or waiting.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED)
+
+    attendee_ids = list(dict.fromkeys(
+        row["attendee_id"] for row in [*places.json(), *waiting.json()]
+    ))
+    message = _cancelled_message(event)
+    rows = [
+        {
+            "recipient_id": attendee_id,
+            "event_id": event_id,
+            "event_name": event["name"],
+            "kind": "event_cancelled",
+            "message": message,
+            "deduplication_key": f"event_cancelled:{event_id}:{attendee_id}",
+        }
+        for attendee_id in attendee_ids
+    ]
+    for start in range(0, len(rows), _NOTIFICATION_BATCH):
+        batch = {"notifications": rows[start:start + _NOTIFICATION_BATCH]}
+        try:
+            sent = await notifications.post("/internal/notifications", json=batch)
+        except httpx.HTTPError as exc:
+            logger.exception("Notifications service unavailable", exc_info=exc)
+            raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED) from exc
+        if sent.status_code != status.HTTP_201_CREATED:
+            raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED)
+    return len(rows)
+
+
 @app.post("/event-requests/{event_id}/cancellation-decision")
 async def decide_cancellation(
     event_id: UUID,
@@ -515,6 +599,8 @@ async def decide_cancellation(
     request: Request,
     events: httpx.AsyncClient = Depends(get_events_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
     """S-61: the assigned Coordinator approves or declines a cancellation
     request. The events service checks the session, the assignment and the
@@ -523,7 +609,8 @@ async def decide_cancellation(
     call: only planning and confirmed events reserve it.
 
     The event changes first. If the bookings can't be removed, approving
-    again is a no-op on the event and retries the removal."""
+    again is a no-op on the event and retries the removal. S-69: then every
+    Attendee holding a place or waiting is notified, retried the same way."""
     try:
         decided = await events.post(
             f"/events/{event_id}/cancellation-decision",
@@ -551,7 +638,12 @@ async def decide_cancellation(
         raise HTTPException(status_code=502, detail=_BOOKINGS_NOT_RELEASED) from exc
     if released.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail=_BOOKINGS_NOT_RELEASED)
-    return {**event, "released_bookings": released.json()["deleted"]}
+    notified = await _notify_cancelled(event, registrations, notifications)
+    return {
+        **event,
+        "released_bookings": released.json()["deleted"],
+        "notified_attendees": notified,
+    }
 
 
 @app.get("/event-requests/unassigned")

@@ -445,3 +445,31 @@ Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `orig
 - **Actual:** Invalid submission was rejected; concurrent submissions produced one pending request; an atomic Events submission with an old event baseline returned 409 after an accepted edit, leaving the accepted value and request rows unchanged.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`; `tests/integration/atomic/events/test_s59.py::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; 2026-10-30.
+
+## S-69 specification — Notify Attendee — Event Cancelled
+
+Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30. Needs the S-69
+blocks of `backend/sql/notifications.sql` (the `event_cancelled` kind) and
+`backend/sql/events.sql` (a safety-checked event may be cancelled) applied to
+the test project. The second was found by this case's first run: approving
+the cancellation of a confirmed event failed with `23514` on
+`events_safety_state_consistent`, so no registered Attendee could ever be
+notified.
+
+## TC-EVENTREQUESTS-203 — approving a cancellation notifies registered and waiting Attendees once
+
+- **Scenario:** Through Kong against the test project: when the Coordinator approves a cancellation, every Attendee holding a place or on the waiting list finds one notification naming the event as cancelled, no one else does, and approving again adds none (S-69 AC1–AC3). Also proves the real `notifications.notifications` constraint allows the `event_cancelled` kind, and that the composite reaches the registrations service inside the compose network.
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Organiser O; Coordinator C; confirmed event P owned by O, assigned to C, named "spm-test S-69 <hex>", starting ten days out 18:00–21:00, `expected_attendance` 1, registration open yesterday to tomorrow (SGT), with a pending cancellation request from O (reason "Speaker unavailable"); Attendees A, W and X.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As W, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As C, `POST /api/event-requests/P/cancellation-decision` `{"decision": "approved"}`.
+  4. As A, W and X in turn, `GET /api/notifications`.
+  5. As C, approve again; as A, `GET /api/notifications`.
+  6. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `201`. 3 → `200`, `"status": "cancelled"`, `"notified_attendees": 2`. 4 → A and W each have exactly one `event_cancelled` row for P, message "Event cancelled: {P's name}, {date}, 6:00 pm – 9:00 pm. It will not take place."; X has none. Neither message contains "Speaker unavailable". 5 → `200`; A still has exactly one. 6 leaves no rows.
+- **Actual:** First run: approval `502` -- the events service hit `23514` on `events_safety_state_consistent`; fixed by the S-69 block of `events.sql`. After it was applied: `201`, `201`; approval `200`, `cancelled`, `notified_attendees` 2; A and W each had exactly one `event_cancelled` row with the expected message and no reason; X none; approving again `200`, A still one; no rows remained. Passed again on a second run.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s69.py::test_approving_a_cancellation_notifies_registered_and_waiting_attendees_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-69 blocks of `notifications.sql` and `events.sql` applied to dev and test; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; with `tests/integration/composite/event_requests`, `tests/integration/atomic/notifications` and `tests/integration/atomic/events`: 32 passed, 5 skipped; e2e `test_approve_cancellation.py` and `test_request_event_cancellation.py`: 2 passed
