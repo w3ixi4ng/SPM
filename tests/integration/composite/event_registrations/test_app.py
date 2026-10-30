@@ -436,4 +436,68 @@ def test_a_freed_place_is_offered_first_come_first_served_and_taken_only_by_acce
     assert notifications.select("id").eq("event_id", event_id).execute().data == []
     assert registrations.select("id").eq("event_id", event_id).execute().data == []
     assert waiting.select("id").eq("event_id", event_id).execute().data == []
+
+# --- TC-EVENTREGISTRATIONS-109 --------------------------------------------
+def test_organiser_and_assigned_coordinator_see_the_current_registrations(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-57 organiser")
+    coordinator = make_account("event_coordinator", "spm-test S-57 coordinator")
+    other_coordinator = make_account("event_coordinator", "spm-test S-57 other coordinator")
+    first = make_account("attendee", "S-57 Test Attendee A")
+    second = make_account("attendee", "S-57 Test Attendee B")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1),
+        expected_attendance=5,
+    )
+    events = admin.schema("events").table("events")
+    registrations = admin.schema("registrations").table("registrations")
+    events.update({"assigned_coordinator_id": coordinator["id"]}).eq("id", event_id).execute()
+    base = f"{GATEWAY_BASE_URL}/event-registrations/events/{event_id}"
+
+    def attendees(account):
+        return httpx.get(f"{base}/attendees", headers=account["headers"], timeout=20)
+
+    def listed(account):
+        return [(row["attendee_id"], row["name"], row["email"]) for row in account]
+
+    a = (first["id"], first["name"], first["email"])
+    b = (second["id"], second["name"], second["email"])
+    try:
+        for account in (first, second):
+            taken = httpx.post(f"{base}/registration", headers=account["headers"], timeout=20)
+            assert taken.status_code == 201, taken.text
+
+        seen = attendees(organiser)
+        assert seen.status_code == 200, seen.text
+        assert seen.json()["count"] == 2
+        assert listed(seen.json()["attendees"]) == [a, b]
+        assert seen.json()["waiting_list"] == []
+
+        by_coordinator = attendees(coordinator)
+        assert by_coordinator.status_code == 200, by_coordinator.text
+        assert by_coordinator.json()["attendees"] == seen.json()["attendees"]
+
+        refused = attendees(other_coordinator)
+        assert refused.status_code == 404, refused.text
+        assert refused.json()["detail"] == "Event not found"
+
+        withdrawn = httpx.delete(f"{base}/registration", headers=first["headers"], timeout=20)
+        assert withdrawn.status_code == 200, withdrawn.text
+        for account in (organiser, coordinator):
+            after = attendees(account)
+            assert after.status_code == 200, after.text
+            assert after.json()["count"] == 1
+            assert listed(after.json()["attendees"]) == [b]
+            assert first["id"] not in after.text
+
+        withdrawn = httpx.delete(f"{base}/registration", headers=second["headers"], timeout=20)
+        assert withdrawn.status_code == 200, withdrawn.text
+        empty = attendees(organiser)
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["count"] == 0
+        assert empty.json()["attendees"] == []
+    finally:
+        registrations.delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    assert registrations.select("id").eq("event_id", event_id).execute().data == []
     assert events.select("id").eq("id", event_id).execute().data == []

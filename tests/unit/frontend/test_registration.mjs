@@ -152,7 +152,15 @@ test('the registration lists are read from the composite', async (t) => {
 
 // --- TC-FRONTEND-255 -------------------------------------------------------
 test('the attendee count reads as a sentence', () => {
-  assert.equal(attendeeCountLabel(0), 'No one has registered yet.')
+  assert.equal(attendeeCountLabel(1), '1 attendee registered')
+  assert.equal(attendeeCountLabel(2), '2 attendees registered')
+})
+
+// --- TC-FRONTEND-281 -------------------------------------------------------
+test('the empty list says no one is currently registered', () => {
+  const empty = 'No one is currently registered for this event.'
+  assert.equal(attendeeCountLabel(0), empty)
+  assert.equal(attendeeCountLabel(undefined), empty)
   assert.equal(attendeeCountLabel(1), '1 attendee registered')
   assert.equal(attendeeCountLabel(2), '2 attendees registered')
 })

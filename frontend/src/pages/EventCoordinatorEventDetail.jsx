@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import EventReadinessPanel from '../components/EventReadinessPanel.jsx'
+import RegisteredAttendeesPanel from '../components/RegisteredAttendeesPanel.jsx'
 import SafetySubmissionPanel from '../components/SafetySubmissionPanel.jsx'
 import {
   buildSubmissionReadiness,
@@ -1382,6 +1383,13 @@ export default function EventCoordinatorEventDetail() {
             )}
             <EventReadinessPanel event={state.event} />
             {isCoordinator && REASSIGNABLE_STATUSES.has(state.event.status) && <ReassignmentRequestPanel eventId={state.event.id} />}
+            {/* S-57: the assigned Coordinator sees who is registered, read-only --
+                closing registration stays the Organiser's decision. */}
+            {isCoordinator && state.event.status === 'confirmed' && state.event.registration_required && (
+              <div className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }}>
+                <RegisteredAttendeesPanel eventId={state.event.id} />
+              </div>
+            )}
 
             <div
               role="group"

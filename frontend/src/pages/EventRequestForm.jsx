@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import RegisteredAttendeesPanel from '../components/RegisteredAttendeesPanel.jsx'
 import { optionLabel } from '../lib/venues.js'
 import useAuth from '../auth/useAuth.js'
 import { CHANGE_REQUEST_STATUSES } from '../lib/eventChangeRequests.js'
@@ -41,15 +42,11 @@ import {
   validateCancellationReason,
 } from '../lib/eventRequests.js'
 import {
-  attendeeCountLabel,
   closeRegistration,
   describeRegistration,
-  formatRegistrationMoment,
-  listEventAttendees,
   registrationClosureControl,
   reopenRegistration,
   validateRegistrationSettings,
-  waitingListLabel,
 } from '../lib/registration.js'
 import { bookingStatusMeta, listVenueBookingsForEvent } from '../lib/venueBookings.js'
 
@@ -659,114 +656,6 @@ function RegistrationClosure({ eventId, record, onChange }) {
   )
 }
 
-function PersonRow({ person, when }) {
-  return (
-    <li
-      className="py-3 flex flex-wrap items-baseline justify-between gap-2"
-      style={{ borderColor: C.line }}
-    >
-      <div>
-        <p className="font-ui text-sm font-medium" style={{ color: C.ink }}>
-          {person.name || 'Name not on record'}
-        </p>
-        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>
-          {person.email || 'Email not on record'}
-        </p>
-      </div>
-      <p className="font-ui text-xs" style={{ color: C.inkFaint }}>{when}</p>
-    </li>
-  )
-}
-
-// S-48: who holds a place at this confirmed event, earliest first. The
-// composite shows it to the event's own Organiser only. S-50: with the
-// close/reopen control and the waiting list.
-function RegisteredAttendees({ eventId, record, onRecordChange }) {
-  const [loadAttempt, setLoadAttempt] = useState(0)
-  const [state, setState] = useState({ status: 'loading', list: null })
-
-  useEffect(() => {
-    let active = true
-    setState({ status: 'loading', list: null })
-    listEventAttendees(eventId)
-      .then((list) => { if (active) setState({ status: 'ready', list }) })
-      .catch((error) => {
-        if (active) setState({ status: 'error', list: null, message: error.message })
-      })
-    return () => { active = false }
-  }, [eventId, loadAttempt])
-
-  return (
-    <section aria-labelledby="registered-attendees-heading">
-      <h2
-        id="registered-attendees-heading"
-        className="block font-display text-s font-medium mb-1"
-        style={{ color: C.ink }}
-      >
-        Registered attendees
-      </h2>
-      <RegistrationClosure eventId={eventId} record={record} onChange={onRecordChange} />
-      {state.status === 'loading' && (
-        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading attendees…</p>
-      )}
-      {state.status === 'error' && (
-        <div className="font-ui text-sm" style={{ color: C.inkFaint }}>
-          <p role="alert">We couldn&apos;t load who has registered. {state.message}</p>
-          <button
-            type="button"
-            onClick={() => setLoadAttempt((n) => n + 1)}
-            className="mt-3 px-4 py-2 rounded-sm border font-medium"
-            style={{ borderColor: C.ink, color: C.ink }}
-          >
-            Try again
-          </button>
-        </div>
-      )}
-      {state.status === 'ready' && (
-        <>
-          <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
-            {attendeeCountLabel(state.list.count)}
-          </p>
-          {state.list.attendees.length > 0 && (
-            <ul className="divide-y border-t border-b" style={{ borderColor: C.line }}>
-              {state.list.attendees.map((attendee) => (
-                <PersonRow
-                  key={attendee.attendee_id}
-                  person={attendee}
-                  when={`Registered ${formatRegistrationMoment(singaporeTime(attendee.registered_at))}`}
-                />
-              ))}
-            </ul>
-          )}
-          <section aria-labelledby="waiting-list-heading" className="mt-6">
-            <h3
-              id="waiting-list-heading"
-              className="font-ui text-sm font-medium mb-1"
-              style={{ color: C.ink }}
-            >
-              Waiting list
-            </h3>
-            <p className="font-ui text-sm mb-3" style={{ color: C.inkFaint }}>
-              {waitingListLabel(state.list.waiting_list?.length ?? 0)}
-            </p>
-            {state.list.waiting_list?.length > 0 && (
-              <ol className="divide-y border-t border-b" style={{ borderColor: C.line }}>
-                {state.list.waiting_list.map((person) => (
-                  <PersonRow
-                    key={person.attendee_id}
-                    person={person}
-                    when={`Joined ${formatRegistrationMoment(singaporeTime(person.joined_at))}`}
-                  />
-                ))}
-              </ol>
-            )}
-          </section>
-        </>
-      )}
-    </section>
-  )
-}
-
 function registrationFields(event) {
   return {
     status: event.status,
@@ -775,12 +664,6 @@ function registrationFields(event) {
     registration_closes_at: event.registration_closes_at,
     registration_closed_at: event.registration_closed_at ?? null,
   }
-}
-
-// A registration time is a real instant; show it in Singapore wall-clock
-// time, like every other time on the page.
-function singaporeTime(instant) {
-  return new Date(new Date(instant).getTime() + 8 * 60 * 60 * 1000).toISOString()
 }
 
 function StatusBadge({ status }) {
@@ -1846,11 +1729,13 @@ export default function EventRequestForm() {
             />
 
             {routeId && status === 'confirmed' && savedForm.registrationRequired && (
-              <RegisteredAttendees
-                eventId={routeId}
-                record={registrationRecord}
-                onRecordChange={(event) => setRegistrationRecord(registrationFields(event))}
-              />
+              <RegisteredAttendeesPanel eventId={routeId}>
+                <RegistrationClosure
+                  eventId={routeId}
+                  record={registrationRecord}
+                  onChange={(event) => setRegistrationRecord(registrationFields(event))}
+                />
+              </RegisteredAttendeesPanel>
             )}
 
             <div>

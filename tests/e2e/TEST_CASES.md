@@ -1609,3 +1609,38 @@ Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `orig
 - **Actual:** Chromium: A withdrew; B's row read "Place offered" (not Confirmed) with the invitation and View event link; the link opened P's page with the held message and Accept place, no registered line; Keep my offer kept the offer; Decline showed the declined message and Join the waiting list; C's row read "Place offered" with the invitation; Accept place showed "You're registered for this event."; C's dashboard read Confirmed with "Registration confirmed: {P}, …".
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_waiting_list_offer.py::test_a_freed_place_is_offered_to_the_first_in_line_who_must_accept_it[chromium]; full `tests/e2e`: 67 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-57 — View Event Registration List (specification)
+
+Drafted 2026-10-30 on `S-57/view-event-registration-list`. Confirmed by the
+developer 2026-10-30. Only what a browser can prove: the **Refresh list** button
+re-reads without a page load, and the Coordinator's page shows the list and
+agrees with the service about who may see it. Access rules, ordering and
+withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
+
+## TC-E2E-265 — the Organiser refreshes the list after withdrawals
+
+- **Scenario:** In a real browser, with the event page left open, the Organiser sees withdrawals after clicking **Refresh list**, and is told when no one is left (S-57 AC2–AC5).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 5, registration open yesterday to tomorrow (SGT), starting ten days out; Attendees A ("S-57 E2E Attendee A") and B ("S-57 E2E Attendee B"), both holding a place at P.
+- **Steps:**
+  1. As O, open `/events/P`.
+  2. Without leaving the page, A withdraws through the API (`DELETE /api/event-registrations/events/P/registration` with A's session).
+  3. Click **Refresh list**.
+  4. B withdraws the same way; click **Refresh list**.
+- **Test data:** Emails `spm-e2e-*`; names as above.
+- **Expected:** 1 → "Registered attendees" shows "2 attendees registered" with A's and B's names and emails. 3 → "1 attendee registered", B listed, A's name not on the page; the URL did not change and no navigation occurred. 4 → "No one is currently registered for this event." and no attendee rows.
+- **Actual:** Chromium: "2 attendees registered" with both names and emails; after A withdrew in a separate session and Refresh list, "1 attendee registered" with B only; after B withdrew and Refresh list, "No one is currently registered for this event."; same URL, and a page-load marker set before the first refresh survived both.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_registration_list.py::test_the_organiser_refreshes_the_list_after_withdrawals[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed
+
+## TC-E2E-266 — the assigned Coordinator sees the registration list
+
+- **Scenario:** The Coordinator assigned to the event sees who is registered on their event page, without the Organiser's close/reopen control (S-57 AC1, AC2).
+- **Pre-conditions:** As TC-E2E-265, plus Coordinator C as P's `assigned_coordinator_id`; only A holds a place.
+- **Steps:**
+  1. As C, open `/coordinator/events/P`.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** A "Registered attendees" section shows "1 attendee registered" with A's name and email, a **Refresh list** button, and no **Close registration** button.
+- **Actual:** Chromium: Registered attendees showed "1 attendee registered", A's name and email and Refresh list; no Close registration button on the page.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_registration_list.py::test_the_assigned_coordinator_sees_the_registration_list[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed

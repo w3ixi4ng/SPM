@@ -247,6 +247,9 @@ def _organiser_owns_e(services, answer=None):
     async def events_get(path, **kwargs):
         if path == f"/events/{EVENT_E}":
             return answer or response(200, {"id": EVENT_E})
+        # S-57: no role here is E's assigned Coordinator.
+        if path == f"/events/assigned/{EVENT_E}":
+            return response(403, {"detail": "Insufficient permissions"})
         return response(404, {"detail": "Event not found."})
 
     services["events"].get.side_effect = events_get

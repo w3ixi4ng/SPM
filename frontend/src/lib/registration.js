@@ -239,8 +239,9 @@ export function registrationDetails(row) {
   return { when: formatEventWhen(row), venue, pending: null }
 }
 
+// S-57: true whether no one ever registered or everyone has since withdrawn.
 export function attendeeCountLabel(count) {
-  if (!count) return 'No one has registered yet.'
+  if (!count) return 'No one is currently registered for this event.'
   return `${count} ${count === 1 ? 'attendee' : 'attendees'} registered`
 }
 
