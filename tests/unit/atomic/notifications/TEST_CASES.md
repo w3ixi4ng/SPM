@@ -210,3 +210,20 @@ Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
 - **Actual:** `201` with kind `event_cancelled`; `venue_closed` `422`.
 - **Status:** Pass
 - **Evidence:** test_app.py::test_an_event_cancellation_is_accepted; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## S-74 — Notify Attendee — Registration Update
+
+Drafted 2026-10-30 on `S-74/notify-attendee-registration-update` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30. TC-NOTIFICATIONS-013 is
+S-69's.
+
+## TC-NOTIFICATIONS-014 — the three registration-update kinds are accepted
+
+- **Scenario:** The inbox accepts S-74's kinds, so an Attendee can be told they joined the waiting list, withdrew, or declined an offered place (S-74 AC1).
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` once per kind: `waiting_list_joined`, `registration_withdrawn`, `waiting_list_offer_declined`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`, event `11111111-1111-4111-8111-111111111111`, event name "Alumni networking evening", message "You're on the waiting list for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. You're next in line.", key `<kind>:77777777-7777-4777-8777-777777777777`.
+- **Expected:** `201` with the row and its kind, each time. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with the row for each of the three kinds; `venue_closed` `422`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_the_registration_update_kinds_are_accepted; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`

@@ -44,8 +44,10 @@ event was recorded), `waiting_list_promotion` (S-53: a withdrawal freed a
 place and this Attendee, first on the waiting list, now holds it; no longer
 sent since S-55, kept for rows already stored), and `waiting_list_offer` (S-55:
 a freed place is held for this Attendee, first on the waiting list, until they
-accept or decline it), and `event_cancelled` (S-69: an event this Attendee was
-registered or waiting for was cancelled). S-84 sends a three-row reassignment batch whose keys
+accept or decline it), `event_cancelled` (S-69: an event this Attendee was
+registered or waiting for was cancelled), and, from S-74, `waiting_list_joined`,
+`registration_withdrawn` and `waiting_list_offer_declined` (the Attendee
+joined a waiting list, withdrew their place, or declined an offered place). S-84 sends a three-row reassignment batch whose keys
 include the event's monotonic assignment version.
 
 ## Response

@@ -30,22 +30,24 @@ create table if not exists notifications.notifications (
   constraint notifications_deduplication_key_not_blank
     check (btrim(deduplication_key) <> ''),
   constraint notifications_kind_allowed
-    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled'))
+    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined'))
 );
 
--- BEGIN S-69 EVENT CANCELLED
+-- BEGIN S-74 REGISTRATION UPDATES
 -- Upgrade path for an existing notifications table: S-84 added
 -- event_reassignment, S-77 venue_unavailable, S-81 venue_hold_expiry, S-49
 -- registration_confirmation, S-53 waiting_list_promotion, S-55
--- waiting_list_offer, and S-69 event_cancelled. Safe to run twice; run in
--- BOTH dev and test.
+-- waiting_list_offer, S-69 event_cancelled, and S-74 waiting_list_joined,
+-- registration_withdrawn and waiting_list_offer_declined. Safe to run twice;
+-- run in BOTH dev and test. Replaces the S-69 block, which listed every kind
+-- but these three: re-running that one would drop them again.
 alter table notifications.notifications
   drop constraint if exists notifications_kind_allowed;
 alter table notifications.notifications add constraint notifications_kind_allowed
-  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled'));
+  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined'));
 
 notify pgrst, 'reload schema';
--- END S-69 EVENT CANCELLED
+-- END S-74 REGISTRATION UPDATES
 
 -- Every inbox query filters by recipient and shows newest first.
 create index if not exists notifications_recipient_created_idx

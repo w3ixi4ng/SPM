@@ -1041,3 +1041,82 @@ is E's `assigned_coordinator_id`. Attendees A and B as in S-48.
 - **Actual:** `count` 2 (A, B); then `count` 1 (B only, A's id absent); then `{"event_id": "E", "count": 0, "attendees": [], "waiting_list": []}`; places read three times.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s57.py::test_each_read_shows_the_registrations_as_they_are_now; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Python 3.12.5, pytest 9.1.1: 129 passed in this suite, 1706 passed and 17 skipped across `tests/unit`
+
+## S-74 — Notify Attendee — Registration Update
+
+Acceptance criteria (developer, 2026-10-30): an Attendee receives a
+notification when their registration status changes; it identifies the event
+and the nature of the update; it is sent at the time the update occurs.
+
+Already notified before S-74, and unchanged: a place recorded by registering
+(S-49) or by accepting an offer (S-55) -- `registration_confirmation`; a freed
+place offered (S-55) -- `waiting_list_offer`; the event cancelled (S-69).
+S-74 adds the three status changes that sent the Attendee nothing:
+
+| Change | Kind | Keyed on |
+| --- | --- | --- |
+| Joins the waiting list | `waiting_list_joined` | the new waiting-list row |
+| Withdraws a held place | `registration_withdrawn` | the withdrawn registration row |
+| Declines an offered place, leaving the waiting list | `waiting_list_offer_declined` | the declined waiting-list row |
+
+Each goes to the Attendee whose status changed, in the same request that
+changed it, and like S-49 is best effort: the change is already recorded, so
+a notice that can't be stored is logged and the request still succeeds. A
+place in line moving up is not a status change and sends nothing. None of the
+three names a venue: only a held place shows where (S-56), and these are
+about not holding one.
+
+Drafted 2026-10-30 on `S-74/notify-attendee-registration-update` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30.
+
+Event E as above ("Alumni networking evening", `2026-11-20` 18:00–21:00).
+Attendee A is signed in.
+
+Revised for S-74: TC-EVENTREGISTRATIONS-036 (a withdrawal with no one
+waiting now sends exactly the withdrawing Attendee's `registration_withdrawn`
+notice, not nothing), and -054, -055 and -059, whose assertions about the
+next in line now read past the withdrawing or declining Attendee's own notice.
+
+## TC-EVENTREGISTRATIONS-066 — joining the waiting list is confirmed with the place in line
+
+- **Scenario:** An Attendee who joins a full event's waiting list is told so, with the event and where they stand (S-74 AC1, AC2, AC3).
+- **Pre-conditions:** E is full; registrations fake answers `POST /registrations/waiting-list` `201` with row `w1` (`created_at` `2026-11-06T04:00:00Z`), and E's waiting list reads B then A. Notifications fake answers `201`.
+- **Steps:** As A, `POST /event-registrations/events/E/waiting-list`.
+- **Test data:** As above.
+- **Expected:** `201` with `"position": 2`. One `POST /internal/notifications` with exactly one row: `{"recipient_id": A, "event_id": E, "event_name": "Alumni networking evening", "kind": "waiting_list_joined", "message": "You're on the waiting list for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. You're 2nd in line.", "deduplication_key": "waiting_list_joined:w1"}`. First in line reads "You're next in line."
+- **Actual:** `201`, position 2 with "You're 2nd in line." and position 1 with "You're next in line."; exactly one `waiting_list_joined` row keyed `waiting_list_joined:w1`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s74.py::test_joining_the_waiting_list_is_confirmed_with_the_place_in_line; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREGISTRATIONS-067 — withdrawing is confirmed to the Attendee who withdrew
+
+- **Scenario:** An Attendee who gives up their place is told it is gone; the next in line still gets their S-55 offer (S-74 AC1, AC2, AC3).
+- **Pre-conditions:** A holds a place; registrations fake answers `POST /registrations/withdrawals` `200` `{"withdrawn": <A's row r1>, "offered": <B's waiting-list row, offered_at set>}`. Notifications fake answers `201`.
+- **Steps:** As A, `DELETE /event-registrations/events/E/registration`.
+- **Test data:** As above.
+- **Expected:** `200` `registered` false. A is sent exactly one row: `kind` `registration_withdrawn`, message "You've withdrawn from Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. Your place has been released.", key `registration_withdrawn:r1`. B is still sent the `waiting_list_offer` (unchanged).
+- **Actual:** `200` `registered` false; A sent exactly the `registration_withdrawn` row keyed `registration_withdrawn:r1`; B still sent `waiting_list_offer`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s74.py::test_withdrawing_is_confirmed_to_the_attendee_who_withdrew; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREGISTRATIONS-068 — declining an offer is confirmed to the Attendee who declined
+
+- **Scenario:** An Attendee who passes on a held place is told they have left the waiting list (S-74 AC1, AC2, AC3).
+- **Pre-conditions:** A holds an offer; registrations fake answers `POST /registrations/offers/declines` `200` `{"declined": <A's waiting-list row w1>, "offered": null}`. Notifications fake answers `201`.
+- **Steps:** As A, `DELETE /event-registrations/events/E/waiting-list/offer`.
+- **Test data:** As above.
+- **Expected:** `200`. A is sent exactly one row: `kind` `waiting_list_offer_declined`, message "You've declined the place at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, and left the waiting list.", key `waiting_list_offer_declined:w1`.
+- **Actual:** `200`; exactly the `waiting_list_offer_declined` row keyed `waiting_list_offer_declined:w1`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s74.py::test_declining_an_offer_is_confirmed_to_the_attendee_who_declined; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREGISTRATIONS-069 — a refused change sends nothing; a failed notice doesn't undo the change
+
+- **Scenario:** Only a change that happened is notified, and the change stands even if its notice can't be stored (S-74 AC1, AC3; the S-49 best-effort rule).
+- **Pre-conditions:** (a) Withdrawing: registrations answers `404` (A holds no place). (b) Joining: registrations answers `409` (already waiting). (c) Each of the three changes succeeds, but the notifications fake answers `500`; then raises `httpx.ConnectError`.
+- **Steps:** Make each request as A.
+- **Test data:** As above.
+- **Expected:** (a) `404` "You're not registered for this event.", (b) `409` -- notifications never called. (c) `201` / `200` / `200` as in TC-EVENTREGISTRATIONS-066..068, with the failure logged.
+- **Actual:** (a) `404` "You're not registered for this event.", (b) `409`, notifications never called; (c) `201`/`200`/`200` for each change with notifications answering `500` and then raising, each failure logged.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s74.py::test_a_refused_change_sends_nothing_and_a_failed_notice_does_not_undo_the_change; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`

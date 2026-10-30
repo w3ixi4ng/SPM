@@ -209,3 +209,26 @@ S-51 to S-53 blocks already in `registrations.sql` and `events.sql`.
 - **Actual:** `201`, `201`; O saw `count` 2, A then B with names and emails, `waiting_list` `[]`; C saw the same attendees; C2 `404` "Event not found"; after A withdrew O and C each saw `count` 1, B only, A's id absent; after B withdrew O saw `count` 0, `attendees` `[]`; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_organiser_and_assigned_coordinator_see_the_current_registrations; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with the rest of this suite: 8 passed
+
+## S-74 specification — Notify Attendee — Registration Update
+
+Drafted 2026-10-30 on `S-74/notify-attendee-registration-update` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30. Needs the S-74 block of
+`backend/sql/notifications.sql` (three new kinds) applied to the test project.
+
+## TC-EVENTREGISTRATIONS-110 — each status change reaches the Attendee's inbox once
+
+- **Scenario:** Through Kong against the test project: joining the waiting list, declining an offered place and withdrawing a held place each leave exactly one notification of their kind in the Attendee's own inbox, naming the event (S-74 AC1–AC3). Also proves the real `notifications.notifications` constraint allows the three kinds.
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Organiser O; confirmed event P owned by O, "spm-test S-74 <hex>", `expected_attendance` 1, registration open yesterday to tomorrow (SGT), starting ten days out 18:00–21:00, no confirmed venue; Attendees A, B and C.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As B, then C, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As A, `DELETE /api/event-registrations/events/P/registration` (B is offered the place).
+  4. As B, `DELETE /api/event-registrations/events/P/waiting-list/offer` (C is offered it).
+  5. As A, B and C, `GET /api/notifications`.
+  6. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `201`, `201`. 3 → `200`. 4 → `200`. 5 → for P: A has one `registration_confirmation` and one `registration_withdrawn` ("You've withdrawn from {P's name}, …"); B has one `waiting_list_joined` ("… You're next in line."), one `waiting_list_offer` and one `waiting_list_offer_declined`; C has one `waiting_list_joined` ("… You're 2nd in line.") and one `waiting_list_offer`. No other rows for P. 6 leaves no rows.
+- **Actual:** All requests answered as expected; A had `registration_confirmation` and `registration_withdrawn`; B `waiting_list_joined` ("… You're next in line."), `waiting_list_offer` and `waiting_list_offer_declined`; C `waiting_list_joined` ("… You're 2nd in line.") and `waiting_list_offer`; nothing else for P; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_each_status_change_reaches_the_attendees_inbox_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-74 block of `notifications.sql` applied to dev and test; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; with the rest of this suite and `tests/integration/atomic/notifications`: 10 passed. Registration e2e journeys (`test_cap_registration.py`, `test_join_waiting_list.py`, `test_register_for_event.py`, `test_waiting_list_offer.py`, `test_withdraw_registration.py`): 8 passed, 1 failed -- `test_register_for_event.py::test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering`, which runs none of S-74's paths, in a run that crossed midnight; it passed when re-run on its own. Between runs the test project's `notifications_kind_allowed` was overwritten by an older block without the S-74 kinds (`23514` on `waiting_list_joined`); after the S-74 block was re-applied, re-run on a freshly recreated `.env.test` stack with `tests/integration/atomic/notifications`: 2 passed, 2026-10-31.
