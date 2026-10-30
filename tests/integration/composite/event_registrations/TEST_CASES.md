@@ -183,3 +183,29 @@ venues, users and registrations services against the test Supabase project.
 - **Actual:** `201`; B and C joined; A's withdrawal `200`; B waitlisted with `offered` true, C `offered` false; B's inbox one `waiting_list_offer` with the expected opening, "venue to be confirmed" and the held line, no promotion or confirmation; D `409` "This event is full. You can join the waiting list."; C's accept `404`; B's decline `200`; C invited once, then accepted `201`; C registered with one `registration_confirmation`; B neither registered nor waiting; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_a_freed_place_is_offered_first_come_first_served_and_taken_only_by_accepting; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; full `tests/integration`: 104 passed, 5 skipped; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-57 specification — View Event Registration List
+
+Drafted 2026-10-30 on `S-57/view-event-registration-list` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30. No new SQL: needs the
+S-51 to S-53 blocks already in `registrations.sql` and `events.sql`.
+
+## TC-EVENTREGISTRATIONS-109 — Organiser and assigned Coordinator see the current registrations
+
+- **Scenario:** Through Kong against the test project: the owning Organiser and the assigned Coordinator see who is registered, another Coordinator does not, and each withdrawal shows on the next read until no one is left (S-57 AC1–AC5).
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Organiser O; Coordinators C and C2; confirmed event P owned by O with `assigned_coordinator_id` C, `expected_attendance` 5, registration open yesterday to tomorrow (SGT), starting ten days out; Attendees A ("S-57 Test Attendee A") and B ("S-57 Test Attendee B").
+- **Steps:**
+  1. As A, then B, `POST /api/event-registrations/events/P/registration`.
+  2. As O, `GET /api/event-registrations/events/P/attendees`.
+  3. As C, the same.
+  4. As C2, the same.
+  5. As A, `DELETE /api/event-registrations/events/P/registration`.
+  6. As O, then C, `GET /api/event-registrations/events/P/attendees`.
+  7. As B, `DELETE /api/event-registrations/events/P/registration`.
+  8. As O, `GET /api/event-registrations/events/P/attendees`.
+  9. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`; names as above.
+- **Expected:** 1 → `201`, `201`. 2 → `200`, `count` 2, A then B with their names and emails, `waiting_list` `[]`. 3 → `200` with the same `attendees`. 4 → `404` "Event not found". 5 → `200`. 6 → each `200`, `count` 1, `attendees` B only; A's id appears nowhere. 7 → `200`. 8 → `200`, `count` 0, `attendees` `[]`. 9 leaves no rows.
+- **Actual:** `201`, `201`; O saw `count` 2, A then B with names and emails, `waiting_list` `[]`; C saw the same attendees; C2 `404` "Event not found"; after A withdrew O and C each saw `count` 1, B only, A's id absent; after B withdrew O saw `count` 0, `attendees` `[]`; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_organiser_and_assigned_coordinator_see_the_current_registrations; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with the rest of this suite: 8 passed

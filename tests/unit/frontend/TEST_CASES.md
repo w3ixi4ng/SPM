@@ -2528,9 +2528,9 @@ Specification confirmed by the developer before code. Covers `test_registration.
 - **Scenario:** The Organiser's list states how many have registered.
 - **Pre-conditions:** None.
 - **Steps:** Call `attendeeCountLabel(n)`.
-- **Test data / Expected:** `0` → "No one has registered yet."; `1` → "1
-  attendee registered"; `2` → "2 attendees registered".
-- **Actual:** "No one has registered yet.", "1 attendee registered", "2 attendees registered".
+- **Test data / Expected:** `1` → "1 attendee registered"; `2` → "2
+  attendees registered". Revised for S-57: the `0` case is TC-FRONTEND-281.
+- **Actual:** "1 attendee registered", "2 attendees registered".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the attendee count reads as a sentence; 2026-10-25, branch `S-48/register-for-event`
 
@@ -2981,3 +2981,20 @@ Developer decisions (2026-10-30): a freed place is held for the first Attendee i
 - **Actual:** `POST` then `DELETE` to `/api/event-registrations/events/E/waiting-list/offer`, each returning the parsed body; `declinePrompt()` "Decline this place? You'll leave the waiting list."
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::accepting and declining go to the composite; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-57 — View Event Registration List
+
+Drafted 2026-10-30 on `S-57/view-event-registration-list`. Awaiting developer
+confirmation. Developer's answers, 2026-10-30: the empty message must hold
+whether nobody ever registered or everyone withdrew, and the Organiser's and
+assigned Coordinator's panels get a **Refresh list** button.
+
+## TC-FRONTEND-281 — the empty list says no one is currently registered
+
+- **Scenario:** With no current registrations the viewer is clearly told so, including after everyone has withdrawn (S-57 AC5). Revises TC-FRONTEND-255's `0` case only.
+- **Pre-conditions:** None.
+- **Steps:** Call `attendeeCountLabel(n)`.
+- **Test data / Expected:** `0` → "No one is currently registered for this event."; `undefined` → the same; `1` → "1 attendee registered"; `2` → "2 attendees registered".
+- **Actual:** "No one is currently registered for this event." for `0` and `undefined`; "1 attendee registered", "2 attendees registered".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the empty list says no one is currently registered; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Node 22.16.0: 214 passed across frontend unit

@@ -24,7 +24,7 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `POST` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: take the place held for the signed-in Attendee, until the event starts. |
 | `DELETE` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: decline it; the Attendee leaves the waiting list and the next in line is invited. |
 | `GET` | `/event-registrations/me/registrations` | Attendee | The events the signed-in Attendee is registered for or waiting for (S-52), soonest first, with each held place's confirmed date, time and primary venue (S-56). |
-| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first, and who is on its waiting list. |
+| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser, or its assigned Coordinator (S-57) | Who is currently registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
 ## Request
@@ -246,14 +246,20 @@ registration period or an Organiser close says.
 ```
 
 With no registrations, `count` is `0` and `attendees` is `[]`; `waiting_list`
-is oldest first and `[]` when no one is waiting. Ownership is
-the events service's to decide; its answer is passed on:
+is oldest first and `[]` when no one is waiting. S-57: the list is read fresh
+on every request, and an Attendee who withdrew holds no place, so they are
+not in it.
+
+Who may see it is the events service's to decide, and its answer is passed
+on. The composite asks `GET /events/{event_id}` as the caller, which answers
+the owning Organiser; if that refuses with `403`, it asks
+`GET /events/assigned/{event_id}`, which answers the assigned Coordinator.
 
 | Status | When | `detail` |
 | --- | --- | --- |
 | `401` | Not signed in | "Sign in to see who has registered." |
-| `403` | Signed in, but not an Event Organiser | "Insufficient permissions" |
-| `404` | Missing, or another Organiser's event | "Event not found" |
+| `403` | Signed in, but neither an Event Organiser nor an Event Coordinator | "Insufficient permissions" |
+| `404` | Missing, another Organiser's event, or an event not assigned to this Coordinator | "Event not found" |
 | `502` | A service it depends on did not answer | "Events service unavailable" (or Users, Registrations) |
 
 ## Configuration

@@ -607,12 +607,18 @@ async def join_waiting_list(
     }
 
 
-async def _owned_event(event_id: UUID, request: Request, events: httpx.AsyncClient) -> None:
-    """The events service decides ownership: it answers 404 for another
-    Organiser's event and 403 for any other role."""
+async def _viewable_event(event_id: UUID, request: Request, events: httpx.AsyncClient) -> None:
+    """The events service decides who may see the list: it answers 404 for
+    another Organiser's event and 403 for any other role. S-57: a 403 may
+    still be the event's assigned Coordinator, so ask again as one -- 404 for
+    a Coordinator not assigned to it, 403 again for every other role."""
     response = await _call(
         "Events", events.get(f"/events/{event_id}", cookies=request.cookies)
     )
+    if response.status_code == 403:
+        response = await _call(
+            "Events", events.get(f"/events/assigned/{event_id}", cookies=request.cookies)
+        )
     if response.status_code == 401:
         raise HTTPException(status_code=401, detail=SIGN_IN_TO_SEE_ATTENDEES)
     if response.status_code in (403, 404):
@@ -630,7 +636,7 @@ async def list_event_attendees(
     events: httpx.AsyncClient = Depends(get_events_client),
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
-    await _owned_event(event_id, request, events)
+    await _viewable_event(event_id, request, events)
     rows, waiting = await asyncio.gather(
         _json("Registrations", registrations.get(f"/registrations/events/{event_id}")),
         _json("Registrations", registrations.get(f"/registrations/waiting-list/events/{event_id}")),

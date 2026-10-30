@@ -225,7 +225,7 @@ Organiser O (id `77777777-7777-4777-8777-777777777777`) owns E. Attendees A
 
 ## TC-EVENTREGISTRATIONS-015 — only the event's own Organiser sees its attendees
 
-- **Scenario:** Attendee names and emails reach no one else (developer's answer, 2026-10-25).
+- **Scenario:** Attendee names and emails reach no one else (developer's answer, 2026-10-25). Revised for S-57: the assigned Coordinator is let through (TC-EVENTREGISTRATIONS-062); the events fake answers `GET /events/assigned/E` with `403` here, so the `403` case still holds.
 - **Pre-conditions:** The events fake's `GET /events/E` answers, in turn:
   `401`, `403` `{"detail": "Insufficient permissions"}` (an Attendee or
   Coordinator), `404` `{"detail": "Event not found"}` (another Organiser).
@@ -973,3 +973,71 @@ waiting-list row id is `77777777-7777-4777-8777-777777777777` and C's is
 - **Actual:** Offered row `status` "offered", position 1, B's join time, no venue, E's date and time; not offered → "waitlisted"; not listed while E is `planning`.
 - **Status:** Pass
 - **Evidence:** test_s55.py::test_the_dashboard_shows_an_offer, ::test_an_offer_is_listed_only_while_the_event_is_confirmed; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-57 — View Event Registration List
+
+Acceptance criteria (developer, 2026-10-30): the Event Organiser can view
+attendee registration information for an event they are permitted to access;
+it identifies the attendees currently registered; withdrawn Attendees are
+distinguishable or excluded; changes to registrations are reflected; with no
+current registrations the viewer is clearly told so.
+
+Developer's answers, 2026-10-30: "permitted to access" means the event's own
+Organiser **and** the Event Coordinator assigned to it. A withdrawn Attendee is
+excluded, because S-53 deletes the place. "Reflected" means every read is
+fresh, and the panel gets a **Refresh list** button.
+
+The composite asks the events service about the event as the caller.
+`GET /events/E` answers `200` to the owning Organiser. If that answers `403`,
+the composite tries `GET /events/assigned/E`, which answers `200` to the
+assigned Coordinator. This revises TC-EVENTREGISTRATIONS-015: a `403` from
+`GET /events/E` no longer ends the request.
+
+Drafted 2026-10-30 on `S-57/view-event-registration-list` (from `origin/sprint4`). Confirmed by the developer 2026-10-30.
+
+Organiser O owns E. Coordinator C (`55555555-5555-4555-8555-555555555555`)
+is E's `assigned_coordinator_id`. Attendees A and B as in S-48.
+
+## TC-EVENTREGISTRATIONS-062 — the assigned Coordinator sees who registered
+
+- **Scenario:** The Coordinator assigned to the event sees the same list as its Organiser (S-57 AC1, AC2).
+- **Pre-conditions:** C's session cookie. Events fake: `GET /events/E` answers `403` `{"detail": "Insufficient permissions"}`; `GET /events/assigned/E` (C's cookie forwarded) answers `200`. Registrations fake returns A's and B's rows for E; waiting list `[]`. Users fake answers `POST /internal/users/profiles` with A and B.
+- **Steps:** `GET /event-registrations/events/E/attendees`.
+- **Test data:** As above.
+- **Expected:** `200` with the exact TC-EVENTREGISTRATIONS-013 body: `count` 2, A then B with name, email and `registered_at`, `"waiting_list": []`. C's cookie was forwarded to both events calls.
+- **Actual:** `200` with `count` 2, A then B, `waiting_list` `[]`; events asked `/events/E` then `/events/assigned/E`, C's cookie forwarded to both.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s57.py::test_the_assigned_coordinator_sees_who_registered; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Python 3.12.5, pytest 9.1.1: 129 passed in this suite, 1706 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREGISTRATIONS-063 — a Coordinator not assigned to the event is refused
+
+- **Scenario:** Only the assigned Coordinator gets the list, not every Coordinator (S-57 AC1).
+- **Pre-conditions:** Coordinator C2's cookie. Events fake: `GET /events/E` answers `403`; `GET /events/assigned/E` answers `404` `{"detail": "Event not found"}`.
+- **Steps:** `GET /event-registrations/events/E/attendees`.
+- **Test data:** As above.
+- **Expected:** `404` "Event not found". The registrations and users services are never called.
+- **Actual:** `404` "Event not found"; registrations and users never called.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s57.py::test_a_coordinator_not_assigned_to_the_event_is_refused; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Python 3.12.5, pytest 9.1.1: 129 passed in this suite, 1706 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREGISTRATIONS-064 — every other role is still refused
+
+- **Scenario:** Attendee names and emails still reach no one beyond the Organiser and the assigned Coordinator (S-57 AC1; keeps TC-EVENTREGISTRATIONS-015's 403).
+- **Pre-conditions:** An Attendee's, a Venue Staff member's and a Coordinator Lead's cookie, in turn. Events fake answers both `GET /events/E` and `GET /events/assigned/E` with `403` `{"detail": "Insufficient permissions"}`.
+- **Steps:** `GET /event-registrations/events/E/attendees` once per role.
+- **Test data:** As above.
+- **Expected:** `403` "Insufficient permissions" each time. The registrations and users services are never called. A `401` from `GET /events/E` still answers `401` "Sign in to see who has registered." without calling `/events/assigned/E`.
+- **Actual:** `403` "Insufficient permissions" for attendee, venue_staff and event_coordinator_lead; registrations and users never called. Signed out: `401` "Sign in to see who has registered.", only `/events/E` asked.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s57.py::test_every_other_role_is_still_refused_the_attendee_list, ::test_signed_out_is_answered_without_asking_as_a_coordinator; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Python 3.12.5, pytest 9.1.1: 129 passed in this suite, 1706 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREGISTRATIONS-065 — each read shows the registrations as they are now
+
+- **Scenario:** The list is never cached. A withdrawal shows on the next read, and so does the last one (S-57 AC3, AC4, AC5).
+- **Pre-conditions:** O's cookie; events fake answers `GET /events/E` `200`. The registrations fake for `GET /registrations/events/E` returns, on successive calls: A and B; then B only; then `[]`. Waiting list `[]` throughout.
+- **Steps:** `GET /event-registrations/events/E/attendees` three times.
+- **Test data:** As above.
+- **Expected:** 1 → `count` 2, A then B. 2 → `count` 1, `attendees` B only; A appears nowhere in the body. 3 → `200` `{"event_id": "E", "count": 0, "attendees": [], "waiting_list": []}`. The registrations service was called three times.
+- **Actual:** `count` 2 (A, B); then `count` 1 (B only, A's id absent); then `{"event_id": "E", "count": 0, "attendees": [], "waiting_list": []}`; places read three times.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s57.py::test_each_read_shows_the_registrations_as_they_are_now; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Python 3.12.5, pytest 9.1.1: 129 passed in this suite, 1706 passed and 17 skipped across `tests/unit`
