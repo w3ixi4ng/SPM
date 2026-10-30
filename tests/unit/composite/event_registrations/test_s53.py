@@ -52,7 +52,13 @@ def test_a_registered_attendee_withdraws(client, withdrawing):
         "/registrations/withdrawals",
         json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2},
     )
-    withdrawing["notifications"].post.assert_not_called()
+    # S-74: the only notice is the withdrawing Attendee's own; no one was offered the place.
+    sent = [
+        row["kind"]
+        for call in withdrawing["notifications"].post.call_args_list
+        for row in call.kwargs["json"]["notifications"]
+    ]
+    assert sent == ["registration_withdrawn"]
 
 
 # --- TC-EVENTREGISTRATIONS-037 --------------------------------------------

@@ -14,6 +14,10 @@ NotificationKind = Literal[
     "waiting_list_offer",
     # S-69: an event an Attendee registered or waited for was cancelled.
     "event_cancelled",
+    # S-74: an Attendee joined a waiting list, withdrew, or declined an offer.
+    "waiting_list_joined",
+    "registration_withdrawn",
+    "waiting_list_offer_declined",
 ]
 
 
