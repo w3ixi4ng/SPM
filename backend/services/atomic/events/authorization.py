@@ -20,6 +20,7 @@ EVENT_ORGANISER_EVENT_PERMISSIONS = frozenset(
         "events:request_cancellation",
         # S-50
         "events:close_registration",
+        "events:request_changes",
     }
 )
 
@@ -32,6 +33,7 @@ EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({
     "events:decide",
     "events:update_assigned",
     "events:decide_cancellation",
+    "events:view_change_requests",
 })
 
 # Every recognized role may enter its own role dashboard. Add internal-role

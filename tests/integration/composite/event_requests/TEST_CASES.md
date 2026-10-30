@@ -419,3 +419,29 @@ trusted Auth metadata holds Coordinator availability.
 - **Actual:** Through Kong: three entries newest first (`request_approved` by C, `coordinator_assigned` by L, `submitted` by O) with their stored names; the Lead saw the same entries; C2 got `404`.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_requests/test_s82.py::test_real_actions_show_up_in_the_history; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-28, uncommitted `S-59/request-event-changes` working tree. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack verified against TEST Supabase; full integration suite: 92 passed, 5 skipped, plus one subsequently added S-59 integration case passed.
+
+## TC-EVENTREQUESTS-201 — proposal crosses Users, Events and Equipment without changing arrangements
+
+- **Scenario:** The public composite stores a mixed event/equipment proposal through real service boundaries.
+- **Pre-conditions:** Fresh `.env.test` stack with S-59 Events SQL applied, exposed and granted; O, assigned C and unrelated D; confirmed E with accepted attendance 120, projector requirement quantity 2, venue booking, Technical Support sign-off and one attendee. All rows/accounts are temporary and cleaned up.
+- **Steps:** 1. As O, GET current form data and POST attendance 150 plus projector quantity 3 through Kong. 2. Read proposal as O and C and attempt as D. 3. Read E and each linked service record. 4. Reload O/C views. 5. Clean up.
+- **Test data:** E `Autumn Forum`; attendance 120→150; projector quantity 2→3; temporary `spm-test-*` accounts.
+- **Expected:** POST `201`; O and C see one pending comparison with trusted O ID and server timestamp after reload, D gets `404`. E stays confirmed at 120; Equipment still holds quantity 2; booking, sign-off and attendee remain. The proposal explicitly says these accepted arrangements have not been reviewed for the proposed details; cleanup leaves no rows.
+- **Actual:** A mixed attendance, layout and equipment proposal was visible to its owner and assigned Coordinator, hidden from an unrelated Coordinator, and left the accepted event, booking, equipment requirement, Technical Support sign-off and attendee registration unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_mixed_proposal_preserves_accepted_arrangements`; focused run passed on 2026-10-28 after the full integration suite (92 passed, 5 skipped).
+
+## TC-EVENTREQUESTS-202 — failed, duplicate and stale submissions remain safe
+
+- **Scenario:** Real HTTP and database boundaries enforce one pending request and leave accepted state intact.
+- **Pre-conditions:** Fresh `.env.test` stack and S-59 SQL as TC-EVENTREQUESTS-201; O owns submitted E with attendance 120; C is assigned.
+- **Steps:** 1. Send an invalid empty proposal. 2. Send two attendance proposals concurrently. 3. Retry the losing payload and an old baseline after an accepted S-18 Coordinator edit. 4. Read E and request storage. 5. Clean up.
+- **Test data:** Empty `{}`; attendance proposals 150/180; intervening accepted attendance 130.
+- **Expected:** Empty request `422`; exactly one concurrent proposal `201`, the other `409`; duplicate and stale attempts `409`. The winning request is unchanged, no partial row remains, and E's accepted attendance reflects only the separate S-18 edit (130), never the proposals.
+- **Actual:** Invalid submission was rejected; concurrent submissions produced one pending request; an atomic Events submission with an old event baseline returned 409 after an accepted edit, leaving the accepted value and request rows unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`; `tests/integration/atomic/events/test_s59.py::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; 2026-10-28.

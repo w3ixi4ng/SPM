@@ -8,6 +8,8 @@ import EventCoordinatorLeadDashboard from './pages/EventCoordinatorLeadDashboard
 import EventCoordinatorEventDetail from './pages/EventCoordinatorEventDetail.jsx'
 import EventRequestForm from './pages/EventRequestForm.jsx'
 import EventHistory from './pages/EventHistory.jsx'
+
+import EventChangeRequest from './pages/EventChangeRequest.jsx'
 import EquipmentAvailability from './pages/EquipmentAvailability.jsx'
 import EquipmentForm from './pages/EquipmentForm.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
@@ -79,6 +81,14 @@ function App() {
           element={(
             <ProtectedRoute permission={PERMISSIONS.VIEW_OWN_EVENTS}>
               <EventRequestForm />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/events/:id/change-request"
+          element={(
+            <ProtectedRoute permission={PERMISSIONS.VIEW_OWN_EVENTS}>
+              <EventChangeRequest />
             </ProtectedRoute>
           )}
         />

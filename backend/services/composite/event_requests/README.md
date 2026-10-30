@@ -41,6 +41,8 @@ Event Coordinators.
 | `POST` | `/event-requests` | Event Organiser | Creates a submitted, unassigned request. |
 | `POST` | `/event-requests/{event_id}/submit` | Event Organiser | Submits a draft unassigned, or resubmits a returned request while preserving its assignment. |
 | `PATCH` | `/event-requests/{event_id}` | Event Organiser | Updates an owned request without automatic assignment or reassignment. |
+| `GET` | `/event-requests/{event_id}/change-requests` | Owning Organiser or assigned Coordinator | Returns accepted event data, request history, current Equipment requirements and selectable items for the Organiser. |
+| `POST` | `/event-requests/{event_id}/change-requests` | Owning Event Organiser | S-59: submits a pending comparison without changing accepted arrangements. |
 | `GET` | `/event-requests/unassigned` | Event Coordinator Lead | Lists submitted requests whose `assigned_coordinator_id` is null, oldest submission first, including organiser details. |
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted, active Event Coordinator accounts available for manual selection. |
 | `GET` | `/event-requests/coordinators/{coordinator_id}/active-events` | Event Coordinator Lead | Returns limited active-event summaries for the selected Coordinator across Leads, with scope and warning indicators. |
@@ -58,6 +60,27 @@ Event Coordinators.
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
 `GET /event-requests/health` is the gateway-compatible health alias.
+
+### S-59 proposal contract
+
+`POST /event-requests/{event_id}/change-requests` takes `values` with all
+current/proposed date and time fields (`start_date`, `start_time`, `end_date`,
+`end_time`), `expected_attendance`, nullable `venue`,
+`special_requirements`, `room_layout`, `required_facilities` and
+`required_accessibility`; `equipment` is an array of
+`{equipment_item_id, required_quantity}`. The composite reads accepted
+Equipment requirements over HTTP, validates changed items against the active
+catalogue, and sends both snapshots to the Events owner through a trusted
+service request. It does not write Equipment. `201` returns the saved pending
+request; `401` requires sign-in, `403` requires the Organiser role, `404`
+means the event is not owned, `409` means ineligible/stale/duplicate, `422`
+means invalid or unchanged data, and `502` means a dependency failed.
+
+The GET response is `{event, requests, equipment, equipment_options}`; only
+the current assigned Coordinator or owning Organiser can read it. The
+submitted state may be unassigned; the request stays pending and becomes
+visible to the Coordinator after S-83 assignment. S-60 owns any later impact
+review or acceptance.
 
 ## Event submission and editing
 
@@ -423,8 +446,10 @@ Unit tests replace all outbound clients:
 pytest tests/unit/composite/event_requests
 ```
 
-Integration tests require the whole stack and the events, users, and
-notifications schemas applied, granted, and exposed in the test project:
+Integration tests require the whole stack and the events, users, equipment,
+and notifications schemas applied, granted, and exposed in the test project.
+S-59 additionally requires the `BEGIN S-59 EVENT CHANGE REQUESTS` block of
+`backend/sql/events.sql` in both DEV and TEST:
 
 ```bash
 docker compose --env-file .env.test down -v

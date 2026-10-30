@@ -1272,3 +1272,107 @@ select events.backfill_event_history();
 notify pgrst, 'reload schema';
 commit;
 -- END S-82 EVENT CHANGE HISTORY
+
+-- BEGIN S-59 EVENT CHANGE REQUESTS
+-- Apply this data-preserving block in BOTH dev and test. Requests remain in
+-- Events ownership; equipment item IDs and quantities are comparison data,
+-- never writes to equipment.requirements.
+begin;
+
+create table if not exists events.change_requests (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references events.events(id) on delete cascade,
+  requested_by uuid not null,
+  submitted_at timestamptz not null default now(),
+  status text not null default 'pending',
+  expected_event_updated_at timestamptz not null,
+  accepted_values jsonb not null,
+  proposed_values jsonb not null,
+  accepted_equipment jsonb not null default '[]'::jsonb,
+  proposed_equipment jsonb not null default '[]'::jsonb,
+  resolved_at timestamptz,
+  constraint change_requests_status_allowed
+    check (status in ('pending', 'accepted', 'rejected')),
+  constraint change_requests_resolution_matches_status
+    check ((status = 'pending') = (resolved_at is null)),
+  constraint change_requests_values_objects
+    check (jsonb_typeof(accepted_values) = 'object'
+      and jsonb_typeof(proposed_values) = 'object'),
+  constraint change_requests_equipment_arrays
+    check (jsonb_typeof(accepted_equipment) = 'array'
+      and jsonb_typeof(proposed_equipment) = 'array')
+);
+
+-- One outstanding request, with resolved rows retained as history.
+create unique index if not exists change_requests_one_pending_per_event
+  on events.change_requests(event_id) where status = 'pending';
+create index if not exists change_requests_event_history
+  on events.change_requests(event_id, submitted_at desc);
+
+-- Lock the event while checking its owner, lifecycle and accepted version.
+-- The Events service supplies requested_by from verified Auth and only its
+-- trusted composite can reach the insert route; this trigger repeats the
+-- storage-side checks so concurrent submissions cannot bypass them.
+create or replace function events.validate_change_request()
+returns trigger language plpgsql security invoker
+set search_path = events, pg_temp
+as $$
+declare
+  current_event events.events%rowtype;
+begin
+  select * into current_event from events.events
+    where id = new.event_id for update;
+  if not found then
+    raise exception 'Event not found' using errcode = '23503';
+  end if;
+  if current_event.organiser_id is distinct from new.requested_by then
+    raise exception 'Event not owned by requester' using errcode = '42501';
+  end if;
+  if current_event.status not in (
+    'submitted', 'under_review', 'returned', 'planning',
+    'pending_safety_check', 'confirmed', 'preparation'
+  ) then
+    raise exception 'Event cannot receive a change request'
+      using errcode = '23514';
+  end if;
+  if current_event.updated_at is distinct from new.expected_event_updated_at then
+    raise exception 'Event changed before request submission'
+      using errcode = '23514';
+  end if;
+
+  new.accepted_values := jsonb_build_object(
+    'start_date', current_event.start_date,
+    'start_time', current_event.start_time,
+    'end_date', current_event.end_date,
+    'end_time', current_event.end_time,
+    'expected_attendance', current_event.expected_attendance,
+    'venue', current_event.venue,
+    'special_requirements', current_event.special_requirements,
+    'room_layout', current_event.room_layout,
+    'required_facilities', to_jsonb(current_event.required_facilities),
+    'required_accessibility', to_jsonb(current_event.required_accessibility)
+  );
+  if new.accepted_values = new.proposed_values
+     and new.accepted_equipment = new.proposed_equipment then
+    raise exception 'Change request has no changed values'
+      using errcode = '23514';
+  end if;
+  new.submitted_at := now();
+  new.status := 'pending';
+  new.resolved_at := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists change_request_validate on events.change_requests;
+create trigger change_request_validate before insert on events.change_requests
+  for each row execute function events.validate_change_request();
+
+alter table events.change_requests enable row level security;
+grant usage on schema events to service_role;
+grant all on events.change_requests to service_role;
+-- Existing events schema default grants cover future tables; explicit grant
+-- above is still required when this table is added after the prior grants.
+notify pgrst, 'reload schema';
+commit;
+-- END S-59 EVENT CHANGE REQUESTS

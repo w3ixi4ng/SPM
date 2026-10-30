@@ -250,3 +250,54 @@ class CancellationDecision(BaseModel):
 
     decision: Literal["approved", "declined"]
     reason: str | None = None
+
+
+class EventChangeValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+    expected_attendance: PositiveInt
+    venue: str | None = None
+    special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility]
+    required_accessibility: list[AccessibilityFeature]
+
+    @field_validator("venue", "special_requirements", mode="before")
+    @classmethod
+    def trim_optional_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def canonical_options(cls, value: list) -> list:
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def valid_window(self):
+        _check_end_after_start(self.start_date, self.start_time, self.end_date, self.end_time)
+        return self
+
+
+class EventChangeEquipment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    equipment_item_id: UUID
+    required_quantity: PositiveInt
+
+
+class EventChangeSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    values: EventChangeValues
+    equipment: list[EventChangeEquipment]
+
+    @model_validator(mode="after")
+    def unique_equipment(self):
+        ids = [item.equipment_item_id for item in self.equipment]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Equipment items must be unique")
+        return self

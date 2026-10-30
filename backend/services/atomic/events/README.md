@@ -1,7 +1,7 @@
 # Events service
 
 Atomic FastAPI service for event requests. It owns `events.events` and
-`events.reassignment_requests` and never
+`events.reassignment_requests` and `events.change_requests` and never
 queries another service's tables.
 
 ## Endpoints
@@ -13,6 +13,7 @@ queries another service's tables.
 | `GET` | `/events` | `events:view_own` | List the authenticated organiser's event requests, most recently updated first. |
 | `GET` | `/events/options` | `events:create` | The venue requirement option sets for the organiser's form: `room_layouts`, `facilities`, `accessibility`. |
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
+| `GET` | `/events/{event_id}/change-requests` | Owning Organiser or current Coordinator | List the event's S-59 request history, newest first. Unrelated users receive `404`. |
 | `GET` | `/events/booking-status/{event_id}` | `events:view_booking_status` | Return only the event id and authoritative status so Venue Staff can release a terminal event's tentative hold. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
 | `PUT` | `/events/{event_id}/registration-closure` | `events:close_registration` | S-50: close registration early on an owned, `confirmed` event that takes registrations. See [Closing registration early (S-50)](#closing-registration-early-s-50). |
@@ -21,6 +22,7 @@ queries another service's tables.
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
 | `POST` | `/events/{event_id}/reassignment-request` | `events:request_reassignment` | Create a reasoned request for the current Coordinator. |
+| `POST` | `/events/{event_id}/change-request/internal` | Owning Organiser and trusted `event_requests` service | Store a proposed S-59 comparison without updating accepted event fields. |
 | `GET` | `/events/reassignment-requests/mine` | `events:request_reassignment` | List the caller's request history, including actioned requests after transfer. |
 | `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
 | `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
@@ -942,3 +944,33 @@ creates and deletes real event and Auth records.
 
 - Unit: [`tests/unit/atomic/events/TEST_CASES.md`](../../../../tests/unit/atomic/events/TEST_CASES.md)
 - Integration: [`tests/integration/atomic/events/TEST_CASES.md`](../../../../tests/integration/atomic/events/TEST_CASES.md)
+
+## Event change requests (S-59)
+
+`events.change_requests` stores each submitted comparison as history. A partial
+unique index permits only one `pending` request per event. Its insert trigger
+locks the event, checks the owning Organiser, seven eligible lifecycle states,
+and the event's `updated_at` version, then records accepted fields and a server
+timestamp. Resolved rows remain; the later S-60 workflow will own resolution.
+Run the `BEGIN S-59 EVENT CHANGE REQUESTS` block of `backend/sql/events.sql`
+in both DEV and TEST and verify the `events` schema is exposed and granted.
+
+`POST /events/{event_id}/change-request/internal` requires the Organiser's
+session and `X-Assignment-Service-Token` matching
+`ASSIGNMENT_SERVICE_SECRET`. Its JSON body has
+`expected_event_updated_at` (ISO timestamp), `proposed_values` (complete
+start/end dates and times, positive attendance, nullable venue, special
+requirements and room layout, and facilities/accessibility arrays), plus
+`accepted_equipment` and `proposed_equipment` arrays of
+`{equipment_item_id: UUID, required_quantity: positive integer}`. It returns
+`201` with the stored request. `401` means no session, `403` means missing
+service credential or wrong role, `404` means an unrelated event, `409` means
+ineligible/stale event or an existing pending request, `422` means invalid or
+unchanged values, and `500` means storage failed. Equipment snapshots come
+only from the trusted composite; this service never queries Equipment.
+
+`GET /events/{event_id}/change-requests` returns `200` with an array of the
+event's request history (`[]` when none). The owning Organiser and current
+Coordinator can read it. Anonymous, other-role and unrelated callers receive
+`401`, `403` and `404` respectively. Creating a request never changes the
+accepted event, its lifecycle, safety fields or linked arrangements.

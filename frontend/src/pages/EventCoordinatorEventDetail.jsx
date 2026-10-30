@@ -12,6 +12,7 @@ import {
 import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
 import ReassignmentRequestPanel from '../components/ReassignmentRequestPanel.jsx'
+import CoordinatorEventChangePanel from '../components/CoordinatorEventChangePanel.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
 import {
@@ -1290,6 +1291,7 @@ export default function EventCoordinatorEventDetail() {
 
         {state.status === 'ready' && (
           <>
+            {isCoordinator && <CoordinatorEventChangePanel eventId={state.event.id} />}
             <CancellationReview
               event={state.event}
               notice={cancellationNotice}
