@@ -299,6 +299,7 @@ def test_event_organiser_has_the_sprint_one_permissions():
         "events:request_cancellation",
         # S-50
         "events:close_registration",
+        "events:request_changes",
     }
     assert ROLE_PERMISSIONS["event_organiser"] == EVENT_ORGANISER_PERMISSIONS
 
@@ -339,6 +340,7 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
         # S-61
         "events:decide_cancellation",
         "events:request_reassignment",
+        "events:view_change_requests",
     }
 
 

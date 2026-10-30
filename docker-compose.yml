@@ -160,6 +160,7 @@ services:
       USERS_SERVICE_URL: ${USERS_SERVICE_URL}
       EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
       ASSIGNMENT_SERVICE_SECRET: ${ASSIGNMENT_SERVICE_SECRET:-}
+      EQUIPMENT_SERVICE_URL: ${EQUIPMENT_SERVICE_URL:-http://equipment:8005}
       NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
       # S-61: an approved cancellation releases the event's venue bookings.
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
@@ -167,6 +168,8 @@ services:
       users:
         condition: service_healthy
       events:
+        condition: service_healthy
+      equipment:
         condition: service_healthy
       notifications:
         condition: service_healthy

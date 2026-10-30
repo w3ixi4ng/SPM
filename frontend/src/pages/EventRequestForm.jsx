@@ -15,6 +15,7 @@ import {
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { optionLabel } from '../lib/venues.js'
 import useAuth from '../auth/useAuth.js'
+import { CHANGE_REQUEST_STATUSES } from '../lib/eventChangeRequests.js'
 import {
   CANCELLATION_REASON_MAX,
   cancellationApprovedLabel,
@@ -1542,6 +1543,11 @@ export default function EventRequestForm() {
         <p className="font-ui text-sm leading-relaxed mb-8" style={{ color: C.inkFaint }}>
           Fill in what you know and save a draft, or submit when the request is ready for review.
         </p>
+        {routeId && loadState === 'ready' && CHANGE_REQUEST_STATUSES.has(status) && (
+          <Link to={`/events/${routeId}/change-request`} className="inline-block border rounded-sm px-4 py-2 mb-6 font-ui text-sm" style={{ color: C.teal, borderColor: C.teal }}>
+            Request Changes
+          </Link>
+        )}
 
         <div className="rise-in">
           {loadState === 'loading' && routeId && (
@@ -1581,7 +1587,8 @@ export default function EventRequestForm() {
               style={{ backgroundColor: withAlpha(C.green, 0.1), color: C.green }}
             >
               This request has been submitted and is awaiting a coordinator's
-              decision. You can still make changes — save them below.
+              decision. Use Request Changes above to propose a new date, time,
+              attendance, venue or equipment arrangement.
             </p>
           )}
 

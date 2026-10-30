@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from clients import assignment_service_headers, get_bookings_client, get_events_client, get_notifications_client, get_users_client
+from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_users_client
 from schemas import (
     CancellationDecision,
     CoordinatorAssignmentCreate,
@@ -23,6 +23,8 @@ from schemas import (
     ReassignmentRequestSubmit,
     EventRequestSubmit,
     EventRequestUpdate,
+    EventChangeSubmit,
+    EventChangeValues,
     TechnicalSupportRequest,
 )
 
@@ -32,6 +34,10 @@ logger = logging.getLogger(__name__)
 ORGANISER_ROLE = "event_organiser"
 COORDINATOR_ROLE = "event_coordinator"
 LEAD_ROLE = "event_coordinator_lead"
+CHANGE_REQUEST_STATUSES = frozenset({
+    "submitted", "under_review", "returned", "planning",
+    "pending_safety_check", "confirmed", "preparation",
+})
 ASSIGNMENT_SUMMARY_FIELDS = (
     "id", "name", "status", "start_date", "start_time", "end_date", "end_time",
     "assigned_coordinator_id", "assigning_lead_id", "coordinator_assignment_version",
@@ -255,6 +261,154 @@ async def _forward_patch(
     ):
         return JSONResponse(status_code=response.status_code, content=response.json())
     raise HTTPException(status_code=502, detail="Events service unavailable")
+
+
+# S-59 keeps proposed configuration separate from accepted Events and
+# Equipment records. These reads cross service boundaries only through HTTP.
+async def _change_viewer(request: Request, users: httpx.AsyncClient) -> dict:
+    try:
+        response = await users.get("/users/me", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Users service unavailable") from exc
+    if response.status_code == 401:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Users service unavailable")
+    user = response.json()
+    if user.get("role") not in {ORGANISER_ROLE, COORDINATOR_ROLE}:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return user
+
+
+async def _change_event(event_id: UUID, role: str, cookies, events: httpx.AsyncClient) -> dict:
+    path = f"/events/{event_id}" if role == ORGANISER_ROLE else f"/events/assigned/{event_id}"
+    try:
+        response = await events.get(path, cookies=cookies)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code in {401, 403, 404}:
+        raise HTTPException(status_code=response.status_code, detail="Event not found" if response.status_code == 404 else "Permission denied")
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    return response.json()
+
+
+async def _change_equipment(event_id: UUID, equipment: httpx.AsyncClient) -> list[dict]:
+    try:
+        response = await equipment.get("/internal/equipment-requirements", params={"event_id": str(event_id)})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Equipment service unavailable") from exc
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Equipment service unavailable")
+    return response.json()
+
+
+def _equipment_snapshot(rows: list[dict]) -> list[dict]:
+    return sorted(
+        [{"equipment_item_id": row["equipment_item_id"], "required_quantity": row["required_quantity"]} for row in rows],
+        key=lambda item: item["equipment_item_id"],
+    )
+
+
+@app.get("/event-requests/{event_id}/change-requests")
+async def get_event_change_requests(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+):
+    user = await _change_viewer(request, users)
+    event = await _change_event(event_id, user["role"], request.cookies, events)
+    try:
+        requests_response = await events.get(f"/events/{event_id}/change-requests", cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if requests_response.status_code != 200:
+        if requests_response.status_code in {401, 403, 404}:
+            raise HTTPException(status_code=requests_response.status_code, detail="Event not found")
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+    current_equipment = await _change_equipment(event_id, equipment)
+    options = []
+    if user["role"] == ORGANISER_ROLE:
+        try:
+            options_response = await equipment.get("/equipment/selection", cookies=request.cookies)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Equipment service unavailable") from exc
+        if options_response.status_code != 200:
+            raise HTTPException(status_code=502, detail="Equipment service unavailable")
+        options = options_response.json()
+    return {
+        "event": event,
+        "requests": requests_response.json(),
+        "equipment": current_equipment,
+        "equipment_options": options,
+    }
+
+
+@app.post("/event-requests/{event_id}/change-requests", status_code=201)
+async def submit_event_change_request(
+    event_id: UUID,
+    payload: EventChangeSubmit,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+):
+    await _authenticate_organiser(request, users)
+    event = await _change_event(event_id, ORGANISER_ROLE, request.cookies, events)
+    if event["status"] not in CHANGE_REQUEST_STATUSES:
+        raise HTTPException(status_code=409, detail="This event cannot receive a change request")
+    accepted = EventChangeValues.model_validate({
+        field: event.get(field) for field in EventChangeValues.model_fields
+    }).model_dump(mode="json")
+    proposed = payload.values.model_dump(mode="json")
+    current_equipment = await _change_equipment(event_id, equipment)
+    accepted_equipment = _equipment_snapshot(current_equipment)
+    proposed_equipment = sorted(
+        [item.model_dump(mode="json") for item in payload.equipment],
+        key=lambda item: item["equipment_item_id"],
+    )
+    if accepted == proposed and accepted_equipment == proposed_equipment:
+        raise HTTPException(status_code=422, detail="Change request has no changed values")
+
+    # A retired accepted requirement may stay untouched in the snapshot. New
+    # or changed requirements must be selectable from the live catalogue.
+    if accepted_equipment != proposed_equipment:
+        try:
+            options_response = await equipment.get("/equipment/selection", cookies=request.cookies)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Equipment service unavailable") from exc
+        if options_response.status_code != 200:
+            raise HTTPException(status_code=502, detail="Equipment service unavailable")
+        available = {item["id"] for item in options_response.json()}
+        prior = {item["equipment_item_id"]: item["required_quantity"] for item in accepted_equipment}
+        for item in proposed_equipment:
+            if prior.get(item["equipment_item_id"]) != item["required_quantity"] and item["equipment_item_id"] not in available:
+                raise HTTPException(status_code=422, detail="Choose active, available equipment items")
+
+    # Catch equipment edits observed during form validation. A later
+    # cross-service race remains for S-60 to revalidate at review time.
+    latest_equipment = _equipment_snapshot(await _change_equipment(event_id, equipment))
+    if latest_equipment != accepted_equipment:
+        raise HTTPException(status_code=409, detail="Equipment requirements changed; reload before requesting changes")
+
+    body = {
+        "expected_event_updated_at": event["updated_at"],
+        "proposed_values": proposed,
+        "accepted_equipment": accepted_equipment,
+        "proposed_equipment": proposed_equipment,
+    }
+    try:
+        response = await events.post(
+            f"/events/{event_id}/change-request/internal",
+            json=body, cookies=request.cookies, headers=_assignment_headers(),
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Events service unavailable. Nothing was changed.") from exc
+    if response.status_code in {201, 401, 403, 404, 409, 422}:
+        return JSONResponse(status_code=response.status_code, content=response.json())
+    raise HTTPException(status_code=502, detail="Events service unavailable. Nothing was changed.")
 
 
 @app.post("/event-requests", status_code=status.HTTP_201_CREATED)

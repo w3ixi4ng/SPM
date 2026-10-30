@@ -2888,3 +2888,54 @@ Test cases confirmed by the developer on 2026-10-28.
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** test_event_history.mjs::who and when are shown plainly; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full frontend unit suite: 210 passed; full Chromium TEST regression: 66 passed; lint and production build passed.
+Frontend unit run: 210 passed. The rendered S-59 cases below were verified through Chromium against the fresh TEST stack.
+
+## TC-FRONTEND-267 — Request Changes is offered only on eligible owned events
+
+- **Scenario:** The Organiser opens a separate proposal form from their event detail without entering the accepted-event editor.
+- **Pre-conditions:** Render one owned event in each lifecycle state; render the same event to another role; API data is faked.
+- **Steps:** 1. Inspect the detail action in each state. 2. Click Request Changes on a confirmed event. 3. Try the action as another role.
+- **Test data:** `Autumn Forum`, accepted 2026-11-18 09:00–12:00, attendance 120; states `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, `confirmed`, `preparation`, `draft`, `safety_rejected`, `cancelled`.
+- **Expected:** The action appears only for the seven confirmed eligible states and the owning Organiser, including an unassigned submitted event; it opens a form with accepted values prefilled. Ineligible state/role has no action, and a server denial still produces a controlled error if the route is opened directly.
+- **Actual:** The eligibility helper allowed exactly the seven approved states; Chromium opened the separate form for an owned confirmed event with accepted values prefilled, while role and direct-route denial checks passed in backend tests.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; backend S-59 role tests, 2026-10-30.
+
+## TC-FRONTEND-268 — comparison makes accepted and proposed data distinct
+
+- **Scenario:** The form and pending view show what changed without implying an accepted update.
+- **Pre-conditions:** Accepted event has attendance 120, theatre layout, projector quantity 2, confirmed booking and Technical Support sign-off; pending proposal has attendance 150, banquet layout, projector quantity 3.
+- **Steps:** 1. Change the three fields in the form. 2. Inspect changed-field markers and no-op submit state. 3. Resolve submission and reload the pending view.
+- **Test data:** `Autumn Forum`; accepted 120/theatre/2, proposed 150/banquet/3; server timestamp `2026-10-27T09:15:00Z`.
+- **Expected:** Accepted and proposed values are labelled separately; only the three changed fields are marked. Submit is disabled or refused for an effective no-op. Pending status and server timestamp appear after success and reload. Existing booking, equipment, Technical Support and attendee arrangements are labelled as applying to accepted details only; the proposal needs review and no approval is claimed.
+- **Actual:** The form disabled an effective no-op; the pending comparison marked attendance, layout and equipment as changed and showed accepted and proposed values after reload with an unreviewed-arrangements notice.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; both tests in `tests/e2e/test_request_event_changes.py`, Chromium, 2026-10-30.
+
+## TC-FRONTEND-269 — loading, failure and duplicate responses are controlled
+
+- **Scenario:** Async state cannot duplicate a request or make a failed submission look accepted.
+- **Pre-conditions:** Fake proposal API supplies slow loading, successful `201`, validation `422`, duplicate/stale `409`, and unavailable `502` responses.
+- **Steps:** 1. Load the form and proposal. 2. Double-submit. 3. Repeat each failure and retry. 4. Navigate away and back after success.
+- **Test data:** Attendance 120→150; invalid end 08:00 before start 09:00; server response `409` for existing pending request.
+- **Expected:** Distinct loading/error/empty states; only one in-flight POST; success shows saved pending comparison. `422` identifies fields, `409` prompts reload and shows the current request, and `502` shows a retryable controlled error. Accepted event values never change in local state because a proposal was sent.
+- **Actual:** Browser tests observed a load error and retry, 422/409/502 submission errors, a successful 201 and pending comparison after reload. Two synchronous clicks produced one POST after the submission guard was added.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_change_request_form_recovers_from_loading_and_submission_errors[chromium]`; frontend unit API helper test, 2026-10-30.
+
+## TC-FRONTEND-270 — assigned Coordinator sees the same pending proposal
+
+- **Scenario:** The Coordinator detail page exposes the proposal as a read-only comparison.
+- **Pre-conditions:** C is assigned to E with pending R; another Coordinator D is unrelated; the API is faked with comparison data and access errors.
+- **Steps:** 1. Load E as C. 2. Inspect pending status, actor/time and differences. 3. Load as D, then simulate an API error and retry.
+- **Test data:** Accepted date `2026-11-18`, proposed `2026-11-19`; accepted projector quantity 2, proposed 3.
+- **Expected:** C sees the proposed changes and accepted values with a clear unreviewed-arrangements message, without an Accept button or S-60 impact-review control. D's denied read reveals no proposal; loading and error states are distinct and retryable.
+- **Actual:** The assigned Coordinator saw the pending comparison after a simulated 502 and retry; an unrelated Coordinator saw no proposal; no Accept control appeared.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-30.

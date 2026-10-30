@@ -1460,3 +1460,89 @@ Events fake history for E, newest first:
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full Python unit suite: 1,659 passed, 17 skipped; full TEST integration suite: 104 passed, 5 skipped.
+Full Python unit run: 1,659 passed, 17 skipped; focused composite S-59 cases passed where marked below.
+
+The composite authenticates through Users and coordinates Events and Equipment
+over HTTP. The Events service owns proposal persistence; this service owns no
+table and does not write accepted Equipment requirements.
+
+## TC-EVENTREQUESTS-117 — trusted identity and ownership gate proposal submission
+
+- **Scenario:** The public composite accepts only the event's real Organiser.
+- **Pre-conditions:** Mock Users returns O as `event_organiser`; Events returns E owned by O; alternate responses represent U, a Coordinator, Lead, and no session.
+- **Steps:** 1. POST a change as O. 2. Repeat with each alternate identity and a forged organiser ID. 3. Inspect outbound calls.
+- **Test data:** E `11111111-1111-4111-8111-111111111111`; O `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; U `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`; attendance 120→150.
+- **Expected:** O reaches Events and gets `201`; unauthenticated gets `401`, other roles `403`, unrelated U `404`. Forged actor is rejected; the composite forwards only trusted O identity and makes no Equipment or Events write for denied callers.
+- **Actual:** Trusted Organiser submission succeeded; other roles and an unrelated Organiser were denied.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
+
+## TC-EVENTREQUESTS-118 — equipment proposal is a snapshot, not an accepted write
+
+- **Scenario:** Organiser can propose item quantities while Equipment remains authoritative for accepted requirements.
+- **Pre-conditions:** E has accepted projector quantity 2 and microphone quantity 4 through Equipment; catalogue offers active projector and microphone. O owns E.
+- **Steps:** 1. GET the form data. 2. Propose projector 3 and remove microphone. 3. Inspect the Events request body and Equipment calls. 4. Read the proposal again.
+- **Test data:** Projector `22222222-2222-4222-8222-222222222222` 2→3; microphone `33333333-3333-4333-8333-333333333333` 4→0/removal.
+- **Expected:** Proposal records item IDs and desired quantities, with accepted 2/4 baseline and explicit microphone removal; no Equipment PUT/DELETE occurs. GET returns the same snapshot for comparison, including a retired item in the accepted baseline if it already existed.
+- **Actual:** Equipment quantities and removal were saved only as snapshots; no Equipment mutation occurred.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
+
+## TC-EVENTREQUESTS-119 — effective no-op and invalid equipment are refused
+
+- **Scenario:** Composite compares all proposed fields after normalization and validates equipment selections.
+- **Pre-conditions:** E has unchanged date, attendance and venue fields; Equipment has projector quantity 2 and retired microphone quantity 4.
+- **Steps:** 1. Submit unchanged Events values and projector quantity 2. 2. Try an unknown item, retired item as a new selection, duplicate item ID, quantity -1, and a changed date with incompatible registration close. 3. Inspect Events writes.
+- **Test data:** Projector quantity 2; unknown UUID `ffffffff-ffff-4fff-8fff-ffffffffffff`; quantity -1; registration closes 2026-11-18 09:00 with proposed event start 2026-11-18 08:00.
+- **Expected:** Effective no-op and invalid values get `422`; none writes a request. Existing retired requirements may remain in the snapshot, but cannot be newly added. Date/time and existing registration settings remain internally consistent.
+- **Actual:** Normalized no-op, unknown item and duplicate equipment IDs were rejected.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
+
+## TC-EVENTREQUESTS-120 — only the current Coordinator sees the comparison
+
+- **Scenario:** The public Coordinator read is scoped to the event's current assignment.
+- **Pre-conditions:** Pending R for E; C is assigned, D is unrelated; later S-84 reassigns E to D.
+- **Steps:** 1. GET R as C, D, O, unrelated Organiser and anonymous. 2. Reassign via S-84. 3. GET as C and D again.
+- **Test data:** E `11111111-1111-4111-8111-111111111111`; accepted attendance 120, proposed 150.
+- **Expected:** C and O initially see current versus proposed values and pending status; D and unrelated Organiser get `404`, anonymous `401`. After reassignment D sees R and C gets `404`. Ordinary Lead supervisory scope is unchanged.
+- **Actual:** The current Coordinator read used the assigned-event route; unrelated access returned 404.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
+
+## TC-EVENTREQUESTS-121 — downstream failures do not fake success
+
+- **Scenario:** A broken Users, Equipment or Events call produces a controlled error without changing accepted values.
+- **Pre-conditions:** O owns E; accepted attendance is 120; mock each dependency to time out or return an error in turn.
+- **Steps:** 1. Submit attendance and equipment changes with each failure. 2. Inspect API response and outbound mutation calls. 3. Retry after recovery.
+- **Test data:** Attendance 120→150; projector 2→3; `httpx.TimeoutException` and HTTP 503.
+- **Expected:** The composite returns safe `502` for unavailable dependencies and never returns a created request without Events confirmation. Equipment is never mutated; E stays at 120. Retrying after recovery creates one pending request or reports an existing one, never two.
+- **Actual:** Duplicate responses and dependency timeouts did not report success or mutate accepted services.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py`.
+
+## TC-EVENTREQUESTS-122 — stale and concurrent submissions have one outcome
+
+- **Scenario:** Two tabs cannot overwrite one another's pending proposal or the comparison baseline.
+- **Pre-conditions:** O owns E at accepted attendance 120; two requests start from the same event state; C may meanwhile edit accepted data through S-18.
+- **Steps:** 1. Send two different proposals concurrently. 2. Change accepted E between snapshot and submit; attempt a stale proposal. 3. Read E and R.
+- **Test data:** Proposals 150 and 180; intervening S-18 accepted value 130.
+- **Expected:** At most one proposal is pending; competing or stale submissions return `409` with reload guidance. The winner's baseline is the accepted version it compared against; E remains at its independently accepted value. No request silently treats stale equipment or event details as current.
+- **Actual:** An observed Equipment race returned 409 in unit tests; two concurrent live submissions produced exactly one pending request and a 201/409 outcome.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/event_requests/test_s59.py`; `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`, 2026-10-30.
+
+## TC-EVENTREQUESTS-123 — existing assignment and edit routes keep their scope
+
+- **Scenario:** S-59 does not broaden S-83/S-84/S-85/S-88 visibility or perform S-60 acceptance.
+- **Pre-conditions:** Lead L1 owns E's assignment to C, Lead L2 is unrelated, E has pending R, and E2 is an unrelated planning event.
+- **Steps:** 1. Read S-85/S-88 as L1 and L2. 2. Reassign E through S-84. 3. Perform a permitted S-18 Coordinator edit on E2. 4. Read R and accepted E.
+- **Test data:** L1/L2 distinct UUIDs; R attendance 120→150; E2 routine contact edit.
+- **Expected:** Existing Lead scope, reassignment history and S-18 behaviour remain; R follows the current Coordinator for read access, stays pending, and never updates E's accepted attendance. No proposal creation invokes S-60 review or arrangement resolution.
+- **Actual:** The full existing event-management unit regression suite passed with S-59 routes added.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/composite/event_requests/test_s59.py` plus existing S-83/S-84/S-85/S-88/S-18 cases.

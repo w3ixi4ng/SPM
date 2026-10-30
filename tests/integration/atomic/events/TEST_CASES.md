@@ -314,3 +314,18 @@ the `events.backfill_event_history` function.
 - **Actual:** The first backfill added 5 entries, the second 0; the five came back newest first with the expected actors and times, all `backfilled`.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/events/test_s82.py::test_backfill_rebuilds_existing_history_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full integration suite: 104 passed, 5 skipped.
+
+## TC-EVENTS-201 — proposal SQL persists separately and enforces one pending row
+
+- **Scenario:** The Events-owned table, grants and unique pending constraint work against real Supabase.
+- **Pre-conditions:** Fresh `.env.test` stack; S-59 addition to `backend/sql/events.sql` applied to the test project, `events` exposed and granted; temporary O and C accounts; submitted E owned by O and assigned to C.
+- **Steps:** 1. Through Kong, O proposes attendance 120→150. 2. Read E and the request as O and C. 3. Attempt a second pending proposal and direct concurrent inserts. 4. Inspect the stored actor, timestamp, baseline and status. 5. Delete request, E and accounts.
+- **Test data:** E `Autumn Forum`; attendance 120→150; O/C are `spm-test-*` users.
+- **Expected:** First POST `201`; E stays at 120 and its status/assignment are unchanged. Proposal persists after reload with O's Auth ID, server timestamp, baseline 120, proposed 150, pending status. A second/concurrent insert fails safely with one pending row; cleanup leaves no rows.
+- **Actual:** Proposal persisted separately from the unchanged event; the duplicate and concurrent insert checks left one pending row and cleanup completed.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced` and `::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; full integration suite 104 passed, 5 skipped on 2026-10-30.

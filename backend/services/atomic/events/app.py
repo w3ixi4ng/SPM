@@ -29,6 +29,9 @@ from schemas import (
     CoordinatorEventRead,
     EventInformationImpact,
     EventInformationUpdate,
+    EventChangeValues,
+    EventChangeRequestRead,
+    InternalEventChangeCreate,
     EventOptions,
     EquipmentPreparationUpdate,
     EventRead,
@@ -64,6 +67,7 @@ from schemas import (
     HistoryScopeRead,
 )
 from security import clear_session_cookies
+from security import get_current_user
 
 app = FastAPI(title="Events Service")
 logger = logging.getLogger(__name__)
@@ -72,6 +76,13 @@ SCHEMA = "events"
 TABLE = "events"
 REASSIGNMENT_TABLE = "reassignment_requests"
 HISTORY_TABLE = "event_history"
+
+CHANGE_REQUEST_TABLE = "change_requests"
+CHANGE_REQUEST_STATUSES = frozenset({
+    "submitted", "under_review", "returned", "planning",
+    "pending_safety_check", "confirmed", "preparation",
+})
+CHANGE_REQUEST_FIELDS = frozenset(EventChangeValues.model_fields)
 # S-93: every assigned, nonterminal lifecycle state remains open work until
 # a responsible Lead transfers it or the owning workflow closes it.
 ACTIVE_ASSIGNMENT_STATUSES = [
@@ -1089,6 +1100,96 @@ def get_event(
     return _get_owned_event(event_id, str(user.id), db)
 
 
+def _change_values(event: dict) -> EventChangeValues:
+    return EventChangeValues.model_validate({
+        field: event.get(field) for field in EventChangeValues.model_fields
+    })
+
+
+@app.get("/events/{event_id}/change-requests", response_model=list[EventChangeRequestRead])
+def list_event_change_requests(
+    event_id: UUID,
+    user=Depends(get_current_user),
+    db: Client = Depends(get_db),
+):
+    role = (getattr(user, "app_metadata", None) or {}).get("role")
+    if role == "event_organiser":
+        _get_owned_event(event_id, str(user.id), db)
+    elif role == "event_coordinator":
+        _get_assigned_event(event_id, str(user.id), db)
+    else:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return _execute(
+        db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).select("*")
+        .eq("event_id", str(event_id)).order("submitted_at", desc=True)
+    ).data
+
+
+@app.post(
+    "/events/{event_id}/change-request/internal",
+    response_model=EventChangeRequestRead,
+    status_code=201,
+)
+def create_event_change_request_internal(
+    event_id: UUID,
+    payload: InternalEventChangeCreate,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:request_changes")),
+    db: Client = Depends(get_db),
+):
+    event = _get_owned_event(event_id, str(user.id), db)
+    if event["status"] not in CHANGE_REQUEST_STATUSES:
+        raise HTTPException(status_code=409, detail="This event cannot receive a change request")
+
+    proposed = payload.proposed_values.model_dump(mode="json")
+    accepted = _change_values(event).model_dump(mode="json")
+    # Reuse submitted-event validation, including registration closing before
+    # the newly proposed start. This does not write the accepted event row.
+    candidate = {
+        field: proposed.get(field, event.get(field))
+        for field in EventSubmittedCreate.model_fields
+        if field in proposed or field in event
+    }
+    try:
+        EventSubmittedCreate.model_validate(candidate)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    accepted_equipment = sorted(
+        [item.model_dump(mode="json") for item in payload.accepted_equipment],
+        key=lambda item: item["equipment_item_id"],
+    )
+    proposed_equipment = sorted(
+        [item.model_dump(mode="json") for item in payload.proposed_equipment],
+        key=lambda item: item["equipment_item_id"],
+    )
+    if accepted == proposed and accepted_equipment == proposed_equipment:
+        raise HTTPException(status_code=422, detail="Change request has no changed values")
+
+    values = {
+        "event_id": str(event_id),
+        "requested_by": str(user.id),
+        "expected_event_updated_at": payload.expected_event_updated_at.isoformat(),
+        "accepted_values": accepted,
+        "proposed_values": proposed,
+        "accepted_equipment": accepted_equipment,
+        "proposed_equipment": proposed_equipment,
+    }
+    try:
+        result = db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).insert(values).execute()
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code == "23505":
+            raise HTTPException(status_code=409, detail="A change request is already pending") from exc
+        if code == "23514":
+            raise HTTPException(status_code=409, detail="Event or request values changed; reload and try again") from exc
+        if code in {"23503", "42501"}:
+            raise HTTPException(status_code=404, detail="Event not found") from exc
+        logger.exception("Change request storage failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    return result.data[0]
+
+
 # S-61: shared by both edit routes below.
 _CANCELLED_CLOSED = "This event has been cancelled and is closed."
 
@@ -1139,6 +1240,29 @@ def _validated_changes(existing: dict, changes: dict) -> dict:
     return changes
 
 
+def _reject_edit_over_pending_change(event_id: UUID, existing: dict, changes: dict, db: Client):
+    relevant = CHANGE_REQUEST_FIELDS & changes.keys()
+    if not relevant or existing["status"] not in CHANGE_REQUEST_STATUSES:
+        return
+    try:
+        before = _change_values(existing).model_dump(mode="json")
+        merged = _change_values({**existing, **changes}).model_dump(mode="json")
+    except ValidationError:
+        # Let the existing submitted-record validator return field-level 422.
+        return
+    if all(before[field] == merged[field] for field in relevant):
+        return
+    pending = _execute(
+        db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).select("id")
+        .eq("event_id", str(event_id)).eq("status", "pending").limit(1)
+    ).data
+    if isinstance(pending, list) and pending:
+        raise HTTPException(
+            status_code=409,
+            detail="A change request is pending. Accepted event details cannot be edited until review.",
+        )
+
+
 @app.patch("/events/{event_id}", response_model=EventRead)
 def update_event(
     event_id: UUID,
@@ -1161,6 +1285,7 @@ def update_event(
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
         return existing
+    _reject_edit_over_pending_change(event_id, existing, changes, db)
     changes = _validated_changes(existing, changes)
 
     operation = (
@@ -1973,6 +2098,7 @@ def update_event_internal(
     changes = payload.model_dump(exclude_unset=True, mode="json", exclude={"organiser_id"})
     if not changes:
         return existing
+    _reject_edit_over_pending_change(event_id, existing, changes, db)
     changes = _validated_changes(existing, changes)
 
     operation = (

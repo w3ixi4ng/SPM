@@ -1573,3 +1573,20 @@ header.
 - **Actual:** Chromium: after requesting changes, the history listed exactly two entries: "Requested safety changes: Fire exit blocked" by "Sam Safety, Safety Officer", then "Expected attendance: 120 → 150". No contact phone or assignment entry; back link "Back to safety checks".
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_event_change_history.py::test_safety_officer_sees_only_the_safety_history[chromium]; full e2e suite 61 passed on a `.env.test` stack recreated with `--build` (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full Chromium regression: 66 passed.
+
+## TC-E2E-259 — Organiser proposal persists and assigned Coordinator sees it
+
+- **Scenario:** Chromium proves the Organiser and assigned Coordinator see one unapproved proposal through Kong after reload.
+- **Pre-conditions:** Fresh `.env.test` stack with S-59 Events SQL applied, exposed and granted; temporary Organiser O, assigned Coordinator C and unrelated Coordinator D; confirmed `Autumn Forum` accepted for 2026-11-18 09:00–12:00, attendance 120, theatre layout, projector quantity 2, with an existing venue booking and Technical Support sign-off. The test removes all created rows and accounts.
+- **Steps:** 1. O opens E's detail and selects Request Changes. 2. Propose attendance 150, banquet layout and projector quantity 3; inspect changed-field comparison and submit. 3. Reload O's page and verify pending status, accepted-versus-proposed values, timestamp and arrangement warning. 4. Sign in as C, open E, and verify the same pending comparison. 5. Sign in as D and attempt E's proposal URL. 6. Verify accepted event/booking/equipment/sign-off values and clean up.
+- **Test data:** O/C/D distinct `spm-e2e-*` accounts; accepted 120/theatre/2, proposed 150/banquet/3.
+- **Expected:** Request Changes starts with accepted values; submitting yields a pending proposal and no event mutation. O and C see accepted 120/theatre/2 beside proposed 150/banquet/3 after reload, with a server time and a statement that existing arrangements apply to accepted details only. D sees no proposal. E remains confirmed at 120, the booking and sign-off remain, and Equipment still records projector quantity 2. No S-60 Accept action appears.
+- **Actual:** The Organiser submitted and reloaded a mixed proposal; the assigned Coordinator saw it, the unrelated Coordinator did not, and accepted event and linked arrangements stayed unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; both S-59 Chromium cases passed on 2026-10-30 after the frontend guard fix.
