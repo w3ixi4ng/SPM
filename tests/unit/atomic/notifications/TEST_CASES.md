@@ -253,4 +253,4 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Expected:** Every call returns `201`; each retry resolves to one stored row. Existing S-71/S-74 kinds remain accepted and an unknown kind remains `422`.
 - **Actual:** Every S-63 kind returned `201` on its first request and exact retry; the stable key remained unchanged. Existing kinds, including `equipment_unavailable`, remained valid.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_s63_organiser_notification_kinds_are_accepted_and_idempotent`; 2026-10-31, branch `S-63/notify-organiser-event-decisions-and-changes`; Python 3.12, pytest: 1735 passed and 17 skipped across `tests/unit`.
+- **Evidence:** `test_app.py::test_s63_organiser_notification_kinds_are_accepted_and_idempotent`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; Python 3.12, pytest: 1755 passed and 17 skipped across `tests/unit`.

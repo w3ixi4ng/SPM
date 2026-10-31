@@ -1687,4 +1687,6 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Pre-conditions:** Fresh `.env.test` stack and Chromium; an Organiser owns a submitted request assigned to a Coordinator.
 - **Steps:** Sign in as the Coordinator, return the request with a reason and amendment comment, sign out, sign in as the Organiser, and open the dashboard.
 - **Expected:** The notification panel names the event, says it was returned, shows the reason/comment and tells the Organiser to amend and resubmit. Another Organiser cannot see it.
-- **Status:** Not run
+- **Actual:** Chromium showed the returned event as Action Required; the owning Organiser's persistent inbox named the event, return, reason, amendment and resubmission action, while another Organiser's inbox did not show it.
+- **Status:** Pass
+- **Evidence:** `test_notify_organiser_event_changes.py::test_an_organiser_sees_an_actionable_returned_event_notice[chromium]`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; 1 passed in 33.24s.

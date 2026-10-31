@@ -45,6 +45,8 @@ def test_an_organiser_sees_an_actionable_returned_event_notice(
     expect(page.get_by_text("Action Required", exact=True).first).to_be_visible(
         timeout=20000
     )
+    page.goto("/dashboard/event-coordinator")
+    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=20000)
     page.get_by_role("button", name="Sign out").click()
     page.wait_for_url(re.compile(r"/login$"), timeout=30000)
 
