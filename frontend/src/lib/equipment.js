@@ -125,7 +125,7 @@ export function createEquipment(form) {
 }
 
 export function updateEquipment(itemId, form) {
-  return requestJSON(`/equipment/${encodeURIComponent(itemId)}`, {
+  return requestJSON(`/equipment-requirements/equipment/${encodeURIComponent(itemId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(equipmentUpdateFormToPayload(form)),
@@ -133,7 +133,7 @@ export function updateEquipment(itemId, form) {
 }
 
 export function retireEquipment(itemId) {
-  return requestJSON(`/equipment/${encodeURIComponent(itemId)}/retire`, {
+  return requestJSON(`/equipment-requirements/equipment/${encodeURIComponent(itemId)}/retire`, {
     method: 'POST',
   })
 }

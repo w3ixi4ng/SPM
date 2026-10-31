@@ -398,3 +398,25 @@ Attendee B is `44444444-4444-4444-8444-444444444444` (first in line), C is
 - **Actual:** Event list `200` in order B, C with `offered_at` set then `null`; B's list carries `offered_at`; C's entry `offered_at` `null`.
 - **Status:** Pass
 - **Evidence:** test_app.py::test_waiting_list_reads_say_who_holds_an_offer; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-58 — View My Registration Status
+
+Developer decisions (2026-10-30): a withdrawal is now **recorded**, not just a
+deleted place. S-53's withdrawal and S-55's decline both write the Attendee's
+row in the new `registrations.withdrawals` table, in the same locked step that
+frees the place. There is one row per `(event_id, attendee_id)`, and a later
+withdrawal from the same event replaces its `withdrawn_at`. The composite
+reads these rows to list the event as "Withdrawn" on the dashboard.
+Withdrawals made before the S-58 SQL was applied were never recorded and
+cannot appear.
+
+## TC-REGISTRATIONS-027 — an Attendee's withdrawals are listed
+
+- **Scenario:** The service lists every event an Attendee has withdrawn from, with when, so the composite can show "Withdrawn" (S-58 AC1).
+- **Pre-conditions:** The table fake for `registrations.withdrawals` returns A's row `{"id": W, "event_id": E, "attendee_id": A, "withdrawn_at": "2026-10-28T02:15:00+00:00"}`.
+- **Steps:** `GET /registrations/withdrawals/attendees/A`. Repeat with the fake returning `[]`, then with `.execute()` raising. Then `GET /registrations/withdrawals/attendees/not-a-uuid`.
+- **Test data:** A, E, W random uuids.
+- **Expected:** `200` `[{"id": W, "event_id": E, "attendee_id": A, "withdrawn_at": "2026-10-28T02:15:00Z"}]`, read from schema `registrations`, table `withdrawals`, filtered `attendee_id = A`, ordered by `withdrawn_at`. Empty → `200` `[]` (an answer, not a 404). Raising → `500` `"Registration storage unavailable"`. Not a uuid → `422`.
+- **Actual:** `200` with A's row, `withdrawn_at` "2026-10-28T02:15:00Z", read from `registrations.withdrawals` filtered by `attendee_id`, ordered by `withdrawn_at`; empty `200` `[]`; raising `500` "Registration storage unavailable"; bad id `422`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_an_attendees_withdrawals_are_listed; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree

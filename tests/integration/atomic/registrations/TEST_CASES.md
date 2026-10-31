@@ -136,3 +136,24 @@ project. Blocked until they are.
 - **Actual:** `201`; two `201`s; withdrawal `200` with A withdrawn and B offered (`offered_at` set); no places, waiting list B (offered) then C (not); D `409` "This event is full."; C's accept `404`; B's decline `200` offering C; C's accept `201`; places only C, waiting list empty; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/registrations/test_app.py::test_a_freed_place_is_held_for_the_first_in_line_until_they_answer; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; full `tests/integration`: 104 passed, 5 skipped; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-58 — View My Registration Status
+
+## TC-REGISTRATIONS-108 — withdrawing and declining are recorded, for real (S-58)
+
+- **Scenario:** Against the real table and functions: giving up a place and declining an offered place each leave a withdrawal row. Withdrawing again from the same event replaces it rather than adding a second (S-58 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack; the S-58 block of `registrations.sql` applied to the test project. Event id E and Attendee ids A, B are random uuids.
+- **Steps:**
+  1. `POST /registrations` `{E, A, capacity 1}`.
+  2. `POST /registrations/waiting-list` `{E, B}`.
+  3. `POST /registrations/withdrawals` `{E, A, capacity 1}` (offers the place to B).
+  4. `POST /registrations/offers/declines` `{E, B, capacity 1}`.
+  5. `GET /registrations/withdrawals/attendees/A` and `GET /registrations/withdrawals/attendees/B`.
+  6. `POST /registrations` `{E, A, capacity 1}`, then `POST /registrations/withdrawals` `{E, A, capacity 1}` again.
+  7. `GET /registrations/withdrawals/attendees/A`.
+  8. Delete E's rows from `registrations`, `waiting_list` and `withdrawals` through the admin client.
+- **Test data:** As above.
+- **Expected:** 1 → `201`. 2 → `201`. 3 → `200` with `offered` B's entry. 4 → `200`. 5 → A: exactly one row, `event_id` E, `withdrawn_at` between the start of step 3 and now. B: exactly one row, `event_id` E. 6 → `201`, then `200`. 7 → still exactly one row for E, with `withdrawn_at` later than step 5's. 8 leaves no rows.
+- **Actual:** 1 → `201`; 2 → `201`; 3 → `200` offering B; 4 → `200`; 5 → one row each for A and B at E, A's `withdrawn_at` within the run; 6 → `201`, `200`; 7 → still one row for A, `withdrawn_at` later; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_withdrawing_and_declining_are_recorded; full `tests/integration`: 106 passed, 5 skipped, 3 unrelated venue-booking failures that passed on rerun (`--lf`); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree

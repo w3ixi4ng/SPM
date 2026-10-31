@@ -1463,17 +1463,17 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 
 ## TC-E2E-257 — an Attendee withdraws from the event page
 
-- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, and is no longer registered (S-53 AC1, AC2). Amended by S-55 (2026-10-30): what happens to the next in line moved to TC-E2E-264, because the place is now offered, not given. The old steps 5–6 are dropped.
+- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, and is no longer registered (S-53 AC1, AC2). Amended by S-55 (2026-10-30): what happens to the next in line moved to TC-E2E-264, because the place is now offered, not given. The old steps 5–6 are dropped. Amended by S-58 (2026-10-30): P now stays on A's dashboard as Withdrawn rather than disappearing.
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-53 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B ("S-53 E2E Attendee B") and C; A holds P's one place; B, then C, are on P's waiting list.
 - **Steps:**
   1. As A, open `/public/events/P` and click **Withdraw registration**.
   2. Click **Keep my place**.
   3. Click **Withdraw registration**, then **Withdraw**.
   4. Reload; open the dashboard.
-- **Expected:** 1 → "Withdraw from {P's name}? Your place will be offered to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (the place is held for B), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard has no row for P.
-- **Actual:** Chromium: the prompt showed the S-55 wording with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard.
+- **Expected:** 1 → "Withdraw from {P's name}? Your place will be offered to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (the place is held for B), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard's one row for P reads "Withdrawn on {today, SGT}" (S-58), not "Confirmed".
+- **Actual:** Chromium: the prompt showed the S-55 wording with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button; A's dashboard had one row for P reading "Withdrawn on {today SGT}", not "Confirmed".
 - **Status:** Pass
-- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_from_the_event_page[chromium]; full `tests/e2e`: 67 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_from_the_event_page[chromium]; full `tests/e2e`: 47 passed, the rest (timeouts across a 23-minute run on the shared test project) all passed on rerun; this journey also passed alone; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
 
 ## S-93 confirmed specification — inactive Coordinator handoff in Chromium
 
@@ -1645,11 +1645,43 @@ withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_registration_list.py::test_the_assigned_coordinator_sees_the_registration_list[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed
 
+## S-71 — Notify Coordinator — Availability Change
+
+## TC-E2E-267 — Technical Support makes equipment unavailable and the Coordinator is told
+
+- **Scenario:** The full browser journey lets a Coordinator react before the event when catalogue availability changes.
+- **Pre-conditions:** Fresh `.env.test` stack with S-71 SQL, Chromium, Technical Support T, Coordinator C, confirmed event E assigned to C, and available equipment P required by E.
+- **Steps:** As T, edit P to Unavailable. Sign in as C and open Notifications.
+- **Expected:** T sees the saved catalogue status. C sees one notification naming E and P and telling them to arrange replacement equipment before the event.
+- **Actual:** Chromium showed the saved Unavailable status and one Coordinator notification naming the event and equipment and directing replacement before the event.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_equipment_availability_notification.py::test_support_makes_equipment_unavailable_and_the_coordinator_is_told[chromium]`;
+  fresh `.env.test` stack; 2026-10-31, branch
+  `S-71/notify-coordinator-availability-change` on Sprint 4 `95f29c6`: 1 passed.
+
+## S-58 — View My Registration Status
+
+## TC-E2E-268 — the dashboard shows a withdrawal, then the place again
+
+- **Scenario:** In a real browser: the Attendee's own dashboard shows their status and keeps it current. Confirmed before, Withdrawn after withdrawing, and Confirmed again after re-registering, with one row throughout (S-58 AC1, AC2, AC3). Waiting list and Place offered on the dashboard are already proven by TC-E2E-255 and TC-E2E-264.
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-58 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 5, registration open from yesterday to a week out (SGT), starting 14 days out; Attendee A holding a place at P.
+- **Steps:**
+  1. As A, open the dashboard.
+  2. Open `/public/events/P`, click **Withdraw registration**, then **Withdraw**.
+  3. Open the dashboard.
+  4. Open `/public/events/P` and click **Register**.
+  5. Open the dashboard.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → "Your registrations" has one row for P reading "Confirmed". 2 → "You've withdrawn from this event." 3 → one row for P, still linking to `/public/events/P`, reading "Withdrawn on {today, SGT, e.g. 30 Oct 2026}"; no "Confirmed" for P. 4 → "You're registered for this event." 5 → one row for P reading "Confirmed", and no "Withdrawn" text for P.
+- **Actual:** Chromium: P's row read "Confirmed"; withdrawing showed "You've withdrawn from this event."; the dashboard then had one row for P, linking to `/public/events/P`, reading "Withdrawn on {today SGT}" with no "Confirmed"; Register showed "You're registered for this event."; the row read "Confirmed" again with no "Withdrawn".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_registration_status.py::test_the_dashboard_shows_a_withdrawal_then_the_place_again[chromium]; full `tests/e2e`: 47 passed, the rest (timeouts across a 23-minute run on the shared test project) all passed on rerun; this journey also passed alone; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
 ## S-63 — Notify Organiser — Event Decisions and Changes
 
 Drafted and confirmed by the developer on 2026-10-31 before implementation.
 
-## TC-E2E-267 — an Organiser sees an actionable returned-event notice
+## TC-E2E-269 — an Organiser sees an actionable returned-event notice
 
 - **Scenario:** The complete browser journey makes a Coordinator's returned decision visible to the correct Organiser.
 - **Pre-conditions:** Fresh `.env.test` stack and Chromium; an Organiser owns a submitted request assigned to a Coordinator.

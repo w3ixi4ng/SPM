@@ -16,6 +16,7 @@ import {
   registrationClosureControl,
   registrationDetails,
   registrationStatusLabel,
+  registrationStatusTone,
   registrationCountdown,
   registrationWindow,
   reopenRegistration,
@@ -403,4 +404,36 @@ test('accepting and declining go to the composite', async (t) => {
     ],
   )
   assert.equal(declinePrompt(), "Decline this place? You'll leave the waiting list.")
+})
+
+// --- TC-FRONTEND-282 -------------------------------------------------------
+test('a withdrawn row says so, and when', () => {
+  const withdrawn = {
+    status: 'withdrawn',
+    withdrawn_at: '2026-10-28T02:15:00+00:00',
+    start_date: '2026-11-20',
+    start_time: '18:00:00',
+    end_date: '2026-11-20',
+    end_time: '21:00:00',
+    details_confirmed: true,
+  }
+  assert.equal(registrationStatusLabel(withdrawn), 'Withdrawn on 28 Oct 2026')
+  assert.deepEqual(registrationDetails(withdrawn), {
+    when: '20 Nov 2026, 6:00 pm to 9:00 pm', venue: null, pending: null,
+  })
+  // 17:30 UTC is 01:30 the next day in Singapore.
+  assert.equal(
+    registrationStatusLabel({ status: 'withdrawn', withdrawn_at: '2026-10-28T17:30:00+00:00' }),
+    'Withdrawn on 29 Oct 2026',
+  )
+  assert.equal(registrationStatusLabel({ status: 'withdrawn', withdrawn_at: null }), 'Withdrawn')
+  assert.equal(registrationStatusLabel({ status: 'confirmed' }), 'Confirmed')
+})
+
+// --- TC-FRONTEND-283 -------------------------------------------------------
+test('each status has its own dot tone', () => {
+  assert.equal(registrationStatusTone({ status: 'confirmed' }), 'done')
+  assert.equal(registrationStatusTone({ status: 'waitlisted', position: 2 }), 'partial')
+  assert.equal(registrationStatusTone({ status: 'offered', position: 1 }), 'partial')
+  assert.equal(registrationStatusTone({ status: 'withdrawn' }), 'inactive')
 })

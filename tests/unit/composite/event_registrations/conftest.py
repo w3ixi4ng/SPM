@@ -152,9 +152,13 @@ def services():
     # gets it for every read except the waiting list's.
     registrations.places = {}
     registrations.waiting = {}
+    # S-58: recorded withdrawals by Attendee.
+    registrations.withdrawals = {}
 
     async def registrations_get(path, **kwargs):
         parts = path.strip("/").split("/")
+        if parts[1] == "withdrawals":
+            return response(200, registrations.withdrawals.get(parts[3], []))
         if parts[1] == "waiting-list" and parts[2] == "attendees":
             # S-52: one Attendee's entries across every event.
             return response(200, [

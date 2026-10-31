@@ -171,7 +171,7 @@ def test_a_venue_issue_shows_only_once_the_change_is_confirmed(client, held, row
     assert row["venue"] == venue
     assert set(row) == {
         "event_id", "name", "start_date", "start_time", "end_date", "end_time", "status",
-        "registered_at", "joined_at", "position", "details_confirmed", "venue",
+        "registered_at", "joined_at", "position", "withdrawn_at", "details_confirmed", "venue",
     }
 
 
@@ -210,7 +210,7 @@ def test_the_list_carries_no_internal_planning_information(client, held):
 
     assert set(row) == {
         "event_id", "name", "start_date", "start_time", "end_date", "end_time", "status",
-        "registered_at", "joined_at", "position", "details_confirmed", "venue",
+        "registered_at", "joined_at", "position", "withdrawn_at", "details_confirmed", "venue",
     }
     text = str(row)
     for internal in ("Reconnect alumni", "120", "Cora", "1234", "Stage", "o1", "c1"):

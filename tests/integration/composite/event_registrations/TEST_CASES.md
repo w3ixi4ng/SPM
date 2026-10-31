@@ -232,3 +232,21 @@ Drafted 2026-10-30 on `S-74/notify-attendee-registration-update` (from
 - **Actual:** All requests answered as expected; A had `registration_confirmation` and `registration_withdrawn`; B `waiting_list_joined` ("… You're next in line."), `waiting_list_offer` and `waiting_list_offer_declined`; C `waiting_list_joined` ("… You're 2nd in line.") and `waiting_list_offer`; nothing else for P; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_each_status_change_reaches_the_attendees_inbox_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-74 block of `notifications.sql` applied to dev and test; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; with the rest of this suite and `tests/integration/atomic/notifications`: 10 passed. Registration e2e journeys (`test_cap_registration.py`, `test_join_waiting_list.py`, `test_register_for_event.py`, `test_waiting_list_offer.py`, `test_withdraw_registration.py`): 8 passed, 1 failed -- `test_register_for_event.py::test_an_attendee_sees_the_confirmation_on_their_dashboard_after_registering`, which runs none of S-74's paths, in a run that crossed midnight; it passed when re-run on its own. Between runs the test project's `notifications_kind_allowed` was overwritten by an older block without the S-74 kinds (`23514` on `waiting_list_joined`); after the S-74 block was re-applied, re-run on a freshly recreated `.env.test` stack with `tests/integration/atomic/notifications`: 2 passed, 2026-10-31.
+
+## S-58 — View My Registration Status
+
+## TC-EVENTREGISTRATIONS-111 — the Attendee's list follows each change, for real (S-58)
+
+- **Scenario:** Through the composite against the real services: the dashboard list reports each status as it changes (Confirmed, Waiting list, Place offered, Withdrawn), and a decline also reads Withdrawn (S-58 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack; S-58 SQL applied to the test project. Through the admin client: confirmed event P, `expected_attendance` 1, registration open, starting 14 days out; Attendees A, B, C signed in through the composite's cookies.
+- **Steps:**
+  1. A registers for P; read A's `GET /event-registrations/me/registrations`.
+  2. B, then C, join P's waiting list; read B's and C's lists.
+  3. A withdraws (`DELETE /event-registrations/events/P/registration`); read A's and B's lists.
+  4. B declines (`DELETE /event-registrations/events/P/waiting-list/offer`); read B's and C's lists.
+  5. Delete P's rows and the users through the admin client.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → A's row for P `"status": "confirmed"`, `"withdrawn_at": null`. 2 → B `"waitlisted"`, `"position": 1`; C `"waitlisted"`, `"position": 2`. 3 → A's row for P `"status": "withdrawn"`, `withdrawn_at` set within this run; B's row `"offered"`. 4 → B's row for P `"status": "withdrawn"`; C's row `"offered"`. Each list has exactly one row for P. 5 leaves no rows.
+- **Actual:** A `confirmed` then `withdrawn` with `withdrawn_at` in the run; B `waitlisted` position 1, then `offered`, then `withdrawn` after declining; C `waitlisted` position 2, then `offered`; one row per list for P; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_registrations/test_app.py::test_the_attendees_list_follows_each_change; full `tests/integration`: 106 passed, 5 skipped, 3 unrelated venue-booking failures that passed on rerun (`--lf`); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree

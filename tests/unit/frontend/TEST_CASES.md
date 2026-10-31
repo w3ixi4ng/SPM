@@ -754,8 +754,9 @@ Acceptance criteria, as reworded by the developer for this scope:
 
 - **Steps:** Load and update an item whose id needs URL encoding.
 - **Expected:** Calls use `GET /api/equipment/{id}` and
-  `PUT /api/equipment/{id}`, include credentials, and the update body contains
-  only the four editable fields.
+  `PUT /api/equipment-requirements/equipment/{id}`, include credentials, and
+  the update body contains only the editable fields. The S-71 composite route
+  preserves the item response while coordinating affected-event notices.
 - **Actual:** Both encoded, credentialed Kong calls used the expected methods and the update body omitted protected fields.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `equipment detail and update use authenticated Kong routes`
@@ -805,8 +806,9 @@ next unused frontend id.
 
 - **Steps:** Retire an item whose id requires URL encoding.
 - **Expected:** The client sends credentialed
-  `POST /api/equipment/{id}/retire` with no client-controlled lifecycle or
-  catalogue body and returns the retired item response.
+  `POST /api/equipment-requirements/equipment/{id}/retire` with no
+  client-controlled lifecycle or catalogue body and returns the retired item
+  response after S-71 notification orchestration.
 - **Actual:** The encoded, credentialed POST used the explicit retirement path
   and sent no request body.
 - **Status:** Pass
@@ -2999,11 +3001,45 @@ assigned Coordinator's panels get a **Refresh list** button.
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the empty list says no one is currently registered; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Node 22.16.0: 214 passed across frontend unit
 
+## S-58 — View My Registration Status
+
+Developer decisions (2026-10-30): "Your registrations" on the Attendee's dashboard shows a **Withdrawn** row for an event the Attendee withdrew from or declined an offer for. It reads "Withdrawn on 28 Oct 2026" (the withdrawal date in Singapore time), with the event's name and date/time, no venue, and a grey (`inkFaint`) outline dot. Confirmed keeps its green dot, and Waiting list / Place offered their amber one. Every dot is paired with its text label. Status is read fresh on each load, with no polling. Page components are covered by TC-E2E-268; these cases cover the `frontend/src/lib/` helpers they use.
+
+## TC-FRONTEND-282 — a withdrawn row says so, and when
+
+- **Scenario:** A "Your registrations" row for an event the Attendee withdrew from reads Withdrawn with the date, in Singapore time, and shows when but not where (S-58 AC1).
+- **Steps:** `registrationStatusLabel(row)`; `registrationDetails(row)`.
+- **Test data / Expected:**
+  | `row` | Label | Details |
+  | --- | --- | --- |
+  | `{status: "withdrawn", withdrawn_at: "2026-10-28T02:15:00+00:00", start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", details_confirmed: true}` | "Withdrawn on 28 Oct 2026" | `when` "20 Nov 2026, 6:00 pm to 9:00 pm", `venue` `null` |
+  | `{status: "withdrawn", withdrawn_at: "2026-10-28T17:30:00+00:00"}` | "Withdrawn on 29 Oct 2026" (01:30 SGT the next day) | — |
+  | `{status: "withdrawn", withdrawn_at: null}` | "Withdrawn" | — |
+  | `{status: "confirmed"}` | "Confirmed" (unchanged) | — |
+- **Actual:** "Withdrawn on 28 Oct 2026" with `when` "20 Nov 2026, 6:00 pm to 9:00 pm" and `venue` null; "Withdrawn on 29 Oct 2026"; "Withdrawn"; "Confirmed".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a withdrawn row says so, and when; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## TC-FRONTEND-283 — each status has its own dot tone
+
+- **Scenario:** The dot beside each label distinguishes a secured place, a pending one and a withdrawn one. The label always carries the meaning too (S-58 AC1).
+- **Steps:** `registrationStatusTone(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{status: "confirmed"}` | `"done"` (filled green) |
+  | `{status: "waitlisted", position: 2}` | `"partial"` (filled amber) |
+  | `{status: "offered", position: 1}` | `"partial"` (filled amber) |
+  | `{status: "withdrawn"}` | `"inactive"` (`inkFaint` outline) |
+- **Actual:** "done", "partial", "partial", "inactive".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::each status has its own dot tone; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
 ## S-63 — Notify Organiser — Event Decisions and Changes
 
 Drafted and confirmed by the developer on 2026-10-31 before implementation.
 
-## TC-FRONTEND-282 — decision and schedule writes use their notification-owning composites
+## TC-FRONTEND-284 — decision and schedule writes use their notification-owning composites
 
 - **Scenario:** Browser actions travel through the services that can save the event and create the Organiser notification.
 - **Pre-conditions:** Mock fetch records requests.
@@ -3013,7 +3049,7 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs`; 2026-10-31 Node test run: 215 passed.
 
-## TC-FRONTEND-283 — Organiser notifications remain readable in the existing inbox
+## TC-FRONTEND-285 — Organiser notifications remain readable in the existing inbox
 
 - **Scenario:** Every S-63 message is displayed without a special per-kind component.
 - **Pre-conditions:** The Organiser dashboard contains `NotificationPanel`.

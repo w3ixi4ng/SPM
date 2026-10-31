@@ -228,6 +228,18 @@ S-69's.
 - **Status:** Pass
 - **Evidence:** test_app.py::test_the_registration_update_kinds_are_accepted; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
 
+## S-71 — Notify Coordinator — Availability Change
+
+### TC-NOTIFICATIONS-015 — equipment availability notices are accepted and deduplicated
+
+- **Scenario:** The notification store recognises the equipment availability kind and preserves one notice when delivery is retried.
+- **Pre-conditions:** Empty fake notification storage.
+- **Steps:** Twice `POST /internal/notifications` with the same `equipment_unavailable` row and deduplication key.
+- **Expected:** Both calls return `201`; storage contains one row identifying the event, affected equipment and recipient.
+- **Actual:** Both calls returned the same stored row through an upsert on the deduplication key.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_equipment_unavailable_notification_is_accepted_and_idempotent`; 2026-10-30, branch `S-71/notify-coordinator-availability-change`
+
 ## S-63 — Notify Organiser — Event Decisions and Changes
 
 Drafted and confirmed by the developer on 2026-10-31 before implementation.

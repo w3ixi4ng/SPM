@@ -2124,6 +2124,23 @@ C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
 - **Status:** Pass.
 - **Evidence:** `test_s82.py::test_a_failed_history_write_does_not_undo_the_venue_action`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
 
+---
+
+## S-71 — Notify Coordinator — Availability Change
+
+### TC-VENUEBOOKINGS-126 — an overlapping venue block retains the S-71 notification contract
+
+- **Scenario:** The established S-77 venue-unavailability flow supplies the
+  venue half of S-71.
+- **Pre-conditions:** A newly saved unavailable period overlaps a confirmed
+  booking for event E, whose current Coordinator is C.
+- **Steps:** Identify the affected booking and build its notification batch.
+- **Expected:** Exactly one `venue_unavailable` notification goes to C. It
+  identifies E and the venue, explains the affected booking window, asks for
+  alternative arrangements, and uses the existing stable deduplication key.
+- **Status:** Pass
+- **Evidence:** `test_unavailable_periods.py::test_every_current_coordinator_is_notified_once`.
+
 ## S-63 — Notify Organiser — Event Decisions and Changes
 
 Drafted and confirmed by the developer on 2026-10-31 before implementation. Numbering starts after S-71's pending TC-VENUEBOOKINGS-126.

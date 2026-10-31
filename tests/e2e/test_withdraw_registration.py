@@ -2,7 +2,8 @@
 
 What only a browser proves: the inline confirmation, and the page switching
 from registered to the waiting list as the freed place is held for the next in
-line. S-55 moved what that Attendee sees to test_waiting_list_offer.py."""
+line. S-55 moved what that Attendee sees to test_waiting_list_offer.py.
+S-58: the event then stays on the dashboard as withdrawn."""
 
 import re
 import uuid
@@ -11,6 +12,7 @@ from playwright.sync_api import expect
 
 from .conftest import requires_env
 from .test_cap_registration import _confirmed_event
+from .test_view_registration_status import sgt_today
 
 pytestmark = requires_env
 
@@ -62,4 +64,8 @@ def test_an_attendee_withdraws_from_the_event_page(admin, page, make_user, sign_
     page.goto("/dashboard/attendee")
     mine = page.get_by_role("region", name="Your registrations")
     expect(mine).to_be_visible(timeout=20000)
-    expect(mine.get_by_role("listitem").filter(has_text=name)).to_have_count(0)
+    # S-58: the event stays listed, now as withdrawn.
+    row = mine.get_by_role("listitem").filter(has_text=name)
+    expect(row).to_have_count(1)
+    expect(row).to_contain_text(f"Withdrawn on {sgt_today()}")
+    expect(row).not_to_contain_text("Confirmed")

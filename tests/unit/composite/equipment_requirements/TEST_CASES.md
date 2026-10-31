@@ -532,3 +532,74 @@ preparation status are recorded by Events itself (TC-EVENTS-196).
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** `test_s82.py::test_refused_or_failed_recording_leaves_the_change`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-71 — Notify Coordinator — Availability Change
+
+Story: S-71 Notify Coordinator — Availability Change.
+Confirmed by the developer on 2026-10-30.
+
+## TC-EQUIPMENTREQUIREMENTS-034 — a degrading equipment change identifies every newly affected confirmed event
+
+- **Scenario:** A Technical Support catalogue change that makes committed
+  equipment insufficient tells each affected event's current Coordinator.
+- **Pre-conditions:** Equipment P1 is active and available with 10 units.
+  Confirmed E1 and preparation E2 overlap and require 3 and 4 units; planning
+  E3 also requires P1. Events returns current Coordinators C1, C2 and C3.
+- **Steps:** Separately update P1 to `unavailable`, to `maintenance`, reduce it
+  to 5 units, and retire it.
+- **Expected:** Each degrading change is saved through Equipment. One
+  `equipment_unavailable` notification per newly affected confirmed or
+  preparation event is sent to its current Coordinator. Each row and message
+  names the event and P1 and tells the Coordinator to arrange replacement
+  equipment. E3 receives none.
+- **Actual:** All four changes produced the two expected current-recipient
+  notices; the planning event was excluded.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_degrading_change_notifies_each_committed_events_current_coordinator`
+
+## TC-EQUIPMENTREQUIREMENTS-035 — only newly insufficient events are notified
+
+- **Scenario:** A quantity change is assessed against live overlapping
+  committed requirements rather than every event that mentions the item.
+- **Pre-conditions:** Confirmed E1 overlaps preparation E2; confirmed E4 is
+  back-to-back and E5 has already been short since before the change.
+- **Steps:** Reduce P1's total quantity.
+- **Expected:** Notifications are created only for events that change from
+  sufficient to insufficient. Back-to-back demand is not combined, an event
+  already short is not re-notified, and recipient ids come from Events'
+  current assignments rather than the requirement audit actor.
+- **Actual:** Overlapping newly short events were returned; the back-to-back
+  and already-short events were excluded.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_only_events_that_become_short_are_returned_and_back_to_back_does_not_overlap`
+
+## TC-EQUIPMENTREQUIREMENTS-036 — harmless catalogue edits do not notify
+
+- **Scenario:** Descriptive or improving changes do not raise replacement
+  warnings.
+- **Steps:** Separately change P1's type, description or storage location;
+  increase its quantity; and make a change that leaves every committed event
+  sufficiently supplied.
+- **Expected:** Equipment saves the edit and Notifications is not called.
+  No venue service is called or changed.
+- **Actual:** Metadata, quantity increase and still-sufficient reduction were
+  saved with no Notifications call.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_harmless_catalogue_edits_do_not_notify`
+
+## TC-EQUIPMENTREQUIREMENTS-037 — retry keys cannot create duplicate notices
+
+- **Scenario:** Retrying notification delivery for one saved availability
+  change does not tell a Coordinator twice.
+- **Pre-conditions:** One saved change has a fixed `updated_at`, affected event
+  E1 and current recipient C1.
+- **Steps:** Build and submit the notification batch twice.
+- **Expected:** Both batches use the same
+  `equipment_unavailable:<item>:<change>:<event>:<recipient>` key, so the
+  Notifications service retains one row.
+- **Actual:** Rebuilding the batch produced an identical key; the notification
+  atomic service's upsert test retained its idempotent contract.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_rebuilding_one_saved_change_uses_the_same_deduplication_key`; `tests/unit/atomic/notifications/test_app.py::test_an_equipment_unavailable_notification_is_accepted_and_idempotent`
