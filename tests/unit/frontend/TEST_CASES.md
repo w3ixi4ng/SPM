@@ -754,8 +754,9 @@ Acceptance criteria, as reworded by the developer for this scope:
 
 - **Steps:** Load and update an item whose id needs URL encoding.
 - **Expected:** Calls use `GET /api/equipment/{id}` and
-  `PUT /api/equipment/{id}`, include credentials, and the update body contains
-  only the four editable fields.
+  `PUT /api/equipment-requirements/equipment/{id}`, include credentials, and
+  the update body contains only the editable fields. The S-71 composite route
+  preserves the item response while coordinating affected-event notices.
 - **Actual:** Both encoded, credentialed Kong calls used the expected methods and the update body omitted protected fields.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `equipment detail and update use authenticated Kong routes`
@@ -805,8 +806,9 @@ next unused frontend id.
 
 - **Steps:** Retire an item whose id requires URL encoding.
 - **Expected:** The client sends credentialed
-  `POST /api/equipment/{id}/retire` with no client-controlled lifecycle or
-  catalogue body and returns the retired item response.
+  `POST /api/equipment-requirements/equipment/{id}/retire` with no
+  client-controlled lifecycle or catalogue body and returns the retired item
+  response after S-71 notification orchestration.
 - **Actual:** The encoded, credentialed POST used the explicit retirement path
   and sent no request body.
 - **Status:** Pass

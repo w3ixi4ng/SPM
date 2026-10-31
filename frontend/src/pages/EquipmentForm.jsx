@@ -88,7 +88,9 @@ export default function EquipmentForm() {
         replace: true,
         state: {
           notice: editing
-            ? `${item.type} was updated in the equipment catalogue.`
+            ? item.availability_notifications_sent === false
+              ? `${item.type} was updated, but affected Coordinators could not be notified. Contact them directly.`
+              : `${item.type} was updated in the equipment catalogue.`
             : `${item.type} was added to the equipment catalogue.`,
         },
       })

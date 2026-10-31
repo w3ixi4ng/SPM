@@ -261,7 +261,9 @@ export default function TechnicalSupportDashboard({ role }) {
           catalogueItem.id === retired.id ? retired : catalogueItem
         )),
       }))
-      setNotice(`${retired.type} was retired from new equipment requests.`)
+      setNotice(retired.availability_notifications_sent === false
+        ? `${retired.type} was retired, but affected Coordinators could not be notified. Contact them directly.`
+        : `${retired.type} was retired from new equipment requests.`)
       setRetirement({ itemId: null, error: null })
     } catch (error) {
       setRetirement({ itemId: null, error: equipmentRetirementErrorMessage(error) })

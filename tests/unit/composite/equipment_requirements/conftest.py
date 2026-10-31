@@ -20,8 +20,9 @@ SERVICE = (
 os.environ.setdefault("USERS_SERVICE_URL", "http://users:8001")
 os.environ.setdefault("EVENTS_SERVICE_URL", "http://events:8002")
 os.environ.setdefault("EQUIPMENT_SERVICE_URL", "http://equipment:8005")
+os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
 
-_MODULE_NAMES = ("app", "availability", "clients", "schemas")
+_MODULE_NAMES = ("app", "availability", "availability_changes", "clients", "schemas")
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}
 for _name in _MODULE_NAMES:
     sys.modules.pop(_name, None)
@@ -40,6 +41,7 @@ app = app_module.app
 get_users_client = clients_module.get_users_client
 get_events_client = clients_module.get_events_client
 get_equipment_client = clients_module.get_equipment_client
+get_notifications_client = clients_module.get_notifications_client
 
 COORDINATOR_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 NEW_COORDINATOR_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
@@ -126,6 +128,10 @@ class Services:
         self.equipment.post = AsyncMock(side_effect=lambda *args, **kwargs: self.deleted)
         self.equipment.get = AsyncMock(side_effect=lambda *args, **kwargs: self.listed)
         self.equipment.delete = AsyncMock(side_effect=lambda *args, **kwargs: self.deleted)
+        self.notifications = MagicMock()
+        self.notifications.post = AsyncMock(
+            side_effect=lambda *args, **kwargs: fake_response(201, [])
+        )
 
     def _event_response(self, path, *args, **kwargs):
         if path == "/events/support-assigned":
@@ -145,6 +151,7 @@ def client(services):
     app.dependency_overrides[get_users_client] = lambda: services.users
     app.dependency_overrides[get_events_client] = lambda: services.events
     app.dependency_overrides[get_equipment_client] = lambda: services.equipment
+    app.dependency_overrides[get_notifications_client] = lambda: services.notifications
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
