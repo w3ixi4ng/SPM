@@ -126,3 +126,27 @@ Specification updated by the developer on 2026-10-05.
 - **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_signoff_stored_and_cleared_by_change`
+
+---
+
+## S-71 — Notify Coordinator — Availability Change
+
+## TC-EQUIPMENTREQUIREMENTS-107 — a real equipment availability change reaches the current Coordinator
+
+- **Scenario:** Kong, Auth, Equipment, Events, Requirements and Notifications
+  agree on an affected confirmed event.
+- **Pre-conditions:** Fresh `.env.test` stack with the S-71 Notifications SQL;
+  Technical Support T; confirmed event E assigned to Coordinator C; active,
+  available P with enough stock; E requires P.
+- **Steps:** Through Kong as T, make P unavailable; read C's notifications;
+  repeat the same edit; then change only P's storage location.
+- **Expected:** The edit persists. C has exactly one
+  `equipment_unavailable` notification naming E and P and asking for a
+  replacement. The repeated and descriptive edits add no duplicate. Cleanup
+  removes all temporary rows and users.
+- **Actual:** The saved Unavailable state produced exactly one notification
+  for C; repeating the state and editing only the storage location produced no
+  duplicate, and cleanup completed.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_equipment_change_notifies_the_confirmed_events_current_coordinator`;
+  fresh `.env.test` stack, 2026-10-31: 1 passed.

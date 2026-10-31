@@ -38,7 +38,8 @@ Notification.
 All fields are required. The batch contains 1–20 rows and cannot repeat a
 deduplication key. Supported kinds are `event_assignment`,
 `event_reassignment`, `venue_unavailable` (a Coordinator's booking needs
-alternative arrangements), `venue_hold_expiry` (the time a tentative hold
+alternative arrangements), `equipment_unavailable` (a confirmed or
+preparation event needs replacement equipment), `venue_hold_expiry` (the time a tentative hold
 will be released), `registration_confirmation` (an Attendee's place at an
 event was recorded), `waiting_list_promotion` (S-53: a withdrawal freed a
 place and this Attendee, first on the waiting list, now holds it; no longer

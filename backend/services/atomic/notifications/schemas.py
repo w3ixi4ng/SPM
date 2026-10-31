@@ -8,6 +8,7 @@ NotificationKind = Literal[
     "event_assignment",
     "event_reassignment",
     "venue_unavailable",
+    "equipment_unavailable",
     "venue_hold_expiry",
     "registration_confirmation",
     "waiting_list_promotion",

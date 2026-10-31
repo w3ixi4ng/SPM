@@ -1645,6 +1645,20 @@ withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_registration_list.py::test_the_assigned_coordinator_sees_the_registration_list[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed
 
+## S-71 — Notify Coordinator — Availability Change
+
+## TC-E2E-267 — Technical Support makes equipment unavailable and the Coordinator is told
+
+- **Scenario:** The full browser journey lets a Coordinator react before the event when catalogue availability changes.
+- **Pre-conditions:** Fresh `.env.test` stack with S-71 SQL, Chromium, Technical Support T, Coordinator C, confirmed event E assigned to C, and available equipment P required by E.
+- **Steps:** As T, edit P to Unavailable. Sign in as C and open Notifications.
+- **Expected:** T sees the saved catalogue status. C sees one notification naming E and P and telling them to arrange replacement equipment before the event.
+- **Actual:** Chromium showed the saved Unavailable status and one Coordinator notification naming the event and equipment and directing replacement before the event.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_equipment_availability_notification.py::test_support_makes_equipment_unavailable_and_the_coordinator_is_told[chromium]`;
+  fresh `.env.test` stack; 2026-10-31, branch
+  `S-71/notify-coordinator-availability-change` on Sprint 4 `95f29c6`: 1 passed.
+
 ## S-58 — View My Registration Status
 
 ## TC-E2E-268 — the dashboard shows a withdrawal, then the place again

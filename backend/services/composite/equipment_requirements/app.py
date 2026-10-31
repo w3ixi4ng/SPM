@@ -15,8 +15,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 import availability
-from clients import get_equipment_client, get_events_client, get_users_client
-from schemas import RequirementQuantity, SignoffDecision, SignoffRequest
+import availability_changes
+from clients import (
+    get_equipment_client,
+    get_events_client,
+    get_notifications_client,
+    get_users_client,
+)
+from schemas import EquipmentUpdate, RequirementQuantity, SignoffDecision, SignoffRequest
 
 app = FastAPI(title="Equipment Requirements Service")
 logger = logging.getLogger(__name__)
@@ -148,6 +154,117 @@ async def _equipment_response(service_call):
     if response.status_code == 204:
         return Response(status_code=204)
     return response.json()
+
+
+async def _notify_equipment_change(
+    before: dict,
+    after: dict,
+    events: httpx.AsyncClient,
+    equipment: httpx.AsyncClient,
+    notifications: httpx.AsyncClient,
+) -> bool:
+    """Tell current Coordinators when this saved change creates a shortage.
+
+    The catalogue write has already succeeded, so a notification dependency
+    failure is reported in the response metadata and logged rather than
+    pretending the equipment edit was rolled back.
+    """
+    if availability_changes.availability_signature(before) == (
+        availability_changes.availability_signature(after)
+    ):
+        return True
+    try:
+        current = await _json_list(
+            "Events", events.get("/internal/events/assigned-active")
+        )
+        committed = [
+            event
+            for event in current
+            if event.get("status") in availability_changes.COMMITTED_STATUSES
+        ]
+        if not committed:
+            return True
+        params = [("event_ids", str(event["id"])) for event in committed]
+        requirements = await _json_list(
+            "Equipment", equipment.get(INTERNAL_PATH, params=params)
+        )
+        affected = availability_changes.newly_affected(
+            before, after, committed, requirements
+        )
+        rows = availability_changes.notifications(after, affected)
+        for batch in availability_changes.batches(rows):
+            response = await _call(
+                "Notifications",
+                notifications.post(
+                    "/internal/notifications", json={"notifications": batch}
+                ),
+            )
+            if response.status_code != status.HTTP_201_CREATED:
+                return False
+        return True
+    except HTTPException as exc:
+        logger.error(
+            "Equipment availability changed but Coordinators could not be notified",
+            exc_info=exc,
+        )
+        return False
+
+
+def _with_notification_result(item: dict, sent: bool) -> dict:
+    return {**item, "availability_notifications_sent": sent}
+
+
+@app.put("/equipment-requirements/equipment/{equipment_item_id}")
+async def update_catalogue_equipment(
+    equipment_item_id: UUID,
+    payload: EquipmentUpdate,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-71 equipment update plus affected-event notification orchestration."""
+    user = await _current_user(request, users)
+    if user["role"] != TECHNICAL_SUPPORT_ROLE:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    path = f"/equipment/{equipment_item_id}"
+    before = await _equipment_response(equipment.get(path, cookies=request.cookies))
+    after = await _equipment_response(
+        equipment.put(
+            path,
+            json=payload.model_dump(mode="json"),
+            cookies=request.cookies,
+        )
+    )
+    sent = await _notify_equipment_change(
+        before, after, events, equipment, notifications
+    )
+    return _with_notification_result(after, sent)
+
+
+@app.post("/equipment-requirements/equipment/{equipment_item_id}/retire")
+async def retire_catalogue_equipment(
+    equipment_item_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-71 retirement plus affected-event notification orchestration."""
+    user = await _current_user(request, users)
+    if user["role"] != TECHNICAL_SUPPORT_ROLE:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    path = f"/equipment/{equipment_item_id}"
+    before = await _equipment_response(equipment.get(path, cookies=request.cookies))
+    after = await _equipment_response(
+        equipment.post(f"{path}/retire", cookies=request.cookies)
+    )
+    sent = await _notify_equipment_change(
+        before, after, events, equipment, notifications
+    )
+    return _with_notification_result(after, sent)
 
 
 async def _requirement(event_id: UUID, equipment_item_id: UUID, equipment: httpx.AsyncClient) -> dict | None:
