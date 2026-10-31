@@ -2140,3 +2140,15 @@ C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
   alternative arrangements, and uses the existing stable deduplication key.
 - **Status:** Pass
 - **Evidence:** `test_unavailable_periods.py::test_every_current_coordinator_is_notified_once`.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Story: S-89. Acceptance criteria are recorded with TC-EVENTS-208. AC1 ("the system
+never cancels or rejects an affected event automatically") is the behaviour
+TC-VENUEBOOKINGS-069 already specifies for S-77: marking a venue unavailable writes
+nothing to the events service (no `POST`/`PATCH`/`PUT`) and never deletes, decides or
+changes a booking. S-89 adds no new case here. It re-runs TC-VENUEBOOKINGS-069 as
+AC1's unit evidence, and TC-EVENTREQUESTS-204 checks it against the real stack.
+Re-run 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`:
+`test_unavailable_periods.py::test_affected_events_are_not_cancelled_and_their_records_are_untouched`
+passed.

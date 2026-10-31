@@ -166,6 +166,8 @@ services:
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
       # S-69: and notifies everyone registered or waiting.
       REGISTRATIONS_SERVICE_URL: ${REGISTRATIONS_SERVICE_URL:-http://registrations:8007}
+      # S-89: whether a venue's unavailability still affects an event's booking.
+      VENUE_BOOKINGS_SERVICE_URL: ${VENUE_BOOKINGS_SERVICE_URL:-http://venue_bookings:8101}
     depends_on:
       users:
         condition: service_healthy
@@ -178,6 +180,8 @@ services:
       bookings:
         condition: service_healthy
       registrations:
+        condition: service_healthy
+      venue_bookings:
         condition: service_healthy
     healthcheck:
       test:

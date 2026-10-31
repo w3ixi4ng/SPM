@@ -529,3 +529,50 @@ const DECISION_BANNER = {
 export function organiserDecisionBanner(status) {
   return DECISION_BANNER[status] ?? null
 }
+
+// S-89: the assigned Coordinator cancels an event a venue's unavailability
+// left without an alternative. Offered only while a booking is still flagged
+// (S-77, not resolved by S-78) -- the same check the composite makes.
+export function canCancelForUnavailableVenue(event, bookings) {
+  if (!CANCELLABLE_STATUSES.has(event?.status)) return false
+  return (bookings ?? []).some((booking) => booking.requires_alternative_arrangements)
+}
+
+export function cancelForUnavailableVenue(id, reason) {
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/coordinator-cancellation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason.trim() }),
+  })
+}
+
+function counted(count, one, many) {
+  return count === 1 ? `1 ${one}` : `${count} ${many}`
+}
+
+export function coordinatorCancellationNotice({ released_bookings: released, notified_attendees: attendees }) {
+  const bookings = released
+    ? `${counted(released, 'venue booking', 'venue bookings')} released.`
+    : 'No venue bookings to release.'
+  const told = attendees
+    ? `The Organiser and ${counted(attendees, 'Attendee', 'Attendees')} were notified.`
+    : 'The Organiser was notified.'
+  return `Event cancelled. ${bookings} ${told}`
+}
+
+// 409 and 502 carry the service's own explanation -- a 502 after the event
+// is cancelled says which step to retry by cancelling again.
+export function coordinatorCancellationErrorMessage(error) {
+  if ((error.status === 409 || error.status === 502) && error.message) return error.message
+  if (error.status === 422) return `Enter a reason of up to 1000 characters. ${NOTHING_CHANGED}`
+  if (error.status === 404) return `This event was not found or is not assigned to you. ${NOTHING_CHANGED}`
+  if (error.status === 401) return `Your session has expired. Sign in again and retry. ${NOTHING_CHANGED}`
+  if (error.status === 403) return `Your role can't cancel events. ${NOTHING_CHANGED}`
+  if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${NOTHING_CHANGED}`
+  return `The event couldn't be cancelled. Try again in a moment. ${NOTHING_CHANGED}`
+}
+
+export function coordinatorCancelledLabel(event) {
+  if (event?.status !== 'cancelled' || !event?.coordinator_cancelled_at) return null
+  return `You cancelled this event on ${dayLabel(event.coordinator_cancelled_at)}: ${event.coordinator_cancellation_reason}`
+}

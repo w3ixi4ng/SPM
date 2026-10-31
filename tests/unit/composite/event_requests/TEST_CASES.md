@@ -1635,3 +1635,100 @@ O holds an offered place (waiting-list row with `offered_at` set).
 - **Actual:** (a), (b) `502` with the expected detail; (c) `200`, `notified_attendees` 4, the same four deduplication keys.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_a_failed_notification_is_retried_by_approving_again; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Story: S-89 Coordinator Cancels Event Without Alternative Venue. Acceptance
+criteria and the developer's answers (2026-11-01) are recorded with
+TC-EVENTS-208 in `tests/unit/atomic/events/TEST_CASES.md`.
+
+`POST /event-requests/{id}/coordinator-cancellation` `{"reason": ...}`:
+1. reads the event through `GET /events/assigned/{id}` with C's cookies;
+2. unless it's already cancelled by S-89 (a retry), reads `GET /venue-bookings?event_id={id}`
+   from the venue_bookings composite and requires at least one booking with
+   `requires_alternative_arrangements: true`;
+3. records the cancellation (`POST /events/{id}/coordinator-cancellation`);
+4. releases every booking and hold (`DELETE /internal/events/{id}/bookings`, S-61's
+   release). Equipment needs no call: a cancelled event's requirements are no longer
+   counted as reserved (S-44);
+5. notifies the Organiser (new kind `event_cancelled_by_coordinator`, with the reason)
+   and every Attendee holding a place or waiting (S-69's `event_cancelled`, unchanged).
+
+Drafted 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`
+(from `origin/sprint4` `92b230c`). Confirmed by the developer 2026-11-01.
+
+Event E (`22222222-2222-4222-8222-222222222222`) "Alumni networking evening",
+`2026-11-20` 18:00–21:00, status `planning`, Organiser O
+(`aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`), assigned to Coordinator C. Venue_bookings
+fake: booking B1 (Hall A, `requires_alternative_arrangements: true`) and B2 (Room 2,
+`false`). Events fake answers the cancellation `200` with E `cancelled`,
+`coordinator_cancellation_reason` R. Bookings fake answers the release `200`
+`{"deleted": 2}`. Attendees A and B hold places; W is waiting. Notifications fake
+answers `201`. R = "Hall A is closed for repairs and no other hall fits 120 people that
+evening."
+
+## TC-EVENTREQUESTS-129 — cancelling a flagged event releases its bookings and notifies everyone
+
+- **Scenario:** With a booking still flagged, the Coordinator cancels with a reason. The cancellation is recorded, every booking and hold is released, and the Organiser and every Attendee are notified (S-89 AC2, AC3, AC4).
+- **Pre-conditions:** As above.
+- **Steps:** As C, `POST /event-requests/E/coordinator-cancellation` `{"reason": R}`.
+- **Test data:** As above.
+- **Expected:** `200`, body includes `"status": "cancelled"`, `"coordinator_cancellation_reason": R`, `"released_bookings": 2`, `"notified_attendees": 3`, `"organiser_notified": true`. Calls in order: events read, venue-bookings read, events cancellation with body `{"reason": R}` and C's cookies, bookings release, then notifications. The notifications contain exactly one row for O and one each for A, B, W.
+- **Actual:** `200`, `cancelled`, `released_bookings` 2, `notified_attendees` 3, `organiser_notified` true; calls in the specified order with C's cookies; rows for O, A, B, W.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s89.py::test_cancelling_a_flagged_event_releases_its_bookings_and_notifies_everyone; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-130 — the Organiser's notification names the event and gives the reason
+
+- **Scenario:** The Organiser learns which event was cancelled and why (S-89 AC4; developer's answer).
+- **Pre-conditions:** As TC-EVENTREQUESTS-129.
+- **Steps:** Cancel as C.
+- **Test data:** As above.
+- **Expected:** O's row is exactly `{"recipient_id": O, "event_id": E, "event_name": "Alumni networking evening", "kind": "event_cancelled_by_coordinator", "message": "Your event Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, was cancelled by your Event Coordinator: " + R, "deduplication_key": "event_cancelled_by_coordinator:E:O"}`.
+- **Actual:** O's row exactly as specified.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s89.py::test_the_organisers_notification_names_the_event_and_gives_the_reason; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-131 — Attendees get exactly S-69's notification
+
+- **Scenario:** Registered and waiting Attendees are notified as in S-69, with no reason (S-89 AC4).
+- **Pre-conditions:** As TC-EVENTREQUESTS-129.
+- **Steps:** Cancel as C.
+- **Test data:** As above.
+- **Expected:** A, B and W each get one row with `"kind": "event_cancelled"`, message exactly "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.", and `"deduplication_key": "event_cancelled:E:<id>"`, the same as TC-EVENTREQUESTS-124. No Attendee message contains R.
+- **Actual:** A, B, W each one `event_cancelled` row with S-69's message and key; none contains R.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s89.py::test_attendees_get_exactly_s69s_notification; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-132 — an event with no flagged booking can't be cancelled this way
+
+- **Scenario:** The action exists only for an event a venue's unavailability still affects (developer's answer).
+- **Pre-conditions:** As TC-EVENTREQUESTS-129, but in turn: 1. B1 and B2 both `false` (including a flag S-78 has resolved); 2. E has no bookings.
+- **Steps:** As C, POST `{"reason": R}` for each.
+- **Test data:** As above.
+- **Expected:** Each → `409` "Only an event with a venue booking affected by an unavailable venue can be cancelled here." The events cancellation, bookings release and notifications are never called.
+- **Actual:** Both `409` with the specified detail; no cancellation, release or notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s89.py::test_an_event_with_no_flagged_booking_cannot_be_cancelled_this_way; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-133 — a failed release or notification is retried by cancelling again
+
+- **Scenario:** If a later step fails after the event is cancelled, cancelling again finishes the job without notifying anyone twice (S-89 AC3, AC4).
+- **Pre-conditions:** As TC-EVENTREQUESTS-129, but the bookings release answers `500` the first time.
+- **Steps:** 1. As C, cancel. 2. The events read now returns E `cancelled` with `coordinator_cancelled_by` C; the venue-bookings fake returns no flagged booking; the release answers `200`. As C, cancel again.
+- **Test data:** As above.
+- **Expected:** 1 → `502` "The event is cancelled, but its venue bookings couldn't be released. Cancel again to retry."; no notification sent. 2 → `200`, `"released_bookings": 2`, notifications sent once; the venue-bookings flag check is skipped on the retry. The same deduplication keys as TC-EVENTREQUESTS-130/131 are used, so a third call creates no new rows.
+- **Actual:** 1 → `502` with the specified detail, nothing sent. 2 → `200`, `released_bookings` 2, flag check skipped, four rows sent. 3 → same keys only. A failed notification and a bookings outage are `502` with the retry wording.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s89.py::test_a_failed_release_is_retried_by_cancelling_again, ::test_a_failed_notification_is_retried_by_cancelling_again, ::test_the_bookings_service_being_down_is_502; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTREQUESTS-134 — refusals from the events service pass through; outages are 502
+
+- **Scenario:** The caller sees why a cancellation was refused (S-89 AC2).
+- **Pre-conditions:** As TC-EVENTREQUESTS-129.
+- **Steps:** POST as C with, in turn: 1. events read `404`; 2. events read `403`; 3. events cancellation `409`; 4. events cancellation `422`; 5. venue_bookings composite raising `httpx.ConnectError`; 6. events read returns E `cancelled` through S-61 (`coordinator_cancelled_by` null).
+- **Test data:** As above.
+- **Expected:** 1 → `404`; 2 → `403`; 3 → `409`; 4 → `422`, each with the events service's `detail`. 5 → `502`. 6 → `409` "This event can't be cancelled from its current status." In all six, no bookings release and no notification.
+- **Actual:** 1 `404`, 2 `403`, 3 `409`, 4 `422` with the events service's detail; 5 `502`; 6 `409`; no release or notification in any.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s89.py::test_a_refused_read_passes_through, ::test_a_refused_cancellation_passes_through, ::test_the_venue_bookings_service_being_down_is_502, ::test_an_event_cancelled_through_s61_is_refused; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`

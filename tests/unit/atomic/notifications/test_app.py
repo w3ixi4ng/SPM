@@ -377,3 +377,33 @@ def test_the_registration_update_kinds_are_accepted(client, db, kind):
         "/internal/notifications", json={"notifications": [{**row, "kind": "venue_closed"}]}
     )
     assert refused.status_code == 422
+
+
+# --- TC-NOTIFICATIONS-016 ------------------------------------------------------
+def test_the_organisers_cancellation_kind_is_accepted(client, db):
+    event_id = "22222222-2222-4222-8222-222222222222"
+    organiser_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    row = {
+        "recipient_id": organiser_id,
+        "event_id": event_id,
+        "event_name": "Alumni networking evening",
+        "kind": "event_cancelled_by_coordinator",
+        "message": (
+            "Your event Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+            "was cancelled by your Event Coordinator: Hall A is closed for repairs."
+        ),
+        "deduplication_key": f"event_cancelled_by_coordinator:{event_id}:{organiser_id}",
+    }
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.return_value = SimpleNamespace(
+        data=[{**row, "id": 1, "created_at": "2026-11-01T06:30:00Z"}]
+    )
+
+    response = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == "event_cancelled_by_coordinator"
+    refused = client.post(
+        "/internal/notifications", json={"notifications": [{**row, "kind": "venue_closed"}]}
+    )
+    assert refused.status_code == 422

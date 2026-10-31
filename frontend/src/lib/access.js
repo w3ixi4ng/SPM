@@ -16,6 +16,8 @@ export const PERMISSIONS = Object.freeze({
   UPDATE_EQUIPMENT_PREPARATION: 'events:update_equipment_preparation',
   DECIDE_EVENT: 'events:decide',
   DECIDE_EVENT_CANCELLATION: 'events:decide_cancellation',
+  // S-89: cancel an assigned event no alternative venue was found for.
+  CANCEL_ASSIGNED_EVENT: 'events:cancel_assigned',
   ASSIGN_TECHNICAL_SUPPORT: 'events:assign_technical_support',
   VIEW_UNASSIGNED_EVENTS: 'events:view_unassigned',
   ASSIGN_EVENT_COORDINATOR: 'events:assign_coordinator',
@@ -75,6 +77,7 @@ export const ROLE_ACCESS = Object.freeze({
       PERMISSIONS.UPDATE_ASSIGNED_EVENT,
       PERMISSIONS.DECIDE_EVENT,
       PERMISSIONS.DECIDE_EVENT_CANCELLATION,
+      PERMISSIONS.CANCEL_ASSIGNED_EVENT,
       PERMISSIONS.ASSIGN_TECHNICAL_SUPPORT,
       PERMISSIONS.VIEW_VENUES,
       PERMISSIONS.VIEW_VENUE_AVAILABILITY,

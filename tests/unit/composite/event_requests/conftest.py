@@ -28,6 +28,7 @@ os.environ.setdefault("EQUIPMENT_SERVICE_URL", "http://equipment:8005")
 os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
 os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 os.environ.setdefault("REGISTRATIONS_SERVICE_URL", "http://registrations:8007")
+os.environ.setdefault("VENUE_BOOKINGS_SERVICE_URL", "http://venue_bookings:8101")
 os.environ.setdefault("ASSIGNMENT_SERVICE_SECRET", "unit-assignment-secret")
 
 # Services use flat imports because each Docker image runs from its own
@@ -57,6 +58,7 @@ get_notifications_client = clients_module.get_notifications_client
 get_bookings_client = clients_module.get_bookings_client
 get_equipment_client = clients_module.get_equipment_client
 get_registrations_client = clients_module.get_registrations_client
+get_venue_bookings_client = clients_module.get_venue_bookings_client
 
 ORGANISER_ID = "11111111-1111-4111-8111-111111111111"
 COORDINATOR_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -264,13 +266,21 @@ def registrations():
 
 
 @pytest.fixture
-def client(users, events, notifications, bookings, equipment, registrations):
+def venue_bookings():
+    """S-89: fakes the venue_bookings composite. No booking is affected
+    unless a test says so."""
+    return MagicMock(get=AsyncMock(return_value=fake_response(200, [])))
+
+
+@pytest.fixture
+def client(users, events, notifications, bookings, equipment, registrations, venue_bookings):
     app.dependency_overrides[get_users_client] = lambda: users
     app.dependency_overrides[get_events_client] = lambda: events
     app.dependency_overrides[get_notifications_client] = lambda: notifications
     app.dependency_overrides[get_bookings_client] = lambda: bookings
     app.dependency_overrides[get_equipment_client] = lambda: equipment
     app.dependency_overrides[get_registrations_client] = lambda: registrations
+    app.dependency_overrides[get_venue_bookings_client] = lambda: venue_bookings
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

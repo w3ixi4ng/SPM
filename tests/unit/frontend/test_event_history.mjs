@@ -46,7 +46,7 @@ test('each action reads as a plain sentence', () => {
 
   const recorded = [
     'submitted', 'edited', 'request_approved', 'request_rejected', 'request_returned',
-    'cancellation_requested', 'cancellation_approved', 'cancellation_declined',
+    'cancellation_requested', 'cancellation_approved', 'cancellation_declined', 'event_cancelled_by_coordinator',
     'coordinator_assigned', 'reassignment_requested', 'coordinator_reassigned', 'technical_support_assigned',
     'technical_signoff_approved', 'technical_signoff_declined', 'equipment_preparation_changed',
     'safety_submitted', 'safety_resubmitted', 'safety_approved', 'safety_changes_requested', 'safety_rejected',

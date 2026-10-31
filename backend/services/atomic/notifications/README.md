@@ -48,7 +48,9 @@ a freed place is held for this Attendee, first on the waiting list, until they
 accept or decline it), `event_cancelled` (S-69: an event this Attendee was
 registered or waiting for was cancelled), and, from S-74, `waiting_list_joined`,
 `registration_withdrawn` and `waiting_list_offer_declined` (the Attendee
-joined a waiting list, withdrew their place, or declined an offered place). S-84 sends a three-row reassignment batch whose keys
+joined a waiting list, withdrew their place, or declined an offered place),
+and `event_cancelled_by_coordinator` (S-89: the Coordinator cancelled this
+Organiser's event because no alternative venue was found; carries the reason). S-84 sends a three-row reassignment batch whose keys
 include the event's monotonic assignment version.
 
 ## Response

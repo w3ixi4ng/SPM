@@ -473,3 +473,30 @@ notified.
 - **Actual:** First run: approval `502` -- the events service hit `23514` on `events_safety_state_consistent`; fixed by the S-69 block of `events.sql`. After it was applied: `201`, `201`; approval `200`, `cancelled`, `notified_attendees` 2; A and W each had exactly one `event_cancelled` row with the expected message and no reason; X none; approving again `200`, A still one; no rows remained. Passed again on a second run.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_requests/test_s69.py::test_approving_a_cancellation_notifies_registered_and_waiting_attendees_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-69 blocks of `notifications.sql` and `events.sql` applied to dev and test; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; with `tests/integration/composite/event_requests`, `tests/integration/atomic/notifications` and `tests/integration/atomic/events`: 32 passed, 5 skipped; e2e `test_approve_cancellation.py` and `test_request_event_cancellation.py`: 2 passed
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Story: S-89. Acceptance criteria and the developer's answers are recorded with
+TC-EVENTS-208. Drafted 2026-11-01 on
+`S-89/coordinator-cancels-event-without-alternative-venue`. Confirmed by the developer
+2026-11-01. The S-89 blocks of `events.sql` and `notifications.sql`
+were applied to dev and test on 2026-11-01.
+
+## TC-EVENTREQUESTS-204 — a venue closure flags but never cancels; the Coordinator's cancel releases everything and notifies everyone once
+
+- **Scenario:** Through Kong against the test project. Marking a venue unavailable leaves the affected event live. The Coordinator then cancels it with a reason, which removes every booking and hold, frees its equipment, and notifies the Organiser (with the reason) and each registered or waiting Attendee once (S-89 AC1–AC4). This also proves the new columns, constraint and notification kind exist, and that event_requests reaches venue_bookings inside the compose network.
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Organiser O; Coordinator C; Venue Staff S; Attendees A, W, X; venues V1 and V2. Confirmed event P owned by O, assigned to C, named "spm-test S-89 <hex>", ten days out 18:00–21:00, `expected_attendance` 1, registration open yesterday to tomorrow (SGT). P has a confirmed booking at V1 and a held booking at V2, both covering its time, and an equipment requirement for 2 of an equipment pool E (quantity 3).
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`; as W, `POST /api/event-registrations/events/P/waiting-list`.
+  2. As S, mark V1 unavailable for the whole of P's day (`POST /api/venue-bookings/blocks`).
+  3. Read P through the admin client; as C, `GET /api/venue-bookings?event_id=P`.
+  4. As C, `POST /api/event-requests/P/coordinator-cancellation` `{"reason": "V1 is closed for repairs and no other hall fits."}`.
+  5. Through the admin client, read P and `bookings.bookings` for P. As C, `GET /api/equipment-requirements/availability` for P's window.
+  6. As O, A, W and X in turn, `GET /api/notifications`.
+  7. As C, cancel again with the same body; as O and A, `GET /api/notifications`.
+  8. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`, `201`. 2 → `201`, listing P's V1 booking as affected. 3 → P is still `confirmed`; the V1 booking is still `confirmed` with `requires_alternative_arrangements: true`. 4 → `200`, `"status": "cancelled"`, `"released_bookings": 2`, `"notified_attendees": 2`, `"organiser_notified": true`. 5 → P is `cancelled` with `coordinator_cancellation_reason` the reason above and `coordinator_cancelled_by` C. P has no bookings rows. E shows 3 available. 6 → O has exactly one `event_cancelled_by_coordinator` row for P whose message ends with the reason. A and W each have exactly one `event_cancelled` row for P with S-69's message, without the reason. X has none. 7 → `200`; O and A still have exactly one each. 8 leaves no rows.
+- **Actual:** `201`, `201`; the block listed P's V1 booking as affected; P still `confirmed` with the V1 booking `confirmed` and flagged; the cancel returned `200`, `cancelled`, `released_bookings` 2, `notified_attendees` 2, `organiser_notified` true; P recorded the reason and C; no bookings left; E showed 0 reserved and 3 available; O had exactly one `event_cancelled_by_coordinator` row ending with the reason; A and W one `event_cancelled` row each with S-69's message and no reason; X none; cancelling again `200` with still one row each; no rows left. Passed again on a second run.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s89.py::test_a_closure_flags_and_the_coordinators_cancel_releases_everything_and_notifies_once; `.env.test` stack recreated with `down -v` and `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-89 blocks of `events.sql` and `notifications.sql` applied to dev and test; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; with `tests/integration/composite/event_requests`, `tests/integration/atomic/notifications`, `tests/integration/atomic/events` and `tests/integration/composite/venue_bookings/test_unavailable_periods.py`: 35 passed, 5 skipped

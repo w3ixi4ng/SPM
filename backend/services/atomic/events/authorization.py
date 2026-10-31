@@ -34,6 +34,8 @@ EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({
     "events:update_assigned",
     "events:decide_cancellation",
     "events:view_change_requests",
+    # S-89
+    "events:cancel_assigned",
 })
 
 # Every recognized role may enter its own role dashboard. Add internal-role

@@ -12,6 +12,9 @@ BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
 EQUIPMENT_URL = os.environ["EQUIPMENT_SERVICE_URL"]
 # S-69: an approved cancellation notifies the event's Attendees.
 REGISTRATIONS_URL = os.environ["REGISTRATIONS_SERVICE_URL"]
+# S-89: whether a venue's unavailability still affects one of the event's
+# bookings is worked out by the venue_bookings composite.
+VENUE_BOOKINGS_URL = os.environ["VENUE_BOOKINGS_SERVICE_URL"]
 
 
 def assignment_service_headers() -> dict[str, str]:
@@ -44,3 +47,7 @@ def get_equipment_client() -> httpx.AsyncClient:
 
 def get_registrations_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=REGISTRATIONS_URL, timeout=5.0)
+
+
+def get_venue_bookings_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=VENUE_BOOKINGS_URL, timeout=10.0)

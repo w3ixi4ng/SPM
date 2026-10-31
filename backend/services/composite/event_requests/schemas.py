@@ -252,6 +252,15 @@ class CancellationDecision(BaseModel):
     reason: str | None = None
 
 
+class CoordinatorCancellation(BaseModel):
+    """S-89: the Coordinator's reason for cancelling. Only the shape is
+    checked here; the events service enforces the rules and answers 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+
+
 class EventChangeValues(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

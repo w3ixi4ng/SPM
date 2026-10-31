@@ -239,3 +239,19 @@ S-69's.
 - **Actual:** Both calls returned the same stored row through an upsert on the deduplication key.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_an_equipment_unavailable_notification_is_accepted_and_idempotent`; 2026-10-30, branch `S-71/notify-coordinator-availability-change`
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Drafted 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`.
+Confirmed by the developer 2026-11-01.
+
+## TC-NOTIFICATIONS-016 — the Organiser's cancellation kind is accepted
+
+- **Scenario:** The inbox accepts S-89's kind, so the Organiser can be told the Coordinator cancelled their event (S-89 AC4).
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` with one row of kind `event_cancelled_by_coordinator`.
+- **Test data:** Recipient `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, event `22222222-2222-4222-8222-222222222222`, event name "Alumni networking evening", message "Your event Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, was cancelled by your Event Coordinator: Hall A is closed for repairs.", key `event_cancelled_by_coordinator:22222222-2222-4222-8222-222222222222:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`.
+- **Expected:** `201` with the row and its kind. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with the row and its kind; `venue_closed` `422`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/notifications/test_app.py::test_the_organisers_cancellation_kind_is_accepted; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`

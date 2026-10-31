@@ -17,17 +17,23 @@ import CoordinatorEventChangePanel from '../components/CoordinatorEventChangePan
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
 import {
+  canCancelForUnavailableVenue,
+  cancelForUnavailableVenue,
   canDecideCancellation,
   cancellationApprovalSummary,
   cancellationApprovedNotice,
   cancellationDecisionErrorMessage,
   cancellationRequestedLabel,
+  coordinatorCancellationErrorMessage,
+  coordinatorCancellationNotice,
+  coordinatorCancelledLabel,
   decideCancellation,
   decideEventRequest,
   eventErrorMessage,
   eventResponseToForm,
   eventStatusMeta,
   getAssignedEventRequest,
+  validateCancellationReason,
   validateDeclineReason,
   previewAssignedEventInformation,
   updateAssignedEventInformation,
@@ -581,7 +587,7 @@ function CancelBookingPanel({ booking, onClose, onCancelled }) {
   )
 }
 
-function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
+function VenueRequests({ eventId, eventStatus, canRequest, notice, onCancelEvent }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
   const [resolving, setResolving] = useState(null)
   const [resolvedNotice, setResolvedNotice] = useState(null)
@@ -778,6 +784,24 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
           })}
         </ul>
         </>
+      )}
+      {onCancelEvent && state.status === 'ready' && canCancelForUnavailableVenue({ status: eventStatus }, state.bookings) && (
+        // S-89: never automatic. Once the Organiser and Coordinator have run
+        // out of alternatives, the Coordinator cancels with a reason.
+        <div className="mt-6 border-t pt-6" style={{ borderColor: C.line }}>
+          <p className="font-ui text-sm max-w-md leading-relaxed" style={{ color: C.inkFaint }}>
+            If you and the Organiser can&apos;t find another venue, you can cancel the event. Its venue bookings,
+            holds and equipment are released, and the Organiser and Attendees are notified.
+          </p>
+          <button
+            type="button"
+            onClick={(e) => onCancelEvent(e.currentTarget)}
+            className="mt-3 px-5 py-3 rounded-sm font-ui font-medium text-sm border transition-colors duration-200"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Cancel event
+          </button>
+        </div>
       )}
       {primaryState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{primaryState.error}</p>}
       <div className="flex flex-wrap items-center gap-4 mt-6">
@@ -1008,6 +1032,136 @@ function CancellationDecisionPanel({ eventId, decision, onClose, onDecided }) {
   )
 }
 
+// S-89: the event the Coordinator cancelled because no alternative venue was
+// found -- when, why, and what the cancel just did.
+function CoordinatorCancellationRecord({ event, notice }) {
+  const label = coordinatorCancelledLabel(event)
+  if (!label) return null
+  return (
+    <section aria-labelledby="coordinator-cancellation-heading" className="border rounded-sm p-7 sm:p-8 mb-8" style={{ borderColor: C.line }}>
+      <h2 id="coordinator-cancellation-heading" className="font-display text-2xl mb-2" style={{ color: C.ink }}>
+        Event cancelled
+      </h2>
+      {notice && (
+        <p role="status" className="font-ui text-sm mb-4" style={{ color: C.green }}>{notice}</p>
+      )}
+      <p className="font-ui text-sm whitespace-pre-wrap max-w-md" style={{ color: C.ink }}>{label}</p>
+    </section>
+  )
+}
+
+function CoordinatorCancelPanel({ eventId, onClose, onCancelled }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState(null)
+  const [sending, setSending] = useState(false)
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    const panel = panelRef.current
+    panel?.querySelector('textarea')?.focus()
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      // Keep focus inside the panel while it is open.
+      const focusable = [...panel.querySelectorAll('button, textarea')].filter((el) => !el.disabled)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  async function send(e) {
+    e.preventDefault()
+    const problem = validateCancellationReason(reason)
+    if (problem) {
+      setError(problem)
+      return
+    }
+    setSending(true)
+    setError(null)
+    try {
+      onCancelled(await cancelForUnavailableVenue(eventId, reason))
+    } catch (failure) {
+      setError(coordinatorCancellationErrorMessage(failure))
+      setSending(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(16,25,43,0.5)' }} onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="coordinator-cancel-title"
+        className="csp-panel-in fixed top-0 right-0 z-50 h-full w-full max-w-md overflow-y-auto border-l p-7 font-ui"
+        style={{ backgroundColor: C.paper, borderColor: C.line }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 id="coordinator-cancel-title" className="font-display text-2xl" style={{ color: C.ink }}>
+            Cancel this event?
+          </h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-sm p-1" style={{ color: C.inkFaint }}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <form onSubmit={send} noValidate className="grid gap-4">
+          <p className="text-sm leading-relaxed" style={{ color: C.inkFaint }}>
+            Every venue booking and hold for this event is removed, its equipment is freed, and the Organiser and
+            every registered or waiting Attendee are notified. The Organiser sees your reason. This can&apos;t be undone.
+          </p>
+          <div>
+            <label htmlFor="coordinator-cancel-reason" className="block text-sm font-medium mb-1.5" style={{ color: C.ink }}>
+              Why is the event being cancelled?
+            </label>
+            <textarea
+              id="coordinator-cancel-reason"
+              rows={5}
+              maxLength={1000}
+              value={reason}
+              onChange={(e) => { setReason(e.target.value); setError(null) }}
+              aria-invalid={Boolean(error)}
+              className="w-full rounded-sm border px-4 py-3 text-sm"
+              style={{ borderColor: C.line, color: C.ink, backgroundColor: C.paper }}
+            />
+          </div>
+          {error && <p role="alert" className="text-sm" style={{ color: C.rose }}>{error}</p>}
+          <button
+            type="submit"
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+            style={{ backgroundColor: C.teal, color: C.paper }}
+          >
+            {sending ? 'Cancelling…' : 'Cancel event'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            className="px-5 py-3 rounded-sm font-medium text-sm border transition-colors duration-200"
+            style={{ borderColor: C.ink, color: C.ink }}
+          >
+            Keep event
+          </button>
+        </form>
+      </div>
+    </>
+  )
+}
+
 function TechnicalSupportAssignment({ eventId, eventStatus }) {
   const [state, setState] = useState({ status: 'loading', assignment: null, error: null })
   const [details, setDetails] = useState('')
@@ -1219,6 +1373,11 @@ export default function EventCoordinatorEventDetail() {
   const [cancellationNotice, setCancellationNotice] = useState(null)
   const [bookingsVersion, setBookingsVersion] = useState(0)
   const decisionTriggerRef = useRef(null)
+  // S-89: the Coordinator's own cancel, and what it did.
+  const [cancelPanelOpen, setCancelPanelOpen] = useState(false)
+  const [coordinatorCancelNotice, setCoordinatorCancelNotice] = useState(null)
+  const cancelTriggerRef = useRef(null)
+  const canCancelEvent = hasPermission(user?.role, PERMISSIONS.CANCEL_ASSIGNED_EVENT)
 
   useEffect(() => {
     if (location.state?.notice) {
@@ -1293,6 +1452,7 @@ export default function EventCoordinatorEventDetail() {
         {state.status === 'ready' && (
           <>
             {isCoordinator && <CoordinatorEventChangePanel eventId={state.event.id} />}
+            <CoordinatorCancellationRecord event={state.event} notice={coordinatorCancelNotice} />
             <CancellationReview
               event={state.event}
               notice={cancellationNotice}
@@ -1404,6 +1564,10 @@ export default function EventCoordinatorEventDetail() {
                   eventStatus={state.event.status}
                   canRequest={showVenueRequest}
                   notice={notice}
+                  onCancelEvent={canCancelEvent ? (trigger) => {
+                    cancelTriggerRef.current = trigger
+                    setCancelPanelOpen(true)
+                  } : null}
                 />
               )}
 
@@ -1467,6 +1631,24 @@ export default function EventCoordinatorEventDetail() {
                 ? cancellationApprovedNotice(released)
                 : 'Request declined. The Organiser can see your reason.',
             )
+            // The bookings list re-reads, so released bookings disappear.
+            setBookingsVersion((version) => version + 1)
+          }}
+        />
+      )}
+
+      {cancelPanelOpen && state.event && (
+        <CoordinatorCancelPanel
+          eventId={state.event.id}
+          onClose={() => {
+            setCancelPanelOpen(false)
+            cancelTriggerRef.current?.focus()
+          }}
+          onCancelled={(result) => {
+            const { released_bookings: _released, notified_attendees: _notified, organiser_notified: _told, ...event } = result
+            setCancelPanelOpen(false)
+            setState({ status: 'ready', event, error: null })
+            setCoordinatorCancelNotice(coordinatorCancellationNotice(result))
             // The bookings list re-reads, so released bookings disappear.
             setBookingsVersion((version) => version + 1)
           }}

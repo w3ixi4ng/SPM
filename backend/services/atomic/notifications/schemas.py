@@ -19,6 +19,8 @@ NotificationKind = Literal[
     "waiting_list_joined",
     "registration_withdrawn",
     "waiting_list_offer_declined",
+    # S-89: the Coordinator cancelled the Organiser's event, with a reason.
+    "event_cancelled_by_coordinator",
 ]
 
 

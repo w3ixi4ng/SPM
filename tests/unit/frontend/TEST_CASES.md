@@ -3034,3 +3034,86 @@ Developer decisions (2026-10-30): "Your registrations" on the Attendee's dashboa
 - **Actual:** "done", "partial", "partial", "inactive".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::each status has its own dot tone; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Story: S-89. Acceptance criteria are recorded with TC-EVENTS-208. On the Coordinator's
+event page (`EventCoordinatorEventDetail.jsx`), a "Cancel event" button appears with the
+venue bookings when a booking needs alternative arrangements. It opens a slide-over
+asking for the reason. These cases cover the helpers in `frontend/src/lib/eventRequests.js`.
+
+Drafted 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`.
+Confirmed by the developer 2026-11-01.
+
+## TC-FRONTEND-284 — the Cancel event action is offered only for a live event with a flagged booking
+
+- **Scenario:** The button appears exactly when the services would accept the cancel (S-89 AC2; developer's answer).
+- **Pre-conditions:** None.
+- **Steps:** Call `canCancelForUnavailableVenue(event, bookings)` for each row.
+- **Test data / Expected:**
+  | event.status | bookings' `requires_alternative_arrangements` | Result |
+  | --- | --- | --- |
+  | `planning` | `[true, false]` | `true` |
+  | `confirmed` | `[true]` | `true` |
+  | `planning` | `[false, false]` | `false` |
+  | `planning` | `[]` | `false` |
+  | `cancelled` | `[true]` | `false` |
+  | `draft` | `[true]` | `false` |
+- **Actual:** true, true, false, false, false, false; only `event_coordinator` holds `events:cancel_assigned`.
+- **Status:** Pass
+- **Evidence:** test_coordinator_cancellation.mjs::the Cancel event action is offered only for a live event with a flagged booking; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Node v24.21.0: 222 passed across `tests/unit/frontend`
+
+## TC-FRONTEND-285 — the reason is required and capped at 1000 characters
+
+- **Scenario:** The panel stops a request the service would refuse with `422` (S-89 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Call `validateCancellationReason` (S-62's, reused) with each value.
+- **Test data:** `""`, `"   "`, `"x" * 1001`, `"V1 is closed for repairs."`.
+- **Expected:** `""` and `"   "` → "Enter a reason for cancelling."; `"x" * 1001` → "Keep the reason to 1000 characters."; the last → `null`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_coordinator_cancellation.mjs::the reason is required and capped at 1000 characters; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Node v24.21.0: 222 passed across `tests/unit/frontend`
+
+## TC-FRONTEND-286 — the success notice says what was released and who was told
+
+- **Scenario:** After cancelling, the Coordinator sees the outcome of AC3 and AC4 in plain words.
+- **Pre-conditions:** None.
+- **Steps:** Call `coordinatorCancellationNotice(result)`.
+- **Test data / Expected:**
+  | `released_bookings`, `notified_attendees` | Message |
+  | --- | --- |
+  | 2, 3 | "Event cancelled. 2 venue bookings released. The Organiser and 3 Attendees were notified." |
+  | 1, 1 | "Event cancelled. 1 venue booking released. The Organiser and 1 Attendee were notified." |
+  | 0, 0 | "Event cancelled. No venue bookings to release. The Organiser was notified." |
+- **Actual:** The three messages exactly.
+- **Status:** Pass
+- **Evidence:** test_coordinator_cancellation.mjs::the success notice says what was released and who was told; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Node v24.21.0: 222 passed across `tests/unit/frontend`
+
+## TC-FRONTEND-287 — errors say what happened and what to do next
+
+- **Scenario:** A refused or partly-finished cancel tells the Coordinator what to do next.
+- **Pre-conditions:** None.
+- **Steps:** Call `coordinatorCancellationErrorMessage(error)` for each.
+- **Test data / Expected:**
+  | error | Message |
+  | --- | --- |
+  | `{status: 409, message: "Only an event with …"}` | the service's message, verbatim |
+  | `{status: 502, message: "The event is cancelled, but … Cancel again to retry."}` | the service's message, verbatim |
+  | `{status: 422}` | "Enter a reason of up to 1000 characters. Nothing was changed." |
+  | `{status: 404}` | "This event was not found or is not assigned to you. Nothing was changed." |
+  | `{status: 401}` | "Your session has expired. Sign in again and retry. Nothing was changed." |
+  | `{status: 0}` | "We couldn't reach the server. Check your connection and try again. Nothing was changed." |
+- **Actual:** Each message exactly.
+- **Status:** Pass
+- **Evidence:** test_coordinator_cancellation.mjs::errors say what happened and what to do next; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Node v24.21.0: 222 passed across `tests/unit/frontend`
+
+## TC-FRONTEND-288 — the cancelled event shows who cancelled it, when, and why
+
+- **Scenario:** The recorded reason is visible on the event afterwards (S-89 AC2).
+- **Pre-conditions:** None.
+- **Steps:** Call `coordinatorCancelledLabel(event)`.
+- **Test data:** `{status: "cancelled", coordinator_cancelled_at: "2026-11-01T06:30:00Z", coordinator_cancellation_reason: "V1 is closed for repairs."}`; and an S-61 cancellation with `coordinator_cancelled_at: null`.
+- **Expected:** First → "You cancelled this event on 1 Nov 2026: V1 is closed for repairs." Second → `null`.
+- **Actual:** "You cancelled this event on 1 Nov 2026: V1 is closed for repairs."; `null`.
+- **Status:** Pass
+- **Evidence:** test_coordinator_cancellation.mjs::the cancelled event shows who cancelled it, when, and why; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Node v24.21.0: 222 passed across `tests/unit/frontend`

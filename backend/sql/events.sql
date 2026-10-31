@@ -1428,3 +1428,38 @@ alter table events.events add constraint events_safety_state_consistent
 
 notify pgrst, 'reload schema';
 -- END S-69 CANCEL A SAFETY-CHECKED EVENT
+
+-- BEGIN S-89 COORDINATOR CANCELLATION
+-- Existing installations: run through END S-89 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving.
+--
+-- When a venue becomes unavailable and no alternative is found, the assigned
+-- Coordinator may cancel the event themselves, with a reason. That is not a
+-- decision on an Organiser's request (S-61), so it is recorded in its own
+-- columns: all null, or all set on a cancelled event with a usable reason.
+alter table events.events
+  add column if not exists coordinator_cancellation_reason text,
+  add column if not exists coordinator_cancelled_by uuid,
+  add column if not exists coordinator_cancelled_at timestamptz;
+
+alter table events.events
+  drop constraint if exists events_coordinator_cancellation_consistent;
+alter table events.events add constraint events_coordinator_cancellation_consistent
+  check (
+    (
+      coordinator_cancellation_reason is null
+      and coordinator_cancelled_by is null
+      and coordinator_cancelled_at is null
+    )
+    or (
+      coordinator_cancellation_reason is not null
+      and btrim(coordinator_cancellation_reason) <> ''
+      and char_length(coordinator_cancellation_reason) <= 1000
+      and coordinator_cancelled_by is not null
+      and coordinator_cancelled_at is not null
+      and status = 'cancelled'
+    )
+  );
+
+notify pgrst, 'reload schema';
+-- END S-89 COORDINATOR CANCELLATION

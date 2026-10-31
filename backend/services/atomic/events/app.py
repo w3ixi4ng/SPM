@@ -15,6 +15,7 @@ from authorization import require_assignment_service, require_permission
 from database import get_db
 from schemas import (
     CancellationDecisionCreate,
+    CoordinatorCancellationCreate,
     CancellationRequestCreate,
     CoordinatorLoad,
     CoordinatorLoadRequest,
@@ -1475,6 +1476,70 @@ def decide_cancellation(
         raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
     _record(
         db, event_id, coordinator_id, "event_coordinator", f"cancellation_{payload.decision}",
+        {"reason": payload.reason},
+    )
+    return result.data[0]
+
+
+_CANCEL_RACED = "This event changed while you were cancelling it. Reload it and try again."
+
+
+@app.post("/events/{event_id}/coordinator-cancellation", response_model=EventRead)
+def cancel_by_coordinator(
+    event_id: UUID,
+    payload: CoordinatorCancellationCreate,
+    user=Depends(require_permission("events:cancel_assigned")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the assigned Coordinator cancels a live event, with a reason,
+    when no alternative venue was found. Only the event changes here; the
+    event_requests composite checks a booking is affected first, then
+    releases the bookings and notifies. A pending Organiser request is
+    closed as approved so it doesn't stay open on a cancelled event."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if existing["status"] == "cancelled" and existing.get("coordinator_cancelled_at"):
+        # Cancelling again is how a failed release or notification is
+        # retried, so it succeeds without writing anything.
+        return existing
+    if existing["status"] not in _CANCELLABLE_STATUSES:
+        raise HTTPException(status_code=409, detail=_NOT_CANCELLABLE)
+
+    now = _submitted_now()
+    changes = {
+        "status": "cancelled",
+        "coordinator_cancellation_reason": payload.reason,
+        "coordinator_cancelled_by": coordinator_id,
+        "coordinator_cancelled_at": now,
+    }
+    pending =existing.get("cancellation_requested_at") and not existing.get("cancellation_decision")
+    if pending:
+        changes.update({
+            "cancellation_decision": "approved",
+            "cancellation_decision_reason": None,
+            "cancellation_decided_by": coordinator_id,
+            "cancellation_decided_at": now,
+        })
+    # Guarded like the S-61 decision: a status change, a reassignment or a new
+    # request from the Organiser between the read and this write matches
+    # nothing instead of being overwritten.
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update(changes)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .in_("status", _CANCELLABLE_STATUSES)
+    )
+    if pending:
+        operation = operation.not_.is_("cancellation_requested_at", "null").is_("cancellation_decision", "null")
+    else:
+        operation = operation.or_("cancellation_requested_at.is.null,cancellation_decision.not.is.null")
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=409, detail=_CANCEL_RACED)
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", "event_cancelled_by_coordinator",
         {"reason": payload.reason},
     )
     return result.data[0]

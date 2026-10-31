@@ -1676,3 +1676,24 @@ withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
 - **Actual:** Chromium: P's row read "Confirmed"; withdrawing showed "You've withdrawn from this event."; the dashboard then had one row for P, linking to `/public/events/P`, reading "Withdrawn on {today SGT}" with no "Confirmed"; Register showed "You're registered for this event."; the row read "Confirmed" again with no "Withdrawn".
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_registration_status.py::test_the_dashboard_shows_a_withdrawal_then_the_place_again[chromium]; full `tests/e2e`: 47 passed, the rest (timeouts across a 23-minute run on the shared test project) all passed on rerun; this journey also passed alone; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Story: S-89. Acceptance criteria are recorded with TC-EVENTS-208. Drafted 2026-11-01 on
+`S-89/coordinator-cancels-event-without-alternative-venue`. Confirmed by the developer
+2026-11-01.
+
+## TC-E2E-269 — a Coordinator cancels an event its closed venue left without a home, and the Organiser sees why
+
+- **Scenario:** In a browser through Kong: the flagged booking shows the Cancel event action. The Coordinator enters a reason in the slide-over and confirms. The page then shows the event cancelled with no venues and the recorded reason, and the Organiser finds a notification carrying the reason (S-89 AC2, AC3, AC4). Only the browser can show the button appearing on the flag and the slide-over.
+- **Pre-conditions:** `.env.test` stack recreated immediately before; the S-89 SQL applied; Chromium. Through the admin client: Organiser O, Coordinator K, Venue Staff S, venue V. Planning event P owned by O and assigned to K, with a confirmed booking at V. V is marked unavailable over P's booking.
+- **Steps:**
+  1. As K, open `/coordinator/events/P`.
+  2. Click "Cancel event", type "V is closed for repairs and no other venue fits.", click "Cancel event" in the panel.
+  3. Reload the page.
+  4. As O, open the notifications inbox.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → the V booking shows its "needs alternative arrangements" flag, and a "Cancel event" button is visible. 2 → the panel closes; the notice reads "Event cancelled. 1 venue booking released. The Organiser was notified."; the status reads Cancelled. 3 → no venue bookings are listed; "You cancelled this event on {today}: V is closed for repairs and no other venue fits." is shown; no "Cancel event" button. 4 → one notification: "Your event {P}, {date}, 6:00 pm – 9:00 pm, was cancelled by your Event Coordinator: V is closed for repairs and no other venue fits."
+- **Actual:** Chromium: the V row read "Needs alternative arrangements" with Cancel event visible; after the slide-over the notice read "Event cancelled. 1 venue booking released. The Organiser was notified."; after reload "You cancelled this event on {today}: …", "No venue requests sent yet." and no Cancel event; no booking rows; O's Notifications region showed the message with the reason. The first run failed in the test, not the feature: it expected the event's date in the "You cancelled this event on" line instead of today's, as the case specifies.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_cancel_event_without_alternative_venue.py::test_a_coordinator_cancels_an_event_its_closed_venue_left_without_a_home[chromium]; `.env.test` stack recreated with `down -v` and `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-89 blocks of `events.sql` and `notifications.sql` applied to dev and test; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; with `test_approve_cancellation.py`, `test_replace_affected_booking.py` and `test_mark_venue_unavailable.py`: 4 passed

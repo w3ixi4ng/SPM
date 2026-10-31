@@ -409,6 +409,11 @@ class EventRead(BaseModel):
     cancellation_decision_reason: str | None = None
     cancellation_decided_by: UUID | None = None
     cancellation_decided_at: datetime | None = None
+    # S-89: the assigned Coordinator cancelled the event themselves because no
+    # alternative venue was found. All null otherwise.
+    coordinator_cancellation_reason: str | None = None
+    coordinator_cancelled_by: UUID | None = None
+    coordinator_cancelled_at: datetime | None = None
     # S-51: off, with no period, unless the Organiser turned it on.
     registration_required: bool = False
     registration_opens_at: datetime | None = None
@@ -549,6 +554,11 @@ class CancellationRequestCreate(BaseModel):
             if not value:
                 raise ValueError("reason is required")
         return value
+
+
+class CoordinatorCancellationCreate(CancellationRequestCreate):
+    """S-89: the Coordinator's reason for cancelling, under S-62's rules. Who
+    cancelled and when are set by the service."""
 
 
 class CancellationDecisionCreate(BaseModel):
@@ -839,6 +849,7 @@ EVENT_HISTORY_ACTIONS: dict[str, str] = {
     "cancellation_requested": "review",
     "cancellation_approved": "review",
     "cancellation_declined": "review",
+    "event_cancelled_by_coordinator": "review",
     "coordinator_assigned": "assignment",
     "reassignment_requested": "assignment",
     "coordinator_reassigned": "assignment",

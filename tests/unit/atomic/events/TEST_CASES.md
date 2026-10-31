@@ -718,6 +718,8 @@ browser-facing routes.
 ## TC-EVENTS-057 — event_coordinator has the view and decide permissions
 
 > **S-61 (2026-10-11):** the expected set now also includes `events:decide_cancellation`.
+>
+> **S-89 (2026-11-01):** and `events:cancel_assigned`, so the assigned Coordinator can cancel an event no alternative venue was found for (TC-EVENTS-208).
 
 - **Scenario:** S-14 adds a second coordinator workflow: deciding a request,
   on top of viewing it.
@@ -3321,3 +3323,100 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Actual:** Missing or forged service credentials were rejected before persistence.
 - **Status:** Pass
 - **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue
+
+Story: S-89 Coordinator Cancels Event Without Alternative Venue.
+
+Acceptance criteria (developer, 2026-11-01):
+1. The system never cancels or rejects an affected event automatically.
+2. After working with the Event Organiser on alternatives, the Coordinator can cancel the event with a recorded reason.
+3. Cancelling releases all of the event's venue bookings, holds and equipment reservations.
+4. The Event Organiser is notified; registered Attendees are notified as in S-69.
+
+Developer's answers, 2026-11-01: only an event with at least one booking still flagged
+as affected by a venue's unavailable period (S-77, not resolved by S-78) can be
+cancelled this way, and the composite checks that flag. Working with the Organiser
+happens outside the system; the reason records it. A pending S-62 request on the same
+event does not block the cancel: it is closed as approved. The Organiser's notification
+carries the reason.
+
+This service records the cancellation: `POST /events/{id}/coordinator-cancellation`
+`{"reason": ...}` sets `status` `cancelled` and records `coordinator_cancellation_reason`,
+`coordinator_cancelled_by` and `coordinator_cancelled_at`, plus an
+`event_cancelled_by_coordinator` history entry. The reason follows the S-62 rules:
+required, trimmed, not blank, at most 1000 characters.
+
+Drafted 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`
+(from `origin/sprint4` `92b230c`). Confirmed by the developer 2026-11-01.
+
+Event E (`22222222-2222-4222-8222-222222222222`) "Alumni networking evening", status
+`planning`, owned by Organiser O, assigned to Coordinator C
+(`cccccccc-cccc-4ccc-8ccc-cccccccccccc`). Reason R = "Hall A is closed for repairs and no
+other hall fits 120 people that evening."
+
+## TC-EVENTS-208 — the assigned Coordinator cancels with a recorded reason
+
+- **Scenario:** The Coordinator cancels E and the reason, who and when are recorded on the event and in its history (S-89 AC2).
+- **Pre-conditions:** Fake storage returns E as above, with no cancellation request. The guarded update returns the updated row.
+- **Steps:** As C, `POST /events/E/coordinator-cancellation` `{"reason": "  R  "}`.
+- **Test data:** As above.
+- **Expected:** `200`, body `"status": "cancelled"`, `"coordinator_cancellation_reason": R` (trimmed), `"coordinator_cancelled_by": C`, `coordinator_cancelled_at` set. The update is guarded on `assigned_coordinator_id = C` and a cancellable status. One history row: actor C, role `event_coordinator`, action `event_cancelled_by_coordinator`, details `{"reason": R}`.
+- **Actual:** `200`, `cancelled`, reason trimmed, by C, at set; write was exactly the four fields, guarded on id, C and a cancellable status; one history row `event_cancelled_by_coordinator` with `{"reason": R}`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_assigned_coordinator_cancels_with_a_recorded_reason; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-209 — a missing, blank or over-long reason is refused
+
+- **Scenario:** No cancellation is recorded without a usable reason (S-89 AC2).
+- **Pre-conditions:** As TC-EVENTS-208.
+- **Steps:** As C, POST each body in turn.
+- **Test data:** `{}`; `{"reason": "   "}`; `{"reason": "x" * 1001}`; `{"reason": R, "cancelled_by": "someone"}`.
+- **Expected:** Each → `422`; storage is never updated and no history row is written.
+- **Actual:** All four bodies `422`; no update, no history row.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_missing_blank_or_over_long_reason_is_refused; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-210 — a pending Organiser request is closed as approved
+
+- **Scenario:** Cancelling an event whose Organiser has a pending S-62 request also decides that request, so it doesn't stay open on a cancelled event (S-89 AC2; developer's answer).
+- **Pre-conditions:** E has `cancellation_requested_at` set, reason "Speaker unavailable", `cancellation_decision` null.
+- **Steps:** As C, POST `{"reason": R}`.
+- **Test data:** As above.
+- **Expected:** `200`; the update also sets `cancellation_decision` `approved`, `cancellation_decided_by` C, `cancellation_decided_at` set, and `cancellation_decision_reason` null. `cancellation_reason` stays "Speaker unavailable". `coordinator_cancellation_reason` is R.
+- **Actual:** `200`; the write also set `cancellation_decision` approved, decided by C at the same time, decision reason null; `cancellation_reason` kept. A declined request was left as it was; a request sent meanwhile made the write match nothing (`409`).
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_pending_organiser_request_is_closed_as_approved, ::test_a_declined_request_is_left_as_it_was, ::test_a_request_sent_meanwhile_makes_the_write_match_nothing; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-211 — only the assigned Coordinator can cancel
+
+- **Scenario:** Nobody else can cancel the event (S-89 AC2).
+- **Pre-conditions:** As TC-EVENTS-208.
+- **Steps:** POST `{"reason": R}` 1. as Coordinator D, who isn't assigned to E; 2. as Organiser O; 3. with no session.
+- **Test data:** D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`.
+- **Expected:** 1 → `404` "Event not found". 2 → `403`. 3 → `401`. Nothing is updated.
+- **Actual:** D `404` "Event not found"; Organiser and other roles `403`; no session `401`; nothing updated.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_coordinator_not_assigned_gets_404, ::test_other_roles_are_403, ::test_no_session_is_401; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-212 — an event that isn't live can't be cancelled
+
+- **Scenario:** Drafts and closed events are refused (S-89 AC2).
+- **Pre-conditions:** E assigned to C, status in turn `draft`, `rejected`, `returned`, `safety_rejected`, and `cancelled` through S-61 (`coordinator_cancelled_at` null).
+- **Steps:** As C, POST `{"reason": R}` for each.
+- **Test data:** As above.
+- **Expected:** Each → `409` "This event can't be cancelled from its current status." Nothing is updated.
+- **Actual:** Each `409` "This event can't be cancelled from its current status."; nothing updated.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_an_event_that_is_not_live_cannot_be_cancelled; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-213 — cancelling again is a no-op so a failed release can be retried
+
+- **Scenario:** The composite retries a failed booking release or notification by cancelling again, so a repeat succeeds without writing anything (S-89 AC3, AC4).
+- **Pre-conditions:** E already `cancelled` with `coordinator_cancelled_by` C and reason R.
+- **Steps:** As C, POST `{"reason": "A different reason"}`.
+- **Test data:** As above.
+- **Expected:** `200` with E unchanged (reason still R); no update and no history row.
+- **Actual:** `200`, reason still R; no update, no history row.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_cancelling_again_is_a_no_op_so_a_failed_release_can_be_retried; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `92b230c`), pre-commit working tree; Python 3.14.4, pytest 9.1.1: 1776 passed and 17 skipped across `tests/unit`
