@@ -23,7 +23,7 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `POST` | `/event-registrations/events/{event_id}/waiting-list` | Attendee | S-50: join a full event's waiting list. |
 | `POST` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: take the place held for the signed-in Attendee, until the event starts. |
 | `DELETE` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: decline it; the Attendee leaves the waiting list and the next in line is invited. |
-| `GET` | `/event-registrations/me/registrations` | Attendee | The events the signed-in Attendee is registered for or waiting for (S-52), soonest first, with each held place's confirmed date, time and primary venue (S-56). |
+| `GET` | `/event-registrations/me/registrations` | Attendee | The events the signed-in Attendee is registered for, waiting for (S-52) or withdrew from (S-58), soonest first, with each held place's confirmed date, time and primary venue (S-56). |
 | `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser, or its assigned Coordinator (S-57) | Who is currently registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
@@ -152,6 +152,7 @@ server's clock, opening is inclusive and closing is exclusive.
     "registered_at": "2026-11-05T04:00:00Z",
     "joined_at": null,
     "position": null,
+    "withdrawn_at": null,
     "details_confirmed": true,
     "venue": "Seminar Room 2-1"
   },
@@ -166,6 +167,22 @@ server's clock, opening is inclusive and closing is exclusive.
     "registered_at": null,
     "joined_at": "2026-11-06T04:00:00Z",
     "position": 2,
+    "withdrawn_at": null,
+    "details_confirmed": true,
+    "venue": null
+  },
+  {
+    "event_id": "99999999-9999-4999-8999-999999999999",
+    "name": "Open lecture",
+    "start_date": "2026-11-28",
+    "start_time": "14:00:00",
+    "end_date": "2026-11-28",
+    "end_time": "16:00:00",
+    "status": "withdrawn",
+    "registered_at": null,
+    "joined_at": null,
+    "position": null,
+    "withdrawn_at": "2026-10-28T02:15:00Z",
     "details_confirmed": true,
     "venue": null
   }
@@ -175,6 +192,13 @@ server's clock, opening is inclusive and closing is exclusive.
 S-52: `status` is `confirmed` for a place and `waitlisted` for a waiting-list
 entry (S-55: `offered` when a freed place is held for it), which has `joined_at` and its place in line instead of
 `registered_at`.
+
+S-58: `withdrawn` for an event the Attendee gave up a place at, or declined
+an offered place for, with `withdrawn_at` (`null` on every other row).
+Registering or joining the waiting list again replaces it: an event appears
+once, as a place, else a waiting-list entry, else a withdrawal. A withdrawn
+row follows the held-place rules below and shows no venue. If withdrawals
+can't be read the route answers `502`, rather than a list missing them.
 
 S-56: `details_confirmed` is `true` while the event is `confirmed`. If a
 significant change sends it back for re-checking (`planning`,

@@ -12,7 +12,12 @@ import {
   organiserStatusMeta,
   organiserTabs,
 } from '../lib/eventRequests.js'
-import { listMyRegistrations, registrationDetails, registrationStatusLabel } from '../lib/registration.js'
+import {
+  listMyRegistrations,
+  registrationDetails,
+  registrationStatusLabel,
+  registrationStatusTone,
+} from '../lib/registration.js'
 
 const C = {
   ink: '#10192B',
@@ -58,6 +63,14 @@ function RegistrationDetails({ registration }) {
       )}
     </>
   )
+}
+
+// S-58: filled green for a secured place, amber while waiting or offered, an
+// outline once withdrawn.
+const STATUS_DOT = {
+  done: { backgroundColor: C.green, borderColor: C.green },
+  partial: { backgroundColor: C.amber, borderColor: C.amber },
+  inactive: { backgroundColor: 'transparent', borderColor: C.inkFaint },
 }
 
 // S-48: the events this Attendee holds a place at, soonest first. S-52: and
@@ -124,8 +137,8 @@ function MyRegistrations() {
               <RegistrationDetails registration={registration} />
               <p className="mt-1 flex items-center gap-2 font-ui text-xs" style={{ color: C.inkFaint }}>
                 <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: registration.status === 'confirmed' ? C.green : C.amber }}
+                  className="w-2 h-2 rounded-full border"
+                  style={STATUS_DOT[registrationStatusTone(registration)]}
                   aria-hidden="true"
                 />
                 {registrationStatusLabel(registration)}

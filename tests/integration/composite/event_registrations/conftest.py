@@ -147,6 +147,8 @@ def make_account(admin, auth_client):
     for user_id in made:
         _delete_user_rows(admin, "registrations", "registrations", "attendee_id", user_id)
         _delete_user_rows(admin, "registrations", "waiting_list", "attendee_id", user_id)
+        # S-58: withdrawing or declining records the Attendee's withdrawal.
+        _delete_user_rows(admin, "registrations", "withdrawals", "attendee_id", user_id)
         # S-49: registering leaves a confirmation in the Attendee's inbox.
         _delete_user_rows(admin, "notifications", "notifications", "recipient_id", user_id)
         admin.auth.admin.delete_user(user_id)

@@ -776,33 +776,43 @@ async def list_my_registrations(
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     user = await _attendee(request, users)
-    places, waiting = await asyncio.gather(
+    places, waiting, withdrawals = await asyncio.gather(
         _json("Registrations", registrations.get(f'/registrations/attendees/{user["id"]}')),
         _json("Registrations", registrations.get(f'/registrations/waiting-list/attendees/{user["id"]}')),
+        _json("Registrations", registrations.get(f'/registrations/withdrawals/attendees/{user["id"]}')),
     )
     held = {row["event_id"] for row in places}
     # S-52: a confirmed place wins should both ever exist for one event.
     waiting = [row for row in waiting if row["event_id"] not in held]
+    # S-58: registering or waiting again replaces an earlier withdrawal.
+    current = held | {row["event_id"] for row in waiting}
+    withdrawals = [row for row in withdrawals if row["event_id"] not in current]
     found, positions = await asyncio.gather(
-        asyncio.gather(*(_attendee_view(row["event_id"], events) for row in [*places, *waiting])),
+        asyncio.gather(
+            *(_attendee_view(row["event_id"], events) for row in [*places, *waiting, *withdrawals])
+        ),
         asyncio.gather(
             *(_place_in_line(row["event_id"], user["id"], registrations) for row in waiting)
         ),
     )
     entries = [
         *({"status": "confirmed", "registered_at": row["created_at"], "joined_at": None,
-           "position": None} for row in places),
+           "position": None, "withdrawn_at": None} for row in places),
         # S-55: an entry a freed place is held for reads "offered".
         *({"status": "offered" if row.get("offered_at") else "waitlisted",
            "registered_at": None, "joined_at": row["created_at"],
-           "position": position} for row, position in zip(waiting, positions)),
+           "position": position, "withdrawn_at": None}
+          for row, position in zip(waiting, positions)),
+        *({"status": "withdrawn", "registered_at": None, "joined_at": None,
+           "position": None, "withdrawn_at": row["withdrawn_at"]} for row in withdrawals),
     ]
     shown = [
         (entry, event)
         for entry, event in zip(entries, found)
-        # A waiting-list entry is listed only while the event is confirmed (S-52).
+        # A waiting-list entry is listed only while the event is confirmed
+        # (S-52); a place, or a withdrawal from one (S-58), whatever its state.
         if event is not None
-        and (entry["status"] == "confirmed" or event["status"] == DETAILS_CONFIRMED)
+        and (entry["status"] in {"confirmed", "withdrawn"} or event["status"] == DETAILS_CONFIRMED)
     ]
     listed = await asyncio.gather(*(_with_details(entry, event, bookings) for entry, event in shown))
     # Soonest event first; an event without dates, or whose details are being

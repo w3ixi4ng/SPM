@@ -3,7 +3,7 @@
 TC-REGISTRATIONS-001..005; S-48 adds 006..007; S-50 adds 008..013 and
 routes 002..004 through the capped insert; S-52 adds 014..015; S-53 adds
 016..019, withdrawing; S-55 adds 020..026, offering a freed place, and
-retires 017.
+retires 017; S-58 adds 027, listing withdrawals.
 """
 
 from types import SimpleNamespace
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from postgrest.exceptions import APIError
 
-from .conftest import ATTENDEE_A, ATTENDEE_B, EVENT_ID, registration_row
+from .conftest import ATTENDEE_A, ATTENDEE_B, EVENT_ID, REGISTRATION_ID, registration_row
 
 
 def _insert(db):
@@ -587,3 +587,38 @@ def test_waiting_list_reads_say_who_holds_an_offer(client, db):
     entry = client.get(f"/registrations/waiting-list/events/{EVENT_ID}/attendees/{C_ATTENDEE}")
     assert entry.status_code == 200
     assert entry.json()["offered_at"] is None
+
+
+# --- TC-REGISTRATIONS-027 -------------------------------------------------
+def test_an_attendees_withdrawals_are_listed(client, db):
+    withdrawal = {
+        "id": REGISTRATION_ID,
+        "event_id": EVENT_ID,
+        "attendee_id": ATTENDEE_A,
+        "withdrawn_at": "2026-10-28T02:15:00+00:00",
+    }
+    _listed(db).execute.return_value = SimpleNamespace(data=[withdrawal])
+
+    response = client.get(f"/registrations/withdrawals/attendees/{ATTENDEE_A}")
+
+    assert response.status_code == 200
+    assert response.json() == [{**withdrawal, "withdrawn_at": "2026-10-28T02:15:00Z"}]
+    db.schema.assert_called_with("registrations")
+    db.schema.return_value.table.assert_called_with("withdrawals")
+    db.schema.return_value.table.return_value.select.return_value.eq.assert_called_with(
+        "attendee_id", ATTENDEE_A
+    )
+    _listed_order = db.schema.return_value.table.return_value.select.return_value.eq.return_value.order
+    _listed_order.assert_called_with("withdrawn_at")
+
+    _listed(db).execute.return_value = SimpleNamespace(data=[])
+    empty = client.get(f"/registrations/withdrawals/attendees/{ATTENDEE_A}")
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    _listed(db).execute.side_effect = RuntimeError("connection reset")
+    failed = client.get(f"/registrations/withdrawals/attendees/{ATTENDEE_A}")
+    assert failed.status_code == 500
+    assert failed.json() == {"detail": "Registration storage unavailable"}
+
+    assert client.get("/registrations/withdrawals/attendees/not-a-uuid").status_code == 422

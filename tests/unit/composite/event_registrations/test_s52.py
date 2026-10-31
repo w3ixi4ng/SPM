@@ -126,14 +126,14 @@ def test_the_attendees_dashboard_list_includes_the_waiting_list(client, services
          "start_date": "2026-11-10", "start_time": "10:00:00",
          "end_date": "2026-11-10", "end_time": "16:00:00",
          "status": "confirmed", "registered_at": "2026-11-02T04:00:00Z",
-         "joined_at": None, "position": None,
+         "joined_at": None, "position": None, "withdrawn_at": None,
          # S-56: G has no confirmed booking; a waiting-list entry shows no venue.
          "details_confirmed": True, "venue": None},
         {"event_id": EVENT_E, "name": "Alumni networking evening",
          "start_date": "2026-11-20", "start_time": "18:00:00",
          "end_date": "2026-11-20", "end_time": "21:00:00",
          "status": "waitlisted", "registered_at": None,
-         "joined_at": A_JOINED, "position": 2,
+         "joined_at": A_JOINED, "position": 2, "withdrawn_at": None,
          "details_confirmed": True, "venue": None},
     ]
     services["registrations"].get.assert_any_call(

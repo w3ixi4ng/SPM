@@ -24,6 +24,7 @@ registration period is open. Its port, 8007, is published for testing.
 | `POST` | `/registrations/withdrawals` | S-53: give up an Attendee's place. S-55: if a place is free, it is offered to (held for) the Attendee who has waited longest, who is not registered. |
 | `POST` | `/registrations/offers/acceptances` | S-55: the invited Attendee takes the place held for them. |
 | `POST` | `/registrations/offers/declines` | S-55: the invited Attendee passes; they leave the waiting list and the place is offered to the next in line. |
+| `GET` | `/registrations/withdrawals/attendees/{attendee_id}` | S-58: every event the Attendee withdrew from or declined an offer for, oldest first. |
 | `GET` | `/health` | Liveness check. |
 | `GET` | `/registrations/health` | Gateway-compatible liveness alias. |
 
@@ -75,6 +76,19 @@ with `offered_at` set, until they accept or decline.
 place, shaped as below. **Decline** (`200` from
 `POST /registrations/offers/declines`): `{"declined": <entry>, "offered": <entry> | null}`,
 the entry removed and the next one offered the place.
+
+**Withdrawals** (`200` from `GET /registrations/withdrawals/attendees/{attendee_id}`;
+`[]` when none): S-58. `registrations.withdraw` and `registrations.decline_offer`
+each record one, in the same locked step. There is one row per Attendee per
+event; withdrawing again from the same event moves `withdrawn_at` forward.
+Registering again does not remove it: the composite shows the newer place
+instead.
+
+```json
+[
+  {"id": "99999999-9999-4999-8999-999999999999", "event_id": "22222222-2222-4222-8222-222222222222", "attendee_id": "33333333-3333-4333-8333-333333333333", "withdrawn_at": "2026-10-28T02:15:00Z"}
+]
+```
 
 ## Response
 

@@ -24,6 +24,7 @@ from schemas import (
     WaitingListRead,
     WithdrawalCreate,
     WithdrawalRead,
+    WithdrawalRecordRead,
 )
 
 app = FastAPI(title="Registrations Service")
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 SCHEMA = "registrations"
 TABLE = "registrations"
 WAITING_LIST = "waiting_list"
+WITHDRAWALS = "withdrawals"
 UNIQUE_VIOLATION = "23505"
 # Raised by registrations.register when the event has no place left.
 EVENT_FULL = "SP050"
@@ -137,6 +139,23 @@ def withdraw(payload: WithdrawalCreate, db: Client = Depends(get_db)):
     if not result.data:
         raise _storage_unavailable()
     return result.data
+
+
+# S-58: every event an Attendee withdrew from, recorded by registrations.withdraw
+# and registrations.decline_offer, for their dashboard.
+@app.get(
+    "/registrations/withdrawals/attendees/{attendee_id}",
+    response_model=list[WithdrawalRecordRead],
+)
+def list_attendee_withdrawals(attendee_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(WITHDRAWALS)
+        .select("*")
+        .eq("attendee_id", str(attendee_id))
+        .order("withdrawn_at")
+    )
+    return _execute(operation).data
 
 
 # S-55: only the invited Attendee's own acceptance registers them.
