@@ -222,16 +222,21 @@ def _check_period(event: dict, now: datetime) -> None:
         raise HTTPException(status_code=409, detail=CLOSED_BY_ORGANISER)
 
 
-def _event_summary(event: dict, venues: list[str]) -> str:
-    """The event, its date and time, and its venue, in the S-49 wording."""
+def _event_when(event: dict) -> str:
+    """The event and its date and time, in the S-49 wording."""
     start_date = date.fromisoformat(event["start_date"])
     end_date = date.fromisoformat(event["end_date"])
     starts = f"{_day(start_date)}, {_clock(time.fromisoformat(event['start_time']))}"
     ends = _clock(time.fromisoformat(event["end_time"]))
     if end_date != start_date:
         ends = f"{_day(end_date)}, {ends}"
+    return f"{event['name']}, {starts} – {ends}"
+
+
+def _event_summary(event: dict, venues: list[str]) -> str:
+    """The event, its date and time, and its venue, in the S-49 wording."""
     where = f"at {', '.join(venues)}" if venues else "venue to be confirmed"
-    return f"{event['name']}, {starts} – {ends}, {where}"
+    return f"{_event_when(event)}, {where}"
 
 
 def _confirmation(event: dict, venues: list[str], user: dict) -> str:
@@ -257,22 +262,19 @@ CONFIRMATION = ("registration_confirmation", _confirmation)
 OFFER = ("waiting_list_offer", _offer)
 
 
-async def _send_notice(
-    notice, event: dict, user: dict, row: dict, bookings, venues, notifications,
-) -> None:
-    """Best effort: the place is already recorded, so a notice that can't be
-    built or stored is logged rather than failing the request that made it."""
-    kind, wording = notice
+async def _store_notice(kind: str, message: str, event: dict, user: dict, row: dict, notifications) -> None:
+    """Best effort: the change is already recorded, so a notice that can't be
+    stored is logged rather than failing the request that made it. Keyed by
+    the row that changed, so each change is notified once."""
+    notification = {
+        "recipient_id": user["id"],
+        "event_id": str(event["id"]),
+        "event_name": event["name"],
+        "kind": kind,
+        "message": message,
+        "deduplication_key": f"{kind}:{row['id']}",
+    }
     try:
-        names = await _venue_names(str(event["id"]), bookings, venues)
-        notification = {
-            "recipient_id": user["id"],
-            "event_id": str(event["id"]),
-            "event_name": event["name"],
-            "kind": kind,
-            "message": wording(event, names, user),
-            "deduplication_key": f"{kind}:{row['id']}",
-        }
         response = await notifications.post(
             "/internal/notifications", json={"notifications": [notification]}
         )
@@ -280,6 +282,44 @@ async def _send_notice(
             logger.error("%s not stored for %s: %s", kind, row["id"], response.status_code)
     except Exception as exc:
         logger.exception("%s not sent for %s", kind, row["id"], exc_info=exc)
+
+
+async def _send_notice(
+    notice, event: dict, user: dict, row: dict, bookings, venues, notifications,
+) -> None:
+    """A notice that names the event's venues. Best effort, like
+    `_store_notice`: a venue lookup that fails is logged too."""
+    kind, wording = notice
+    try:
+        names = await _venue_names(str(event["id"]), bookings, venues)
+        message = wording(event, names, user)
+    except Exception as exc:
+        logger.exception("%s not sent for %s", kind, row["id"], exc_info=exc)
+        return
+    await _store_notice(kind, message, event, user, row, notifications)
+
+
+def _ordinal(n: int) -> str:
+    """1st, 2nd, 3rd, 4th ... 11th, 12th, 13th -- as the S-52 status reads."""
+    suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+# S-74: the Attendee's own status changes that had no notice. None names a
+# venue -- only a held place shows where (S-56), and these are about not
+# holding one.
+def _joined(event: dict, position: int | None) -> str:
+    line = "next in line" if position == 1 else f"{_ordinal(position)} in line"
+    where = f" You're {line}." if position else ""
+    return f"You're on the waiting list for {_event_when(event)}.{where}"
+
+
+def _withdrawn(event: dict) -> str:
+    return f"You've withdrawn from {_event_when(event)}. Your place has been released."
+
+
+def _declined(event: dict) -> str:
+    return f"You've declined the place at {_event_when(event)}, and left the waiting list."
 
 
 @app.get("/event-registrations/events", response_model=list[PublicEvent])
@@ -425,7 +465,12 @@ async def withdraw(
         raise HTTPException(status_code=404, detail=NOT_REGISTERED)
     if response.status_code != 200:
         raise _unavailable("Registrations")
-    await _invite(response.json().get("offered"), event, users, bookings, venues, notifications)
+    result = response.json()
+    # S-74: the Attendee who gave up the place is told it is gone.
+    await _store_notice(
+        "registration_withdrawn", _withdrawn(event), event, user, result["withdrawn"], notifications
+    )
+    await _invite(result.get("offered"), event, users, bookings, venues, notifications)
     return {"event_id": event_id, "registered": False, "registered_at": None}
 
 
@@ -509,7 +554,12 @@ async def decline_offer(
         raise HTTPException(status_code=404, detail=NO_OFFER)
     if response.status_code != 200:
         raise _unavailable("Registrations")
-    await _invite(response.json().get("offered"), event, users, bookings, venues, notifications)
+    result = response.json()
+    # S-74: the Attendee who passed is told they left the waiting list.
+    await _store_notice(
+        "waiting_list_offer_declined", _declined(event), event, user, result["declined"], notifications
+    )
+    await _invite(result.get("offered"), event, users, bookings, venues, notifications)
     return {"event_id": event_id, "registered": False, "registered_at": None}
 
 
@@ -576,10 +626,11 @@ async def join_waiting_list(
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
     registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
     now: datetime = Depends(get_now),
 ):
     """S-50: offered once the event is full, and only while registration
-    would otherwise be open."""
+    would otherwise be open. S-74: the Attendee is told where they stand."""
     user = await _attendee(request, users)
     event = await _published_event(event_id, events)
     _check_period(event, now)
@@ -599,11 +650,16 @@ async def join_waiting_list(
         raise HTTPException(status_code=409, detail=response.json()["detail"])
     if response.status_code != 201:
         raise _unavailable("Registrations")
+    row = response.json()
+    position = await _place_in_line(event_id, user["id"], registrations)
+    await _store_notice(
+        "waiting_list_joined", _joined(event, position), event, user, row, notifications
+    )
     return {
         "event_id": event_id,
         "waitlisted": True,
-        "joined_at": response.json()["created_at"],
-        "position": await _place_in_line(event_id, user["id"], registrations),
+        "joined_at": row["created_at"],
+        "position": position,
     }
 
 

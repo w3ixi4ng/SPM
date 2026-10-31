@@ -106,6 +106,19 @@ A`); none reads `venue to be confirmed`. Any refused or failed `POST` sends
 nothing. If the confirmation can't be built or stored after the place is
 recorded, the `POST` still answers `201` and the failure is only logged.
 
+**Registration updates (S-74).** The Attendee's other status changes are
+notified the same way, to the Attendee who made them, in the same request.
+None names a venue -- only a held place shows where (S-56):
+
+| Change | Kind | Deduplicated on | Message |
+| --- | --- | --- | --- |
+| `POST /events/{id}/waiting-list` | `waiting_list_joined` | the waiting-list entry | "You're on the waiting list for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. You're 2nd in line." (`next in line` when first) |
+| `DELETE /events/{id}/registration` | `registration_withdrawn` | the withdrawn registration | "You've withdrawn from Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. Your place has been released." |
+| `DELETE /events/{id}/waiting-list/offer` | `waiting_list_offer_declined` | the declined entry | "You've declined the place at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, and left the waiting list." |
+
+A refused request sends nothing; a notice that can't be stored is logged and
+the change still stands. Moving up the waiting list is not notified.
+
 | Status | When | `detail` |
 | --- | --- | --- |
 | `401` | Registering or checking without signing in | "Sign in to register for this event." |

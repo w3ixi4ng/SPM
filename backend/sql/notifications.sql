@@ -30,24 +30,25 @@ create table if not exists notifications.notifications (
   constraint notifications_deduplication_key_not_blank
     check (btrim(deduplication_key) <> ''),
   constraint notifications_kind_allowed
-    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'registration_withdrawn', 'event_cancelled'))
+    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined'))
 );
 
--- BEGIN S-69 EVENT CANCELLED
+-- BEGIN S-74 REGISTRATION UPDATES
 -- Upgrade path for an existing notifications table: S-84 added
 -- event_reassignment, S-77 venue_unavailable, S-81 venue_hold_expiry, S-49
 -- registration_confirmation, S-53 waiting_list_promotion, S-55
--- waiting_list_offer, and S-69 event_cancelled. Keep later Sprint 4 kinds in
--- this upgrade list too, so rerunning the complete SQL file never installs an
--- older constraint over rows written by S-71 or registration withdrawal.
--- Safe to run twice; run in BOTH dev and test.
+-- waiting_list_offer, S-69 event_cancelled, and S-74 waiting_list_joined,
+-- registration_withdrawn and waiting_list_offer_declined. Keep S-71's
+-- equipment_unavailable kind too, so rerunning the complete SQL file never
+-- installs an older constraint over newer rows. Safe to run twice; run in
+-- BOTH dev and test.
 alter table notifications.notifications
   drop constraint if exists notifications_kind_allowed;
 alter table notifications.notifications add constraint notifications_kind_allowed
-  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'registration_withdrawn', 'event_cancelled'));
+  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined'));
 
 notify pgrst, 'reload schema';
--- END S-69 EVENT CANCELLED
+-- END S-74 REGISTRATION UPDATES
 
 -- BEGIN S-71 EQUIPMENT AVAILABILITY NOTIFICATION
 -- Existing installations: run this block in BOTH dev and test. Safe to
@@ -56,7 +57,7 @@ notify pgrst, 'reload schema';
 alter table notifications.notifications
   drop constraint if exists notifications_kind_allowed;
 alter table notifications.notifications add constraint notifications_kind_allowed
-  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'registration_withdrawn', 'event_cancelled'));
+  check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined'));
 
 notify pgrst, 'reload schema';
 -- END S-71 EQUIPMENT AVAILABILITY NOTIFICATION

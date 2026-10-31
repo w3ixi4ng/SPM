@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from .conftest import EVENT_ID, ORGANISER, RECIPIENT, authenticate, notification_row
 
 
@@ -342,5 +344,36 @@ def test_an_event_cancellation_is_accepted(client, db):
     refused = client.post(
         "/internal/notifications",
         json={"notifications": [{**EVENT_CANCELLED, "kind": "venue_closed"}]},
+    )
+    assert refused.status_code == 422
+
+
+# --- TC-NOTIFICATIONS-014 ------------------------------------------------------
+@pytest.mark.parametrize(
+    "kind", ["waiting_list_joined", "registration_withdrawn", "waiting_list_offer_declined"]
+)
+def test_the_registration_update_kinds_are_accepted(client, db, kind):
+    row = {
+        "recipient_id": "44444444-4444-4444-8444-444444444444",
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "event_name": "Alumni networking evening",
+        "kind": kind,
+        "message": (
+            "You're on the waiting list for Alumni networking evening, "
+            "20 Nov 2026, 6:00 pm – 9:00 pm. You're next in line."
+        ),
+        "deduplication_key": f"{kind}:77777777-7777-4777-8777-777777777777",
+    }
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.return_value = SimpleNamespace(
+        data=[{**row, "id": 1, "created_at": "2026-11-06T04:00:00Z"}]
+    )
+
+    response = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == kind
+    refused = client.post(
+        "/internal/notifications", json={"notifications": [{**row, "kind": "venue_closed"}]}
     )
     assert refused.status_code == 422

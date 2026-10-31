@@ -43,11 +43,18 @@ OFFER = (
 )
 
 
+# S-74: withdrawing and declining also notify the Attendee who did it. These
+# cases are about the next in line, so they read past that notice; S-74's own
+# cases (test_s74.py) check it.
+OWN_UPDATES = {"registration_withdrawn", "waiting_list_offer_declined"}
+
+
 def _sent_rows(services):
     return [
         row
         for call in services["notifications"].post.call_args_list
         for row in call.kwargs["json"]["notifications"]
+        if row["kind"] not in OWN_UPDATES
     ]
 
 
@@ -157,7 +164,7 @@ def test_a_failed_invitation_keeps_the_withdrawal(client, withdrawing, failure, 
 
     assert result.status_code == 200
     assert result.json() == NOT_HOLDING
-    assert withdrawing["notifications"].post.called is sends
+    assert bool(_sent_rows(withdrawing)) is sends
 
 
 # --- TC-EVENTREGISTRATIONS-056 --------------------------------------------
@@ -317,7 +324,7 @@ def test_declining_with_no_one_else_waiting(client, declining):
 
     assert result.status_code == 200
     assert result.json() == NOT_HOLDING
-    declining["notifications"].post.assert_not_called()
+    assert _sent_rows(declining) == []
 
 
 def test_a_failed_invitation_keeps_the_decline(client, declining):
