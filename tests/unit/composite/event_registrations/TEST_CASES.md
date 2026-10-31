@@ -1120,3 +1120,78 @@ next in line now read past the withdrawing or declining Attendee's own notice.
 - **Actual:** (a) `404` "You're not registered for this event.", (b) `409`, notifications never called; (c) `201`/`200`/`200` for each change with notifications answering `500` and then raising, each failure logged.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s74.py::test_a_refused_change_sends_nothing_and_a_failed_notice_does_not_undo_the_change; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
+
+## S-58 — View My Registration Status
+
+Developer decisions (2026-10-30, interviewed one by one):
+
+- "Your registrations" on the Attendee's dashboard (`GET /me/registrations`)
+  is where status is viewed (AC3). It already shows Confirmed, Waiting list
+  and Place offered (S-48, S-52, S-55). S-58 adds **Withdrawn**.
+- An event the Attendee withdrew from **stays listed** as `"status":
+  "withdrawn"` with `withdrawn_at`, until they register or join the waiting
+  list for it again. Either of those replaces the Withdrawn row. Precedence
+  is: place > waiting-list entry (waitlisted or offered) > withdrawal.
+- Both withdrawing a place (S-53) and declining an offered place (S-55)
+  count as withdrawing.
+- "Most recent state" (AC2) means the status is read fresh every time the
+  dashboard loads. There is no polling while it stays open. Accepting an offer
+  (S-55) therefore reads Confirmed on the next load, which TC-E2E-264 step 8
+  already proves.
+- A withdrawn event follows the confirmed-place rule (S-56): it is listed
+  while the event is visible to Attendees, with its date and time withheld
+  while a significant change is re-checked. Like a waiting-list entry, it
+  shows no venue.
+- My defaults (stated, not asked): the event page is unchanged. It still says
+  "You've withdrawn from this event." once, right after withdrawing.
+  Withdrawals made before the S-58 SQL was applied were never recorded, so
+  they cannot appear.
+
+Every row from this route now also carries `withdrawn_at` (`null` unless
+`status` is `withdrawn`).
+
+## TC-EVENTREGISTRATIONS-070 — an event the Attendee withdrew from reads "withdrawn"
+
+- **Scenario:** An Attendee who gave up their place sees the event in "Your registrations" marked withdrawn, with when (S-58 AC1, AC3).
+- **Pre-conditions:** Attendee A signed in. Registrations fake: no place and no waiting-list entry for A; A's withdrawals `[{"id": W, "event_id": E, "attendee_id": A, "withdrawn_at": "2026-10-28T02:15:00+00:00"}]`. E is `confirmed`, 20 Nov 2026 18:00–21:00, with primary venue "Seminar Room 2-1".
+- **Steps:** `GET /event-registrations/me/registrations`.
+- **Test data:** As above. Variant: A also holds a place at F and has a waiting-list entry for G (`offered_at` null), both `confirmed`.
+- **Expected:** `200`, one row for E: `"status": "withdrawn"`, `"withdrawn_at": "2026-10-28T02:15:00Z"`, `"registered_at": null`, `"joined_at": null`, `"position": null`, `"venue": null`, `"details_confirmed": true`, `start_date` `2026-11-20`, `start_time` `18:00:00`. The bookings fake is not asked for E's venue. Variant: three rows sorted soonest first, F `"confirmed"` and G `"waitlisted"` as before, each with `"withdrawn_at": null`.
+- **Actual:** One row for E, `withdrawn`, `withdrawn_at` "2026-10-28T02:15:00Z", no registered/joined/position/venue, E's date and time, bookings not called; variant three rows with F confirmed and G waitlisted, both `withdrawn_at` null.
+- **Status:** Pass
+- **Evidence:** test_s58.py::test_an_event_the_attendee_withdrew_from_reads_withdrawn, ::test_other_rows_carry_no_withdrawal; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-071 — registering or waiting again replaces "withdrawn"
+
+- **Scenario:** The row shows the most recent state: once the Attendee registers or joins the waiting list again, the event reads that, not Withdrawn, and appears once (S-58 AC2).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-070, with A's withdrawals holding rows for E and F. Registrations fake: A holds a place at E; A has a waiting-list entry for F, with `offered_at` set. E and F are `confirmed`.
+- **Steps:** `GET /event-registrations/me/registrations`.
+- **Test data:** As above.
+- **Expected:** `200`, exactly two rows: E `"status": "confirmed"` and F `"status": "offered"`, both with `"withdrawn_at": null`. No `"withdrawn"` row.
+- **Actual:** Two rows: E `confirmed`, F `offered`, both `withdrawn_at` null; no withdrawn row.
+- **Status:** Pass
+- **Evidence:** test_s58.py::test_registering_or_waiting_again_replaces_withdrawn; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-072 — a withdrawn event follows the event's state
+
+- **Scenario:** A withdrawn row behaves like a held place as the event changes: details are withheld while re-checked, and the event drops out once it is over or cancelled (S-58 AC1, with S-56).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-070, run twice:
+  1. E's attendee view returns E with `status` `planning` (a significant change being re-checked);
+  2. E's attendee view returns `404`.
+- **Steps:** `GET /event-registrations/me/registrations` in each setup.
+- **Test data:** As above.
+- **Expected:** 1 → `200`, one row for E: `"status": "withdrawn"`, `"withdrawn_at"` as before, `"details_confirmed": false`, and `start_date`, `start_time`, `end_date`, `end_time` and `venue` all `null`. 2 → `200` `[]`.
+- **Actual:** 1 → E `withdrawn` with `withdrawn_at`, `details_confirmed` false, dates, times and venue null. 2 → `200` `[]`.
+- **Status:** Pass
+- **Evidence:** test_s58.py::test_a_withdrawn_event_is_listed_while_re_checked_without_details, ::test_a_withdrawn_event_drops_out_once_over_or_cancelled; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## TC-EVENTREGISTRATIONS-073 — the list fails when withdrawals can't be read
+
+- **Scenario:** A list that silently omitted withdrawals would misreport status, so it fails instead (S-58 AC1).
+- **Pre-conditions:** As TC-EVENTREGISTRATIONS-070, with the registrations fake answering `500` for `GET /registrations/withdrawals/attendees/A`.
+- **Steps:** `GET /event-registrations/me/registrations`.
+- **Test data:** As above.
+- **Expected:** `502` `"Registrations service unavailable"`.
+- **Actual:** `502` "Registrations service unavailable" for a `500` and a `503` from the withdrawals read.
+- **Status:** Pass
+- **Evidence:** test_s58.py::test_the_list_fails_when_withdrawals_cant_be_read (2 parametrised); 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree

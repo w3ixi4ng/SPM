@@ -1,7 +1,8 @@
-"""TC-REGISTRATIONS-101..106. Run after backend/sql/registrations.sql on .env.test."""
+"""TC-REGISTRATIONS-101..108. Run after backend/sql/registrations.sql on .env.test."""
 
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -205,5 +206,58 @@ def test_a_freed_place_is_held_for_the_first_in_line_until_they_answer(admin):
     finally:
         places.delete().eq("event_id", event_id).execute()
         waiting.delete().eq("event_id", event_id).execute()
+        # S-58: the withdrawal and the decline are each recorded.
+        admin.schema("registrations").table("withdrawals").delete().eq("event_id", event_id).execute()
     assert places.select("id").eq("event_id", event_id).execute().data == []
     assert waiting.select("id").eq("event_id", event_id).execute().data == []
+
+
+# --- TC-REGISTRATIONS-108 -------------------------------------------------
+def test_withdrawing_and_declining_are_recorded(admin):
+    event_id = str(uuid.uuid4())
+    attendee_a, attendee_b = str(uuid.uuid4()), str(uuid.uuid4())
+    tables = [
+        admin.schema("registrations").table(name)
+        for name in ("registrations", "waiting_list", "withdrawals")
+    ]
+
+    def post(path, attendee_id, **extra):
+        return httpx.post(
+            f"{BASE_URL}/registrations{path}",
+            json={"event_id": event_id, "attendee_id": attendee_id, **extra},
+            timeout=20,
+        )
+
+    def withdrawals(attendee_id):
+        found = httpx.get(f"{BASE_URL}/registrations/withdrawals/attendees/{attendee_id}", timeout=20)
+        assert found.status_code == 200, (
+            f"{found.text} -- check the S-58 block of registrations.sql is applied"
+        )
+        return [row for row in found.json() if row["event_id"] == event_id]
+
+    try:
+        assert post("", attendee_a, capacity=1).status_code == 201
+        assert post("/waiting-list", attendee_b).status_code == 201
+
+        before = datetime.now(timezone.utc)
+        freed = post("/withdrawals", attendee_a, capacity=1)
+        assert freed.status_code == 200, freed.text
+        assert freed.json()["offered"]["attendee_id"] == attendee_b
+        declined = post("/offers/declines", attendee_b, capacity=1)
+        assert declined.status_code == 200, declined.text
+
+        (first,) = withdrawals(attendee_a)
+        first_at = datetime.fromisoformat(first["withdrawn_at"])
+        assert before - timedelta(seconds=30) <= first_at <= datetime.now(timezone.utc)
+        assert len(withdrawals(attendee_b)) == 1
+
+        assert post("", attendee_a, capacity=1).status_code == 201
+        assert post("/withdrawals", attendee_a, capacity=1).status_code == 200
+
+        (again,) = withdrawals(attendee_a)
+        assert datetime.fromisoformat(again["withdrawn_at"]) > first_at
+    finally:
+        for table in tables:
+            table.delete().eq("event_id", event_id).execute()
+    for table in tables:
+        assert table.select("id").eq("event_id", event_id).execute().data == []

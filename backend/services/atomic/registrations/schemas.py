@@ -87,3 +87,13 @@ class WithdrawalRead(BaseModel):
 class OfferDeclineRead(BaseModel):
     declined: WaitingListRead
     offered: WaitingListRead | None
+
+
+class WithdrawalRecordRead(BaseModel):
+    """S-58: an event this Attendee gave up a place (or an offered one) at,
+    and when they last did."""
+
+    id: UUID
+    event_id: UUID
+    attendee_id: UUID
+    withdrawn_at: datetime

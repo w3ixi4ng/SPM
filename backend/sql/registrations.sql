@@ -375,3 +375,125 @@ grant execute on function registrations.decline_offer(uuid, uuid, integer) to se
 
 notify pgrst, 'reload schema';
 -- END S-55 WAITING LIST OFFERS
+
+-- BEGIN S-58 RECORDED WITHDRAWALS
+-- Existing installations: run through END S-58 in BOTH dev and test, after
+-- the S-55 block. Safe to run repeatedly and data-preserving.
+--
+-- A withdrawal used to leave no trace: the place row is deleted. The
+-- Attendee's dashboard now lists the event as "Withdrawn", so giving up a
+-- place (withdraw) or an offered one (decline_offer) records it here, in the
+-- same locked step. One row per Attendee per event; withdrawing again from
+-- the same event moves its withdrawn_at forward.
+
+create table if not exists registrations.withdrawals (
+  id           uuid primary key default gen_random_uuid(),
+  event_id     uuid not null,
+  attendee_id  uuid not null,
+  withdrawn_at timestamptz not null default now(),
+
+  constraint withdrawals_one_per_attendee unique (event_id, attendee_id)
+);
+
+create index if not exists withdrawals_attendee_idx
+  on registrations.withdrawals (attendee_id, withdrawn_at);
+
+grant all on registrations.withdrawals to service_role;
+alter table registrations.withdrawals enable row level security;
+
+-- Records that this Attendee gave up their place at this event.
+create or replace function registrations.record_withdrawal(
+  p_event_id    uuid,
+  p_attendee_id uuid
+)
+returns void
+language sql
+set search_path = ''
+as $$
+  insert into registrations.withdrawals (event_id, attendee_id)
+  values (p_event_id, p_attendee_id)
+  on conflict (event_id, attendee_id) do update set withdrawn_at = now();
+$$;
+
+-- S-55's withdraw, now also recording the withdrawal.
+--   SP053 -- this Attendee holds no place at this event
+-- Returns {"withdrawn": <row>, "offered": <waiting-list row> | null}.
+create or replace function registrations.withdraw(
+  p_event_id    uuid,
+  p_attendee_id uuid,
+  p_capacity    integer
+)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_withdrawn registrations.registrations;
+  v_offered   registrations.waiting_list;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  delete from registrations.registrations
+  where event_id = p_event_id and attendee_id = p_attendee_id
+  returning * into v_withdrawn;
+
+  if v_withdrawn.id is null then
+    raise exception 'not registered' using errcode = 'SP053';
+  end if;
+
+  perform registrations.record_withdrawal(p_event_id, p_attendee_id);
+  v_offered := registrations.offer_next(p_event_id, p_capacity);
+
+  return jsonb_build_object(
+    'withdrawn', to_jsonb(v_withdrawn),
+    'offered', case when v_offered.id is null then null else to_jsonb(v_offered) end
+  );
+end;
+$$;
+
+-- S-55's decline_offer, now also recording the withdrawal.
+--   SP055 -- this Attendee has no open offer for this event
+-- Returns {"declined": <waiting-list row>, "offered": <waiting-list row> | null}.
+create or replace function registrations.decline_offer(
+  p_event_id    uuid,
+  p_attendee_id uuid,
+  p_capacity    integer
+)
+returns jsonb
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_declined registrations.waiting_list;
+  v_offered  registrations.waiting_list;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 50));
+
+  delete from registrations.waiting_list
+  where event_id = p_event_id and attendee_id = p_attendee_id
+    and offered_at is not null
+  returning * into v_declined;
+
+  if v_declined.id is null then
+    raise exception 'no open offer' using errcode = 'SP055';
+  end if;
+
+  perform registrations.record_withdrawal(p_event_id, p_attendee_id);
+  v_offered := registrations.offer_next(p_event_id, p_capacity);
+
+  return jsonb_build_object(
+    'declined', to_jsonb(v_declined),
+    'offered', case when v_offered.id is null then null else to_jsonb(v_offered) end
+  );
+end;
+$$;
+
+revoke all on function registrations.record_withdrawal(uuid, uuid) from public, anon, authenticated;
+revoke all on function registrations.withdraw(uuid, uuid, integer) from public, anon, authenticated;
+revoke all on function registrations.decline_offer(uuid, uuid, integer) from public, anon, authenticated;
+grant execute on function registrations.record_withdrawal(uuid, uuid) to service_role;
+grant execute on function registrations.withdraw(uuid, uuid, integer) to service_role;
+grant execute on function registrations.decline_offer(uuid, uuid, integer) to service_role;
+
+notify pgrst, 'reload schema';
+-- END S-58 RECORDED WITHDRAWALS

@@ -373,6 +373,8 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
         "registered_at": "2026-11-05T04:00:00Z",
         "joined_at": None,
         "position": None,
+        # S-58: only a withdrawn row has a withdrawal time.
+        "withdrawn_at": None,
         # S-56: the details are confirmed, and the place shows its venue.
         "details_confirmed": True,
         "venue": "Seminar Room 2-1",

@@ -1,7 +1,7 @@
-"""TC-EVENTREGISTRATIONS-101..108 (S-55 retired 106). Run with the whole .env.test stack up."""
+"""TC-EVENTREGISTRATIONS-101..111 (S-55 retired 106). Run with the whole .env.test stack up."""
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -563,3 +563,61 @@ def test_each_status_change_reaches_the_attendees_inbox_once(admin, make_account
     assert registrations.select("id").eq("event_id", event_id).execute().data == []
     assert waiting.select("id").eq("event_id", event_id).execute().data == []
     assert events.select("id").eq("id", event_id).execute().data == []
+
+
+# --- TC-EVENTREGISTRATIONS-111 --------------------------------------------
+def test_the_attendees_list_follows_each_change(admin, make_account):
+    organiser = make_account("event_organiser", "spm-test S-58 organiser")
+    first = make_account("attendee", "S-58 Test Attendee A")
+    second = make_account("attendee", "S-58 Test Attendee B")
+    third = make_account("attendee", "S-58 Test Attendee C")
+    now = sgt_now()
+    event_id = confirmed_event(
+        admin, organiser["id"], opens=now - timedelta(days=1), closes=now + timedelta(days=1),
+        expected_attendance=1,
+    )
+    events = admin.schema("events").table("events")
+    notifications = admin.schema("notifications").table("notifications")
+    base = f"{GATEWAY_BASE_URL}/event-registrations"
+    register = f"{base}/events/{event_id}/registration"
+    wait = f"{base}/events/{event_id}/waiting-list"
+    started = datetime.now(timezone.utc)
+
+    def row(account):
+        found = httpx.get(f"{base}/me/registrations", headers=account["headers"], timeout=20)
+        assert found.status_code == 200, (
+            f"{found.text} -- check the S-58 block of registrations.sql is applied"
+        )
+        (only,) = [entry for entry in found.json() if entry["event_id"] == event_id]
+        return only
+
+    try:
+        assert httpx.post(register, headers=first["headers"], timeout=20).status_code == 201
+        a = row(first)
+        assert (a["status"], a["withdrawn_at"]) == ("confirmed", None)
+
+        for account in (second, third):
+            joined = httpx.post(wait, headers=account["headers"], timeout=20)
+            assert joined.status_code == 201, joined.text
+        assert (row(second)["status"], row(second)["position"]) == ("waitlisted", 1)
+        assert (row(third)["status"], row(third)["position"]) == ("waitlisted", 2)
+
+        withdrawn = httpx.delete(register, headers=first["headers"], timeout=20)
+        assert withdrawn.status_code == 200, withdrawn.text
+        a = row(first)
+        assert a["status"] == "withdrawn"
+        assert started - timedelta(seconds=30) <= datetime.fromisoformat(a["withdrawn_at"])
+        assert row(second)["status"] == "offered"
+
+        declined = httpx.delete(f"{wait}/offer", headers=second["headers"], timeout=20)
+        assert declined.status_code == 200, declined.text
+        assert row(second)["status"] == "withdrawn"
+        assert row(third)["status"] == "offered"
+    finally:
+        notifications.delete().eq("event_id", event_id).execute()
+        for name in ("registrations", "waiting_list", "withdrawals"):
+            admin.schema("registrations").table(name).delete().eq("event_id", event_id).execute()
+        events.delete().eq("id", event_id).execute()
+    for name in ("registrations", "waiting_list", "withdrawals"):
+        table = admin.schema("registrations").table(name)
+        assert table.select("id").eq("event_id", event_id).execute().data == []
