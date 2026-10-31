@@ -3000,3 +3000,37 @@ assigned Coordinator's panels get a **Refresh list** button.
 - **Actual:** "No one is currently registered for this event." for `0` and `undefined`; "1 attendee registered", "2 attendees registered".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the empty list says no one is currently registered; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Node 22.16.0: 214 passed across frontend unit
+
+## S-58 — View My Registration Status
+
+Developer decisions (2026-10-30): "Your registrations" on the Attendee's dashboard shows a **Withdrawn** row for an event the Attendee withdrew from or declined an offer for. It reads "Withdrawn on 28 Oct 2026" (the withdrawal date in Singapore time), with the event's name and date/time, no venue, and a grey (`inkFaint`) outline dot. Confirmed keeps its green dot, and Waiting list / Place offered their amber one. Every dot is paired with its text label. Status is read fresh on each load, with no polling. Page components are covered by TC-E2E-268; these cases cover the `frontend/src/lib/` helpers they use.
+
+## TC-FRONTEND-282 — a withdrawn row says so, and when
+
+- **Scenario:** A "Your registrations" row for an event the Attendee withdrew from reads Withdrawn with the date, in Singapore time, and shows when but not where (S-58 AC1).
+- **Steps:** `registrationStatusLabel(row)`; `registrationDetails(row)`.
+- **Test data / Expected:**
+  | `row` | Label | Details |
+  | --- | --- | --- |
+  | `{status: "withdrawn", withdrawn_at: "2026-10-28T02:15:00+00:00", start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", details_confirmed: true}` | "Withdrawn on 28 Oct 2026" | `when` "20 Nov 2026, 6:00 pm to 9:00 pm", `venue` `null` |
+  | `{status: "withdrawn", withdrawn_at: "2026-10-28T17:30:00+00:00"}` | "Withdrawn on 29 Oct 2026" (01:30 SGT the next day) | — |
+  | `{status: "withdrawn", withdrawn_at: null}` | "Withdrawn" | — |
+  | `{status: "confirmed"}` | "Confirmed" (unchanged) | — |
+- **Actual:** "Withdrawn on 28 Oct 2026" with `when` "20 Nov 2026, 6:00 pm to 9:00 pm" and `venue` null; "Withdrawn on 29 Oct 2026"; "Withdrawn"; "Confirmed".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a withdrawn row says so, and when; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## TC-FRONTEND-283 — each status has its own dot tone
+
+- **Scenario:** The dot beside each label distinguishes a secured place, a pending one and a withdrawn one. The label always carries the meaning too (S-58 AC1).
+- **Steps:** `registrationStatusTone(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{status: "confirmed"}` | `"done"` (filled green) |
+  | `{status: "waitlisted", position: 2}` | `"partial"` (filled amber) |
+  | `{status: "offered", position: 1}` | `"partial"` (filled amber) |
+  | `{status: "withdrawn"}` | `"inactive"` (`inkFaint` outline) |
+- **Actual:** "done", "partial", "partial", "inactive".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::each status has its own dot tone; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
