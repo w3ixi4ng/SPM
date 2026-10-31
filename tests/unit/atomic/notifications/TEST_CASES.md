@@ -227,3 +227,18 @@ S-69's.
 - **Actual:** `201` with the row for each of the three kinds; `venue_closed` `422`.
 - **Status:** Pass
 - **Evidence:** test_app.py::test_the_registration_update_kinds_are_accepted; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-NOTIFICATIONS-016 — Organiser decision and change kinds are accepted and deduplicated
+
+- **Scenario:** The persistent inbox accepts each S-63 notification type while retaining the existing kinds and idempotency contract.
+- **Pre-conditions:** Fake notification storage returns the upserted row.
+- **Steps:** Twice `POST /internal/notifications` with the same row for each kind: `event_request_decision`, `venue_booking_decision`, `safety_check_outcome`, and `event_schedule_changed`.
+- **Test data:** Organiser `11111111-1111-4111-8111-111111111111`, event `33333333-3333-4333-8333-333333333333`, name "Autumn Forum", a nonblank outcome message, and a stable key containing the kind and event id.
+- **Expected:** Every call returns `201`; each retry resolves to one stored row. Existing S-71/S-74 kinds remain accepted and an unknown kind remains `422`.
+- **Actual:** Every S-63 kind returned `201` on its first request and exact retry; the stable key remained unchanged. Existing kinds, including `equipment_unavailable`, remained valid.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s63_organiser_notification_kinds_are_accepted_and_idempotent`; 2026-10-31, branch `S-63/notify-organiser-event-decisions-and-changes`; Python 3.12, pytest: 1735 passed and 17 skipped across `tests/unit`.

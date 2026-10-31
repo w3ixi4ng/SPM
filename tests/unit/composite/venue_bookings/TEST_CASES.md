@@ -2123,3 +2123,47 @@ C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
 - **Actual:** As expected.
 - **Status:** Pass.
 - **Evidence:** `test_s82.py::test_a_failed_history_write_does_not_undo_the_venue_action`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation. Numbering starts after S-71's pending TC-VENUEBOOKINGS-126.
+
+### TC-VENUEBOOKINGS-127 — a venue decision tells the Organiser
+
+- **Scenario:** Confirming or rejecting a venue booking produces one Organiser notification.
+- **Pre-conditions:** Venue Staff is authenticated; Events supplies the event's Organiser and name; Bookings saves the decision.
+- **Steps:** Decide once as approved and once as rejected with a reason and alternative.
+- **Expected:** One `venue_booking_decision` row per successful decision names the event, venue and outcome; rejection includes the reason, offered alternative and what requires attention.
+- **Actual:** Approval and rejection each sent one Organiser row; rejection retained its reason, alternative and replacement action.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_staff_decision_forwarded_with_credentials`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+### TC-VENUEBOOKINGS-128 — venue unavailability tells both responsible people
+
+- **Scenario:** An unavailable period affecting a live booking tells its Coordinator and Organiser.
+- **Pre-conditions:** The S-77 affected-booking fixture and an active event with both recipients.
+- **Steps:** Save the block and retry its notification endpoint.
+- **Expected:** Two `venue_unavailable` rows with recipient-specific stable keys. Both name the event and venue; the Organiser's message says to review the event and coordinate a replacement. Retry creates no duplicate.
+- **Actual:** The Coordinator and Organiser each received one row with distinct recipient keys; retry reused the same keys and the Organiser received replacement guidance.
+- **Status:** Pass
+- **Evidence:** `test_unavailable_periods.py::test_each_affected_events_coordinator_and_organiser_are_notified_once` and `test_retrying_notifies_again_with_the_same_keys`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+### TC-VENUEBOOKINGS-129 — unrelated bookings produce no Organiser notice
+
+- **Scenario:** Pending, rejected, nonoverlapping, or other-venue bookings do not create an availability-change notice.
+- **Pre-conditions:** The existing S-77 nonaffected rows.
+- **Steps:** Save each unavailable period.
+- **Expected:** Notifications receives no row for those bookings.
+- **Actual:** Nonaffected bookings produced no notification rows.
+- **Status:** Pass
+- **Evidence:** S-77 nonaffected-period cases in `test_unavailable_periods.py`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+### TC-VENUEBOOKINGS-130 — a failed venue action cannot announce success
+
+- **Scenario:** A refused booking decision sends no Organiser notification.
+- **Pre-conditions:** Bookings answers `404`, `409`, or `422`.
+- **Steps:** Attempt the decision.
+- **Expected:** The mapped error is returned and Notifications is not called.
+- **Actual:** Each refused decision preserved its mapped error without a notification request.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_safe_downstream_errors` and invalid/refused decision cases; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.

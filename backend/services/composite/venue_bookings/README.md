@@ -13,8 +13,8 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `bookings` — `POST /bookings`, `GET /bookings?status=pending`, `GET /bookings?event_id={id}` | Store and list requests |
 | `bookings` — `GET /bookings?venue_id&from&to`, `GET /blocks?venue_id&from&to`, `POST /blocks`, `DELETE /blocks/{id}` | S-30: the availability calendar and venue blocks |
 | `bookings` — `GET /bookings?status=live&from&venue_id`, `GET /blocks/{id}` | S-77: the bookings an unavailable period affects |
-| `events` — `GET /internal/events/assigned-active` | S-77: each affected event's current Coordinator |
-| `notifications` — `POST /internal/notifications` | Tell Coordinators about unavailable periods and tentative-hold expiry |
+| `events` — `GET /internal/events/assigned-active`, `GET /internal/events/{id}/notification-scope` | Current Coordinator and Organiser identities used by affected-booking and decision notifications |
+| `notifications` — `POST /internal/notifications` | Tell Coordinators and Organisers about unavailable periods, decisions, and tentative-hold expiry |
 | `venues` — `GET /venues`; `bookings` — `GET /bookings/{id}`, `POST /bookings/{id}/alternative-resolution` | S-78: replacement venues and resolutions |
 
 Reached through Kong at `/api/venue-bookings`.
@@ -238,6 +238,14 @@ the caller and writes the final decision conditionally on `status=pending`.
 See the [atomic contract](../../atomic/bookings/README.md#s-37-decisions)
 for request/response examples, SQL migration and exact test commands.
 
+S-63 then sends the event's Organiser one idempotent
+`venue_booking_decision` notification. A confirmation identifies the venue
+and says that no action is required. A rejection includes the recorded reason
+and suggested alternative, when supplied, and tells the Organiser to work
+with the Event Coordinator on a replacement. If Events or Notifications is
+unavailable after the booking was saved, the endpoint returns `502`; retrying
+does not duplicate the persisted notice.
+
 Errors use `{"detail":"..."}`: 401 `Not authenticated`; 403 `Permission denied`;
 404 `Booking not found`; 409 `This booking request has already been decided`,
 or an S-76 conflict naming the booking in the way, such as `Can't confirm
@@ -437,10 +445,13 @@ their Coordinators.
 - **Nothing is changed.** No booking is released, rejected or edited, and no
   event is cancelled or written to.
 - **Coordinators are told.** Each affected booking's event's **current**
-  Coordinator, from `GET /internal/events/assigned-active`, gets one
-  `venue_unavailable` notification:
+  Coordinator and owning Organiser, from
+  `GET /internal/events/assigned-active`, each get one `venue_unavailable`
+  notification:
   `"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements."`
   Its deduplication key is `venue_unavailable:<block id>:<booking id>:<recipient id>`,
+  so each recipient gets one row. The Organiser's message also tells them to
+  review the event and work with the Event Coordinator on a replacement.
   sent in batches of at most 20. A booking whose event has no current
   Coordinator is still listed, but nobody is notified about it.
 - **A failure doesn't undo the period.** If the events or notifications

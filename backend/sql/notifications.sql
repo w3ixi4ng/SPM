@@ -30,7 +30,7 @@ create table if not exists notifications.notifications (
   constraint notifications_deduplication_key_not_blank
     check (btrim(deduplication_key) <> ''),
   constraint notifications_kind_allowed
-    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined'))
+    check (kind in ('event_assignment', 'event_reassignment', 'venue_unavailable', 'equipment_unavailable', 'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion', 'waiting_list_offer', 'event_cancelled', 'waiting_list_joined', 'registration_withdrawn', 'waiting_list_offer_declined', 'event_request_decision', 'venue_booking_decision', 'safety_check_outcome', 'event_schedule_changed'))
 );
 
 -- BEGIN S-74 REGISTRATION UPDATES
@@ -48,6 +48,25 @@ alter table notifications.notifications add constraint notifications_kind_allowe
 
 notify pgrst, 'reload schema';
 -- END S-74 REGISTRATION UPDATES
+
+-- BEGIN S-63 ORGANISER DECISIONS AND CHANGES
+-- Existing installations: run this block in BOTH dev and test. It preserves
+-- every previously-supported kind and adds the four S-63 organiser outcomes.
+alter table notifications.notifications
+  drop constraint if exists notifications_kind_allowed;
+alter table notifications.notifications add constraint notifications_kind_allowed
+  check (kind in (
+    'event_assignment', 'event_reassignment', 'venue_unavailable',
+    'equipment_unavailable',
+    'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion',
+    'waiting_list_offer', 'event_cancelled', 'waiting_list_joined',
+    'registration_withdrawn', 'waiting_list_offer_declined',
+    'event_request_decision', 'venue_booking_decision',
+    'safety_check_outcome', 'event_schedule_changed'
+  ));
+
+notify pgrst, 'reload schema';
+-- END S-63 ORGANISER DECISIONS AND CHANGES
 
 -- Every inbox query filters by recipient and shows newest first.
 create index if not exists notifications_recipient_created_idx

@@ -1635,3 +1635,68 @@ O holds an offered place (waiting-list row with `offered_at` set).
 - **Actual:** (a), (b) `502` with the expected detail; (c) `200`, `notified_attendees` 4, the same four deduplication keys.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_requests/test_s69.py::test_a_failed_notification_is_retried_by_approving_again; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-EVENTREQUESTS-129 — every request decision tells its Organiser
+
+- **Scenario:** Approving, rejecting, or returning a submitted request creates one persistent notice for its Organiser.
+- **Pre-conditions:** The Coordinator is authorised; Events saves the selected outcome and returns event `33333333-3333-4333-8333-333333333333`, "Autumn Forum", owned by Organiser `11111111-1111-4111-8111-111111111111`.
+- **Steps:** `POST /event-requests/{id}/decision` once per outcome.
+- **Test data:** Approved; rejected with reason "Date unavailable"; returned with reason "Missing contact" and comment "Add a telephone number".
+- **Expected:** The Events write succeeds first. Notifications receives one `event_request_decision` row naming the event and outcome. Rejected names the reason; returned tells the Organiser to amend and resubmit and includes both guidance fields.
+- **Actual:** All three outcomes produced one Organiser row with the expected event, outcome, reason and action wording.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_each_request_decision_notifies_the_organiser_with_its_action`; 2026-10-31, S-63 branch; full Python unit suite 1735 passed, 17 skipped.
+
+## TC-EVENTREQUESTS-130 — assignment and reassignment still tell the Organiser once
+
+- **Scenario:** S-63 preserves the existing assignment messages while adding the other outcomes.
+- **Pre-conditions:** The existing S-83/S-84 assignment fixtures.
+- **Steps:** Assign, then reassign the event.
+- **Expected:** The Organiser receives exactly one row for each successful action, naming the new Coordinator; stable keys prevent duplicates.
+- **Actual:** Existing assignment and reassignment tests retained one Organiser row per action and stable keys.
+- **Status:** Pass
+- **Evidence:** S-83/S-84 assignment and reassignment tests in the 2026-10-31 full Python unit run: 1735 passed, 17 skipped.
+
+## TC-EVENTREQUESTS-131 — schedule changes distinguish rescheduling and postponement
+
+- **Scenario:** A saved Coordinator date/time change tells the Organiser; a routine edit does not.
+- **Pre-conditions:** The assigned event is editable with `edit_version` 3.
+- **Steps:** Save (a) a different time on the same date, (b) a later date, and (c) contact details only through the composite information route.
+- **Expected:** (a) one `event_schedule_changed` notice saying rescheduled, (b) one saying postponed, each with the old and new window and next-action wording; (c) no notice. The Events response remains authoritative.
+- **Actual:** Same-day movement was labelled rescheduled, a later start was labelled postponed, both windows and the next action were present, and the contact-only edit sent nothing.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_schedule_changes_name_the_old_and_new_time_and_required_attention` and `test_routine_information_edits_do_not_create_a_change_notification`; 2026-10-31 full Python unit run: 1735 passed, 17 skipped.
+
+## TC-EVENTREQUESTS-132 — cancellation tells the Organiser as well as Attendees
+
+- **Scenario:** An approved cancellation creates a separate Organiser notice without changing the existing Attendee count or messages.
+- **Pre-conditions:** The assigned Coordinator approves a pending cancellation; booking release succeeds.
+- **Steps:** `POST /event-requests/{id}/cancellation-decision` with `approved`.
+- **Expected:** One `event_cancelled` row addressed to the Organiser names the event and states it is cancelled; existing Attendee rows remain unchanged and recipients are deduplicated.
+- **Actual:** Approval sent the separate Organiser row, preserved Attendee counting, and reported `organiser_notified: true`.
+- **Status:** Pass
+- **Evidence:** `test_s69.py` cancellation notification cases; 2026-10-31 full Python unit run: 1735 passed, 17 skipped.
+
+## TC-EVENTREQUESTS-133 — unsuccessful actions never announce an outcome
+
+- **Scenario:** A refused or failed Events write cannot produce a misleading Organiser notice.
+- **Pre-conditions:** Events answers `409`, then is unavailable.
+- **Steps:** Attempt the decision and information routes in each state.
+- **Expected:** The composite preserves the mapped error and never calls Notifications.
+- **Actual:** Refused and unavailable Events calls preserved their error and made no Notifications request.
+- **Status:** Pass
+- **Evidence:** `test_s63.py` refused/failed action cases; 2026-10-31 full Python unit run: 1735 passed, 17 skipped.
+
+## TC-EVENTREQUESTS-134 — notification failure never rewrites the saved event
+
+- **Scenario:** Cross-service notification failure is reported without attempting to reverse an authoritative event action.
+- **Pre-conditions:** Events saves successfully; Notifications times out or answers `500`.
+- **Steps:** Save a request decision or schedule change.
+- **Expected:** The response reports Notifications unavailable; Events is called once and no compensating event write occurs.
+- **Actual:** A notification timeout or failure returned controlled `502`; the accepted Events write was made once and was not reversed.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_a_notification_failure_is_reported_after_the_event_was_saved`; 2026-10-31 full Python unit run: 1735 passed, 17 skipped.

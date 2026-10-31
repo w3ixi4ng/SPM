@@ -32,6 +32,8 @@ def profile(user_id=C1, role="event_coordinator"):
 def event(**changes):
     row = {
         "id": EVENT_ID,
+        "name": "Autumn Forum",
+        "organiser_id": "11111111-1111-4111-8111-111111111111",
         "status": "planning",
         "assigned_coordinator_id": C1,
         "technical_support_required": False,

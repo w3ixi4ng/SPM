@@ -106,36 +106,43 @@ def _date_label(value) -> str:
     return f"{day.day} {day:%b %Y}"
 
 
-def message(block: dict, booking: dict) -> str:
+def message(block: dict, booking: dict, *, organiser: bool = False) -> str:
     start, end = bounds(block)
-    return (
+    text = (
         f'{block["venue_name"]} is unavailable from {_date_label(start)} {start:%H:%M} to {_date_label(end)} {end:%H:%M} '
         f'({REASON_LABELS[block["reason"]]}). Your booking on {_date_label(booking["booking_date"])} '
         f'from {str(booking["start_time"])[:5]} to {str(booking["end_time"])[:5]} '
         "needs alternative arrangements."
     )
+    if organiser:
+        text += " Review the event and work with your Event Coordinator to arrange a replacement."
+    return text
 
 
 def notifications(block: dict, affected: list[dict], events: dict[str, dict]) -> list[dict]:
-    """One row per affected booking, to its event's current Coordinator --
-    `events` is the events service's active assignments by event id. A
-    booking whose event has no current Coordinator is still affected, but
-    there is nobody to tell. The key makes a retry create only what is
-    missing."""
+    """Tell both the current Coordinator and Organiser for each affected event."""
     rows = []
     for booking in affected:
         event = events.get(str(booking["event_id"]))
-        recipient = (event or {}).get("assigned_coordinator_id")
-        if not recipient:
+        if not event:
             continue
-        rows.append({
-            "recipient_id": str(recipient),
-            "event_id": str(booking["event_id"]),
-            "event_name": event.get("name") or booking["event_name"],
-            "kind": KIND,
-            "message": message(block, booking),
-            "deduplication_key": f'{KIND}:{block["id"]}:{booking["id"]}:{recipient}',
-        })
+        recipients = [
+            (event.get("assigned_coordinator_id"), False),
+            (event.get("organiser_id"), True),
+        ]
+        seen = set()
+        for recipient, organiser in recipients:
+            if not recipient or str(recipient) in seen:
+                continue
+            seen.add(str(recipient))
+            rows.append({
+                "recipient_id": str(recipient),
+                "event_id": str(booking["event_id"]),
+                "event_name": event.get("name") or booking["event_name"],
+                "kind": KIND,
+                "message": message(block, booking, organiser=organiser),
+                "deduplication_key": f'{KIND}:{block["id"]}:{booking["id"]}:{recipient}',
+            })
     return rows
 
 

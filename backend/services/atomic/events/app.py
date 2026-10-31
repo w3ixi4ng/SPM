@@ -65,6 +65,7 @@ from schemas import (
     HistoryEntryCreate,
     HistoryEntryRead,
     HistoryScopeRead,
+    NotificationScopeRead,
 )
 from security import clear_session_cookies
 from security import get_current_user
@@ -1052,6 +1053,19 @@ def _safety_entry(entry: dict) -> dict | None:
     if not kept:
         return None
     return {**entry, "details": {**entry["details"], "changes": kept}}
+
+
+@app.get("/internal/events/{event_id}/notification-scope", response_model=NotificationScopeRead)
+def read_notification_scope(event_id: UUID, db: Client = Depends(get_db)):
+    """S-63: minimal internal event identity for composite notifications."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,organiser_id,name,status,assigned_coordinator_id")
+        .eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
 
 
 @app.get("/internal/events/{event_id}/history-scope", response_model=HistoryScopeRead)

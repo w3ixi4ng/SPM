@@ -466,3 +466,37 @@ Coordinator".
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-SAFETYCHECKS-031 — approval sends one combined safety-and-confirmation notice
+
+- **Scenario:** Safety approval, which makes the event confirmed, is reported once rather than as two duplicate notices.
+- **Pre-conditions:** An authorised Safety Officer; Events saves `approved` and returns the confirmed event and its Organiser.
+- **Steps:** `POST /safety-checks/{id}/decision` with `approved`.
+- **Expected:** One `safety_check_outcome` row says the Operational Safety Check was approved and the event is confirmed.
+- **Actual:** Approval sent one combined outcome row stating that safety passed and the event is confirmed.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_decision_forwards_verified_officer_and_returns_transition`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-032 — rejected and returned safety outcomes carry actionable comments
+
+- **Scenario:** The Organiser can tell why the check failed and what needs attention.
+- **Pre-conditions:** As TC-SAFETYCHECKS-031.
+- **Steps:** Decide once as `rejected` and once as `changes_requested`, each with reason "Move emergency access equipment".
+- **Expected:** One row per successful decision names the event and outcome, repeats the reason, and gives the appropriate action; stable decision data forms the deduplication key.
+- **Actual:** Rejected and changes-requested outcomes included the saved reason, event, decision type and next action with a stable key.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_decision_forwards_verified_officer_and_returns_transition`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-033 — no saved safety outcome means no notification
+
+- **Scenario:** A refused or unavailable Events write cannot tell the Organiser that an outcome occurred.
+- **Pre-conditions:** Events answers `409` or is unavailable.
+- **Steps:** Attempt the decision.
+- **Expected:** Existing error handling is preserved and Notifications is not called.
+- **Actual:** Refused Events outcomes preserved their status and made no notification write; notification failures after a save returned controlled `502`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_identified_event_errors_are_preserved` and `test_a_notification_failure_is_controlled_after_the_safety_outcome_is_saved`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.

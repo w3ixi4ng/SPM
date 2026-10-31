@@ -58,6 +58,7 @@ get_bookings_client = clients_module.get_bookings_client
 get_notifications_client = clients_module.get_notifications_client
 
 COORDINATOR_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+ORGANISER_ID = "11111111-1111-4111-8111-111111111111"
 STAFF_ID = "abababab-abab-4bab-8bab-abababababab"
 EVENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 VENUE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
@@ -73,6 +74,7 @@ COORDINATOR = {
 # As the events service returns it: times with seconds.
 EVENT = {
     "id": EVENT_ID,
+    "organiser_id": ORGANISER_ID,
     "status": "planning",
     "assigned_coordinator_id": COORDINATOR_ID,
     "name": "Alumni networking evening",
@@ -190,6 +192,14 @@ class Services:
     async def _events_get(self, path, **kwargs):
         if path.startswith("/events/booking-status/"):
             return fake_response(200, {"id": path.rsplit("/", 1)[-1], "status": self.booking_event_status})
+        if path == f"/internal/events/{EVENT_ID}/notification-scope":
+            return fake_response(200, {
+                "id": EVENT_ID,
+                "organiser_id": ORGANISER_ID,
+                "name": EVENT["name"],
+                "status": EVENT["status"],
+                "assigned_coordinator_id": COORDINATOR_ID,
+            })
         assert path in (f"/events/assigned/{EVENT_ID}", f"/events/{EVENT_ID}"), f"unexpected events.get({path!r})"
         return self.event
 

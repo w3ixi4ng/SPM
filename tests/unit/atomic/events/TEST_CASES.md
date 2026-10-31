@@ -3223,6 +3223,21 @@ team-defined lifecycle and concurrency rules for S-59.
 - **Status:** Pass
 - **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
 
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted as the approved supporting contract for S-63 on 2026-10-31 before the
+notification composites were implemented.
+
+## TC-EVENTS-208 — notification composites receive only the event identity they need
+
+- **Scenario:** A trusted composite can resolve the owning Organiser and event title without receiving unrelated event details.
+- **Pre-conditions:** Event `33333333-3333-4333-8333-333333333333` exists with an Organiser, Coordinator, name and status; a second id is missing.
+- **Steps:** `GET /internal/events/{id}/notification-scope` for the existing and missing ids.
+- **Expected:** The existing id returns only `id`, `organiser_id`, `name`, `status`, and `assigned_coordinator_id`; the missing id returns `404 Event not found`.
+- **Actual:** The exact five-field projection was returned, and an empty database result returned the expected `404`.
+- **Status:** Pass
+- **Evidence:** `test_s63.py`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
 ## TC-EVENTS-188 — date, time and duration remain consistent
 
 - **Scenario:** A proposal stores the four existing event date/time fields, with duration derived from their interval.

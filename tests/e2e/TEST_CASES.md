@@ -1644,3 +1644,15 @@ withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
 - **Actual:** Chromium: Registered attendees showed "1 attendee registered", A's name and email and Refresh list; no Close registration button on the page.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_registration_list.py::test_the_assigned_coordinator_sees_the_registration_list[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-E2E-267 — an Organiser sees an actionable returned-event notice
+
+- **Scenario:** The complete browser journey makes a Coordinator's returned decision visible to the correct Organiser.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; an Organiser owns a submitted request assigned to a Coordinator.
+- **Steps:** Sign in as the Coordinator, return the request with a reason and amendment comment, sign out, sign in as the Organiser, and open the dashboard.
+- **Expected:** The notification panel names the event, says it was returned, shows the reason/comment and tells the Organiser to amend and resubmit. Another Organiser cannot see it.
+- **Status:** Not run

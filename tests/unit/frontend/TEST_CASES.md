@@ -2998,3 +2998,27 @@ assigned Coordinator's panels get a **Refresh list** button.
 - **Actual:** "No one is currently registered for this event." for `0` and `undefined`; "1 attendee registered", "2 attendees registered".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the empty list says no one is currently registered; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Node 22.16.0: 214 passed across frontend unit
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-FRONTEND-282 — decision and schedule writes use their notification-owning composites
+
+- **Scenario:** Browser actions travel through the services that can save the event and create the Organiser notification.
+- **Pre-conditions:** Mock fetch records requests.
+- **Steps:** Decide an event request and save assigned-event information.
+- **Expected:** Requests use `/api/event-requests/{id}/decision` and `/api/event-requests/{id}/information`; payloads and credentials are preserved.
+- **Actual:** Both helpers used the credentialled composite routes and preserved their request payloads.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs`; 2026-10-31 Node test run: 215 passed.
+
+## TC-FRONTEND-283 — Organiser notifications remain readable in the existing inbox
+
+- **Scenario:** Every S-63 message is displayed without a special per-kind component.
+- **Pre-conditions:** The Organiser dashboard contains `NotificationPanel`.
+- **Steps:** Render rows for each S-63 kind.
+- **Expected:** The event name, decision/change type, reason and action text remain visible; existing notification kinds are unaffected.
+- **Actual:** Every S-63 row rendered through the existing inbox with all supplied event and action text visible.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs::S-63 organiser outcomes remain readable in the existing inbox`; 2026-10-31 Node test run: 215 passed.

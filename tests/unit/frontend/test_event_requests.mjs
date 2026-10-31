@@ -161,7 +161,7 @@ test('S-18 event information calls use encoded authenticated Kong routes', async
   }
   assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
     ['/api/events/assigned/event%201%2F2/edit-impact', 'POST'],
-    ['/api/events/assigned/event%201%2F2', 'PATCH'],
+    ['/api/event-requests/event%201%2F2/information', 'PATCH'],
   ])
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
 })
@@ -270,7 +270,7 @@ test('eventStatusMeta falls back safely for an unrecognised status', () => {
   assert.match(color, /^#[0-9a-f]{6}$/i)
 })
 
-test('decideEventRequest posts to the events service, not event-requests', async () => {
+test('decideEventRequest posts through the S-63 notification composite', async () => {
   let recorded
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (url, options = {}) => {
@@ -287,7 +287,7 @@ test('decideEventRequest posts to the events service, not event-requests', async
     globalThis.fetch = originalFetch
   }
 
-  assert.equal(recorded.url, '/api/events/event-1/decision')
+  assert.equal(recorded.url, '/api/event-requests/event-1/decision')
   assert.equal(recorded.options.method, 'POST')
   assert.equal(recorded.options.credentials, 'include')
   assert.deepEqual(JSON.parse(recorded.options.body), { decision: 'approved' })
