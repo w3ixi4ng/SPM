@@ -108,3 +108,26 @@ def test_observed_terminal_event_releases_its_hold(client, services, event_statu
         f"/bookings/{BOOKING_ID}/release",
         json={"reason": f"event_{event_status}"}, cookies={},
     )
+
+
+@pytest.mark.parametrize("event_status", ["rejected", "cancelled"])
+def test_released_terminal_event_stays_out_of_later_pending_lists(
+    client, services, event_status
+):
+    services.user = me("venue_staff", id=STAFF_ID)
+    pending = {
+        "id": BOOKING_ID, "event_id": EVENT_ID, "venue_id": VENUE_ID,
+        "booking_date": "2026-11-12", "start_time": "09:00:00",
+        "end_time": "12:00:00", "status": "pending",
+        "hold_release_reason": f"event_{event_status}",
+    }
+    services.pending = fake_response(200, [pending])
+    services.events.get = AsyncMock(return_value=fake_response(
+        200, {"id": EVENT_ID, "status": event_status}
+    ))
+
+    response = client.get("/venue-bookings/pending")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    services.bookings.post.assert_not_called()

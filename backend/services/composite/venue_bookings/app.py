@@ -802,18 +802,27 @@ async def _list(bookings: httpx.AsyncClient, path: str, params: dict) -> list[di
 
 
 async def _release_terminal_holds(rows, events, bookings, cookies):
-    """Release a hold once Venue Staff observe that its authoritative event
-    is rejected or cancelled. A dependency failure is conservative: the
-    calendar/request list fails rather than claiming the slot is available."""
+    """Hide requests for terminal events and release any live hold.
+
+    Releasing a hold moves its audit row back to ``pending``. A later fetch
+    must still check that row's event status, otherwise a rejected or cancelled
+    event reappears as an actionable request after the release response. A
+    dependency failure is conservative: the calendar/request list fails rather
+    than claiming the slot is available.
+    """
     current = []
     for row in rows:
-        if row.get("status") != "held":
+        if row.get("status") not in ("held", "pending"):
+            current.append(row)
+            continue
+        event_id = row.get("event_id")
+        if not event_id:
             current.append(row)
             continue
         event = await _get(
             "Events",
             events,
-            f'/events/booking-status/{row["event_id"]}',
+            f"/events/booking-status/{event_id}",
             cookies=cookies,
         )
         if event.status_code == 404:
@@ -825,15 +834,16 @@ async def _release_terminal_holds(rows, events, bookings, cookies):
         if event_status not in ("rejected", "cancelled"):
             current.append(row)
             continue
-        released = await _call("Bookings", bookings.post(
-            f'/bookings/{row["id"]}/release',
-            json={"reason": f"event_{event_status}"}, cookies=cookies,
-        ))
-        if released.status_code != 200:
-            raise _unavailable("Bookings")
+        if row.get("status") == "held":
+            released = await _call("Bookings", bookings.post(
+                f'/bookings/{row["id"]}/release',
+                json={"reason": f"event_{event_status}"}, cookies=cookies,
+            ))
+            if released.status_code != 200:
+                raise _unavailable("Bookings")
         # A terminal event must disappear from the actionable list as soon as
-        # its hold is released; returning it as pending would allow re-holding
-        # a rejected or cancelled event.
+        # its hold is released and stay absent on every later fetch. Returning
+        # its resulting pending audit row would allow re-holding it.
     return current
 
 
