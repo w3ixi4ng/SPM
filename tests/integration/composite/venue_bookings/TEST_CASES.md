@@ -467,3 +467,27 @@ in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Events history held `venue_confirmed` by V then `venue_requested` by C, both `venue`, with the booking's id and venue name.
 - **Status:** Pass.
 - **Evidence:** `tests/integration/composite/venue_bookings/test_s82.py::test_venue_actions_reach_the_event_history`; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+## S-90 specification — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
+`origin/sprint4`). Confirmed by the developer 2026-11-01. Needs the S-90 block of
+`backend/sql/bookings.sql` applied to the test project.
+
+## TC-VENUEBOOKINGS-136 — a restore is asked for, confirmed, and recorded through Kong
+
+- **Scenario:** Through Kong against the test project: the venue becomes free again, the Coordinator asks to restore, Venue Staff confirm, and the event keeps its first-choice venue (S-90 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Coordinator K; Venue Staff S; venues V (30 min setup, 45 min turnaround) and W; confirmed event E assigned to K; booking O `confirmed` at V; an unavailable period at V over O's time.
+- **Steps:**
+  1. As K, `POST /api/venue-bookings/O/replacement` for W.
+  2. As K, `POST /api/venue-bookings/O/restore`.
+  3. As S, delete the period: `DELETE /api/venue-bookings/blocks/{id}`.
+  4. As K, `POST /api/venue-bookings/O/restore` again.
+  5. As S, `GET /api/venue-bookings/restores`, then `POST /api/venue-bookings/O/restore-decision` `{"decision": "approved"}`.
+  6. As K, `GET /api/venue-bookings?event_id=E`; read E's history.
+  7. Delete the rows and accounts.
+- **Test data:** Names `spm-test S90 …`.
+- **Expected:** 1 → `201`, R `pending`. 2 → `409` "Studio … is unavailable from …" (the venue isn't free yet). 3 → `204`. 4 → `200`. 5 → the list holds O with R as its replacement; the decision `200`. 6 → O `confirmed`, `requires_alternative_arrangements` false, note "Restored to the original venue"; R `withdrawn`; history has `venue_restore_requested` and `venue_restore_confirmed`. 7 leaves no rows.
+- **Actual:** 1 `201`; 2 `409` "… is unavailable from …"; 3 `204`; 4 `200`; 5 the list held O with R as its replacement, decision `200`; 6 O `confirmed`, not flagged, note "Restored to the original venue", R `withdrawn`, history held both entries. E was `planning` (the shared world fixture), an open status like `confirmed`.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_s90.py::test_a_restore_is_asked_for_confirmed_and_recorded_through_kong; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-90 block of `bookings.sql` applied to dev and test; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; with `tests/integration/atomic/bookings`, `tests/integration/composite/venue_bookings` and S-61's `test_cancellation_decision.py`: 38 passed

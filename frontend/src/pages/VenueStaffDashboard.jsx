@@ -9,12 +9,17 @@ import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
   clashPairLabel,
   clashReviewHeading,
+  decideRestore,
   getClashesToReview,
+  listRestoreRequests,
   listPendingVenueBookings,
   listVenuePreparationBookings,
   pendingListErrorMessage,
   pendingRequestPath,
   pendingRequestSummary,
+  restoreErrorMessage,
+  restoreNotice,
+  restoreRequestSummary,
   updateVenuePreparation,
   VENUE_PREPARATION_OPTIONS,
   venuePreparationErrorMessage,
@@ -204,6 +209,113 @@ function PendingBookings({ bookings, loading, error, onRetry }) {
   )
 }
 
+// S-90: Coordinators asking to keep an original booking now its venue is
+// free again. Shown only while there is one to decide, or the list failed.
+function useRestoreRequests(enabled) {
+  // `shown` stays true once there was something to decide, so the outcome of
+  // the last decision is still on screen after the list empties.
+  const [state, setState] = useState({ rows: [], loading: enabled, error: null, shown: false })
+
+  const load = useCallback(() => listRestoreRequests().then(
+    (rows) => ({ rows, loading: false, error: null }),
+    (error) => ({ rows: [], loading: false, error: pendingListErrorMessage(error) }),
+  ), [])
+  const apply = useCallback((next) => setState((current) => ({
+    ...next, shown: current.shown || next.rows.length > 0,
+  })), [])
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    let active = true
+    load().then((next) => { if (active) apply(next) })
+    return () => { active = false }
+  }, [enabled, load, apply])
+
+  const reload = useCallback(() => load().then(apply), [load, apply])
+  return { ...state, reload }
+}
+
+function RestoreRequests({ state }) {
+  const [deciding, setDeciding] = useState(null)
+  const [outcome, setOutcome] = useState({ notice: null, error: null })
+
+  async function decide(row, decision) {
+    setDeciding(row.id)
+    setOutcome({ notice: null, error: null })
+    try {
+      await decideRestore(row.id, decision)
+      setOutcome({ notice: restoreNotice(decision, row), error: null })
+      await state.reload()
+    } catch (error) {
+      setOutcome({ notice: null, error: restoreErrorMessage(error) })
+    } finally {
+      setDeciding(null)
+    }
+  }
+
+  return (
+    <section className="max-w-3xl mb-12" aria-labelledby="restores-heading">
+      <h2 id="restores-heading" className="font-display text-3xl mb-2" style={{ color: C.ink }}>
+        Restore requests
+      </h2>
+      <p className="font-ui text-sm mb-6 max-w-md" style={{ color: C.inkFaint }}>
+        The original venue is free again. Confirming keeps it and withdraws the replacement request.
+      </p>
+      {state.error && (
+        <div className="font-ui text-sm" style={{ color: C.rose }}>
+          <p role="alert">{state.error}</p>
+          <button type="button" onClick={state.reload} className="underline mt-1" style={{ color: C.teal }}>
+            Try again
+          </button>
+        </div>
+      )}
+      {!state.error && state.rows.length === 0 && (
+        <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No restore requests left to decide.</p>
+      )}
+      {state.rows.length > 0 && (
+        <ul className="divide-y" aria-label="Restore requests" style={{ borderColor: C.line }}>
+          {state.rows.map((row) => {
+            const summary = restoreRequestSummary(row)
+            const busy = deciding === row.id
+            return (
+              <li key={row.id} className="py-4 flex flex-wrap items-center justify-between gap-4" style={{ borderColor: C.line }}>
+                <div className="min-w-0 font-ui">
+                  <p className="text-base font-medium" style={{ color: C.ink }}>{summary.title}</p>
+                  <p className="text-sm" style={{ color: C.inkFaint }}>{summary.when}</p>
+                  <p className="text-sm mt-1" style={{ color: C.ink }}>{summary.keeps}</p>
+                  {summary.withdraws && <p className="text-sm" style={{ color: C.inkFaint }}>{summary.withdraws}</p>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => decide(row, 'approved')}
+                    className="csp-focus px-4 py-2 rounded-sm font-ui text-sm font-medium transition-transform duration-200 hover:-translate-y-0.5"
+                    style={{ backgroundColor: C.teal, color: C.paper }}
+                  >
+                    {busy ? 'Saving…' : 'Confirm restore'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => decide(row, 'declined')}
+                    className="csp-focus px-4 py-2 rounded-sm border font-ui text-sm font-medium transition-colors duration-200"
+                    style={{ borderColor: C.ink, color: C.ink }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {outcome.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{outcome.error}</p>}
+      <p role="status" className="font-ui text-sm mt-4" style={{ color: C.green }}>{outcome.notice}</p>
+    </section>
+  )
+}
+
 // S-76: every venue's clashing bookings, worked out on each load, so a clash
 // stays here until Staff resolve it. Read-only: nothing is changed.
 function useClashesToReview(enabled) {
@@ -307,6 +419,7 @@ export default function VenueStaffDashboard({ role }) {
   const pending = usePendingBookings(canSeePending)
   const preparation = usePreparationBookings(canPrepare)
   const review = useClashesToReview(canSeePending)
+  const restores = useRestoreRequests(canSeePending)
   const { venues, loading, error, reload } = useVenueList()
   const location = useLocation()
   // Set by the venue form after a save. Read once, then cleared from history
@@ -407,6 +520,10 @@ export default function VenueStaffDashboard({ role }) {
         )}
 
         {canPrepare && <PreparationBookings state={preparation} />}
+
+        {canSeePending && !restores.loading && (restores.error || restores.shown) && (
+          <RestoreRequests state={restores} />
+        )}
 
         {canSeePending && !review.loading && (review.error || review.venues.length > 0) && (
           <ClashesToReview venues={review.venues} error={review.error} onRetry={review.reload} />

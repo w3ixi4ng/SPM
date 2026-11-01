@@ -43,7 +43,8 @@ RoomLayout = Literal[
 # S-36 creates pending requests; S-37 records final staff decisions. S-78: a
 # booking whose replacement is confirmed becomes `replaced`. Keep in step with
 # backend/sql/bookings.sql.
-BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced"]
+# S-90: `withdrawn` -- a replacement given up when its original was restored.
+BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced", "withdrawn"]
 VenuePreparationStatus = Literal["not_started", "in_progress", "ready"]
 HoldReleaseReason = Literal[
     "staff_released",
@@ -194,6 +195,10 @@ class BookingRead(BaseModel):
     alternative_resolved_at: datetime | None = None
     alternative_resolved_by: UUID | None = None
     alternative_resolution_note: str | None = None
+    # S-90
+    restore_requested_at: datetime | None = None
+    restore_requested_by: UUID | None = None
+    withdrawn_at: datetime | None = None
 
 
 class VenuePreparationUpdate(BaseModel):
@@ -327,3 +332,19 @@ class AlternativeResolution(BaseModel):
     @classmethod
     def strip_note(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+class RestoreDecision(BaseModel):
+    """S-90: Venue Staff confirm or decline a Coordinator's request to keep
+    the original booking. Who decided and when are not stored on it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]
+
+
+class RestoreOutcome(BaseModel):
+    """S-90: the original as it now stands, and the replacements withdrawn."""
+
+    booking: BookingRead
+    withdrawn: list[BookingRead]

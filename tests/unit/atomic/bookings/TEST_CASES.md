@@ -1258,3 +1258,102 @@ agreed decisions are in the S-61 section of
 - **Expected:** The first save succeeds and the stale save returns `409`.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.py::test_stale_version_is_a_conflict`.
+
+## S-90 — Restore Original Venue Booking
+
+Acceptance criteria (developer, 2026-11-01): restore is offered only while the
+replacement has not been confirmed; the original venue must be free for the
+booking's full effective interval (setup, event and turnaround); Venue Staff
+must confirm the restore before it takes effect; on restore, the pending
+replacement request is withdrawn and the unavailability flag is cleared.
+
+Design agreed with the developer, 2026-11-01. While a replacement (S-78)
+waits, the original stays `held` or `confirmed` and keeps its slot, so
+restoring keeps the original and abandons the replacement:
+
+- The Coordinator asks: the original records `restore_requested_at` and
+  `restore_requested_by`. Refused unless the original venue is free -- no
+  other held or confirmed booking within setup + turnaround (S-75) and no
+  unavailable period over the window it occupies (S-77).
+- Venue Staff confirm: the check runs again; every `pending` or `held`
+  replacement of the original becomes `withdrawn` (new status, with
+  `withdrawn_at`; not live, so it reserves nothing); the original's request
+  clears and it is resolved with the note "Restored to the original venue"
+  (S-78's `alternative_resolved_*`), which silences the flag for every period
+  that existed by then.
+- Venue Staff decline: the request clears; nothing else changes.
+- A replacement confirmed first marks the original `replaced` (S-78's
+  trigger), which also clears any restore request -- restore is then over.
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
+`origin/sprint4`). Confirmed by the developer 2026-11-01.
+
+Booking O: `confirmed` at venue V ("Studio B"), `2026-11-12` 10:00–12:00,
+event E. Replacement R: `pending` at venue W, `replaces_booking_id` O. Gap
+query parameters `setup_minutes=30&turnaround_minutes=45`.
+
+## TC-BOOKINGS-124 — a Coordinator asks to restore an original whose venue is free
+
+- **Scenario:** The request is recorded on the original and nothing else changes yet (S-90 AC3).
+- **Pre-conditions:** Coordinator session. Storage fake: O as above; no live booking or period overlaps 09:30–12:45 at V.
+- **Steps:** `POST /bookings/O/restore-request?setup_minutes=30&turnaround_minutes=45`.
+- **Test data:** As above.
+- **Expected:** `200` with O, `restore_requested_at` set and `restore_requested_by` the Coordinator's id; `status` still `confirmed`. The update is conditional on `status` in (`held`, `confirmed`) and `restore_requested_at` null. R is not touched.
+- **Actual:** `200`, `restore_requested_by` the Coordinator, `status` `confirmed`; R untouched; overlap and period checks called for O itself with `Gap(30, 45)`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_a_coordinator_asks_to_restore_an_original_whose_venue_is_free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-125 — a restore is refused while the venue is not free for the whole window
+
+- **Scenario:** Setup and turnaround count, as for any booking (S-90 AC2).
+- **Pre-conditions:** As TC-BOOKINGS-124, in turn: (a) an unavailable period at V 12:30–14:00 on the day (inside turnaround); (b) another confirmed booking at V 13:00–14:00 (inside the 75-minute gap); (c) the same booking at 13:30–14:00 (outside it).
+- **Steps:** `POST /bookings/O/restore-request` with the gap parameters, once per case.
+- **Test data:** As above.
+- **Expected:** (a) `409` "Studio B is unavailable from 12 Nov 2026 12:30 to 12 Nov 2026 14:00."; (b) `409` "Studio B is already confirmed on 12 Nov 2026 from 13:00 to 14:00. With 30 min setup and 45 min turnaround it is in use until 14:45."; nothing written. (c) `200`. O itself never counts as the clash.
+- **Actual:** (a) and (b) `409` with the expected `detail`, nothing written; (c) `200`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_a_restore_is_refused_while_the_venue_is_not_free_for_the_whole_window; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-126 — only a live original without a request can be restored
+
+- **Scenario:** A replaced, rejected or pending booking has nothing to restore, and a second request is refused (S-90 AC1).
+- **Pre-conditions:** O in turn `replaced`, `rejected`, `pending`; then `confirmed` with `restore_requested_at` already set; then no such booking.
+- **Steps:** `POST /bookings/O/restore-request`.
+- **Test data:** As above.
+- **Expected:** `409` "Only a held or confirmed booking can be restored" for the first three; `409` "A restore has already been requested for this booking" for the fourth; `404` "Booking not found" for the last. Only an `event_coordinator` may ask: Venue Staff get `403`.
+- **Actual:** `409` "Only a held or confirmed booking can be restored" for `replaced`, `rejected`, `pending`; `409` "A restore has already been requested for this booking"; `404`; Venue Staff `403`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_only_a_live_original_without_a_request_can_be_restored; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-127 — confirming a restore withdraws the replacement and resolves the original
+
+- **Scenario:** Venue Staff confirm; the replacement is withdrawn and the original's flag cleared (S-90 AC3, AC4).
+- **Pre-conditions:** Venue Staff session. O `confirmed` with `restore_requested_at` set by Coordinator K; R `pending` and R2 `held`, both replacing O; V free as in TC-BOOKINGS-124.
+- **Steps:** `POST /bookings/O/restore-decision?setup_minutes=30&turnaround_minutes=45` `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `200` `{"booking": <O>, "withdrawn": [<R>, <R2>]}`. R and R2: `status` `withdrawn`, `withdrawn_at` set, updated only where `status` in (`pending`, `held`). O: `restore_requested_at` and `restore_requested_by` null, `alternative_resolved_at` set, `alternative_resolved_by` K, `alternative_resolution_note` "Restored to the original venue", `status` still `confirmed`.
+- **Actual:** `200`; R and R2 `withdrawn` with `withdrawn_at`, an already-rejected replacement untouched; O `confirmed`, request cleared, resolved by K with "Restored to the original venue".
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_confirming_a_restore_withdraws_the_replacement_and_resolves_the_original; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-128 — a restore decision is checked again, and declining changes nothing else
+
+- **Scenario:** The venue may have become busy since the Coordinator asked; a decline only clears the request (S-90 AC2, AC3).
+- **Pre-conditions:** As TC-BOOKINGS-127. (a) A period at V now overlaps 09:30–12:45. (b) Another booking at V is confirmed at 13:00. (c) No restore was requested. (d) O is `replaced` (R was confirmed first). (e) V free; decision `declined`.
+- **Steps:** `POST /bookings/O/restore-decision` once per case.
+- **Test data:** As above.
+- **Expected:** (a) `409` "Studio B is unavailable from …"; (b) `409` "Can't restore this booking: it overlaps …"; (c) `409` "There is no restore request to decide for this booking"; (d) `409` "Only a held or confirmed booking can be restored" -- nothing written in (a)–(d). (e) `200` `{"booking": <O with the request cleared>, "withdrawn": []}`; R untouched; no resolution set. A Coordinator gets `403`.
+- **Actual:** (a)–(d) `409` with the expected `detail`, R still `pending`; (e) `200`, request cleared, R untouched, no checks run; Coordinator `403`; `maybe` `422`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_a_restore_decision_is_checked_again_and_declining_changes_nothing_else; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-129 — Venue Staff list the restore requests waiting for them
+
+- **Scenario:** The bookings with an open restore request, oldest request first (S-90 AC3).
+- **Pre-conditions:** Storage fake returns O.
+- **Steps:** `GET /bookings?restore_requested=true`.
+- **Test data:** As above.
+- **Expected:** `200` `[O]`; the query filters `restore_requested_at` not null and orders by it ascending. Every `BookingRead` also carries `restore_requested_at`, `restore_requested_by` and `withdrawn_at` (null until set), and `status` may be `withdrawn`.
+- **Actual:** `200` `[O]` with the S-90 fields; filtered on `restore_requested_at` not null, ordered by it.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_venue_staff_list_the_restore_requests_waiting_for_them; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`

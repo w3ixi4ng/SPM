@@ -35,6 +35,8 @@ internal-service contract. Atomic services never call the users service.
 | `DELETE` | `/internal/events/{event_id}/bookings` | S-61, Event Coordinator session only: delete every booking for a cancelled event, whatever its status, so its times are available again. Returns `200` `{"deleted": <count>}`; safe to repeat (`{"deleted": 0}`). Called only by the `event_requests` composite after the event is cancelled. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
 | `POST` | `/bookings/{id}/alternative-resolution` | S-78, Coordinators only: record what was arranged instead for a held or confirmed booking. See [S-78](#s-78-replacement-requests-and-resolutions). |
+| `POST` | `/bookings/{id}/restore-request` | S-90, Coordinators only: ask to keep a held or confirmed original, once its venue is free for its whole occupied window. See [S-90](#s-90-restoring-an-original-booking). |
+| `POST` | `/bookings/{id}/restore-decision` | S-90, Venue Staff only: confirm (withdraw its replacements, resolve it) or decline a restore. |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -482,6 +484,47 @@ A hold says `Can't hold this booking: …`; a held booking in the way is
 off. The same detail comes back when the database constraint wins a race.
 `POST /bookings` (a Coordinator's request) keeps the S-75 wording and never
 names another event.
+
+## S-90 restoring an original booking
+
+The venue_bookings composite decides who may ask and when; this service
+checks the venue and writes. Both routes take the venue's current
+`setup_minutes` and `turnaround_minutes` as query parameters, as S-75's do,
+and check the window the booking occupies against every other held or
+confirmed booking there and every unavailable period. The booking never
+clashes with itself.
+
+**`POST /bookings/{id}/restore-request`** (Coordinator session, no body):
+`200` with the booking, `restore_requested_at` and `restore_requested_by` set.
+`409` "Only a held or confirmed booking can be restored", "A restore has
+already been requested for this booking", or the S-30/S-77 clash `detail`;
+`404` "Booking not found"; `403` for any other role.
+
+**`POST /bookings/{id}/restore-decision`** (Venue Staff session), body
+`{"decision": "approved" | "declined"}`: `200`
+`{"booking": <BookingRead>, "withdrawn": [<BookingRead>, ...]}`. Approving
+re-checks the venue (`409` with S-76's staff wording), sets every `pending` or
+`held` booking replacing it to `withdrawn` with `withdrawn_at`, clears the
+request and sets `alternative_resolved_at`, `alternative_resolved_by` (the
+Coordinator who asked) and `alternative_resolution_note` "Restored to the
+original venue". Declining only clears the request. `409` "There is no
+restore request to decide for this booking" or "Only a held or confirmed
+booking can be restored".
+
+**`GET /bookings?restore_requested=true`**: the bookings with an open request,
+oldest request first.
+
+Every `BookingRead` also has `restore_requested_at`, `restore_requested_by`
+and `withdrawn_at`, `null` until set, and `status` may be `withdrawn`.
+
+### S-90 database setup
+
+Copy the block between `BEGIN S-90 RESTORE ORIGINAL VENUE` and
+`END S-90 RESTORE ORIGINAL VENUE` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects, after the S-78 and S-91 blocks. It adds the three columns,
+allows `withdrawn`, and has S-78's trigger clear a restore request when the
+replacement is confirmed. Safe to run twice; no new schema or grant.
 
 ## S-25 venue preparation
 
