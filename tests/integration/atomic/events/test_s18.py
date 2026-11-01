@@ -84,7 +84,7 @@ def test_coordinator_edit_lifecycle_and_audit_round_trip(admin, auth_client):
         )
         assert reviewed.status_code == 200, reviewed.text
         changed = httpx.patch(
-            f"{GATEWAY_BASE_URL}/event-requests/{event_id}/information",
+            f"{GATEWAY_BASE_URL}/event-requests/{event_id}/information/significant",
             headers=headers, json={
                 "edit": significant_edit,
                 "impact_ids": [item["id"] for item in reviewed.json()["impacts"]],

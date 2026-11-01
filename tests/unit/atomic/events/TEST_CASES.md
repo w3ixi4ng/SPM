@@ -3241,7 +3241,7 @@ notification composites were implemented.
 
 ## S-60 — Review Impact of Significant Changes (approved)
 
-Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01, `S-60/review-impact-of-significant-changes`, TEST Supabase and fresh `.env.test` Docker stack for integration/Chromium; local Python and frontend unit suites. See each case evidence. Full regression still has separate S-53 TEST SQL drift.
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Python unit suite 1,783 passed, 17 skipped; frontend unit 219 passed; lint passes with 3 existing warnings; build passes; `git diff --check` clean. TEST Supabase and fresh `.env.test` stack for integration (119 passed, 5 skipped) and Chromium. See each case evidence.
 
 **Shared data:** Organiser O, assigned Coordinator C and unrelated Coordinator D; event E with accepted date `2026-12-04`, time `09:00–12:00`, attendance 120, `edit_version` 4; pending request R proposes `2026-12-05`, attendance 150 and projector quantity 3 instead of 2. The fake Events store holds an immutable snapshot of the row before every mutation.
 

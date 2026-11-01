@@ -48,7 +48,7 @@ Event Coordinators.
 | `POST` | `/event-requests/{event_id}/change-requests/{request_id}/reject` | Assigned Event Coordinator | Reject a pending request with a nonblank reason. |
 | `POST` | `/event-requests/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve` | Assigned Event Coordinator | Record owner-backed venue or Technical Support/Equipment evidence. |
 | `POST` | `/event-requests/{event_id}/information/impact` | Assigned Event Coordinator | S-18 significant-edit impact preview. |
-| `PATCH` | `/event-requests/{event_id}/information` | Assigned Event Coordinator | Save an acknowledged significant S-18 edit through Events. |
+| `PATCH` | `/event-requests/{event_id}/information/significant` | Assigned Event Coordinator | Save an acknowledged significant S-18 edit through Events. |
 | `POST` | `/event-requests/{event_id}/information/impacts/{impact_id}/resolve` | Assigned Event Coordinator | Resolve a significant S-18 edit impact. |
 | `GET` | `/event-requests/unassigned` | Event Coordinator Lead | Lists submitted requests whose `assigned_coordinator_id` is null, oldest submission first, including organiser details. |
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted, active Event Coordinator accounts available for manual selection. |
@@ -132,9 +132,9 @@ through the owner APIs before Events records the action, actor and time.
 An old Venue Staff or Technical Support approval alone cannot clear a flag.
 
 For S-18, `POST .../information/impact` takes the ordinary assigned edit body
-and returns the Events preview plus `impacts`. `PATCH .../information` takes
+and returns the Events preview plus `impacts`. `PATCH .../information/significant` takes
 `{"edit":{...},"impact_ids":[...]}` for a significant edit; routine edits
-still use the existing Events route. `POST .../information/impacts/{impact_id}/resolve`
+use `PATCH .../information`. `POST .../information/impacts/{impact_id}/resolve`
 uses the same impact-resolution body and owner-backed checks.
 All S-60 routes require a signed-in current Coordinator; unrelated callers
 receive `403` or scoped `404`. Invalid bodies receive `422`; unavailable
@@ -413,7 +413,8 @@ the saved decision timestamp and recipient.
 
 `PATCH /event-requests/{event_id}/information` accepts the same S-18 body as
 Events, including required `expected_version`. Routine edits are saved without
-a notification. If the start or end date/time changes, the Organiser receives
+a notification. A significant edit must use the impact preview and
+`PATCH .../information/significant`. If the start or end date/time changes, the Organiser receives
 one `event_schedule_changed` notification showing the previous and new window.
 A later start is labelled postponed; every other schedule change is labelled
 rescheduled. Its key uses the saved event edit version, so a stale retry cannot

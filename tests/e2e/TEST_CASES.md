@@ -1694,7 +1694,7 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 
 ## S-60 — Review Impact of Significant Changes (approved)
 
-Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes`, Chromium against the fresh `.env.test` stack and TEST Supabase. The expanded S-60 journey passed. The full suite had 62 passed, 5 failed, 1 error; targeted S-18/S-82 and venue hold/availability reruns passed. The withdrawal failure reflects this branch's older S-53 code against S-55's intentional offer workflow already present in TEST and `origin/sprint4`. Do not reapply S-53 SQL. See each case evidence.
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Chromium against a fresh `.env.test` stack and TEST Supabase. Full suite: 72 passed, 1 failed. The failure was TC-E2E-300: an equipment resolve saved (200), then the next review read got a transient 502 from Events and the page showed its retryable error. Rerun on its own: passed, with no code change. S-55's withdrawal workflow is integrated; do not reapply S-53 SQL. See each case evidence.
 
 ## TC-E2E-300 — Organiser proposal to new safety check
 
@@ -1705,4 +1705,4 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Expected:** Proposal does not change accepted data. C sees accepted/proposed comparison and item reasons; D cannot. After acceptance E is planning at 150, P=3, old arrangement records/history still exist; safety submission stays blocked while either flag is outstanding. B1 and P resolve independently with durable action/time; only then does fresh safety submission reach `pending_safety_check`, with old approval not reused. No unrelated booking is marked impacted.
 - **Actual:** Organiser proposal, scoped Coordinator review, acceptance, owner-backed re-review, fresh safety submission, acceptance retry and later rejection display passed in Chromium.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]`; 2026-11-01 TEST.
+- **Evidence:** `tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]`; 2026-11-01 TEST Full run: one transient Events 502 on a review read after a saved resolve; isolated rerun passed (`/private/tmp/s60-e2e-s60-rerun.log`).

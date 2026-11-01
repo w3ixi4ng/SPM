@@ -501,7 +501,7 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 
 ## S-60 — Review Impact of Significant Changes (approved)
 
-Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes`, fresh `.env.test` stack and TEST Supabase. Seven targeted S-60 integration cases passed, including real recovery. The full suite had 106 passed, 4 failed, 5 skipped; targeted S-18/S-82 reruns passed. Two withdrawal failures reflect this branch's older S-53 code being tested against S-55's intentional offer workflow already present in TEST and `origin/sprint4`. Do not reapply S-53 SQL. See each case evidence.
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Fresh `.env.test` stack and TEST Supabase. Full integration suite: 119 passed, 5 skipped, 0 failed. Significant S-18 edits now go through `PATCH .../information/significant`; routine edits stay on `PATCH .../information`. S-55's withdrawal workflow is integrated; do not reapply S-53 SQL. See each case evidence.
 
 ## TC-EVENTREQUESTS-310 — real acceptance persists across service boundaries
 
