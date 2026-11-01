@@ -1,6 +1,6 @@
 # Safety Checks service
 
-Composite FastAPI service for S-17, S-63, S-86 and S-87. It owns no database. It
+Composite FastAPI service for S-17, S-63, S-68, S-86 and S-87. It owns no database. It
 authenticates Safety Officers and Event Coordinators through Users, reads the
 current event from Events, enriches safety evidence and feedback, and sends
 lifecycle actions back to the Events atomic owner.
@@ -86,6 +86,16 @@ the Safety Officer's actionable reason and tell the Organiser to work with
 their Event Coordinator. A notification failure is reported as `502` after
 the safety result has been saved; retrying cannot duplicate the notice.
 
+For S-68, a later approval also compares the newly approved attendee-facing
+schedule with the schedule at the preceding approval. If the date or time has
+changed, the service reads the event's current registrations and sends each
+registered Attendee one idempotent `event_schedule_changed` notification. The
+message names the event, gives its new start and end, and confirms that the
+registration remains active. Initial confirmation, rejected or returned safety
+reviews, internal booking problems, edits that restore the previously confirmed
+window, waitlisted people and withdrawn registrations do not produce this
+notification. Notification writes are split into batches of at most 20 rows.
+
 For S-87, only `event_coordinator` passes the composite role check and Events
 also requires the authenticated id to be the event's current assignee. The
 returned detail resolves the recorded Safety Officer identity and exposes the
@@ -170,7 +180,7 @@ missing one, is `404` "Event not found".
 
 The service reads `USERS_SERVICE_URL`, `EVENTS_SERVICE_URL`,
 `VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, `EQUIPMENT_SERVICE_URL`, and
-`NOTIFICATIONS_SERVICE_URL`.
+`NOTIFICATIONS_SERVICE_URL`, and `REGISTRATIONS_SERVICE_URL`.
 Every outbound client has a bounded timeout.
 
 Development:
@@ -186,7 +196,7 @@ Whole test stack and tests:
 docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/composite/safety_checks
-pytest tests/e2e/test_operational_safety_check.py tests/e2e/test_confirm_event.py
+pytest tests/e2e/test_operational_safety_check.py tests/e2e/test_confirm_event.py tests/e2e/test_notify_attendee_event_rescheduled.py
 ```
 
 Before integration or browser tests, apply

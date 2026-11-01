@@ -96,3 +96,24 @@ test('S-63 organiser outcomes remain readable in the existing inbox', () => {
     assert.equal(notificationLink({ kind, event_id: event }), null, kind)
   }
 })
+
+// --- TC-FRONTEND-286 -----------------------------------------------------
+test('S-68 attendee reschedule notices remain readable in the existing inbox', () => {
+  const dashboard = readFileSync(
+    new URL('../../../frontend/src/pages/Dashboard.jsx', import.meta.url),
+    'utf8',
+  )
+  const panel = readFileSync(
+    new URL('../../../frontend/src/components/NotificationPanel.jsx', import.meta.url),
+    'utf8',
+  )
+  const event = '11111111-1111-4111-8111-111111111111'
+
+  assert.match(
+    dashboard,
+    /role === 'event_organiser' \|\| role === 'attendee'\) && <NotificationPanel \/>/,
+  )
+  assert.match(panel, /row\.message/)
+  assert.match(panel, /listNotifications\(\)/)
+  assert.equal(notificationLink({ kind: 'event_schedule_changed', event_id: event }), null)
+})

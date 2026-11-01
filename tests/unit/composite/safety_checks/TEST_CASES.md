@@ -500,3 +500,43 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Refused Events outcomes preserved their status and made no notification write; notification failures after a save returned controlled `502`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_identified_event_errors_are_preserved` and `test_a_notification_failure_is_controlled_after_the_safety_outcome_is_saved`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## S-68 — Notify Attendee — Event Rescheduled
+
+Acceptance criteria and the interpretations below were confirmed by the
+developer on 2026-11-01 before implementation. “Confirmed” means the revised
+event has completed its arrangements and passed the Operational Safety Check
+again. Only current registration rows receive the existing in-app notice;
+waiting-list and withdrawn Attendees do not. Initial confirmation is not a
+reschedule.
+
+## TC-SAFETYCHECKS-034 — reconfirmation tells every currently registered Attendee the new window
+
+- **Scenario:** Final safety approval publishes a revised date/time to all current registrations.
+- **Pre-conditions:** E was previously safety-approved for 18 Nov 2026 09:00–12:00, was edited to 20 Nov 2026 13:00–16:00, and is awaiting a fresh approval; 21 Attendees currently hold registrations.
+- **Steps:** Approve E through `POST /safety-checks/E/decision` and inspect Registration and Notification calls.
+- **Test data:** Event "Autumn Forum"; 21 distinct Attendee ids; notification batch limit 20.
+- **Expected:** Registrations is read only after approval; 21 `event_schedule_changed` rows are sent in batches of 20 and 1. Every row names E, states the complete new start/end window, and has a stable per-Attendee key.
+- **Actual:** All 21 current registration ids received a row in batches of 20 and 1. Every message named the event and full new window, and every recipient had a distinct key tied to the saved approval.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_reconfirmation_notifies_every_current_registration_in_bounded_batches`; 2026-11-01 full Python unit run: 1759 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-035 — internal work and non-schedule outcomes stay private
+
+- **Scenario:** Attendees hear only a confirmed attendee-facing schedule change.
+- **Pre-conditions:** Runs cover initial approval, rejected/changes-requested reviews, a fresh approval after attendance-only work, and a revised event whose schedule was changed back to its last confirmed window.
+- **Steps:** Record each outcome and inspect Registration and attendee Notification calls.
+- **Expected:** No Attendee lookup or reschedule notice occurs. The existing Organiser safety-outcome notice remains unchanged.
+- **Actual:** Initial approval, rejected and returned reviews, non-schedule work, and a schedule restored to its last confirmed window made no registration lookup or Attendee notification write.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_initial_confirmation_does_not_claim_the_event_was_rescheduled`, `test_non_schedule_work_and_a_change_back_to_the_confirmed_window_send_nothing`, and `test_rejected_or_returned_reviews_do_not_read_attendees`; 2026-11-01 full Python unit run: 1759 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-036 — current registrations define the audience and retries cannot duplicate notices
+
+- **Scenario:** Waiting-list, withdrawn and unrelated people are excluded, and repeated processing is idempotent.
+- **Pre-conditions:** Registration storage returns only current holders; the event also has waiting-list, withdrawn and unrelated users outside that response.
+- **Steps:** Reconfirm E, inspect recipients and keys, then attempt the stale decision again.
+- **Expected:** Exactly the current holders are recipients; each key includes the event, saved confirmation and recipient, and the stale decision creates no additional notification.
+- **Actual:** Notification recipients came only from current registration rows, with one stable event/approval/recipient key per row. The real-boundary stale retry returned `409` and left the persisted count unchanged.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_reconfirmation_notifies_every_current_registration_in_bounded_batches` plus integration `test_s68.py::test_real_reconfirmation_notifies_only_current_registrations`; 2026-11-01.

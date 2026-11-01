@@ -99,3 +99,18 @@ S-77/S-87 targeted integration regression run passed all 8 cases.
 - **Actual:** Exactly three entries: `safety_changes_requested` by S with the reason, `safety_submitted` by C, and the attendance edit cut to `expected_attendance` 120→150; the contact phone edit was absent.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/safety_checks/test_s82.py::test_the_safety_officer_sees_the_safety_history; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-68 — Notify Attendee — Event Rescheduled
+
+## TC-SAFETYCHECKS-105 — real reconfirmation notifies only current registrations
+
+- **Scenario:** Events, Registrations and Notifications agree on the audience and the newly confirmed window.
+- **Pre-conditions:** Fresh `.env.test` stack; E was previously approved for 18 Nov, now awaits approval for 20 Nov; Attendees A and B are registered, W is waiting, and X is unrelated.
+- **Steps:** Approve E through Kong, inspect persistent notifications, then repeat the stale decision.
+- **Test data:** New window 20 Nov 2026 13:00–16:00.
+- **Expected:** A and B each have one `event_schedule_changed` notification naming E and the new window. W and X have none. The repeated decision is `409` and creates no duplicate.
+- **Actual:** A and B each received one persistent notice naming the event and `20 Nov 2026, 1:00 pm to 4:00 pm`; W and X received none. Repeating the saved decision returned `409` and the count stayed at two.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_real_reconfirmation_notifies_only_current_registrations`; 2026-11-01 fresh `.env.test` stack verified against the test project; complete Safety Checks integration suite: 5 passed.

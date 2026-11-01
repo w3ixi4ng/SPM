@@ -1,6 +1,7 @@
 """S-86 cross-service Operational Safety Check workflow."""
 
 import logging
+from datetime import date, datetime, time
 from uuid import UUID
 
 import httpx
@@ -13,6 +14,7 @@ from clients import (
     get_equipment_client,
     get_events_client,
     get_notifications_client,
+    get_registrations_client,
     get_users_client,
     get_venues_client,
 )
@@ -24,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 SAFETY_OFFICER_ROLE = "safety_officer"
 EVENT_COORDINATOR_ROLE = "event_coordinator"
+SCHEDULE_FIELDS = ("start_date", "start_time", "end_date", "end_time")
+NOTIFICATION_BATCH = 20
 
 
 @app.exception_handler(RequestValidationError)
@@ -169,6 +173,131 @@ async def _confirmed_venues(
             }
         )
     return enriched
+
+
+def _timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _schedule_value(field: str, value) -> str | None:
+    if value is None:
+        return None
+    if field.endswith("_date"):
+        return date.fromisoformat(str(value)).isoformat()
+    return time.fromisoformat(str(value)).isoformat()
+
+
+def _previous_confirmed_schedule(event: dict, entries: list[dict]) -> dict | None:
+    """Rebuild the attendee-facing window before the latest review cycle.
+
+    Events owns the immutable history. The most recent earlier approval marks
+    the start of this review cycle; the first ``before`` value for each
+    schedule field after it is therefore the last attendee-facing value.
+    """
+    current_decided_at = _timestamp(event.get("safety_decided_at"))
+    if event.get("safety_decision") != "approved" or current_decided_at is None:
+        return None
+    earlier_approvals = [
+        _timestamp(review.get("decided_at"))
+        for review in event.get("safety_review_history", [])
+        if review.get("decision") == "approved"
+        and _timestamp(review.get("decided_at")) is not None
+        and _timestamp(review.get("decided_at")) < current_decided_at
+    ]
+    if not earlier_approvals:
+        return None
+    previous_approval = max(earlier_approvals)
+    current = {field: event.get(field) for field in SCHEDULE_FIELDS}
+    previous = dict(current)
+    first_changes: set[str] = set()
+    for entry in sorted(entries, key=lambda row: (_timestamp(row.get("occurred_at")) or previous_approval)):
+        occurred_at = _timestamp(entry.get("occurred_at"))
+        if occurred_at is None or not (previous_approval < occurred_at <= current_decided_at):
+            continue
+        changes = (entry.get("details") or {}).get("changes") or {}
+        for field in SCHEDULE_FIELDS:
+            if field in changes and field not in first_changes:
+                previous[field] = changes[field].get("before")
+                first_changes.add(field)
+    if not first_changes:
+        return None
+    previous_values = tuple(_schedule_value(field, previous[field]) for field in SCHEDULE_FIELDS)
+    current_values = tuple(_schedule_value(field, current[field]) for field in SCHEDULE_FIELDS)
+    return previous if previous_values != current_values else None
+
+
+def _day(value: str) -> str:
+    moment = date.fromisoformat(str(value))
+    return f"{moment.day} {moment:%b %Y}"
+
+
+def _clock(value: str) -> str:
+    moment = time.fromisoformat(str(value))
+    hour = moment.hour % 12 or 12
+    return f"{hour}:{moment:%M} {'am' if moment.hour < 12 else 'pm'}"
+
+
+def _window_label(event: dict) -> str:
+    start = f"{_day(event['start_date'])}, {_clock(event['start_time'])}"
+    if str(event["end_date"]) == str(event["start_date"]):
+        return f"{start} to {_clock(event['end_time'])}"
+    return f"{start} to {_day(event['end_date'])}, {_clock(event['end_time'])}"
+
+
+async def _notify_registered_attendees_of_reschedule(
+    event: dict,
+    events: httpx.AsyncClient,
+    registrations: httpx.AsyncClient,
+    notifications: httpx.AsyncClient,
+) -> int:
+    """Tell current place holders only after a revised event is confirmed."""
+    reviews = event.get("safety_review_history") or []
+    if event.get("safety_decision") != "approved" or sum(
+        review.get("decision") == "approved" for review in reviews
+    ) < 2:
+        return 0
+    history = await _json(
+        "Events", events.get(f"/internal/events/{event['id']}/history")
+    )
+    if _previous_confirmed_schedule(event, history) is None:
+        return 0
+    current = await _call(
+        "Registrations", registrations.get(f"/registrations/events/{event['id']}")
+    )
+    if current.status_code != 200:
+        raise _unavailable("Registrations")
+    attendee_ids = list(dict.fromkeys(row["attendee_id"] for row in current.json()))
+    message = (
+        f"Event rescheduled: {event['name']} will now take place "
+        f"{_window_label(event)}. Your registration is still active."
+    )
+    rows = [
+        {
+            "recipient_id": attendee_id,
+            "event_id": str(event["id"]),
+            "event_name": event["name"],
+            "kind": "event_schedule_changed",
+            "message": message,
+            "deduplication_key": (
+                f"event_schedule_changed:{event['id']}:{event['safety_decided_at']}:"
+                f"{attendee_id}"
+            ),
+        }
+        for attendee_id in attendee_ids
+    ]
+    for start in range(0, len(rows), NOTIFICATION_BATCH):
+        sent = await _call(
+            "Notifications",
+            notifications.post(
+                "/internal/notifications",
+                json={"notifications": rows[start:start + NOTIFICATION_BATCH]},
+            ),
+        )
+        if sent.status_code != 201:
+            raise _unavailable("Notifications")
+    return len(rows)
 
 
 @app.get("/safety-checks/coordinator/events/{event_id}")
@@ -407,6 +536,7 @@ async def decide_safety_check(
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
     notifications: httpx.AsyncClient = Depends(get_notifications_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     officer = await _safety_officer(request, users)
     event = await _json(
@@ -454,6 +584,9 @@ async def decide_safety_check(
     )
     if sent.status_code != 201:
         raise _unavailable("Notifications")
+    await _notify_registered_attendees_of_reschedule(
+        event, events, registrations, notifications
+    )
     return event
 
 

@@ -17,6 +17,7 @@ os.environ.setdefault("VENUES_SERVICE_URL", "http://venues:8003")
 os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 os.environ.setdefault("EQUIPMENT_SERVICE_URL", "http://equipment:8005")
 os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
+os.environ.setdefault("REGISTRATIONS_SERVICE_URL", "http://registrations:8007")
 
 _MODULE_NAMES = ("app", "clients", "schemas")
 _saved_modules = {name: sys.modules.get(name) for name in _MODULE_NAMES}
@@ -43,6 +44,7 @@ def services():
         "bookings": AsyncMock(),
         "equipment": AsyncMock(),
         "notifications": AsyncMock(),
+        "registrations": AsyncMock(),
     }
     clients["notifications"].post.return_value.status_code = 201
     return clients
@@ -56,6 +58,7 @@ def client(services):
     app_module.app.dependency_overrides[clients_module.get_bookings_client] = lambda: services["bookings"]
     app_module.app.dependency_overrides[clients_module.get_equipment_client] = lambda: services["equipment"]
     app_module.app.dependency_overrides[clients_module.get_notifications_client] = lambda: services["notifications"]
+    app_module.app.dependency_overrides[clients_module.get_registrations_client] = lambda: services["registrations"]
     with TestClient(app_module.app) as test_client:
         yield test_client
     app_module.app.dependency_overrides.clear()

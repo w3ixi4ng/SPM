@@ -3058,3 +3058,18 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Every S-63 row rendered through the existing inbox with all supplied event and action text visible.
 - **Status:** Pass
 - **Evidence:** `test_notifications.mjs::S-63 organiser outcomes remain readable in the existing inbox`; 2026-11-01 Node test run after merging `origin/sprint4` `92b230c`: 217 passed.
+
+## S-68 — Notify Attendee — Event Rescheduled
+
+Drafted and confirmed by the developer on 2026-11-01 before implementation.
+
+## TC-FRONTEND-286 — Attendee reschedule notifications use the existing inbox
+
+- **Scenario:** A registered Attendee can read the final reschedule notification on their dashboard without a special per-kind component.
+- **Pre-conditions:** The signed-in role is `attendee`; the Notifications service returns an `event_schedule_changed` row containing the event name, new full date/time and confirmation that the registration remains active.
+- **Steps:** Open the Attendee dashboard; load the notification list; display the returned message.
+- **Test data:** Event id `11111111-1111-4111-8111-111111111111`; kind `event_schedule_changed`.
+- **Expected:** The Attendee dashboard includes `NotificationPanel`; it loads the persistent inbox and renders the complete message. The notification remains plain text because its required action is informational.
+- **Actual:** The Attendee dashboard includes the existing persistent `NotificationPanel`, which loads and renders the complete message; `event_schedule_changed` remains informational plain text.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs::S-68 attendee reschedule notices remain readable in the existing inbox`; 2026-11-01 full frontend unit run: 218 passed.
