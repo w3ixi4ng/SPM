@@ -81,13 +81,13 @@ def confirmed_event(
 
 
 def _delete_user_rows(admin, schema: str, table: str, column: str, user_id: str) -> None:
-    """An exact-id DELETE is safe to repeat if its HTTP/2 response is lost."""
-    for attempt in range(2):
+    """An exact-id DELETE is safe to repeat after a lost or timed-out response."""
+    for attempt in range(3):
         try:
             admin.schema(schema).table(table).delete().eq(column, user_id).execute()
             return
-        except httpx.RemoteProtocolError:
-            if attempt:
+        except (httpx.RemoteProtocolError, httpx.ReadTimeout):
+            if attempt == 2:
                 raise
 
 

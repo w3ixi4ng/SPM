@@ -35,12 +35,14 @@ assignment is introduced: every Safety Officer can access every eligible row.
 The decision body contains only client-owned fields:
 
 ```json
-{"decision": "changes_requested", "reason": "Move speaker cables away from the north exit"}
+{"decision": "changes_requested", "reason": "Move speaker cables away from the north exit", "expected_event_updated_at": "2026-10-30T09:00:00Z"}
 ```
 
 `decision` is `approved`, `rejected`, or `changes_requested`. Rejection and
 changes require a nonblank `reason`; approval accepts no reason. The service
 adds `safety_officer_id` from `/users/me`; a browser cannot select it.
+`expected_event_updated_at` is required and must equal the event timestamp
+returned by the detail read. A prior review page cannot decide a revised event.
 
 ## Responses
 
@@ -78,7 +80,7 @@ A successful decision returns the updated Event object. Transitions are:
 | `changes_requested` | `planning` with preserved current feedback and immutable history |
 
 The Events service conditionally writes only a `pending_safety_check` row with
-a null current safety decision. A stale, repeated, or concurrent attempt returns
+a null current safety decision and the same event timestamp. A stale, repeated, or concurrent attempt returns
 `409` and cannot overwrite the first stored result. S-63 then sends the
 owning Organiser one idempotent `safety_check_outcome` notification. Approval
 states that the event is now confirmed. Rejection and requested changes carry
@@ -179,8 +181,10 @@ missing one, is `404` "Event not found".
 ## Configuration and running
 
 The service reads `USERS_SERVICE_URL`, `EVENTS_SERVICE_URL`,
-`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, `EQUIPMENT_SERVICE_URL`, and
-`NOTIFICATIONS_SERVICE_URL`, and `REGISTRATIONS_SERVICE_URL`.
+`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, `EQUIPMENT_SERVICE_URL`,
+`NOTIFICATIONS_SERVICE_URL`, `REGISTRATIONS_SERVICE_URL`, and
+`ASSIGNMENT_SERVICE_SECRET`. Use the same trusted service secret as Events to
+fetch unresolved S-60 impacts for safety readiness.
 Every outbound client has a bounded timeout.
 
 Development:

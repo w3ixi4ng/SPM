@@ -31,14 +31,23 @@ def test_the_safety_officer_sees_the_safety_history(auth_client, ready_world):
     with httpx.Client(timeout=20.0) as api:
         phone = api.patch(edit_url, headers=coordinator, json={"expected_version": 0, "contact_phone": "91234567"})
         assert phone.status_code == 200, phone.text
-        attendance = api.patch(edit_url, headers=coordinator, json={
-            "expected_version": 1, "expected_attendance": 150, "impact_accepted": True,
-        })
+        significant_edit = {"expected_version": 1, "expected_attendance": 150}
+        reviewed = api.post(
+            f"{GATEWAY_BASE_URL}/event-requests/{event_id}/information/impact",
+            headers=coordinator, json=significant_edit,
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        attendance = api.patch(
+            f"{GATEWAY_BASE_URL}/event-requests/{event_id}/information/significant",
+            headers=coordinator,
+            json={"edit": significant_edit, "impact_ids": [item["id"] for item in reviewed.json()["impacts"]]},
+        )
         assert attendance.status_code == 200, attendance.text
         submitted = api.post(f"{GATEWAY_BASE_URL}/safety-checks/coordinator/events/{event_id}/submit", headers=coordinator)
         assert submitted.status_code == 200, submitted.text
         decided = api.post(f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision", headers=officer, json={
             "decision": "changes_requested", "reason": "Fire exit blocked",
+            "expected_event_updated_at": submitted.json()["updated_at"],
         })
         assert decided.status_code == 200, decided.text
 

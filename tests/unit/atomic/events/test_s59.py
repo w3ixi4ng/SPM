@@ -127,7 +127,7 @@ def test_unrelated_organiser_and_coordinator_cannot_submit(client, db, auth):
 def test_pending_proposal_blocks_direct_accepted_edit(client, db, auth):
     authenticate(client, auth)
     on_owned_select(db, [event("submitted")])
-    db.schema.return_value.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = SimpleNamespace(data=[{"id": "pending"}])
+    db.schema.return_value.table.return_value.select.return_value.eq.return_value.in_.return_value.limit.return_value.execute.return_value = SimpleNamespace(data=[{"id": "pending"}])
     response = client.patch(f"/events/{EVENT_ID}", json={"expected_attendance": 150})
     assert response.status_code == 409
     assert not db.schema.return_value.table.return_value.update.called

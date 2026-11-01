@@ -101,7 +101,10 @@ export default function SafetyCheckDetail() {
     }
     setSubmit({ status: 'saving', error: null, result: null })
     try {
-      const result = await decideSafetyCheck(id, { decision, reason: requiredReason ? reason.trim() : null })
+      const result = await decideSafetyCheck(id, {
+        decision, reason: requiredReason ? reason.trim() : null,
+        expected_event_updated_at: state.detail.event.updated_at,
+      })
       setSubmit({ status: 'success', error: null, result })
     } catch (error) {
       setSubmit({ status: 'idle', error: safetyCheckErrorMessage(error), result: null })

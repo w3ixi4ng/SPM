@@ -2,7 +2,14 @@
 
 import uuid
 
-from .test_app import EVENT_ID, OFFICER_ID, authorize, event, response
+from .test_app import (
+    EVENT_ID,
+    OFFICER_ID,
+    REVIEW_UPDATED_AT,
+    authorize,
+    event,
+    response,
+)
 
 
 PRIOR_APPROVAL = "2026-10-01T09:00:00Z"
@@ -75,7 +82,8 @@ def test_reconfirmation_notifies_every_current_registration_in_bounded_batches(
     services["registrations"].get.return_value = response(200, registrations)
 
     result = client.post(
-        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+        f"/safety-checks/{EVENT_ID}/decision",
+        json={"decision": "approved", "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert result.status_code == 200, result.text
@@ -120,7 +128,8 @@ def test_initial_confirmation_does_not_claim_the_event_was_rescheduled(client, s
     )
 
     result = client.post(
-        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+        f"/safety-checks/{EVENT_ID}/decision",
+        json={"decision": "approved", "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert result.status_code == 200
@@ -161,7 +170,8 @@ def test_non_schedule_work_and_a_change_back_to_the_confirmed_window_send_nothin
     )
 
     result = client.post(
-        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+        f"/safety-checks/{EVENT_ID}/decision",
+        json={"decision": "approved", "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert result.status_code == 200
@@ -193,7 +203,11 @@ def test_rejected_or_returned_reviews_do_not_read_attendees(client, services):
 
         result = client.post(
             f"/safety-checks/{EVENT_ID}/decision",
-            json={"decision": decision, "reason": reason},
+            json={
+                "decision": decision,
+                "reason": reason,
+                "expected_event_updated_at": REVIEW_UPDATED_AT,
+            },
         )
 
         assert result.status_code == 200

@@ -1706,3 +1706,19 @@ before implementation.
 - **Actual:** Before approval A's inbox contained no event notice. After the Safety Officer approved the revised event, A saw the event name, `20 Nov 2026, 1:00 pm to 4:00 pm`, and confirmation that the registration remained active; the notice survived reload. U saw no notice.
 - **Status:** Pass
 - **Evidence:** `test_notify_attendee_event_rescheduled.py::test_registered_attendee_sees_reschedule_only_after_final_approval[chromium]`; 2026-11-01 fresh `.env.test` stack verified against the test project; 1 passed in 69.17s. Related Operational Safety and initial-confirmation regressions: 3 passed.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Chromium against a fresh `.env.test` stack and TEST Supabase. Full suite: 72 passed, 1 failed. The failure was TC-E2E-300: an equipment resolve saved (200), then the next review read got a transient 502 from Events and the page showed its retryable error. Rerun on its own: passed, with no code change. S-55's withdrawal workflow is integrated; do not reapply S-53 SQL. See each case evidence.
+
+## TC-E2E-300 — Organiser proposal to new safety check
+
+- **Scenario:** Chromium demonstrates Organiser proposal, assigned Coordinator impact review and acceptance, arrangement re-review and the new safety-check requirement through Kong.
+- **Pre-conditions:** Fresh `.env.test` stack with developer-applied S-60 Events/Equipment SQL, exposed schemas and grants; Chromium; throwaway O, C, unrelated D, Venue Staff V and Technical Support T; confirmed E with B1/B2, P quantity 2 and prior safety/T decisions. Fixtures remove all rows/accounts.
+- **Steps:** 1. O proposes 120→150 attendees and P 2→3. 2. C opens R and sees B1's capacity, P and T impacts, while B2 remains unaffected. 3. D attempts review and is denied. 4. C accepts; reload E and verify planning/new safety-check warning while bookings/sign-offs remain. 5. C attempts safety submission and sees outstanding flags. 6. C requests a suitable new B3 booking for the revised event; V approves it through the venue decision workflow; T re-signs after equipment review; C records each resolution. 7. Reload and submit for a fresh Operational Safety Check.
+- **Test data:** E `S-60 Impact Forum <hex>` on 2026-11-18 09:00–12:00; B1 capacity 130; B2 capacity 220; B3 capacity 200; projector 2→3; distinct throwaway O/C/D/V/T users.
+- **Expected:** Proposal does not change accepted data. C sees accepted/proposed comparison and item reasons; D cannot. After acceptance E is planning at 150, P=3, old arrangement records/history still exist; safety submission stays blocked while either flag is outstanding. B1 and P resolve independently with durable action/time; only then does fresh safety submission reach `pending_safety_check`, with old approval not reused. No unrelated booking is marked impacted.
+- **Actual:** Organiser proposal, scoped Coordinator review, acceptance, owner-backed re-review, fresh safety submission, acceptance retry and later rejection display passed in Chromium.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]`; 2026-11-01 TEST Full run: one transient Events 502 on a review read after a saved resolve; isolated rerun passed (`/private/tmp/s60-e2e-s60-rerun.log`).

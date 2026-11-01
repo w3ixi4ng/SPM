@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import EventChangeComparison from './EventChangeComparison.jsx'
+import CoordinatorEventChangeReview from './CoordinatorEventChangeReview.jsx'
 import { getEventChangeRequests } from '../lib/eventChangeRequests.js'
 
 export default function CoordinatorEventChangePanel({ eventId }) {
@@ -26,7 +26,9 @@ export default function CoordinatorEventChangePanel({ eventId }) {
   if (state.status === 'loading') return <p>Loading change requests…</p>
   if (state.status === 'error') return <section aria-label="Event change requests"><p role="alert">{state.error}</p><button type="button" onClick={load}>Try again</button></section>
 
-  const pending = state.data.requests.find((request) => request.status === 'pending')
-  if (!pending) return null
-  return <EventChangeComparison event={state.data.event} request={pending} equipment={state.data.equipment} />
+  const selected = state.data.requests.find((request) => ['pending', 'applying'].includes(request.status))
+    || state.data.requests.find((request) => request.status === 'accepted' && request.impacts?.some((item) => item.status === 'outstanding'))
+    || state.data.requests[0]
+  if (!selected) return null
+  return <CoordinatorEventChangeReview key={selected.id} eventId={eventId} requestId={selected.id} onChange={load} />
 }

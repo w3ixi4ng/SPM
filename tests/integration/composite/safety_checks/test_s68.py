@@ -20,7 +20,7 @@ def test_real_reconfirmation_notifies_only_current_registrations(admin, auth_cli
     event_id = str(uuid.uuid4())
     name = f"spm-test S-68 {uuid.uuid4().hex[:8]}"
     try:
-        admin.schema("events").table("events").insert({
+        event = admin.schema("events").table("events").insert({
             "id": event_id,
             "organiser_id": organiser["id"],
             "assigned_coordinator_id": coordinator["id"],
@@ -42,7 +42,7 @@ def test_real_reconfirmation_notifies_only_current_registrations(admin, auth_cli
                 "safety_officer_id": officer["id"],
                 "decided_at": "2026-10-01T09:00:00Z",
             }],
-        }).execute()
+        }).execute().data[0]
         admin.schema("events").table("event_history").insert({
             "event_id": event_id,
             "actor_id": coordinator["id"],
@@ -69,7 +69,10 @@ def test_real_reconfirmation_notifies_only_current_registrations(admin, auth_cli
         approved = httpx.post(
             f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
             headers=cookie_for(auth_client, officer),
-            json={"decision": "approved"},
+            json={
+                "decision": "approved",
+                "expected_event_updated_at": event["updated_at"],
+            },
             timeout=20.0,
         )
 
@@ -89,7 +92,10 @@ def test_real_reconfirmation_notifies_only_current_registrations(admin, auth_cli
         stale = httpx.post(
             f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
             headers=cookie_for(auth_client, officer),
-            json={"decision": "approved"},
+            json={
+                "decision": "approved",
+                "expected_event_updated_at": event["updated_at"],
+            },
             timeout=20.0,
         )
         assert stale.status_code == 409, stale.text

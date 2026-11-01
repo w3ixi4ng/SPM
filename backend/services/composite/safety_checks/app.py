@@ -1,6 +1,7 @@
 """S-86 cross-service Operational Safety Check workflow."""
 
 import logging
+import os
 from datetime import date, datetime, time
 from uuid import UUID
 
@@ -387,6 +388,7 @@ async def _flagged_ids(
 
 async def _outstanding(
     event: dict,
+    events: httpx.AsyncClient,
     bookings: httpx.AsyncClient,
     venues: httpx.AsyncClient,
     equipment: httpx.AsyncClient,
@@ -398,7 +400,23 @@ async def _outstanding(
         equipment.get("/internal/equipment-requirements", params={"event_id": event_id}),
     )
     flagged = await _flagged_ids(booking_rows, bookings, venues)
-    return readiness.outstanding(event, booking_rows, flagged, requirements)
+    items = readiness.outstanding(event, booking_rows, flagged, requirements)
+    impacts = await _json(
+        "Events", events.get(
+            f"/internal/events/{event_id}/unresolved-change-impacts",
+            headers={"X-Assignment-Service-Token": os.environ.get("ASSIGNMENT_SERVICE_SECRET", "")},
+        ),
+    )
+    return items + [
+        {
+            "code": "change_impact",
+            "label": impact["reason"],
+            "booking_id": impact.get("arrangement_id") if impact.get("kind") == "venue_booking" else None,
+            "impact_id": impact["id"],
+            "request_id": impact["request_id"],
+        }
+        for impact in impacts
+    ]
 
 
 def _refuse_outstanding(items: list[dict]) -> JSONResponse:
@@ -425,7 +443,7 @@ async def get_readiness(
     """S-17: what submission would refuse, without submitting."""
     await _event_coordinator(request, users)
     event = await _assigned_event(event_id, request, events)
-    items = await _outstanding(event, bookings, venues, equipment)
+    items = await _outstanding(event, events, bookings, venues, equipment)
     return {"ready": not items, "outstanding": items}
 
 
@@ -445,7 +463,7 @@ async def submit_for_safety_check(
     event = await _assigned_event(event_id, request, events)
     if event.get("status") != "planning":
         raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
-    items = await _outstanding(event, bookings, venues, equipment)
+    items = await _outstanding(event, events, bookings, venues, equipment)
     if items:
         return _refuse_outstanding(items)
     return await _json(
@@ -474,7 +492,7 @@ async def resubmit_returned_safety_review(
     event = await _assigned_event(event_id, request, events)
     if event.get("status") != "planning" or event.get("safety_decision") != "changes_requested":
         raise HTTPException(status_code=409, detail=NOT_RETURNED)
-    items = await _outstanding(event, bookings, venues, equipment)
+    items = await _outstanding(event, events, bookings, venues, equipment)
     if items:
         return _refuse_outstanding(items)
     return await _json(
