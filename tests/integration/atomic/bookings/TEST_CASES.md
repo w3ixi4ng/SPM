@@ -379,3 +379,25 @@ Blocked, not Fail.
 - **Actual:** Eight parallel confirmations and the closure: every answer `200` or `409` with the closed detail, no `500` or deadlock; a later confirmation `409`; after the release every row `released`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_confirmations_racing_the_closure_never_survive_the_release`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## S-90 specification — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
+`origin/sprint4`). Confirmed by the developer 2026-11-01. Needs the S-90 block of
+`backend/sql/bookings.sql` applied to the test project.
+
+## TC-BOOKINGS-130 — a confirmed restore leaves the replacement withdrawn and its slot free
+
+- **Scenario:** Against the test project: the restore columns and the `withdrawn` status exist, a withdrawn replacement reserves nothing, and a replacement confirmed first clears a restore request (S-90 AC1, AC4). Proves what a fake can't: the status and consistency constraints, the exclusion constraint, and the S-78 trigger.
+- **Pre-conditions:** Fresh `.env.test` stack. Through the admin client: venues V and W; event E; Coordinator K; Venue Staff S. Booking O `confirmed` at V; replacement R `pending` at W for O's date and times.
+- **Steps:**
+  1. As K, `POST /bookings/O/restore-request`.
+  2. As S, `POST /bookings/O/restore-decision` `{"decision": "approved"}`.
+  3. Insert a booking at W for R's date and times and, as S, confirm it.
+  4. Reset: O2 `confirmed` at V with replacement R3 `pending` at W; as K, request a restore of O2; as S, confirm R3.
+  5. Delete the rows.
+- **Test data:** Venue names `spm-test S90 V <hex>` and `spm-test S90 W <hex>`.
+- **Expected:** 1 → `200`, the row has `restore_requested_at`. 2 → `200`; R's row `withdrawn` with `withdrawn_at`; O `confirmed`, request cleared, note "Restored to the original venue". 3 → `200` confirmed (R no longer holds W). 4 → R3 `confirmed`; O2 `replaced` with `restore_requested_at` null. 5 leaves no rows.
+- **Actual:** First run: both S-90 cases passed, but the fixture's teardown failed with `23514` on `bookings_withdrawn_valid` -- deleting the original set the withdrawn replacement's `replaces_booking_id` null (S-78's `on delete set null`), which the rule forbade, so S-80 and S-61 deletions would have failed too. The rule now only ties `withdrawn` to `withdrawn_at`; re-applied to dev and test, leftover row removed. Then: 1 `200`; 2 `200`, R `withdrawn` with `withdrawn_at`, O `confirmed`, request cleared, note "Restored to the original venue"; 3 a new booking in R's slot confirmed; 4 R3 `confirmed`, O2 `replaced` with both restore columns null; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/bookings/test_s90.py::test_a_confirmed_restore_leaves_the_replacement_withdrawn_and_its_slot_free; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-90 block of `bookings.sql` applied to dev and test; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; with `tests/integration/atomic/bookings`, `tests/integration/composite/venue_bookings` and S-61's `test_cancellation_decision.py`: 38 passed
