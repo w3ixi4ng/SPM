@@ -605,7 +605,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
       onLoaded?.({ eventId, bookings })
     },
     () => setState({ status: 'error', bookings: [] }),
-  ), [eventId])
+  ), [eventId, onLoaded])
 
   useEffect(() => {
     load()
