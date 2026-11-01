@@ -293,7 +293,8 @@ Status resets to Not Executed until re-run.
 - **Scenario:** With real services behind Kong, a period over a confirmed
   booking is saved. The booking is identified and flagged, and the event's
   Coordinator gets a persistent notification. The event and the booking are
-  unchanged (AC1, AC3, AC4, AC5).
+  unchanged apart from S-90's restoration marker when that schema is installed
+  (AC1, AC3, AC4, AC5).
 - **Pre-conditions:** The shared pre-conditions. The venue has setup and
   turnaround 0. A confirmed booking K for the event, `2026-11-12`
   `10:00`–`12:00`, created through the service and approved by Venue Staff.
@@ -313,12 +314,13 @@ Status resets to Not Executed until re-run.
      times, ending "needs alternative arrangements."
   3. K with `"requires_alternative_arrangements": true` and the period in
      `unavailable_periods`.
-  4. K's row is identical to the snapshot, still `confirmed`. The event's
-     row is identical, still `planning`.
+  4. K's row is identical to the snapshot except that S-90's optional
+     `restoration_required` marker changes from `false` to `true`, still
+     `confirmed`. The event's row is identical, still `planning`.
   Cleanup deletes the block, K, the notification and the shared fixtures.
-- **Actual:** Through Kong: period `201` with exactly K affected and notified true; the Coordinator's inbox had one `venue_unavailable` notification naming the period and K's times; K flagged with the period; K and the event rows identical to their snapshots, still `confirmed` and `planning`.
+- **Actual:** Through Kong: period `201` with exactly K affected and notified true; the Coordinator's inbox had one `venue_unavailable` notification naming the period and K's times; K flagged with the period; K stayed `confirmed` with all other booking fields unchanged while S-90's `restoration_required` changed from `false` to `true`; the event stayed `planning` and unchanged.
 - **Status:** Pass
-- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`; 2026-11-01, isolated `spm-s89` `.env.test` stack recreated immediately before; targeted test 1 passed in 26.61 s against TEST with S-90 SQL already applied.
 
 ### TC-VENUEBOOKINGS-111 — through Kong, a request and a hold inside the period are refused
 

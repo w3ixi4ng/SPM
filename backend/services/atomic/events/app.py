@@ -62,6 +62,7 @@ from schemas import (
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
+    VenueCancellationCreate,
     EVENT_HISTORY_ACTIONS,
     HISTORY_CATEGORIES,
     SAFETY_EDIT_FIELDS,
@@ -1691,6 +1692,182 @@ def decide_cancellation(
         {"reason": payload.reason},
     )
     return result.data[0]
+
+
+# S-89: an event whose venue bookings may still change -- the same set S-78
+# lets a Coordinator replace a venue for.
+_VENUE_CANCELLABLE_STATUSES = (
+    "planning", "pending_safety_check", "confirmed", "preparation",
+    "safety_changes_requested",
+)
+_REQUEST_WAITING = "The Organiser has asked to cancel this event. Approve their request instead."
+_EVENT_CHANGED = "This event changed since you opened it. Reload and try again."
+_ALREADY_CANCELLED = "This event is already cancelled."
+_NOT_VENUE_CANCELLED = "This event has not been cancelled for venue unavailability."
+
+
+def _request_waiting(event: dict) -> bool:
+    return bool(event.get("cancellation_requested_at")) and not event.get("cancellation_decision")
+
+
+def _venue_cancellation_refusal(event: dict, expected_version: int) -> str:
+    """Why the guarded write below would match nothing, read from `event`."""
+    if event.get("status") == "cancelled":
+        return _ALREADY_CANCELLED
+    if event.get("status") not in _VENUE_CANCELLABLE_STATUSES:
+        return _NOT_CANCELLABLE
+    if _request_waiting(event):
+        return _REQUEST_WAITING
+    if int(event.get("edit_version") or 0) != expected_version:
+        return _EVENT_CHANGED
+    return ""
+
+
+@app.post("/internal/events/{event_id}/venue-cancellation", response_model=CoordinatorEventRead)
+def cancel_for_venue_unavailability(
+    event_id: UUID,
+    payload: VenueCancellationCreate,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:cancel_for_venue_unavailability")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the assigned Coordinator cancels an event venue unavailability
+    left without an alternative. The event_requests composite has verified
+    the unavailability and passes the affected bookings; it then releases
+    them and notifies everyone. Only the event changes here.
+
+    Calling again once this event is cancelled this way is how the composite
+    resumes an unfinished cancellation: it returns the stored record
+    unchanged, whatever the new text says."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if existing.get("venue_cancelled_at"):
+        return existing
+    refusal = _venue_cancellation_refusal(existing, payload.expected_version)
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+
+    values = {
+        "status": "cancelled",
+        "venue_cancellation_previous_status": existing["status"],
+        "venue_cancellation_reason": payload.reason,
+        "venue_cancellation_alternatives": payload.alternatives_considered,
+        "venue_cancellation_booking_ids": [str(value) for value in payload.affected_booking_ids],
+        "venue_cancelled_by": coordinator_id,
+        "venue_cancelled_at": _submitted_now(),
+        "edit_version": payload.expected_version + 1,
+    }
+    # One conditional write: a concurrent edit, reassignment, S-62 request
+    # or S-61 approval landing first makes this match nothing.
+    operation = (
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .eq("edit_version", payload.expected_version)
+        .in_("status", _VENUE_CANCELLABLE_STATUSES)
+        .is_("venue_cancelled_at", "null")
+        .or_("cancellation_requested_at.is.null,cancellation_decision.not.is.null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        current = _get_assigned_event(event_id, coordinator_id, db)
+        if current.get("venue_cancelled_at"):
+            return current
+        raise HTTPException(
+            status_code=409,
+            detail=_venue_cancellation_refusal(current, payload.expected_version) or _EVENT_CHANGED,
+        )
+    # The S-82 entry is the composite's next step (.../history), not best
+    # effort here: it must exist before the operation can complete.
+    return result.data[0]
+
+
+_HISTORY_ACTION = "cancelled_venue_unavailable"
+_HISTORY_MISSING = "The cancellation has not been recorded in the event history yet."
+
+
+def _venue_cancellation_history(event_id: UUID, db: Client) -> list[dict]:
+    return _execute(
+        db.schema(SCHEMA).table(HISTORY_TABLE).select("id")
+        .eq("event_id", str(event_id)).eq("action", _HISTORY_ACTION)
+    ).data
+
+
+@app.post("/internal/events/{event_id}/venue-cancellation/history")
+def record_venue_cancellation_history(
+    event_id: UUID,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:cancel_for_venue_unavailability")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the S-82 entry for a venue cancellation, built from the stored
+    record alone -- who, when, why, the alternatives, the previous status and
+    the affected bookings -- so a retry writes exactly the same entry. A
+    unique index allows one; a second attempt finds it and succeeds."""
+    coordinator_id = str(user.id)
+    event = _get_assigned_event(event_id, coordinator_id, db)
+    if not event.get("venue_cancelled_at"):
+        raise HTTPException(status_code=409, detail=_NOT_VENUE_CANCELLED)
+    if _venue_cancellation_history(event_id, db):
+        return {"recorded": True}
+    row = {
+        "event_id": str(event_id),
+        "actor_id": str(event["venue_cancelled_by"]),
+        "actor_role": "event_coordinator",
+        "category": EVENT_HISTORY_ACTIONS[_HISTORY_ACTION],
+        "action": _HISTORY_ACTION,
+        "details": {
+            "reason": event["venue_cancellation_reason"],
+            "alternatives_considered": event["venue_cancellation_alternatives"],
+            "previous_status": event["venue_cancellation_previous_status"],
+            "affected_booking_ids": [str(value) for value in event["venue_cancellation_booking_ids"]],
+        },
+        # When it happened, not when this attempt ran.
+        "occurred_at": str(event["venue_cancelled_at"]),
+    }
+    try:
+        db.schema(SCHEMA).table(HISTORY_TABLE).insert(row).execute()
+    except Exception as exc:
+        if getattr(exc, "code", None) == "23505":
+            return {"recorded": True}
+        logger.exception("Could not record the venue cancellation of event %s", event_id, exc_info=exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Event storage unavailable",
+        ) from exc
+    return {"recorded": True}
+
+
+@app.post(
+    "/internal/events/{event_id}/venue-cancellation/complete",
+    response_model=CoordinatorEventRead,
+)
+def complete_venue_cancellation(
+    event_id: UUID,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:cancel_for_venue_unavailability")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the history entry exists, every booking is released and everyone
+    notified. Refused while the history entry is missing. Safe to repeat."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if not existing.get("venue_cancelled_at"):
+        raise HTTPException(status_code=409, detail=_NOT_VENUE_CANCELLED)
+    if existing.get("venue_cancellation_completed_at"):
+        return existing
+    if not _venue_cancellation_history(event_id, db):
+        raise HTTPException(status_code=409, detail=_HISTORY_MISSING)
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .update({"venue_cancellation_completed_at": _submitted_now()})
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .is_("venue_cancellation_completed_at", "null")
+    )
+    if result.data:
+        return result.data[0]
+    return _get_assigned_event(event_id, coordinator_id, db)
 
 
 # S-36: the decision and the status it leads to are separate things. An

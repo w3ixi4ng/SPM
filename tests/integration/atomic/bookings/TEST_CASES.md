@@ -338,3 +338,44 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_confirmed_replacement_retires_rejected_original`
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs 450–499
+reserved for S-89 integration cases. Needs the S-89 block of
+`backend/sql/bookings.sql` applied to the **test** project (status
+`released`, the `released_*` columns and constraints). Until then these are
+Blocked, not Fail.
+
+## TC-BOOKINGS-450 — release keeps every row and frees the venue time
+
+- **Scenario:** Against real Postgres: the new status satisfies every existing constraint (decision, hold, primary, exclusion), the rows survive, and the slot can be booked again.
+- **Pre-conditions:** `.env.test` stack recreated immediately before; Coordinator and Venue Staff sessions. Seeded for event E: P1 `pending`, H1 `held`, C1 `confirmed` and primary, J1 `rejected`; another event's pending booking.
+- **Steps:** 1. `POST /internal/events/E/bookings/release` with `operation_id` OP. 2. Read the rows with the admin client. 3. Create and confirm a booking for another event at C1's venue and time. 4. Release E again. 5. Submit a new request for E. 6. Reopen E's closure with OP.
+- **Test data:** Rows named `spm-test-*`, deleted afterwards (with E's `closed_events` row).
+- **Expected:** 1 → `200`, count 3. 2 → P1, H1, C1 exist, `released`, `release_reason` `event_cancelled`, `released_by` set; H1 `hold_release_reason` `event_cancelled`; C1 not primary; J1 still `rejected`; the other event's booking unchanged. 3 → `201` then confirmed. 4 → `200`, count 0, `released_at` unchanged. 5 → `409` "This event is being cancelled, so its venue bookings can no longer change." 6 → `200` `{"reopened": false}`: a released event never reopens.
+- **Actual:** 1 `200` count 3; P1, H1, C1 kept as `released` with reason, actor and time, H1's hold-release fields set, C1 no longer primary; J1 `rejected` and the other event's booking unchanged; the slot then held a new confirmed booking; a repeat released nothing and kept `released_at`; a new request for E `409` with the closed detail; reopen `{"reopened": false}`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_release_keeps_every_row_and_frees_the_venue_time`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-BOOKINGS-451 — the closure intent refuses every direct mutation, and is withdrawable
+
+- **Scenario:** The race the developer raised: from the closure intent on -- before the event is cancelled -- no route can make a booking of the event active. Proven only here, against the real trigger.
+- **Pre-conditions:** As TC-BOOKINGS-450. Event E with P (pending), Q (pending), H (held).
+- **Steps:** 1. Record E's closure with operation M; record again with operation N. 2. Directly: `POST /bookings` for E; confirm P; hold Q; S-80 `PATCH` P. 3. Release H's hold; reject Q. 4. Reopen with N, then with M. 5. Confirm P.
+- **Test data:** As above.
+- **Expected:** 1 → `200` `closing` with M, then the same row (operation M). 2 → each `409` "This event is being cancelled, so its venue bookings can no longer change."; P and Q still `pending`. 3 → both `200` (giving time back is allowed). 4 → `{"reopened": false}` then `{"reopened": true}`. 5 → `200` confirmed.
+- **Actual:** Closure `closing` with M; a second attempt got M back. Direct create, confirm, hold and S-80 change each `409` with the closed detail, P and Q still `pending`. Hold release and rejection `200`. Reopen with N `false`, with M `true`; P then confirmed.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_the_closure_intent_refuses_every_direct_mutation_and_is_withdrawable`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-BOOKINGS-452 — confirmations racing the closure never survive the release
+
+- **Scenario:** Concurrent Venue Staff confirmations and the closure are serialised by the per-event lock: each confirmation lands before the closure or is refused by it, nothing deadlocks, and the release leaves nothing active.
+- **Pre-conditions:** As TC-BOOKINGS-450. Eight pending bookings of event E.
+- **Steps:** 1. In parallel: confirm all eight, and record E's closure. 2. Confirm one again. 3. Release E. 4. Read E's bookings.
+- **Test data:** As above.
+- **Expected:** 1 → every confirmation `200` or `409` with the closed detail (no `500`); the closure `200`. 2 → `409`. 3 → `200`. 4 → every row `released`.
+- **Actual:** Eight parallel confirmations and the closure: every answer `200` or `409` with the closed detail, no `500` or deadlock; a later confirmation `409`; after the release every row `released`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_confirmations_racing_the_closure_never_survive_the_release`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)

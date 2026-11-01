@@ -329,3 +329,44 @@ Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `orig
 - **Actual:** Proposal persisted separately from the unchanged event; the duplicate and concurrent insert checks left one pending row and cleanup completed.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced` and `::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; full integration suite 104 passed, 5 skipped on 2026-10-30.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs 450–499
+reserved for S-89 integration cases. Needs the S-89 block of
+`backend/sql/events.sql` applied to the **test** project
+(`venue_cancellation_*` columns and their consistency constraint). Blocked
+until then.
+
+## TC-EVENTS-450 — the recorded cancellation persists and satisfies every event constraint
+
+- **Scenario:** Real Postgres accepts `cancelled` with the S-89 columns from both a never-safety-checked (`planning`) and a safety-approved (`confirmed`) event; the history entry is its own step.
+- **Pre-conditions:** Fresh `.env.test` stack; `ASSIGNMENT_SERVICE_SECRET` set; Coordinator C assigned to seeded events Ep (`planning`) and Ec (`confirmed`, safety approved).
+- **Steps:** 1. As C with the token, cancel Ep and Ec. 2. Read each row and its history; then record history. 3. Repeat step 1 for Ec with another reason and `expected_version` 0. 4. Record Ec's history, then complete it twice.
+- **Test data:** `spm-test-*` events, deleted afterwards.
+- **Expected:** 1 → `200` both. 2 → `cancelled`, reason, alternatives, `venue_cancellation_booking_ids`, `venue_cancelled_by` C, `venue_cancelled_at`, `venue_cancellation_previous_status` = the old status; `cancellation_decision` null; no history until the history step, then exactly one entry with the previous status, affected ids and actor C. 3 → `200`, unchanged, still one entry. 4 → `venue_cancellation_completed_at` set once and unchanged by the repeat.
+- **Actual:** Both events `cancelled` with every S-89 column and the previous status; no history until the history step, then one entry with previous status, affected ids and actor; the resume left the record and the single entry unchanged; completion set once.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s89.py::test_the_recorded_cancellation_persists_and_satisfies_every_constraint`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-EVENTS-451 — a stale version is refused by the database-backed guard
+
+- **Scenario:** A real concurrent edit wins over a cancellation from an old screen.
+- **Pre-conditions:** As TC-EVENTS-450 with a fresh `planning` event Es.
+- **Steps:** 1. Read Es's `edit_version` v. 2. Edit Es through `PATCH /events/assigned/Es` (routine field). 3. Cancel with `expected_version` v.
+- **Test data:** As above.
+- **Expected:** 3 → `409` "This event changed since you opened it. Reload and try again."; Es is still `planning`; no S-89 history row.
+- **Actual:** `409` "This event changed since you opened it. Reload and try again."; still `planning`; no S-89 history entry.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s89.py::test_a_stale_version_is_refused`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-EVENTS-452 — history is recorded once and gates completion
+
+- **Scenario:** The durable history step against the real unique index.
+- **Pre-conditions:** As TC-EVENTS-450, a fresh `planning` event.
+- **Steps:** 1. Cancel. 2. Complete. 3. Record history three times. 4. Complete. 5. Insert a second `cancelled_venue_unavailable` row for the event with the admin client.
+- **Test data:** As above.
+- **Expected:** 2 → `409` "The cancellation has not been recorded in the event history yet." 3 → `200` each, one entry, its `occurred_at` = `venue_cancelled_at`, its reason the stored one. 4 → `200`. 5 → refused with `23505`.
+- **Actual:** Early completion `409` with the history detail; three history calls `200` with one entry whose `occurred_at` matches `venue_cancelled_at`; completion `200`; a direct second insert refused with `23505`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s89.py::test_history_is_recorded_once_and_gates_completion`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)

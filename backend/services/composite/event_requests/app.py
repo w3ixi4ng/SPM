@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_registrations_client, get_users_client, get_venues_client
+from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_registrations_client, get_users_client, get_venue_bookings_client, get_venues_client
 import impact
 from schemas import (
     CancellationDecision,
@@ -35,6 +35,7 @@ from schemas import (
     EventImpactResolve,
     CoordinatorSignificantEdit,
     TechnicalSupportRequest,
+    VenueCancellationSubmit,
 )
 
 app = FastAPI(title="Event Requests Service")
@@ -1133,6 +1134,7 @@ async def _notify_cancelled(
     event: dict,
     registrations: httpx.AsyncClient,
     notifications: httpx.AsyncClient,
+    failure: str = _ATTENDEES_NOT_NOTIFIED,
 ) -> int:
     """One notification per Attendee holding a place or on the waiting list
     (an offered place included). Deduplicated per Attendee, so approving
@@ -1145,9 +1147,9 @@ async def _notify_cancelled(
         )
     except httpx.HTTPError as exc:
         logger.exception("Registrations service unavailable", exc_info=exc)
-        raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED) from exc
+        raise HTTPException(status_code=502, detail=failure) from exc
     if places.status_code != status.HTTP_200_OK or waiting.status_code != status.HTTP_200_OK:
-        raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED)
+        raise HTTPException(status_code=502, detail=failure)
 
     attendee_ids = list(dict.fromkeys(
         row["attendee_id"] for row in [*places.json(), *waiting.json()]
@@ -1170,9 +1172,9 @@ async def _notify_cancelled(
             sent = await notifications.post("/internal/notifications", json=batch)
         except httpx.HTTPError as exc:
             logger.exception("Notifications service unavailable", exc_info=exc)
-            raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED) from exc
+            raise HTTPException(status_code=502, detail=failure) from exc
         if sent.status_code != status.HTTP_201_CREATED:
-            raise HTTPException(status_code=502, detail=_ATTENDEES_NOT_NOTIFIED)
+            raise HTTPException(status_code=502, detail=failure)
     return len(rows)
 
 
@@ -1241,6 +1243,263 @@ async def decide_cancellation(
         "released_bookings": released.json()["deleted"],
         "notified_attendees": notified,
         "organiser_notified": True,
+    }
+
+
+# S-89: the assigned Coordinator cancels an event venue unavailability
+# affects once no alternative venue could be found.
+_NOT_AFFECTED = (
+    "None of this event's venue bookings is affected by an unavailable venue, "
+    "so it can't be cancelled here."
+)
+_ALREADY_CANCELLED = "This event is already cancelled."
+_NOT_CANCELLED = "The event could not be cancelled. Nothing was changed. Try again."
+_STILL_LOCKED = (
+    "The event was not cancelled, but its venue bookings could not be unlocked. Try again."
+)
+_OUTCOME_UNKNOWN = (
+    "We couldn't confirm whether the event was cancelled, so its venue bookings stay "
+    "locked for now. Reload the event in a few minutes: if it shows as cancelled, "
+    "cancel again to finish; if not, you can try again."
+)
+_HISTORY_NOT_RECORDED = (
+    "The event is cancelled, but the cancellation was not recorded in its history. "
+    "Cancel again to finish."
+)
+_VENUE_BOOKINGS_NOT_RELEASED = (
+    "The event is cancelled, but its venue bookings were not released. Cancel again to finish."
+)
+_VENUE_ORGANISER_NOT_NOTIFIED = (
+    "The event is cancelled and its venue bookings released, but the Organiser "
+    "was not notified. Cancel again to finish."
+)
+_VENUE_ATTENDEES_NOT_NOTIFIED = (
+    "The event is cancelled, but its attendees were not notified. Cancel again to notify them."
+)
+_VENUE_NOT_COMPLETED = (
+    "Everyone was notified, but the cancellation could not be marked complete. "
+    "Cancel again to finish."
+)
+_ACTIVE_BOOKING_STATUSES = frozenset({"pending", "held", "confirmed"})
+_VENUE_BOOKINGS_DOWN = "Venue bookings service unavailable"
+
+
+async def _affected_booking_ids(
+    event_id: UUID, request: Request, venue_bookings: httpx.AsyncClient
+) -> list[str]:
+    """S-77's flag, as the venue_bookings composite that owns the rule
+    reports it for this Coordinator's event. A failed read is a 502 -- never
+    "affected" and never "not affected"."""
+    try:
+        response = await venue_bookings.get(
+            "/venue-bookings", params={"event_id": str(event_id)}, cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Venue bookings service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail=_VENUE_BOOKINGS_DOWN) from exc
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found or not assigned to you")
+    if response.status_code == status.HTTP_401_UNAUTHORIZED:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail=_VENUE_BOOKINGS_DOWN)
+    return [
+        str(row["id"]) for row in response.json()
+        if row.get("requires_alternative_arrangements") is True
+    ]
+
+
+async def _bookings_post(bookings: httpx.AsyncClient, path: str, request: Request, body: dict):
+    """One bookings write; None if the service could not be reached."""
+    try:
+        return await bookings.post(path, json=body, cookies=request.cookies)
+    except httpx.HTTPError as exc:
+        logger.exception("Bookings service unavailable", exc_info=exc)
+        return None
+
+
+async def _reopen(event_id: UUID, operation_id: str, request: Request, bookings) -> bool:
+    """Withdraw this operation's closure intent (or an abandoned one).
+    True once the bookings service has answered; it reopens nothing that a
+    release has already closed."""
+    response = await _bookings_post(
+        bookings, f"/internal/events/{event_id}/bookings/closure/reopen", request,
+        {"operation_id": operation_id},
+    )
+    return response is not None and response.status_code == status.HTTP_200_OK
+
+
+async def _events_write(events: httpx.AsyncClient, path: str, request: Request, **kwargs):
+    try:
+        return await events.post(
+            path, headers=assignment_service_headers(), cookies=request.cookies, **kwargs
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        return None
+
+
+async def _event_bookings(event_id: UUID, bookings: httpx.AsyncClient) -> list[dict]:
+    try:
+        response = await bookings.get("/bookings", params={"event_id": str(event_id)})
+    except httpx.HTTPError as exc:
+        logger.exception("Bookings service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Bookings service unavailable") from exc
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Bookings service unavailable")
+    return response.json()
+
+
+async def _cancel_event(
+    event_id: UUID, payload: VenueCancellationSubmit, affected: list[str],
+    operation_id: str, request: Request, events, bookings,
+) -> dict | JSONResponse:
+    """Close the event's bookings, then cancel the event. If the event is not
+    cancelled, the closure intent is withdrawn again before answering, so a
+    refused or failed cancellation never leaves the bookings locked."""
+    closure = await _bookings_post(
+        bookings, f"/internal/events/{event_id}/bookings/closure", request,
+        {"reason": "event_cancelled", "operation_id": operation_id},
+    )
+    if closure is None or closure.status_code != status.HTTP_200_OK:
+        # Unknown whether it was recorded; withdrawing ours is always safe.
+        await _reopen(event_id, operation_id, request, bookings)
+        raise HTTPException(status_code=502, detail=_NOT_CANCELLED)
+
+    recorded = await _events_write(
+        events, f"/internal/events/{event_id}/venue-cancellation", request,
+        json={**payload.model_dump(), "affected_booking_ids": affected},
+    )
+    if recorded is None:
+        # No answer: the write may still land. Keep the bookings closed
+        # until the outcome is known -- a cancelled event with open bookings
+        # is the one state this must never leave behind.
+        try:
+            current = await _assigned_event(event_id, request, events)
+        except HTTPException as exc:
+            raise HTTPException(status_code=502, detail=_OUTCOME_UNKNOWN) from exc
+        if current.get("venue_cancelled_at"):
+            return current
+        raise HTTPException(status_code=502, detail=_OUTCOME_UNKNOWN)
+    if recorded.status_code == status.HTTP_200_OK:
+        return recorded.json()
+
+    # Any other answer is definite: the events service did not cancel it.
+    if not await _reopen(event_id, operation_id, request, bookings):
+        raise HTTPException(status_code=502, detail=_STILL_LOCKED)
+    if recorded.status_code in _DECISION_PASSTHROUGH:
+        return JSONResponse(status_code=recorded.status_code, content=recorded.json())
+    raise HTTPException(status_code=502, detail=_NOT_CANCELLED)
+
+
+async def _release_event_bookings(
+    event_id: UUID, operation_id: str, request: Request, bookings: httpx.AsyncClient
+) -> int:
+    """Release, then re-read: anything still active is released by a second
+    call, and still active after that is a failure. Returns how many of the
+    event's bookings are released in all, so a resumed cancellation reports
+    the same number as an uninterrupted one."""
+    for _attempt in range(2):
+        response = await _bookings_post(
+            bookings, f"/internal/events/{event_id}/bookings/release", request,
+            {"reason": "event_cancelled", "operation_id": operation_id},
+        )
+        if response is None or response.status_code != status.HTTP_200_OK:
+            raise HTTPException(status_code=502, detail=_VENUE_BOOKINGS_NOT_RELEASED)
+        try:
+            rows = await _event_bookings(event_id, bookings)
+        except HTTPException as exc:
+            raise HTTPException(status_code=502, detail=_VENUE_BOOKINGS_NOT_RELEASED) from exc
+        if not any(row.get("status") in _ACTIVE_BOOKING_STATUSES for row in rows):
+            return sum(1 for row in rows if row.get("status") == "released")
+    raise HTTPException(status_code=502, detail=_VENUE_BOOKINGS_NOT_RELEASED)
+
+
+def _venue_cancelled_organiser_message(event: dict) -> str:
+    announced = _cancelled_message(event).removesuffix(" It will not take place.")
+    return (
+        f"{announced} Your Event Coordinator cancelled it because no alternative venue "
+        f"could be found. Reason: {event['venue_cancellation_reason']}"
+    )
+
+
+@app.post("/event-requests/{event_id}/venue-cancellation")
+async def cancel_for_venue_unavailability(
+    event_id: UUID,
+    payload: VenueCancellationSubmit,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venue_bookings: httpx.AsyncClient = Depends(get_venue_bookings_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-89: the assigned Coordinator cancels an event venue unavailability
+    affects, after working through the alternatives with its Organiser.
+
+    In order: S-77's flag (from venue_bookings) must be on one of the event's
+    bookings; the bookings are closed to new active bookings; the event is
+    cancelled (or the closure withdrawn again); the S-82 history entry is
+    recorded; every booking is released; the Organiser and Attendees are told
+    (S-63/S-69); the events service marks the operation complete. Any failure
+    after the event changed is a 502 saying what is left; calling again
+    resumes an existing S-89 cancellation without re-checking the flag (the
+    released bookings no longer carry it) and repeats nothing already done.
+    Equipment needs no call: requirements reserve stock only while the
+    event's status is committed, so `cancelled` releases them."""
+    await _authenticate_coordinator(request, users)
+    event = await _assigned_event(event_id, request, events)
+    operation_id = str(uuid4())
+
+    if not event.get("venue_cancelled_at"):
+        if event.get("status") == "cancelled":
+            raise HTTPException(status_code=409, detail=_ALREADY_CANCELLED)
+        affected = await _affected_booking_ids(event_id, request, venue_bookings)
+        if not affected:
+            # Withdraw any closure an abandoned attempt left behind.
+            await _reopen(event_id, operation_id, request, bookings)
+            raise HTTPException(status_code=409, detail=_NOT_AFFECTED)
+        cancelled = await _cancel_event(
+            event_id, payload, affected, operation_id, request, events, bookings,
+        )
+        if isinstance(cancelled, JSONResponse):
+            return cancelled
+        event = cancelled
+
+    history = await _events_write(
+        events, f"/internal/events/{event_id}/venue-cancellation/history", request,
+    )
+    if history is None or history.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail=_HISTORY_NOT_RECORDED)
+
+    released = await _release_event_bookings(event_id, operation_id, request, bookings)
+    try:
+        await _notify_organiser(notifications, {
+            "recipient_id": event["organiser_id"],
+            "event_id": event["id"],
+            "event_name": event["name"],
+            "kind": "event_cancelled",
+            "message": _venue_cancelled_organiser_message(event),
+            "deduplication_key": f"event_cancelled:{event['id']}:{event['organiser_id']}",
+        })
+    except HTTPException as exc:
+        raise HTTPException(status_code=502, detail=_VENUE_ORGANISER_NOT_NOTIFIED) from exc
+    notified = await _notify_cancelled(
+        event, registrations, notifications, _VENUE_ATTENDEES_NOT_NOTIFIED
+    )
+
+    completed = await _events_write(
+        events, f"/internal/events/{event_id}/venue-cancellation/complete", request
+    )
+    if completed is None or completed.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail=_VENUE_NOT_COMPLETED)
+    return {
+        **completed.json(),
+        "released_bookings": released,
+        "organiser_notified": True,
+        "notified_attendees": notified,
+        "cancellation_completed": True,
     }
 
 

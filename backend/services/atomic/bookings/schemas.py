@@ -43,7 +43,8 @@ RoomLayout = Literal[
 # S-36 creates pending requests; S-37 records final staff decisions. S-78: a
 # booking whose replacement is confirmed becomes `replaced`. Keep in step with
 # backend/sql/bookings.sql.
-BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced"]
+# S-89: `released` -- its event was cancelled; kept as history, reserves nothing.
+BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced", "released"]
 VenuePreparationStatus = Literal["not_started", "in_progress", "ready"]
 HoldReleaseReason = Literal[
     "staff_released",
@@ -194,6 +195,34 @@ class BookingRead(BaseModel):
     alternative_resolved_at: datetime | None = None
     alternative_resolved_by: UUID | None = None
     alternative_resolution_note: str | None = None
+    # S-89
+    released_at: datetime | None = None
+    released_by: UUID | None = None
+    release_reason: Literal["event_cancelled"] | None = None
+
+
+class EventBookingsRelease(BaseModel):
+    """S-89: why every booking of an event is released, and the cancellation
+    operation doing it. Who and when are set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["event_cancelled"]
+    operation_id: UUID
+
+
+class EventBookingsClosure(EventBookingsRelease):
+    """S-89: the intent to close an event's bookings, recorded before the
+    event is cancelled."""
+
+
+class EventBookingsReopen(BaseModel):
+    """S-89: withdraw this operation's closure intent; its cancellation did
+    not happen."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
 
 
 class VenuePreparationUpdate(BaseModel):

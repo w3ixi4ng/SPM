@@ -3073,6 +3073,71 @@ Drafted and confirmed by the developer on 2026-11-01 before implementation.
 - **Actual:** The Attendee dashboard includes the existing persistent `NotificationPanel`, which loads and renders the complete message; `event_schedule_changed` remains informational plain text.
 - **Status:** Pass
 - **Evidence:** `test_notifications.mjs::S-68 attendee reschedule notices remain readable in the existing inbox`; 2026-11-01 full frontend unit run: 218 passed.
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria: see `tests/unit/composite/event_requests/TEST_CASES.md`
+§ S-89. Drafted and confirmed 2026-11-01; TC-FRONTEND-402's network message
+and TC-FRONTEND-404's sentence wording changed afterwards (see each). IDs
+400–449 reserved for S-89 (S-60 holds 3xx). Pure helpers in a new
+`frontend/src/lib/venueCancellation.js`, plus small additions to
+`venueBookings.js` and `eventHistory.js`; run with
+`node --test tests/unit/frontend/test_venue_cancellation.mjs`.
+
+## TC-FRONTEND-400 — the action is offered only for an affected, cancellable event
+
+- **Scenario:** The Coordinator sees "Cancel event" only when S-89 applies. The server still decides.
+- **Pre-conditions:** None.
+- **Steps:** Call `canCancelForUnavailableVenue(event, bookings)` for each case.
+- **Test data:** (a) `confirmed` event with one booking `requires_alternative_arrangements: true`; (b) as (a) with no flagged booking; (c) as (a) but `status` `cancelled`; (d) as (a) with `cancellation_requested_at` set and `cancellation_decision` null; (e) as (a) with `status` `submitted`; (f) as (a), `status` each of `planning`, `pending_safety_check`, `preparation`, `safety_changes_requested`.
+- **Expected:** (a), (f) `true`; (b)–(e) `false`.
+- **Actual:** (a), (f) and a declined request `true`; (b)–(e) and missing bookings `false`.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 cancellation is offered only for an affected, cancellable event; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-401 — the request body is trimmed and carries the version shown
+
+- **Scenario:** What the panel sends is exactly what the Coordinator typed, plus the version they were looking at (for stale-screen protection).
+- **Pre-conditions:** None.
+- **Steps:** `venueCancellationBody({reason: "  Hall A closed  ", alternativesConsidered: " Hall B too small\n"}, {edit_version: 7})`.
+- **Test data:** As above.
+- **Expected:** `{"reason": "Hall A closed", "alternatives_considered": "Hall B too small", "expected_version": 7}`. `venueCancellationErrors` of the same input with either field blank → `{reason: "Enter why the event is being cancelled."}` / `{alternatives_considered: "Describe the alternatives you discussed with the Organiser."}`.
+- **Actual:** Trimmed body with `expected_version` 7; the field errors as specified; 1000 accepted, 1001 refused.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 request body is trimmed and carries the version shown; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-402 — every server outcome has a message in the product's voice
+
+- **Scenario:** Refusals and partial failures say what happened and what to do next.
+- **Pre-conditions:** None.
+- **Steps:** `venueCancellationErrorMessage(error)` for each error.
+- **Test data:** `409` with each S-89 detail; `404`; `422` with `errors`; `502` with each "Cancel again to finish" detail; a network `TypeError`.
+- **Expected:** `409`/`502` → the server's detail verbatim. `404` → "This event is no longer assigned to you." `422` → field errors mapped to `reason` / `alternatives_considered`. Network → "We couldn't reach the server. Reload the event to see whether it was cancelled." (the request may have arrived before the connection dropped) Every `502` result also sets `retry: true`.
+- **Actual:** `409`/`502` verbatim, `502` with `retry: true`; `404`, `422` field mapping and network message as specified.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 every server outcome has a message in the product voice; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-403 — an unfinished cancellation is recognised after a reload
+
+- **Scenario:** A Coordinator who closed the page after a partial failure is still offered "Finish cancellation".
+- **Pre-conditions:** None.
+- **Steps:** `venueCancellationIncomplete(event)`.
+- **Test data:** (a) `venue_cancelled_at` set, `venue_cancellation_completed_at` null; (b) both set; (c) S-61-cancelled (no `venue_cancelled_at`).
+- **Expected:** (a) `true`; (b), (c) `false`.
+- **Actual:** (a) `true`; (b), (c) `false`.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 an unfinished cancellation is recognised after a reload; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-404 — released bookings and the new history entries read clearly
+
+- **Scenario:** Booking history stays legible (preserved records), and S-82 history shows the cancellation and its reason.
+- **Pre-conditions:** None.
+- **Steps:** `bookingStatusMeta("released")`; the history label for `cancelled_venue_unavailable` with `{reason, alternatives_considered}`.
+- **Test data:** Reason "Hall A closed", alternatives "Hall B too small".
+- **Expected:** `{label: "Released", color: "#4C5A70"}` (`inkFaint`, as for Replaced). History (in the existing "Sentence: reason" style): "Cancelled the event as no alternative venue could be found: Hall A closed. Alternatives considered: Hall B too small". Existing labels are unchanged.
+- **Actual:** `Released` in `inkFaint`; the history sentence as specified; `test_event_history.mjs` vocabulary updated and passing.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 released bookings and the cancellation history read clearly; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
 ---
 
 ## S-60 — Review Impact of Significant Changes (approved)

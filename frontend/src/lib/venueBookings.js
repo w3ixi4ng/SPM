@@ -188,6 +188,8 @@ const BOOKING_STATUS_META = {
   rejected: { label: 'Rejected', color: '#B25547' },
   // S-78: its replacement was confirmed, so it no longer reserves the venue.
   replaced: { label: 'Replaced', color: '#4C5A70' },
+  // S-89: its event was cancelled; kept as history, it reserves nothing.
+  released: { label: 'Released', color: '#4C5A70' },
 }
 
 export function bookingStatusMeta(status) {

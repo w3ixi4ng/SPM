@@ -77,6 +77,12 @@ const SENTENCES = {
   cancellation_requested: (d) => withReason('Asked to cancel the event', d),
   cancellation_approved: (d) => withReason('Approved the cancellation', d),
   cancellation_declined: (d) => withReason('Declined the cancellation', d),
+  cancelled_venue_unavailable: (d) => {
+    const sentence = withReason('Cancelled the event as no alternative venue could be found', d)
+    return d.alternatives_considered
+      ? `${sentence}. Alternatives considered: ${d.alternatives_considered}`
+      : sentence
+  },
   coordinator_assigned: (d, p) => `Assigned ${person(p, d.coordinator_id)}`,
   reassignment_requested: (d) => withReason('Asked to be reassigned', d),
   coordinator_reassigned: (d, p) =>

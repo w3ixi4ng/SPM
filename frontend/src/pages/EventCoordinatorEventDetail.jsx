@@ -14,6 +14,7 @@ import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js
 import Logo from '../components/Logo.jsx'
 import ReassignmentRequestPanel from '../components/ReassignmentRequestPanel.jsx'
 import CoordinatorEventChangePanel from '../components/CoordinatorEventChangePanel.jsx'
+import VenueCancellationPanel from '../components/VenueCancellationPanel.jsx'
 import CoordinatorEditImpacts from '../components/CoordinatorEditImpacts.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
@@ -586,7 +587,7 @@ function CancelBookingPanel({ booking, onClose, onCancelled }) {
   )
 }
 
-function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
+function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
   const [resolving, setResolving] = useState(null)
   const [resolvedNotice, setResolvedNotice] = useState(null)
@@ -598,9 +599,13 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
   const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
 
   const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
-    (bookings) => setState({ status: 'ready', bookings }),
+    (bookings) => {
+      setState({ status: 'ready', bookings })
+      // S-89: the cancellation panel reads the same list rather than its own.
+      onLoaded?.({ eventId, bookings })
+    },
     () => setState({ status: 'error', bookings: [] }),
-  ), [eventId])
+  ), [eventId, onLoaded])
 
   useEffect(() => {
     load()
@@ -1223,6 +1228,7 @@ export default function EventCoordinatorEventDetail() {
   const [decisionPanel, setDecisionPanel] = useState(null)
   const [cancellationNotice, setCancellationNotice] = useState(null)
   const [bookingsVersion, setBookingsVersion] = useState(0)
+  const [venueBookings, setVenueBookings] = useState(null)
   const decisionTriggerRef = useRef(null)
 
   useEffect(() => {
@@ -1307,6 +1313,18 @@ export default function EventCoordinatorEventDetail() {
                 setDecisionPanel(decision)
               }}
             />
+
+            {/* S-89: cancel when venue unavailability left no alternative. */}
+            {isCoordinator && (
+              <VenueCancellationPanel
+                event={state.event}
+                bookings={venueBookings?.eventId === state.event.id ? venueBookings.bookings : null}
+                onCancelled={(event) => {
+                  setState({ status: 'ready', event, error: null })
+                  setBookingsVersion((version) => version + 1)
+                }}
+              />
+            )}
 
             {state.event.status === 'submitted' ? (
               <DecisionForm
@@ -1410,6 +1428,7 @@ export default function EventCoordinatorEventDetail() {
                   eventStatus={state.event.status}
                   canRequest={showVenueRequest}
                   notice={notice}
+                  onLoaded={setVenueBookings}
                 />
               )}
 
