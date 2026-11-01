@@ -2184,3 +2184,30 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation. Numb
 - **Actual:** Each refused decision preserved its mapped error without a notification request.
 - **Status:** Pass
 - **Evidence:** `test_decision.py::test_safe_downstream_errors` and invalid/refused decision cases; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria: see `tests/unit/composite/event_requests/TEST_CASES.md`
+§ S-89. Drafted and confirmed 2026-11-01. IDs 400–449 reserved for S-89.
+
+## TC-VENUEBOOKINGS-400 — marking a venue unavailable never cancels or rejects anything
+
+- **Scenario:** S-89 AC1. An unavailable period flags the bookings it affects but changes no event and no booking.
+- **Pre-conditions:** Venue Staff session. V1 has confirmed booking B1 (event E, `confirmed`) and held booking H2 (event G, `planning`), both inside the new period. Bookings answers the block `201`; notifications `201`.
+- **Steps:** `POST /venue-bookings/blocks` for V1 over both bookings; then `POST /venue-bookings/blocks/{id}/notify`.
+- **Test data:** Period 2026-11-20 08:00 – 2026-11-21 08:00, reason `maintenance`.
+- **Expected:** `201` naming B1 and H2 as affected, then `200`. Across both calls nothing is sent to an events write route (no `/cancellation-decision`, no `/internal/events/*/venue-cancellation`, no `/decision`). Bookings receives no decision, release, `PATCH` or `DELETE`. The only Bookings write is the block insert.
+- **Actual:** `201` naming the affected bookings, then `200`; the only Bookings write was `/blocks`; no Events cancellation/decision write.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s89.py::test_marking_a_venue_unavailable_never_cancels_or_rejects_anything; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-401 — a released booking is listed but carries no flag and no actions
+
+- **Scenario:** After an S-89 cancellation the Coordinator and Organiser still see the event's venue history.
+- **Pre-conditions:** E is `cancelled`; Bookings lists B1 `released` (inside an unavailable period) and J1 `rejected`.
+- **Steps:** `GET /venue-bookings?event_id=E` as the assigned Coordinator, then as the Organiser; `GET /venue-bookings/B1/replacement-venues` and `POST /venue-bookings/B1/replacement` as the Coordinator.
+- **Test data:** As above.
+- **Expected:** Both lists → `200` with B1 `"status": "released"`; for the Coordinator, `requires_alternative_arrangements` false and `clashes` `[]`. The replacement search and request → `409` "This event's venue bookings can no longer be changed"; no booking is created.
+- **Actual:** Both lists `200` with B1 `released`; for the Coordinator no flag and no clashes. Search and request `409` with the expected detail; nothing created.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s89.py::test_a_released_booking_is_listed_without_a_flag; tests/unit/composite/venue_bookings/test_s89.py::test_a_released_booking_of_a_cancelled_event_cannot_be_replaced; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`

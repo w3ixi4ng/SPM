@@ -28,6 +28,7 @@ os.environ.setdefault("EQUIPMENT_SERVICE_URL", "http://equipment:8005")
 os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
 os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 os.environ.setdefault("REGISTRATIONS_SERVICE_URL", "http://registrations:8007")
+os.environ.setdefault("VENUE_BOOKINGS_SERVICE_URL", "http://venue_bookings:8101")
 os.environ.setdefault("ASSIGNMENT_SERVICE_SECRET", "unit-assignment-secret")
 
 # Services use flat imports because each Docker image runs from its own

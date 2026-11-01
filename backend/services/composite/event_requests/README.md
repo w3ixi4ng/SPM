@@ -58,6 +58,7 @@ Event Coordinators.
 | `POST` | `/event-requests/{event_id}/decision` | Assigned Event Coordinator | Approve, reject or return the request and notify its Organiser of the outcome and any required action. |
 | `PATCH` | `/event-requests/{event_id}/information` | Assigned Event Coordinator | Save S-18 event information; a schedule change also notifies the Organiser that the event was rescheduled or postponed. |
 | `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. S-69: approving notifies every Attendee registered or waiting. |
+| `POST` | `/event-requests/{event_id}/venue-cancellation` | Assigned Event Coordinator | S-89: cancel an event venue unavailability affects when no alternative venue was found. Releases every booking and hold, notifies the Organiser and Attendees. Repeat to finish an interrupted cancellation. |
 | `GET` | `/event-requests/{event_id}/history` | Assigned Event Coordinator, or any Event Coordinator Lead | S-82: who changed or decided what on the event, and when, with names. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
@@ -415,6 +416,103 @@ is passed on unchanged.
 | `502` | `The event is cancelled, but its venue bookings were not released. Approve again to release them.` | Approving again is safe. The event is not written a second time, and the bookings are removed. |
 | `502` | `The event is cancelled, but its attendees were not notified. Approve again to notify them.` | S-69: the registrations or notifications service failed. Approving again sends the notifications; anyone already notified is not notified twice. |
 
+## Cancelling without an alternative venue (S-89)
+
+**`POST /event-requests/{event_id}/venue-cancellation`**, through Kong at
+`/api/event-requests/{event_id}/venue-cancellation`. Event Coordinator
+session; only the event's currently assigned Coordinator.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Why the event is cancelled. Trimmed, 1–1000 characters. Shown to the Organiser. |
+| `alternatives_considered` | string | yes | What was discussed with the Organiser and why it did not work. Trimmed, 1–1000 characters. |
+| `expected_version` | integer ≥ 0 | yes | The event's `edit_version` the Coordinator's screen showed. |
+
+```json
+{"reason": "Hall A is closed for structural repairs on the event date", "alternatives_considered": "Discussed Hall B and Seminar Room 3 with the Organiser on 30 Oct; neither fits 180 guests", "expected_version": 7}
+```
+
+Nothing cancels an event automatically: marking a venue unavailable (S-77)
+only flags bookings. This route is the Coordinator's decision, in order:
+
+1. **Affected?** `GET /venue-bookings?event_id=` on the `venue_bookings`
+   composite, with the Coordinator's own cookies. At least one booking must
+   come back with `requires_alternative_arrangements: true` -- S-77's flag,
+   worked out by the composite that owns the rule (an unavailable period over
+   the window a held or confirmed booking occupies, setup and turnaround
+   included, from today on, minus periods the Coordinator already resolved).
+   Any failed read is a `502` and nothing changes.
+2. **Close the bookings.** `POST /internal/events/{id}/bookings/closure` on
+   the bookings service, with a fresh `operation_id`. From here no booking of
+   the event can become pending, held or confirmed, by any route.
+3. **Cancel.** The events service records the cancellation with a guarded
+   write: assigned Coordinator, `expected_version`, a status whose venues may
+   still change, and no Organiser request (S-62) waiting for a decision.
+   - A definite refusal or error answer: the closure is withdrawn
+     (`.../closure/reopen` with the same `operation_id`) and the answer
+     passed on. Another attempt's closure is never withdrawn.
+   - No answer at all: the event is re-read. Cancelled after all -- carry
+     on. Otherwise the closure is **kept** (the write might still land) and
+     the answer is `502`; a later attempt finishes it or, once the closure
+     is two minutes old, withdraws it.
+4. **History.** `POST /internal/events/{id}/venue-cancellation/history`
+   writes the S-82 entry from the stored record. Retried until it succeeds;
+   never written twice.
+5. **Release.** The bookings service moves every `pending`, `held` and
+   `confirmed` booking to `released` -- kept, not deleted -- and closes the
+   event for good. The composite re-reads, and releases once more if
+   anything is still active. Equipment needs no call: requirements reserve
+   stock only while the event's status is committed (S-44), so `cancelled`
+   releases them; the rows stay.
+6. **Notify.** The Organiser gets one `event_cancelled` notification with the
+   reason:
+
+   ```text
+   Event cancelled: Alumni networking evening, 20 Nov 2026, 9:00 am – 9:00 pm. Your Event Coordinator cancelled it because no alternative venue could be found. Reason: Hall A is closed for structural repairs on the event date
+   ```
+
+   Every Attendee holding a place or waiting gets S-69's notification,
+   unchanged. All are deduplicated on `event_cancelled:{event id}:{recipient id}`.
+7. **Complete.** The events service sets `venue_cancellation_completed_at`
+   (it refuses while the history entry is missing).
+
+`200` only once all seven are done:
+
+```json
+{"id": "33333333-…", "status": "cancelled", "venue_cancellation_reason": "Hall A is closed…", "venue_cancellation_completed_at": "2026-11-01T03:01:00Z", "released_bookings": 4, "organiser_notified": true, "notified_attendees": 3, "cancellation_completed": true}
+```
+
+**Finishing an interrupted cancellation.** After step 3 the event is
+`cancelled` even if a later step fails. Calling again resumes it: steps 1–3
+are skipped for an event this route already cancelled (its bookings are
+already closed, and released ones no longer carry the flag), and nothing
+already done is repeated -- no second history entry, no second notification. The Coordinator's page offers **Finish
+cancellation** while `venue_cancellation_completed_at` is null.
+
+| Status | Detail | Meaning |
+| --- | --- | --- |
+| `401` / `403` | | Not signed in / not an Event Coordinator. |
+| `404` | `Event not found or not assigned to you` | Not this Coordinator's event. |
+| `409` | `None of this event's venue bookings is affected by an unavailable venue, so it can't be cancelled here.` | Use the Organiser's request (S-62/S-61). |
+| `409` | `This event is already cancelled.` | Cancelled another way (S-61). |
+| `409` | `This event can't be cancelled from its current status.` | Not planning, pending safety check, confirmed, preparation or safety changes requested. |
+| `409` | `The Organiser has asked to cancel this event. Approve their request instead.` | S-62 request waiting. |
+| `409` | `This event changed since you opened it. Reload and try again.` | Stale `expected_version`, or another write won. |
+| `422` | `Please check the details you entered` | Blank or over-long field, with `errors`. |
+| `502` | `Venue bookings service unavailable` / `Events service unavailable` | A read failed; nothing changed. |
+| `502` | `The event could not be cancelled. Nothing was changed. Try again.` | The closure or the events write failed; the closure was withdrawn. |
+| `502` | `The event was not cancelled, but its venue bookings could not be unlocked. Try again.` | Refused, but withdrawing the closure failed. |
+| `502` | `We couldn't confirm whether the event was cancelled, so its venue bookings stay locked for now. …` | No answer from the events service; the closure is kept until the outcome is known. |
+| `502` | `The event is cancelled, but the cancellation was not recorded in its history. Cancel again to finish.` | |
+| `502` | `The event is cancelled, but its venue bookings were not released. Cancel again to finish.` | |
+| `502` | `The event is cancelled and its venue bookings released, but the Organiser was not notified. Cancel again to finish.` | |
+| `502` | `The event is cancelled, but its attendees were not notified. Cancel again to notify them.` | |
+| `502` | `Everyone was notified, but the cancellation could not be marked complete. Cancel again to finish.` | |
+
+**Known inconsistency (follow-up).** S-61's approval still *deletes* a
+cancelled event's bookings; S-89 releases them and keeps the rows. S-61 was
+deliberately left unchanged here.
+
 ## Change history (S-82)
 
 `GET /event-requests/{event_id}/history`, no body. Readable by the event's
@@ -469,6 +567,7 @@ on file is `null`, and a backfilled entry whose actor was never recorded has
 | `NOTIFICATIONS_SERVICE_URL` | Notifications service, e.g. `http://notifications:8006`. |
 | `BOOKINGS_SERVICE_URL` | S-61: bookings service, e.g. `http://bookings:8004`. |
 | `REGISTRATIONS_SERVICE_URL` | S-69: registrations service, e.g. `http://registrations:8007`. |
+| `VENUE_BOOKINGS_SERVICE_URL` | S-89: the `venue_bookings` composite, for S-77's affected-booking flag, e.g. `http://venue_bookings:8101` (the compose default). |
 | `ASSIGNMENT_SERVICE_SECRET` | Independent random service credential shared only with Events for S-83/S-84 writes. |
 
 ## Running and tests

@@ -497,3 +497,34 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** The first edit saved the later date and one postponed notice; the stale retry was refused and the Organiser still had one notice.
 - **Status:** Pass
 - **Evidence:** `test_s63.py::test_a_real_postponement_reaches_the_organiser_once`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; full integration suite: 112 passed, 5 skipped.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs 450–499
+reserved for S-89 integration cases. Needs the S-89 blocks of
+`backend/sql/events.sql` and `backend/sql/bookings.sql` applied to the test
+project; `event_requests` reaches `venue_bookings` through
+`VENUE_BOOKINGS_SERVICE_URL` (defaulted in `docker-compose.yml`). Blocked
+until the SQL is applied.
+
+## TC-EVENTREQUESTS-450 — an affected two-venue event is cancelled through Kong with everything closed, recorded, released and announced
+
+- **Scenario:** Across real Events, Bookings, Venue Bookings, Registrations, Notifications and Equipment: nothing happens automatically, then the Coordinator's cancellation reaches a consistent final state (S-89 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack. A `confirmed` event E (21 days ahead) with Coordinator K and Organiser O; confirmed bookings at V1 and V2 and a pending replacement for V1 at V3; two registered Attendees and one waiting; a requirement for 4 of item Q (total 10).
+- **Steps:** 1. As Venue Staff, `POST /api/venue-bookings/blocks` over V1's booking. 2. Read E and its bookings. 3. As K, `POST /api/event-requests/E/venue-cancellation`. 4. Read E, its bookings, its closure, its history, the notifications, and (as Technical Support) Q's availability. 5. Repeat step 3.
+- **Test data:** `spm-test-*` rows, deleted afterwards.
+- **Expected:** 2 → E and its bookings unchanged (AC1). 3 → `200`, `released_bookings` 3, `notified_attendees` 3, `cancellation_completed` true. 4 → E `cancelled` with the reason and `venue_cancellation_completed_at`; all three bookings `released`; the closure `closed`; one `cancelled_venue_unavailable` entry by K with the reason; O one `event_cancelled` notification with the reason; each Attendee exactly one ending "It will not take place."; Q 10 available. 5 → `200`, no new notification rows.
+- **Actual:** Before cancelling, E and its bookings unchanged. `200`, `released_bookings` 3, `notified_attendees` 3, completed. E `cancelled` with reason and completion time; three bookings `released`; closure `closed`; one history entry by K with the reason; Organiser one notification with the reason; each Attendee exactly one; Q 10 available. The repeat `200` with no new notifications.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s89.py::test_an_affected_two_venue_event_is_cancelled_with_everything_released_and_announced`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-EVENTREQUESTS-451 — unaffected or unassigned events stay untouched and unlocked
+
+- **Scenario:** The verification uses the real flag and assignments, and a refused attempt leaves no closure behind.
+- **Pre-conditions:** As TC-EVENTREQUESTS-450, with a planning event G whose booking nothing affects, and a second Coordinator D.
+- **Steps:** 1. Mark V1 unavailable. 2. As K, cancel G. 3. As D, cancel E.
+- **Test data:** As above.
+- **Expected:** 2 → `409` "None of this event's venue bookings is affected by an unavailable venue, so it can't be cancelled here." 3 → `404`. Afterwards both events and their bookings unchanged, no `closed_events` row for either, no `event_cancelled` notification.
+- **Actual:** G `409` with the not-affected detail; D `404`; both events and bookings unchanged, no `closed_events` row and no `event_cancelled` notification for either.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s89.py::test_unaffected_or_unassigned_events_stay_untouched`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)

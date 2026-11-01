@@ -252,6 +252,28 @@ class CancellationDecision(BaseModel):
     reason: str | None = None
 
 
+class VenueCancellationSubmit(BaseModel):
+    """S-89: the Coordinator's record of cancelling an event no alternative
+    venue could be found for, and the event version their screen showed.
+    Checked here so a blank field never costs a downstream call; the events
+    service checks it again."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+    alternatives_considered: str = Field(max_length=1000)
+    expected_version: int = Field(ge=0)
+
+    @field_validator("reason", "alternatives_considered", mode="before")
+    @classmethod
+    def trimmed_and_required(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("This field is required")
+        return value
+
+
 class EventDecision(BaseModel):
     """S-63 browser decision forwarded to Events before notifying its owner."""
 

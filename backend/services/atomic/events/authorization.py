@@ -34,6 +34,8 @@ EVENT_COORDINATOR_EVENT_PERMISSIONS = frozenset({
     "events:update_assigned",
     "events:decide_cancellation",
     "events:view_change_requests",
+    # S-89: cancel an event venue unavailability left without an alternative.
+    "events:cancel_for_venue_unavailability",
 })
 
 # Every recognized role may enter its own role dashboard. Add internal-role

@@ -31,6 +31,9 @@ queries another service's tables.
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
 | `PUT` | `/events/support-assigned/{event_id}/equipment-preparation` | `events:update_equipment_preparation` | Set the assigned event's equipment preparation status and server-owned audit fields. |
 | `POST` | `/events/{event_id}/cancellation-decision` | `events:decide_cancellation` | S-61: the assigned coordinator approves (status becomes `cancelled`) or declines a pending cancellation request. See [Cancellation requests](#cancellation-requests-s-62). |
+| `POST` | `/internal/events/{event_id}/venue-cancellation` | `events:cancel_for_venue_unavailability` + service token | S-89: record the assigned coordinator's cancellation of an event venue unavailability left without an alternative. See [Cancelling without an alternative venue](#cancelling-without-an-alternative-venue-s-89). |
+| `POST` | `/internal/events/{event_id}/venue-cancellation/history` | `events:cancel_for_venue_unavailability` + service token | S-89: write the S-82 entry for the cancellation from the stored record; safe to repeat. |
+| `POST` | `/internal/events/{event_id}/venue-cancellation/complete` | `events:cancel_for_venue_unavailability` + service token | S-89: mark that the history entry exists, every booking was released and everyone notified. |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -597,6 +600,65 @@ After a decline the organiser may request again, which clears the decision.
 | `409` | `There is no cancellation request to decide for this event.` |
 | `409` | `This cancellation request has already been decided.`: also returned when another decision lands between the read and the write. |
 | `422` | Unknown `decision`, a decline without a reason, an approval with one, or an extra field. |
+
+## Cancelling without an alternative venue (S-89)
+
+Composite-only: both routes need the `X-Assignment-Service-Token` header
+(`ASSIGNMENT_SERVICE_SECRET`) **and** the assigned coordinator's session.
+Kong does not route `/internal`. The `event_requests` composite checks the
+venue unavailability first; this service records the decision.
+
+**`POST /internal/events/{event_id}/venue-cancellation`**
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Trimmed, 1–1000 characters. |
+| `alternatives_considered` | string | yes | Trimmed, 1–1000 characters. |
+| `expected_version` | integer ≥ 0 | yes | Must equal the event's `edit_version`. |
+| `affected_booking_ids` | UUID[] | yes | At least one; the bookings the composite found affected. |
+
+One guarded update sets `status` `cancelled`, `venue_cancellation_reason`,
+`venue_cancellation_alternatives`, `venue_cancellation_booking_ids`,
+`venue_cancelled_by`, `venue_cancelled_at`, `venue_cancellation_previous_status`
+and `edit_version + 1`, only while
+the event is assigned to the caller, at `expected_version`, in `planning`,
+`pending_safety_check`, `confirmed`, `preparation` or
+`safety_changes_requested`, not already venue-cancelled, and with no
+Organiser cancellation request awaiting a decision. It writes no history
+itself: that is the next route, so it can be retried.
+
+Calling again on an event this route already cancelled returns it unchanged
+(`200`, no write, no history) -- how the composite resumes.
+
+| Status | Detail |
+| --- | --- |
+| `200` | The event (`CoordinatorEventRead`). |
+| `401` / `403` | No session; missing or wrong token; not a coordinator. |
+| `404` | `Event not found` -- not assigned to the caller. |
+| `409` | `This event is already cancelled.` / `This event can't be cancelled from its current status.` / `The Organiser has asked to cancel this event. Approve their request instead.` / `This event changed since you opened it. Reload and try again.` |
+| `422` | Invalid body. |
+| `500` | `Event storage unavailable`. |
+
+**`POST /internal/events/{event_id}/venue-cancellation/history`** -- no body.
+Writes one `cancelled_venue_unavailable` entry (category `review`) built from
+the stored record alone: actor `venue_cancelled_by`, `occurred_at` =
+`venue_cancelled_at`, details `reason`, `alternatives_considered`,
+`previous_status`, `affected_booking_ids`. A unique index allows one per
+event; a repeat (or a concurrent duplicate) is a `200` `{"recorded": true}`
+without a second entry. `409` if the event was not cancelled this way; `500`
+if the write failed.
+
+**`POST /internal/events/{event_id}/venue-cancellation/complete`** -- no
+body. Sets `venue_cancellation_completed_at` once; repeating is a `200`
+no-op. `409` `The cancellation has not been recorded in the event history
+yet.` while the entry is missing; `409` `This event has not been cancelled for
+venue unavailability.` otherwise.
+
+New `EventRead` fields, all null unless S-89 cancelled the event:
+`venue_cancellation_reason`, `venue_cancellation_alternatives`,
+`venue_cancellation_booking_ids`, `venue_cancelled_by`, `venue_cancelled_at`,
+`venue_cancellation_previous_status`, `venue_cancellation_completed_at`. Run the `BEGIN S-89` block of
+[`backend/sql/events.sql`](../../../sql/events.sql) in both dev and test.
 
 ## Internal routes (composite-only)
 

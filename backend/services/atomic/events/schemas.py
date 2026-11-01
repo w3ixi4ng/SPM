@@ -409,6 +409,16 @@ class EventRead(BaseModel):
     cancellation_decision_reason: str | None = None
     cancellation_decided_by: UUID | None = None
     cancellation_decided_at: datetime | None = None
+    # S-89: the assigned Coordinator cancelled because venue unavailability
+    # left no alternative. All null otherwise. completed_at stays null until
+    # every booking was released and everyone was notified.
+    venue_cancellation_reason: str | None = None
+    venue_cancellation_alternatives: str | None = None
+    venue_cancellation_booking_ids: list[UUID] | None = None
+    venue_cancelled_by: UUID | None = None
+    venue_cancelled_at: datetime | None = None
+    venue_cancellation_previous_status: str | None = None
+    venue_cancellation_completed_at: datetime | None = None
     # S-51: off, with no period, unless the Organiser turned it on.
     registration_required: bool = False
     registration_opens_at: datetime | None = None
@@ -574,6 +584,29 @@ class CancellationDecisionCreate(BaseModel):
         if self.decision == "approved" and self.reason is not None:
             raise ValueError("reason is not accepted when approving")
         return self
+
+
+def _required_text(value):
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            raise ValueError("This field is required")
+    return value
+
+
+class VenueCancellationCreate(BaseModel):
+    """S-89: what the Coordinator records when cancelling an event no
+    alternative venue could be found for. Who and when are set by the
+    service; the affected bookings come from the composite's check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+    alternatives_considered: str = Field(max_length=1000)
+    expected_version: int = Field(ge=0)
+    affected_booking_ids: list[UUID] = Field(min_length=1)
+
+    _trim = field_validator("reason", "alternatives_considered", mode="before")(_required_text)
 
 
 class EventOptions(BaseModel):
@@ -839,6 +872,7 @@ EVENT_HISTORY_ACTIONS: dict[str, str] = {
     "cancellation_requested": "review",
     "cancellation_approved": "review",
     "cancellation_declined": "review",
+    "cancelled_venue_unavailable": "review",
     "coordinator_assigned": "assignment",
     "reassignment_requested": "assignment",
     "coordinator_reassigned": "assignment",

@@ -341,6 +341,8 @@ def test_event_coordinator_has_the_view_and_decide_permissions():
         "events:decide_cancellation",
         "events:request_reassignment",
         "events:view_change_requests",
+        # S-89
+        "events:cancel_for_venue_unavailability",
     }
 
 
