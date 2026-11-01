@@ -1691,6 +1691,21 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Status:** Pass
 - **Evidence:** `test_notify_organiser_event_changes.py::test_an_organiser_sees_an_actionable_returned_event_notice[chromium]`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; 1 passed in 33.24s.
 
+## S-68 — Notify Attendee — Event Rescheduled
+
+Acceptance criteria and test cases confirmed by the developer on 2026-11-01
+before implementation.
+
+## TC-E2E-270 — a registered Attendee sees the newly confirmed event window
+
+- **Scenario:** The real browser inbox updates only after a revised event passes its final safety approval.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; E was previously confirmed for 18 Nov, is now pending a fresh safety decision for 20 Nov, A is registered, and U is unrelated.
+- **Steps:** Confirm A and U have no early reschedule notice; approve E as the Safety Officer; sign in as A, inspect and reload the notification inbox; sign in as U and inspect theirs.
+- **Test data:** Event "Rescheduled Forum"; new window 20 Nov 2026 13:00–16:00.
+- **Expected:** Before approval nobody sees a reschedule notice. Afterwards A sees one persistent notice naming E and its complete new window; U sees none.
+- **Actual:** Before approval A's inbox contained no event notice. After the Safety Officer approved the revised event, A saw the event name, `20 Nov 2026, 1:00 pm to 4:00 pm`, and confirmation that the registration remained active; the notice survived reload. U saw no notice.
+- **Status:** Pass
+- **Evidence:** `test_notify_attendee_event_rescheduled.py::test_registered_attendee_sees_reschedule_only_after_final_approval[chromium]`; 2026-11-01 fresh `.env.test` stack verified against the test project; 1 passed in 69.17s. Related Operational Safety and initial-confirmation regressions: 3 passed.
 ## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
 
 Drafted and confirmed 2026-11-01. IDs

@@ -818,8 +818,8 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Pre-conditions:** Event E has one active hold; events and bookings clients are mocked.
 - **Steps:** Synchronise E when its authoritative status is `rejected`, `cancelled`, and each nonterminal status; submit a replacement venue request with a changed venue, date or time; repeat the same request unchanged.
 - **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacements change venue to Studio C, date to `2026-11-13`, or time to `13:00`–`16:00`.
-- **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
-- **Actual:** Rejected/cancelled events released and disappeared from actionable results; changed requests released the old hold, while identical retries returned the existing row.
+- **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. The released audit row stays absent from every later actionable-list fetch even though its stored status is now `pending`, so a second dashboard fetch cannot offer a terminal event again. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
+- **Actual:** Rejected/cancelled events released and disappeared from actionable results; their resulting Pending audit rows stayed absent on a later fetch without another release write. Changed requests released the old hold, while identical retries returned the existing row.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py`
 

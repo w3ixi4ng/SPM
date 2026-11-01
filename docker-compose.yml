@@ -348,6 +348,7 @@ services:
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
       EQUIPMENT_SERVICE_URL: ${EQUIPMENT_SERVICE_URL:-http://equipment:8005}
       NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
+      REGISTRATIONS_SERVICE_URL: ${REGISTRATIONS_SERVICE_URL:-http://registrations:8007}
       ASSIGNMENT_SERVICE_SECRET: ${ASSIGNMENT_SERVICE_SECRET:-}
     depends_on:
       users:
@@ -361,6 +362,8 @@ services:
       equipment:
         condition: service_healthy
       notifications:
+        condition: service_healthy
+      registrations:
         condition: service_healthy
     healthcheck:
       test:
