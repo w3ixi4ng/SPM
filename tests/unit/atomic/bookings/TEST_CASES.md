@@ -1258,3 +1258,135 @@ agreed decisions are in the S-61 section of
 - **Expected:** The first save succeeds and the stale save returns `409`.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.py::test_stale_version_is_a_conflict`.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria: see `tests/unit/atomic/events/TEST_CASES.md` § S-89.
+Drafted and confirmed 2026-11-01. IDs 400–449 are reserved for S-89 unit
+cases. Changed after confirmation, by the developer's 2026-11-01 decision that
+no active booking may be introduced after cancellation by any route: the
+release is one database function that also closes the event, and
+TC-BOOKINGS-404 covers the closed-event refusal. Which statuses it touches is
+proven against real Postgres in TC-BOOKINGS-450.
+
+Revised 2026-11-01 at the developer's request (the cancellation/closure
+race): the event is closed **before** it is cancelled, by a closure intent
+carrying the cancellation's `operation_id` (TC-BOOKINGS-407), which the
+operation withdraws if the cancellation does not happen (TC-BOOKINGS-408);
+the release makes it permanent. Every release and closure call carries the
+`operation_id`. The refusal reads "This event is being cancelled, so its
+venue bookings can no longer change." That the trigger refuses the direct
+routes, and survives racing confirmations, is proven only against real
+Postgres: TC-BOOKINGS-451/452.
+
+S-61 deletes a cancelled event's bookings. S-89 must keep booking history,
+so it adds a terminal, non-live status: `released`. A released booking stays
+listed with `released_at`, `released_by` and `release_reason`
+(`event_cancelled`), and reserves nothing. Route:
+`POST /internal/events/{event_id}/bookings/release`, body
+`{"reason": "event_cancelled", "operation_id": <uuid>}`, Coordinator session (same trust model as
+S-61's delete; the composite has already checked the assignment). No Kong
+route reaches the bookings service.
+
+Shared data: event E `22222222-…`, Coordinator C. E's bookings: P1
+`pending`; H1 `held` (expires tomorrow); C1 and C2 `confirmed` at two
+venues, C1 `is_primary`; R1 a pending S-78 replacement for C1; J1
+`rejected`; X1 `replaced`. Event F's confirmed booking F1.
+
+## TC-BOOKINGS-400 — every active booking, hold and replacement request of the event is released
+
+- **Scenario:** One call releases everything that still reserves or requests venue time for E (S-89 AC3), whatever the number of venues (S-79).
+- **Pre-conditions:** The fake returns the rows above; the conditional update returns P1, H1, C1, C2, R1 as released.
+- **Steps:** `POST /internal/events/E/bookings/release` `{"reason": "event_cancelled", "operation_id": OP}` as C.
+- **Test data:** As above.
+- **Expected:** `200` `{"released": [P1, H1, C1, C2, R1], "count": 5}`. `bookings.release_event_bookings` is called once with `p_event_id` E, `p_operation_id` OP, `p_released_by` C, `p_reason` `event_cancelled`; it sets `status` `released`, `released_at`, `released_by`, `release_reason` on E's `pending`/`held`/`confirmed` rows only, and on held rows `hold_released_at`/`hold_release_reason` (TC-BOOKINGS-450). No delete is issued.
+- **Actual:** `200` `{"released": [5 ids], "count": 5}`; `release_event_bookings` called once with the event, the operation, the Coordinator and `event_cancelled`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_every_active_booking_hold_and_request_is_released; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-401 — closed bookings and other events are untouched
+
+- **Scenario:** History is preserved: rejected and replaced records keep their state, and nothing outside E changes.
+- **Pre-conditions:** As TC-BOOKINGS-400.
+- **Steps:** Release E.
+- **Test data:** As above.
+- **Expected:** No delete and no row-by-row update is issued from the service; the function's `where event_id = E and status in (pending, held, confirmed)` leaves J1, X1 and F1 untouched (proven in TC-BOOKINGS-450).
+- **Actual:** No delete and no row-by-row update is issued; the function scopes the write.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_nothing_is_deleted_or_updated_row_by_row; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-402 — releasing again is a no-op
+
+- **Scenario:** The composite retries a release; the second call changes nothing.
+- **Pre-conditions:** Every E booking is already `released`, `rejected` or `replaced`.
+- **Steps:** Release E twice.
+- **Test data:** As above.
+- **Expected:** Both `200` `{"released": [], "count": 0}`; existing `released_at` values are not overwritten.
+- **Actual:** Both calls `200` `{"released": [], "count": 0}`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_releasing_again_is_a_no_op; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-403 — only a Coordinator, and only for an event cancellation
+
+- **Scenario:** Authorisation and payload are checked at the atomic boundary too.
+- **Pre-conditions:** As TC-BOOKINGS-400.
+- **Steps:** Release (a) with no session; (b) as Venue Staff; (c) as an Organiser; (d) as C with `reason` `staff_released`; (e) as C with `{}`; (f) as C without `operation_id`.
+- **Test data:** As above.
+- **Expected:** (a) `401`; (b), (c) `403`; (d)–(f) and an unknown field `422`. The function is never called.
+- **Actual:** (a) `401`; (b), (c) `403`; (d)–(f) and an unknown field `422`. The function is never called.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_without_a_session_nothing_is_released; tests/unit/atomic/bookings/test_s89.py::test_only_a_coordinator_can_release; tests/unit/atomic/bookings/test_s89.py::test_only_an_event_cancellation_is_a_reason; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-404 — a released booking reserves nothing and cannot be revived
+
+- **Scenario:** `released` is terminal and not live, so its slot is free and no later action resurrects it.
+- **Pre-conditions:** C1 is `released`.
+- **Steps:** (a) Venue Staff decide C1; (b) hold C1; (c) S-80 change or cancel C1; (d) S-78 resolve C1's alternative arrangements; (e) create a replacement with `replaces_booking_id` C1; (f) create a new booking for C1's venue and time.
+- **Test data:** As above.
+- **Expected:** (a)–(d) `409` with each route's existing "already decided / only a … booking" detail; (e) `409` "This booking can no longer be replaced"; (f) the overlap query's status filter is `held, confirmed` only, so C1 never conflicts and the request is `201`. Closed event (`bookings.closed_events` trigger): a new request, a confirmation, a hold and an S-80 change for E each `409` "This event is cancelled, so its venue bookings can no longer change."
+- **Actual:** (a)–(d) `409` with each route's detail; (e) `409` "This booking can no longer be replaced"; (f) `201` with the overlap filter on `held, confirmed` only. Closed event: create, confirm, hold and change each `409` "This event is being cancelled, so its venue bookings can no longer change."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_a_released_booking_cannot_be_decided; tests/unit/atomic/bookings/test_s89.py::test_a_released_booking_cannot_be_held; tests/unit/atomic/bookings/test_s89.py::test_a_released_booking_cannot_be_changed_or_cancelled; tests/unit/atomic/bookings/test_s89.py::test_a_released_booking_cannot_have_its_flag_resolved; tests/unit/atomic/bookings/test_s89.py::test_a_released_booking_cannot_be_replaced; tests/unit/atomic/bookings/test_s89.py::test_a_released_booking_never_blocks_a_new_request; tests/unit/atomic/bookings/test_s89.py::test_a_new_request_for_a_closed_event_is_refused; tests/unit/atomic/bookings/test_s89.py::test_confirming_a_booking_of_a_closed_event_is_refused; tests/unit/atomic/bookings/test_s89.py::test_holding_a_booking_of_a_closed_event_is_refused; tests/unit/atomic/bookings/test_s89.py::test_changing_a_booking_of_a_closed_event_is_refused; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-405 — released bookings are still listed for their event
+
+- **Scenario:** The event's venue history stays visible after cancellation.
+- **Pre-conditions:** E's bookings after TC-BOOKINGS-400.
+- **Steps:** `GET /bookings?event_id=E`.
+- **Test data:** As above.
+- **Expected:** `200` with all seven rows; P1, H1, C1, C2, R1 have `"status": "released"`, `release_reason`, `released_at` and `released_by`; `BookingRead` validates them. `GET /bookings?status=actionable` and `status=live` do not include them.
+- **Actual:** `200`, the released row with `status`, `release_reason`, `released_by`, `released_at`; `actionable` filters `pending, held` and `live` filters `held, confirmed`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_released_bookings_are_still_listed_for_their_event; tests/unit/atomic/bookings/test_s89.py::test_released_bookings_are_not_actionable_or_live; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-406 — a storage failure is not reported as a release
+
+- **Scenario:** The composite must see the release failed, so it never reports the cancellation complete.
+- **Pre-conditions:** The fake's update raises.
+- **Steps:** Release E as C.
+- **Test data:** As above.
+- **Expected:** `500` "Booking storage unavailable".
+- **Actual:** `500` "Booking storage unavailable".
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_a_storage_failure_is_not_reported_as_a_release; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+## TC-BOOKINGS-407 — the closure intent is recorded before the event is cancelled
+
+- **Scenario:** From before the event changes, no booking of it may become active (developer's 2026-11-01 requirement).
+- **Pre-conditions:** Coordinator session.
+- **Steps:** (a) `POST /internal/events/E/bookings/closure` `{"reason": "event_cancelled", "operation_id": OP}`. (b) The same while another operation's closure exists. (c) Either closure or reopen with no session, as Venue Staff, as an Organiser.
+- **Test data:** OP `0e0e0e0e-…`; other operation `0f0f0f0f-…`.
+- **Expected:** (a) `200`, the row with `state` `closing` and `operation_id` OP; `close_event_bookings` called with E, OP, C, `event_cancelled`. (b) `200`, the existing row with the **other** operation, so the caller knows it does not own it. (c) `401` / `403` / `403`; no function called.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_the_closure_intent_is_recorded_before_the_event_is_cancelled; tests/unit/atomic/bookings/test_s89.py::test_an_existing_closure_is_returned_with_its_own_operation; tests/unit/atomic/bookings/test_s89.py::test_only_a_coordinator_can_close_or_reopen; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-408 — a closure is withdrawn only by its own operation, or once abandoned
+
+- **Scenario:** If the cancellation does not happen the bookings reopen, but one attempt never unlocks another's live closure, and a released event never reopens.
+- **Pre-conditions:** Coordinator session.
+- **Steps:** (a) `POST …/closure/reopen` `{"operation_id": OP}` where the function removes a row. (b) Where it removes none (another operation's live closure, or `closed`). (c) Bodies `{}`, a non-UUID, an unknown field.
+- **Test data:** As TC-BOOKINGS-407.
+- **Expected:** (a) `200` `{"reopened": true}`; `reopen_event_bookings` called with E, OP, `2 minutes`. (b) `200` `{"reopened": false}`. (c) `422`, no function called. (Which rows the function removes: TC-BOOKINGS-451.)
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_s89.py::test_reopening_withdraws_only_this_operations_or_an_abandoned_intent; tests/unit/atomic/bookings/test_s89.py::test_reopening_someone_elses_live_intent_or_a_closed_event_does_nothing; tests/unit/atomic/bookings/test_s89.py::test_a_malformed_reopen_is_refused; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`

@@ -3453,3 +3453,167 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Actual:** Missing or forged service credentials were rejected before persistence.
 - **Status:** Pass
 - **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria (developer, 2026-11-01): (1) the system never cancels or
+rejects an event affected by venue unavailability automatically; (2) after
+working with the Event Organiser on alternatives, the assigned Coordinator
+may cancel the event with a recorded reason; (3) cancelling releases all of
+the event's venue bookings, tentative holds and equipment reservations;
+(4) the Event Organiser is notified and currently registered Attendees are
+notified as in S-69.
+
+Drafted 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`
+(from `origin/sprint4` `ca5ff0d`). Confirmed by the developer 2026-11-01. Revised 2026-11-01 at the developer's
+request: the S-82 entry is no longer best effort inside the cancellation
+write but its own retryable step (TC-EVENTS-410/411), the event row keeps
+the previous status that step needs, and completion waits for it
+(TC-EVENTS-407).
+IDs 400–449 (unit) and 450–499 (integration) are reserved for S-89 so they
+cannot collide with S-60's parallel 3xx block.
+
+The events service records the cancellation; the event_requests composite
+has already verified the venue unavailability. The route is internal:
+`POST /internal/events/{id}/venue-cancellation` needs both the
+server-owned `X-Assignment-Service-Token` (as S-83) and the Coordinator's own
+session, and is not reachable through Kong. Body:
+`{"reason", "alternatives_considered", "expected_version", "affected_booking_ids"}`.
+
+Shared data: event E `22222222-2222-4222-8222-222222222222`, status
+`confirmed`, `edit_version` 7, assigned Coordinator C
+`cccccccc-cccc-4ccc-8ccc-cccccccccccc`, Organiser O; affected booking B1
+`b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1`. Reason "Hall A is closed for
+structural repairs on the event date". Alternatives "Discussed Hall B and
+Seminar Room 3 with the Organiser on 30 Oct; neither fits 180 guests".
+
+## TC-EVENTS-400 — the assigned Coordinator's cancellation is recorded on the event
+
+- **Scenario:** A valid cancellation makes the event `cancelled` and stores who, when, why, the alternatives, the affected bookings and the previous status (S-89 AC2).
+- **Pre-conditions:** Fake DB returns E for the assignment read; the guarded update returns E with the new values. Valid token; session of C.
+- **Steps:** `POST /internal/events/E/venue-cancellation` with the shared body, `expected_version` 7, `affected_booking_ids` [B1].
+- **Test data:** As above.
+- **Expected:** `200`, `status` `cancelled`. The single update sets `status`, `venue_cancellation_reason`, `venue_cancellation_alternatives`, `venue_cancellation_booking_ids`, `venue_cancelled_by` = C, `venue_cancelled_at`, `venue_cancellation_previous_status` `confirmed`, `edit_version` 8, and is filtered on `id` E, `assigned_coordinator_id` C, `edit_version` 7, status in the five open statuses, `venue_cancelled_at` null and the S-62 request rule. No `cancellation_*` column is written. No history entry is written here (TC-EVENTS-410).
+- **Actual:** As expected; no history insert.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_assigned_coordinators_cancellation_is_recorded_on_the_event; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-401 — only the assigned Coordinator, through the composite, can cancel
+
+- **Scenario:** No browser can call the route directly, and no other user can use it (S-89: only the assigned Coordinator).
+- **Pre-conditions:** As TC-EVENTS-400.
+- **Steps:** Call the route (a) without the token; (b) with a wrong token; (c) with the token and no session; (d) with the token and an Organiser, Venue Staff or Lead session; (e) with the token as Coordinator D, who is not assigned to E.
+- **Test data:** D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`.
+- **Expected:** (a), (b) `403`; (c) `401`; (d) `403`; (e) `404` "Event not found". No update and no history entry in any case.
+- **Actual:** (a), (b) `403`; (c) `401`; (d) `403` for Organiser, Venue Staff and Lead; (e) `404` "Event not found". No update or history in any case.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_browser_without_the_service_token_cannot_cancel; tests/unit/atomic/events/test_s89.py::test_no_session_is_not_authenticated; tests/unit/atomic/events/test_s89.py::test_other_roles_cannot_cancel; tests/unit/atomic/events/test_s89.py::test_a_coordinator_not_assigned_to_the_event_gets_404; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-402 — the reason and alternatives must both be recorded
+
+- **Scenario:** A cancellation without a recorded reason or without the alternatives considered is refused (S-89 AC2 and the proposed audit rule).
+- **Pre-conditions:** As TC-EVENTS-400.
+- **Steps:** Send the body with, in turn: `reason` `"   "`; `reason` missing; `alternatives_considered` `""`; `reason` of 1001 characters; `alternatives_considered` of 1001 characters; `expected_version` missing; `expected_version` -1; `affected_booking_ids` `[]`; an unknown field `"status": "cancelled"`.
+- **Test data:** As listed.
+- **Expected:** Every case `422` "Please check the details you entered" with the field named. 1000-character values are accepted. Leading/trailing whitespace is trimmed before saving. No update, no history entry.
+- **Actual:** All nine bodies `422` "Please check the details you entered" with no update; 1000-character values accepted and trimmed.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_reason_and_alternatives_must_both_be_recorded; tests/unit/atomic/events/test_s89.py::test_values_are_trimmed_and_1000_characters_are_accepted; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-403 — only an event whose venues can still change is cancellable
+
+- **Scenario:** The status gate matches the events S-78 lets a Coordinator replace a venue for.
+- **Pre-conditions:** As TC-EVENTS-400, E's status varied.
+- **Steps:** Cancel E in each status.
+- **Test data:** `planning`, `pending_safety_check`, `confirmed`, `preparation`, `safety_changes_requested` (accepted); `draft`, `submitted`, `under_review`, `returned`, `rejected`, `safety_rejected` (refused).
+- **Expected:** Accepted statuses → `200` `cancelled`, with that status stored as `venue_cancellation_previous_status`. Refused statuses → `409` "This event can't be cancelled from its current status." with no update.
+- **Actual:** The five open statuses `200`, each stored as `venue_cancellation_previous_status`; the six others `409` with the expected detail and no update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_an_event_whose_venues_can_still_change_is_cancellable; tests/unit/atomic/events/test_s89.py::test_any_other_status_is_refused; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-404 — a waiting Organiser request is decided through S-61 instead
+
+- **Scenario:** Two cancellation paths never race on one event: while the Organiser's request awaits a decision, S-89 is refused (proposed rule).
+- **Pre-conditions:** (a) E has `cancellation_requested_at` set and `cancellation_decision` null. (b) As (a) with `cancellation_decision` `declined`.
+- **Steps:** Cancel E as C.
+- **Test data:** As above.
+- **Expected:** (a) `409` "The Organiser has asked to cancel this event. Approve their request instead." No update. (b) `200` `cancelled`; the declined request's columns are unchanged.
+- **Actual:** (a) `409` with the expected detail, no update; (b) `200`, no `cancellation_*` column written, and the write itself carries the request rule.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_waiting_organiser_request_is_decided_through_s61_instead; tests/unit/atomic/events/test_s89.py::test_a_declined_organiser_request_does_not_stand_in_the_way; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-405 — stale and concurrent cancellations have one outcome
+
+- **Scenario:** A screen loaded before the event changed, or a second tab losing the race, cannot cancel or write history twice.
+- **Pre-conditions:** (a) E's `edit_version` is 8 (someone edited it). (b) E is read at version 7, but the guarded update matches no row (another write landed first).
+- **Steps:** Cancel with `expected_version` 7.
+- **Test data:** As above.
+- **Expected:** (a) `409` "This event changed since you opened it. Reload and try again." with no update. (b) `409` with the same detail after re-reading. No history entry in either case.
+- **Actual:** (a) `409` stale-screen detail, no update; (b) `409` after re-reading, no history; losing to an S-62 request names it.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_screen_older_than_the_event_cannot_cancel; tests/unit/atomic/events/test_s89.py::test_a_write_that_loses_the_race_is_refused_without_history; tests/unit/atomic/events/test_s89.py::test_losing_to_an_organiser_request_says_so; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-406 — repeating a cancellation resumes it; another cancellation is final
+
+- **Scenario:** The composite retries a partly finished cancellation by calling again, which must not rewrite the record.
+- **Pre-conditions:** (a) E is `cancelled` with `venue_cancelled_by` C. (b) E is `cancelled` through S-61 (`cancellation_decision` `approved`, `venue_cancelled_at` null).
+- **Steps:** Cancel E as C, (a) with a different reason text.
+- **Test data:** As above.
+- **Expected:** (a) `200` with the stored event unchanged: the original reason stays, there is no update and no second history entry. (b) `409` "This event is already cancelled." with no update.
+- **Actual:** (a) `200` with the original reason, no update, no history; (b) `409` "This event is already cancelled."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_repeating_a_cancellation_resumes_it_without_rewriting; tests/unit/atomic/events/test_s89.py::test_an_event_cancelled_through_s61_is_final; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-407 — completion is marked once, only after a recorded venue cancellation
+
+- **Scenario:** `venue_cancellation_completed_at` records that every step finished, so a reload can tell whether "Finish cancellation" is still needed; it never precedes the history entry.
+- **Pre-conditions:** (a) E is venue-cancelled, its history entry exists, not completed. (b) Already completed. (c) Venue-cancelled but no history entry. (d) E is `confirmed`. (e) The token is missing.
+- **Steps:** `POST /internal/events/E/venue-cancellation/complete` as C.
+- **Test data:** As above.
+- **Expected:** (a) `200`; one guarded update sets `venue_cancellation_completed_at` where it is null. (b) `200`, no update. (c) `409` "The cancellation has not been recorded in the event history yet.", no update. (d) `409` "This event has not been cancelled for venue unavailability." (e) `403`.
+- **Actual:** As expected in all five.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_completion_is_marked_once; tests/unit/atomic/events/test_s89.py::test_completing_again_changes_nothing; tests/unit/atomic/events/test_s89.py::test_completion_waits_for_the_history_entry; tests/unit/atomic/events/test_s89.py::test_only_a_venue_cancellation_can_be_completed; tests/unit/atomic/events/test_s89.py::test_completion_needs_the_service_token; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-408 — a cancelled event stays closed to edits and requests
+
+- **Scenario:** Regression: S-18 edits, S-59/S-60 change proposals and S-62 cancellation requests are refused on an S-89-cancelled event.
+- **Pre-conditions:** E is venue-cancelled.
+- **Steps:** As C, `PATCH /events/assigned/E` (S-18); through the composite's token, `POST /events/E/change-request/internal` (S-59); as O, `POST /events/E/cancellation-request` (S-62).
+- **Test data:** Any valid bodies.
+- **Expected:** Each is refused with `409`, as for an S-61-cancelled event. No update.
+- **Actual:** S-18 edit `409`; S-62 request `409`; S-59 internal change request `409` "This event cannot receive a change request". No update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_cancelled_event_stays_closed_to_coordinator_edits; tests/unit/atomic/events/test_s89.py::test_a_cancelled_event_stays_closed_to_organiser_requests; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-409 — a storage failure is reported, never a cancellation
+
+- **Scenario:** If the update raises, nothing claims the event is cancelled.
+- **Pre-conditions:** The fake's guarded update raises.
+- **Steps:** Cancel E as C.
+- **Test data:** As TC-EVENTS-400.
+- **Expected:** `500` "Event storage unavailable". No history entry.
+- **Actual:** `500` "Event storage unavailable"; no history entry.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_storage_failure_is_reported_never_a_cancellation; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+## TC-EVENTS-410 — the S-82 entry is built from the stored record, once
+
+- **Scenario:** History is durable and retryable: the entry comes from the event row alone, so a retry writes exactly the same entry, and never a second one (developer's 2026-11-01 requirement).
+- **Pre-conditions:** E is venue-cancelled with reason, alternatives, `venue_cancellation_booking_ids` [B1], `venue_cancelled_by` C, `venue_cancelled_at` 2026-11-01T02:00:00Z, previous status `confirmed`. (a) No entry yet. (b) An entry exists. (c) No entry, but the insert raises `23505` (a concurrent duplicate, refused by the unique index). (d) The insert raises anything else.
+- **Steps:** `POST /internal/events/E/venue-cancellation/history` as C with the token.
+- **Test data:** As above.
+- **Expected:** (a) `200` `{"recorded": true}`; one insert of `{event_id E, actor_id C, actor_role event_coordinator, category review, action cancelled_venue_unavailable, details {reason, alternatives_considered, previous_status confirmed, affected_booking_ids [B1]}, occurred_at 2026-11-01T02:00:00Z}`. (b) `200`, no insert. (c) `200` `{"recorded": true}`. (d) `500` "Event storage unavailable".
+- **Actual:** As expected in all four.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_history_entry_is_built_from_the_stored_record; tests/unit/atomic/events/test_s89.py::test_recording_again_never_writes_a_second_entry; tests/unit/atomic/events/test_s89.py::test_a_concurrent_duplicate_counts_as_recorded; tests/unit/atomic/events/test_s89.py::test_a_failed_history_write_is_reported; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-411 — the history step is only for a venue cancellation, through the composite
+
+- **Scenario:** No entry can be written for an event this route did not cancel, or from a browser.
+- **Pre-conditions:** (a) E is `confirmed`. (b) The token is missing.
+- **Steps:** `POST /internal/events/E/venue-cancellation/history` as C.
+- **Test data:** As above.
+- **Expected:** (a) `409` "This event has not been cancelled for venue unavailability." (b) `403`. No insert.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_history_is_only_for_a_venue_cancellation_and_the_composite; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`

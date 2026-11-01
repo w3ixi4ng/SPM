@@ -26,6 +26,9 @@ from schemas import (
     BookingCreate,
     BookingDecision,
     BookingRead,
+    EventBookingsClosure,
+    EventBookingsRelease,
+    EventBookingsReopen,
     HoldCreate,
     HoldRelease,
     VenuePreparationUpdate,
@@ -71,6 +74,34 @@ def _execute(operation):
     try:
         return operation.execute()
     except Exception as exc:
+        logger.exception("Booking storage operation failed", exc_info=exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Booking storage unavailable",
+        ) from exc
+
+
+# S-89: the bookings.closed_events trigger refusing a booking of a cancelled
+# event becoming pending, held or confirmed again.
+EVENT_CLOSED = "This event is being cancelled, so its venue bookings can no longer change."
+# An unfinished closure older than this is an abandoned attempt that any
+# later attempt for the same event may withdraw (see bookings.sql).
+ABANDONED_CLOSURE_AFTER = "2 minutes"
+
+
+def _event_closed(exc: Exception) -> bool:
+    return getattr(exc, "code", None) == "P0001" and "event_bookings_closed" in str(
+        getattr(exc, "message", None) or exc
+    )
+
+
+def _write(operation):
+    """_execute, except that the closed-event trigger is the 409 it means."""
+    try:
+        return operation.execute()
+    except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -317,6 +348,8 @@ def decide_booking(
             "id", str(booking_id)
     ).in_("status", ["pending", "held"]).execute()
     except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
@@ -372,6 +405,8 @@ def place_hold(
             "id", str(booking_id)
         ).eq("status", "pending").execute()
     except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
@@ -411,7 +446,7 @@ def release_hold(
         "hold_released_at": datetime.now(timezone.utc).isoformat(),
         "hold_release_reason": payload.reason,
     }
-    result = _execute(
+    result = _write(
         db.schema(SCHEMA).table(TABLE).update(values)
         .eq("id", str(booking_id)).eq("status", "held")
     )
@@ -434,6 +469,83 @@ def delete_event_bookings(
         db.schema(SCHEMA).table(TABLE).delete().eq("event_id", str(event_id))
     )
     return {"deleted": len(result.data or [])}
+
+
+@app.post("/internal/events/{event_id}/bookings/closure")
+def close_event_bookings(
+    event_id: UUID,
+    payload: EventBookingsClosure,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-89: before the event is cancelled, close it to new active bookings.
+    From this moment no booking of the event can become pending, held or
+    confirmed by any route. Safe to repeat: an existing closure is returned
+    as it is, with the operation that owns it."""
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "close_event_bookings",
+            {
+                "p_event_id": str(event_id),
+                "p_operation_id": str(payload.operation_id),
+                "p_closed_by": str(coordinator.id),
+                "p_reason": payload.reason,
+            },
+        )
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Booking storage unavailable")
+    return result.data[0]
+
+
+@app.post("/internal/events/{event_id}/bookings/closure/reopen")
+def reopen_event_bookings(
+    event_id: UUID,
+    payload: EventBookingsReopen,
+    _coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-89: the cancellation did not happen, so withdraw the closure intent
+    -- only this operation's, or an abandoned one. A released event is never
+    reopened. `reopened` says whether an intent was removed."""
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "reopen_event_bookings",
+            {
+                "p_event_id": str(event_id),
+                "p_operation_id": str(payload.operation_id),
+                "p_abandoned_after": ABANDONED_CLOSURE_AFTER,
+            },
+        )
+    )
+    return {"reopened": bool(result.data)}
+
+
+@app.post("/internal/events/{event_id}/bookings/release")
+def release_event_bookings(
+    event_id: UUID,
+    payload: EventBookingsRelease,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-89: release every pending, held and confirmed booking of a
+    cancelled event, keeping the rows -- unlike S-61's delete above -- and
+    close the event for good in the same transaction. Called by the
+    event_requests composite after the event is cancelled. Safe to repeat: a
+    second call releases nothing."""
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "release_event_bookings",
+            {
+                "p_event_id": str(event_id),
+                "p_operation_id": str(payload.operation_id),
+                "p_released_by": str(coordinator.id),
+                "p_reason": payload.reason,
+            },
+        )
+    )
+    released = [str(row["id"]) for row in result.data or []]
+    return {"released": released, "count": len(released)}
 
 
 # S-80: what a Coordinator may change or cancel. A rejected request is a
@@ -481,7 +593,7 @@ def change_booking(
     if block:
         _raise_blocked(block)
 
-    result = _execute(
+    result = _write(
         db.schema(SCHEMA).table(TABLE)
         .update({**values, "status": "pending", **_REVIEW_CLEARED})
         .eq("id", str(booking_id))
@@ -532,7 +644,7 @@ def _replacement_problem(db: Client, values: dict):
                 "errors": {"replaces_booking_id": message},
             },
         )
-    if original["status"] == "replaced":
+    if original["status"] in ("replaced", "released"):
         raise HTTPException(status_code=409, detail="This booking can no longer be replaced")
     return None
 
@@ -565,6 +677,8 @@ def create_booking(
     try:
         result = db.schema(SCHEMA).table(TABLE).insert(values).execute()
     except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, values, gap)
             if conflict:

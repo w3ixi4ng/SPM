@@ -65,6 +65,8 @@ CANNOT_REPLACE = "This booking can no longer be replaced"
 CONFLICT_PHRASES = (
     " is already confirmed on ", " is already tentatively held on ", " is unavailable from ",
     "Can't confirm this booking: it overlaps ", "Can't hold this booking: it overlaps ",
+    # S-89: the event is being (or was) cancelled; its bookings are closed.
+    "This event is being cancelled, so its venue bookings can no longer change.",
 )
 INTERNAL_GET_ATTEMPTS = 3
 INTERNAL_GET_BACKOFF = (0.5, 1.0)

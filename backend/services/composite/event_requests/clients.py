@@ -12,6 +12,8 @@ BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
 EQUIPMENT_URL = os.environ["EQUIPMENT_SERVICE_URL"]
 # S-69: an approved cancellation notifies the event's Attendees.
 REGISTRATIONS_URL = os.environ["REGISTRATIONS_SERVICE_URL"]
+# S-89: S-77's affected-booking flag comes from the composite that owns it.
+VENUE_BOOKINGS_URL = os.environ["VENUE_BOOKINGS_SERVICE_URL"]
 VENUES_URL = os.environ["VENUES_SERVICE_URL"]
 
 
@@ -45,6 +47,12 @@ def get_equipment_client() -> httpx.AsyncClient:
 
 def get_registrations_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=REGISTRATIONS_URL, timeout=5.0)
+
+
+def get_venue_bookings_client() -> httpx.AsyncClient:
+    # The flag read checks a venue and its periods per booking, so it gets
+    # longer than a single atomic read.
+    return httpx.AsyncClient(base_url=VENUE_BOOKINGS_URL, timeout=15.0)
 
 
 def get_venues_client() -> httpx.AsyncClient:

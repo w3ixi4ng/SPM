@@ -1690,6 +1690,36 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Chromium showed the returned event as Action Required; the owning Organiser's persistent inbox named the event, return, reason, amendment and resubmission action, while another Organiser's inbox did not show it.
 - **Status:** Pass
 - **Evidence:** `test_notify_organiser_event_changes.py::test_an_organiser_sees_an_actionable_returned_event_notice[chromium]`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; 1 passed in 33.24s.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs
+TC-E2E-400–449 reserved for S-89 (S-60 holds 3xx). Spec file
+`test_cancel_event_without_alternative_venue.py`. Needs the revised S-89 SQL in
+the test project; Blocked until then.
+
+## TC-E2E-400 — a Coordinator cancels an event whose venue became unavailable
+
+- **Scenario:** The browser journey: the flagged event offers cancellation, the reason and alternatives are required, the result is visible to the Coordinator, and the Organiser's inbox explains it (AC2–AC4 through Kong and the SPA).
+- **Pre-conditions:** Fresh `.env.test` stack; Chromium. Seeded with the admin client (the shared `add_event`/`add_venue` helpers): a `planning` event E assigned to Coordinator C, with confirmed bookings at V1 and V2 and one registered Attendee, and an unavailable period on V1 over E's V1 booking. (The S-77 marking form is proven in TC-E2E-234, the Attendee's message in TC-EVENTREQUESTS-450.)
+- **Steps:** 1. As C, open `/coordinator/events/E`. 2. Click **Cancel event**. 3. Click **Cancel event** in the panel with both fields empty. 4. Fill the reason and the alternatives, then confirm. 5. Reload. 6. Sign out, sign in as the Organiser, open the dashboard.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → V1's booking shows the alternative-arrangements warning, and **Cancel event** is visible. 2 → the slide-over opens with focus in the reason field. 3 → both field errors show and nothing is sent. 4 → the panel closes, the "Event cancelled" section shows the reason and "Every booking was released and everyone was notified.", and both bookings read "Released". 5 → still "Cancelled" with the reason shown; no **Cancel event** or **Finish cancellation**. 6 → the inbox shows E's cancellation with the reason.
+- **Actual:** Chromium: the flagged row and **Cancel event** showed; the slide-over opened focused on the reason; empty submit showed both field errors and sent nothing; cancelling closed the panel and showed the "Event cancelled" record with the reason and the completion sentence, both bookings "Released"; after reload the same, with no Cancel or Finish button; the Organiser's inbox named the event and the reason; both rows `released` in the database.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_cancel_event_without_alternative_venue.py::test_a_coordinator_cancels_an_event_whose_venue_became_unavailable[chromium]`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0, Playwright Chromium: `test_cancel_event_without_alternative_venue.py` 2 passed (1:20)
+
+## TC-E2E-401 — an unaffected event never offers this cancellation
+
+- **Scenario:** The action is not available just because an event exists.
+- **Pre-conditions:** As TC-E2E-400, with a second event G whose bookings no period affects.
+- **Steps:** As C, open `/coordinator/events/G`.
+- **Test data:** As above.
+- **Expected:** No **Cancel event** button; G's bookings show no warning.
+- **Actual:** Chromium: the row read Confirmed with no warning; no **Cancel event** and no "Venue unavailable" section.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_cancel_event_without_alternative_venue.py::test_an_unaffected_event_never_offers_this_cancellation[chromium]`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0, Playwright Chromium: `test_cancel_event_without_alternative_venue.py` 2 passed (1:20)
+
 ---
 
 ## S-60 — Review Impact of Significant Changes (approved)

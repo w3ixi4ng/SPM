@@ -1428,6 +1428,76 @@ alter table events.events add constraint events_safety_state_consistent
 
 notify pgrst, 'reload schema';
 -- END S-69 CANCEL A SAFETY-CHECKED EVENT
+
+-- BEGIN S-89 COORDINATOR CANCELS WITHOUT AN ALTERNATIVE VENUE
+-- Existing installations: run through END S-89 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving.
+--
+-- The assigned Coordinator cancels an event that venue unavailability affects
+-- and for which no alternative venue was found. The record stays on the event:
+-- why, what alternatives were considered with the Organiser, which affected
+-- bookings justified it, who and when (all set by the service).
+-- venue_cancellation_previous_status keeps what the S-82 history entry needs,
+-- so that entry can be written -- or retried -- from the row alone.
+-- venue_cancellation_completed_at is set only once the history entry exists,
+-- every booking was released and the Organiser and Attendees were notified;
+-- until then the event is cancelled but the operation is still to be
+-- finished.
+begin;
+
+alter table events.events
+  add column if not exists venue_cancellation_reason text,
+  add column if not exists venue_cancellation_alternatives text,
+  add column if not exists venue_cancellation_booking_ids uuid[],
+  add column if not exists venue_cancelled_by uuid,
+  add column if not exists venue_cancelled_at timestamptz,
+  add column if not exists venue_cancellation_previous_status text,
+  add column if not exists venue_cancellation_completed_at timestamptz;
+
+alter table events.events
+  drop constraint if exists events_venue_cancellation_consistent;
+alter table events.events add constraint events_venue_cancellation_consistent
+  check (
+    (
+      venue_cancellation_reason is null
+      and venue_cancellation_alternatives is null
+      and venue_cancellation_booking_ids is null
+      and venue_cancelled_by is null
+      and venue_cancelled_at is null
+      and venue_cancellation_previous_status is null
+      and venue_cancellation_completed_at is null
+    )
+    or (
+      status = 'cancelled'
+      and btrim(venue_cancellation_reason) <> ''
+      and char_length(venue_cancellation_reason) <= 1000
+      and btrim(venue_cancellation_alternatives) <> ''
+      and char_length(venue_cancellation_alternatives) <= 1000
+      and cardinality(venue_cancellation_booking_ids) > 0
+      and venue_cancelled_by is not null
+      and venue_cancelled_at is not null
+      and venue_cancellation_previous_status in (
+        'planning', 'pending_safety_check', 'confirmed', 'preparation',
+        'safety_changes_requested'
+      )
+      and (venue_cancellation_completed_at is null
+           or venue_cancellation_completed_at >= venue_cancelled_at)
+      -- One cancellation path per event: never also an approved S-61 request.
+      and cancellation_decision is distinct from 'approved'
+    )
+  );
+
+-- One S-82 entry per S-89 cancellation, so the history step can be retried
+-- without ever writing a second one. A partial index: other actions may
+-- repeat freely.
+create unique index if not exists event_history_one_venue_cancellation
+  on events.event_history (event_id)
+  where action = 'cancelled_venue_unavailable';
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-89 COORDINATOR CANCELS WITHOUT AN ALTERNATIVE VENUE
+
 -- BEGIN S-60 SIGNIFICANT CHANGE REVIEW
 -- Data-preserving migration. Apply this block in BOTH DEV and TEST only after
 -- the developer reviews the source. Existing requests and event records stay.
