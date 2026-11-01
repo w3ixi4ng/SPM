@@ -393,3 +393,36 @@ class EventChangeSubmit(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Equipment items must be unique")
         return self
+
+
+class EventChangeAccept(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_event_updated_at: datetime
+    impact_ids: list[str]
+    operation_id: UUID | None = None
+
+
+class EventChangeReject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
+class EventImpactResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_impact_version: int = Field(ge=0)
+    action: str = Field(min_length=1, max_length=200)
+    evidence: dict
+
+
+class CoordinatorSignificantEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    edit: dict
+    impact_ids: list[str]

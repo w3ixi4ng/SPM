@@ -528,3 +528,42 @@ until the SQL is applied.
 - **Actual:** G `409` with the not-affected detail; D `404`; both events and bookings unchanged, no `closed_events` row and no `event_cancelled` notification for either.
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/event_requests/test_s89.py::test_unaffected_or_unassigned_events_stay_untouched`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Fresh `.env.test` stack and TEST Supabase. Full integration suite: 119 passed, 5 skipped, 0 failed. Significant S-18 edits now go through `PATCH .../information/significant`; routine edits stay on `PATCH .../information`. S-55's withdrawal workflow is integrated; do not reapply S-53 SQL. See each case evidence.
+
+## TC-EVENTREQUESTS-310 — real acceptance persists across service boundaries
+
+- **Scenario:** Accepted proposal, per-booking flags and old sign-offs survive reload through Kong.
+- **Pre-conditions:** Shared; E confirmed with B1/B2, P quantity 2, T sign-off and attendee record; R pending.
+- **Steps:** 1. O submits attendance 120→150 and P 2→3. 2. C opens review and accepts. 3. Reload Events, Equipment, Bookings, Safety readiness and history through HTTP. 4. D attempts review.
+- **Test data:** B1 capacity 130, B2 capacity 220; P 2→3; temporary `spm-test-s60-*` users.
+- **Expected:** E is planning at 150; P=3; R accepted with C/time and retained snapshots; B1/P/T flags have reasons, B2 has no false capacity flag. Both bookings, old sign-offs, T assignment, attendee and history remain. Readiness blocks until resolution; D gets scoped denial.
+- **Actual:** Real Kong acceptance persisted 150 attendees and P=3, preserved linked rows, and left scoped re-review flags blocking safety.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_acceptance_preserves_arrangements
+
+## TC-EVENTREQUESTS-311 — persisted flags resolve one by one
+
+- **Scenario:** Venue and equipment re-review outcomes remain durable and only clear with owner-backed evidence.
+- **Pre-conditions:** Shared; accepted R has B1 and P flags; replacement booking B3 and new T sign-off can be created.
+- **Steps:** 1. Try clearance without evidence. 2. Approve B3, resolve B1. 3. Reload; verify P still blocks. 4. Revalidate P live, have T sign, resolve P. 5. Read readiness/history.
+- **Test data:** B1→B3; P=3.
+- **Expected:** Invalid clearance gets 409; B1 resolution persists with action/time; P remains until its own valid resolution. Old approvals remain in their owner records. Only after both flags resolve and other S-17 items pass is readiness true.
+- **Actual:** Browser reloaded each venue/equipment resolution; owner-backed staff decisions cleared flags one at a time and only then allowed safety submission.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]; tests/unit/composite/event_requests/test_s60.py::test_impact_resolution_cannot_impersonate_technical_support
+
+## TC-EVENTREQUESTS-312 — races and failure do not create false acceptance
+
+- **Scenario:** Real Events/Equipment persistence keeps one decision and one outstanding request, including recoverable interruption.
+- **Pre-conditions:** Shared; R pending; test harness can pause or fail one owner call in a controlled way.
+- **Steps:** 1. Race two acceptances and an Equipment edit. 2. Simulate Events finalisation failure after Equipment batch. 3. Read R/E/P; retry operation; submit R2.
+- **Test data:** R P 2→3; competing P→4; R2 attendance 120→130.
+- **Expected:** One outcome wins; stale callers get 409. Incomplete operation never returns accepted and keeps R2 blocked; retry or conditional abort preserves a coherent accepted state. No duplicate history or lost Equipment edit. A terminal rejection/acceptance permits a later pending R2.
+- **Actual:** Competing prepares yielded one operation; failed completion kept applying and blocked R2, then retry accepted once and reopened the slot.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery

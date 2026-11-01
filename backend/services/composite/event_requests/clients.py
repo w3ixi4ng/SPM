@@ -14,6 +14,7 @@ EQUIPMENT_URL = os.environ["EQUIPMENT_SERVICE_URL"]
 REGISTRATIONS_URL = os.environ["REGISTRATIONS_SERVICE_URL"]
 # S-89: S-77's affected-booking flag comes from the composite that owns it.
 VENUE_BOOKINGS_URL = os.environ["VENUE_BOOKINGS_SERVICE_URL"]
+VENUES_URL = os.environ["VENUES_SERVICE_URL"]
 
 
 def assignment_service_headers() -> dict[str, str]:
@@ -52,3 +53,7 @@ def get_venue_bookings_client() -> httpx.AsyncClient:
     # The flag read checks a venue and its periods per booking, so it gets
     # longer than a single atomic read.
     return httpx.AsyncClient(base_url=VENUE_BOOKINGS_URL, timeout=15.0)
+
+
+def get_venues_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=VENUES_URL, timeout=5.0)

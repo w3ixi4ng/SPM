@@ -105,3 +105,18 @@ class EquipmentRequirementItem(BaseModel):
 
 class EquipmentRequirementDetail(EquipmentRequirementRead):
     equipment: EquipmentRequirementItem
+
+
+class EquipmentBatchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    equipment_item_id: UUID
+    required_quantity: PositiveInt
+
+
+class EquipmentChangeBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: UUID
+    event_id: UUID
+    actor_id: UUID
+    baseline: list[EquipmentBatchItem]
+    proposed: list[EquipmentBatchItem]

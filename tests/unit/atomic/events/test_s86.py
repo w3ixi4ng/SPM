@@ -8,6 +8,7 @@ from .conftest import EVENT_ID, event_row
 
 
 OFFICER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+REVIEW_UPDATED_AT = "2026-09-14T00:00:00Z"
 
 
 def _reviewable(**changes):
@@ -49,7 +50,7 @@ def _event_select(db, rows):
 
 def _decision_update(db, rows):
     operation = (
-        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.is_.return_value
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.is_.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=rows)
     return operation
@@ -125,6 +126,7 @@ def test_safety_decision_records_audit_and_distinct_lifecycle_state(
             "decision": decision,
             "reason": reason,
             "safety_officer_id": OFFICER_ID,
+            "expected_event_updated_at": REVIEW_UPDATED_AT,
         },
     )
 
@@ -169,7 +171,7 @@ def test_missing_event_is_404_and_stale_event_is_409_without_update(client, db):
     _event_select(db, [])
     missing = client.post(
         f"/internal/events/safety-review/{EVENT_ID}/decision",
-        json={"decision": "approved", "safety_officer_id": OFFICER_ID},
+        json={"decision": "approved", "safety_officer_id": OFFICER_ID, "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
     assert missing.status_code == 404
     db.schema.return_value.table.return_value.update.assert_not_called()
@@ -177,7 +179,7 @@ def test_missing_event_is_404_and_stale_event_is_409_without_update(client, db):
     _event_select(db, [_reviewable(status="confirmed", safety_decision="approved")])
     stale = client.post(
         f"/internal/events/safety-review/{EVENT_ID}/decision",
-        json={"decision": "approved", "safety_officer_id": OFFICER_ID},
+        json={"decision": "approved", "safety_officer_id": OFFICER_ID, "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
     assert stale.status_code == 409
     db.schema.return_value.table.return_value.update.assert_not_called()
@@ -189,9 +191,22 @@ def test_empty_conditional_update_reports_concurrent_decision_without_overwrite(
 
     response = client.post(
         f"/internal/events/safety-review/{EVENT_ID}/decision",
-        json={"decision": "approved", "safety_officer_id": OFFICER_ID},
+        json={"decision": "approved", "safety_officer_id": OFFICER_ID, "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert response.status_code == 409
     assert "already" in response.json()["detail"].lower()
     operation.execute.assert_called_once()
+
+
+def test_old_safety_review_cannot_decide_new_event_version(client, db):
+    _event_select(db, [_reviewable(updated_at="2026-10-27T10:00:00Z")])
+
+    response = client.post(
+        f"/internal/events/safety-review/{EVENT_ID}/decision",
+        json={"decision": "approved", "safety_officer_id": OFFICER_ID,
+              "expected_event_updated_at": REVIEW_UPDATED_AT},
+    )
+
+    assert response.status_code == 409
+    db.schema.return_value.table.return_value.update.assert_not_called()

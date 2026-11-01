@@ -17,7 +17,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_registrations_client, get_users_client, get_venue_bookings_client
+from clients import assignment_service_headers, get_bookings_client, get_equipment_client, get_events_client, get_notifications_client, get_registrations_client, get_users_client, get_venue_bookings_client, get_venues_client
+import impact
 from schemas import (
     CancellationDecision,
     CoordinatorAssignmentCreate,
@@ -29,6 +30,10 @@ from schemas import (
     EventChangeValues,
     EventDecision,
     EventInformationUpdate,
+    EventChangeAccept,
+    EventChangeReject,
+    EventImpactResolve,
+    CoordinatorSignificantEdit,
     TechnicalSupportRequest,
     VenueCancellationSubmit,
 )
@@ -468,6 +473,438 @@ async def submit_event_change_request(
     raise HTTPException(status_code=502, detail="Events service unavailable. Nothing was changed.")
 
 
+async def _s60_json(service: str, awaitable, *, allowed: set[int] = frozenset()) -> object:
+    try:
+        response = await awaitable
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"{service} service unavailable") from exc
+    if response.status_code in allowed:
+        raise HTTPException(status_code=response.status_code, detail=response.json().get("detail", "Request changed"))
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"{service} service unavailable")
+    return response.json()
+
+
+async def _s60_request(event_id: UUID, request_id: UUID, cookies, events: httpx.AsyncClient) -> dict:
+    rows = await _s60_json("Events", events.get(f"/events/{event_id}/change-requests", cookies=cookies), allowed={401, 403, 404})
+    row = next((item for item in rows if item["id"] == str(request_id)), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    return row
+
+
+async def _s60_assessment(
+    event: dict, change: dict, cookies,
+    events: httpx.AsyncClient, equipment: httpx.AsyncClient,
+    bookings: httpx.AsyncClient, venues: httpx.AsyncClient,
+) -> tuple[list[dict], list[dict]]:
+    event_id = UUID(event["id"])
+    requirement_rows = await _change_equipment(event_id, equipment)
+    booking_rows = await _s60_json("Bookings", bookings.get("/bookings", params={"event_id": str(event_id)}))
+    venue_rows: dict[str, dict] = {}
+    nearby: dict[str, list[dict]] = {}
+    proposed = change["proposed_values"]
+    for booking in booking_rows:
+        venue_id = str(booking["venue_id"])
+        if venue_id in venue_rows:
+            continue
+        venue_rows[venue_id] = await _s60_json("Venues", venues.get(f"/internal/venues/{venue_id}"))
+        nearby[venue_id] = await _s60_json("Bookings", bookings.get("/bookings", params={
+            "venue_id": venue_id, "from": proposed["start_date"], "to": proposed["end_date"],
+        }))
+    catalogue = await _s60_json("Equipment", equipment.get("/equipment/selection", cookies=cookies), allowed={401, 403})
+    window = {key: proposed[key] for key in ("start_date", "start_time", "end_date", "end_time")}
+    overlapping = await _s60_json("Events", events.post("/events/overlapping", json=window))
+    overlapping_requirements = []
+    if overlapping:
+        overlapping_requirements = await _s60_json("Equipment", equipment.get(
+            "/internal/equipment-requirements",
+            params=[("event_ids", row["id"]) for row in overlapping],
+        ))
+    technical_conflict = False
+    if event.get("assigned_technical_support_id"):
+        load = await _s60_json("Events", events.post("/events/technical-support-load", json={
+            "staff_ids": [event["assigned_technical_support_id"]],
+            "exclude_event_id": event["id"], **window,
+        }))
+        technical_conflict = any(row["conflict"] for row in load)
+    return impact.assess(
+        event, change, booking_rows, venue_rows, nearby, requirement_rows,
+        catalogue, overlapping, overlapping_requirements, technical_conflict,
+    ), requirement_rows
+
+
+async def _s60_equipment_available(
+    event: dict, item_id: str, quantity: int, cookies,
+    events: httpx.AsyncClient, equipment: httpx.AsyncClient,
+) -> bool:
+    catalogue = await _s60_json("Equipment", equipment.get("/equipment/selection", cookies=cookies))
+    item = next((row for row in catalogue if str(row["id"]) == item_id), None)
+    if item is None:
+        return False
+    window = {key: event[key] for key in ("start_date", "start_time", "end_date", "end_time")}
+    overlapping = await _s60_json("Events", events.post("/events/overlapping", json=window))
+    other_ids = [row["id"] for row in overlapping if str(row["id"]) != str(event["id"])]
+    other_requirements = []
+    if other_ids:
+        other_requirements = await _s60_json("Equipment", equipment.get(
+            "/internal/equipment-requirements", params=[("event_ids", identity) for identity in other_ids],
+        ))
+    reserved = sum(int(row["required_quantity"]) for row in other_requirements
+                   if str(row["equipment_item_id"]) == item_id)
+    return quantity + reserved <= int(item["total_quantity"])
+
+
+@app.get("/event-requests/{event_id}/change-requests/{request_id}/review")
+async def review_event_change_request(
+    event_id: UUID, request_id: UUID, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+):
+    await _authenticate_coordinator(request, users)
+    event = await _change_event(event_id, COORDINATOR_ROLE, request.cookies, events)
+    change = await _s60_request(event_id, request_id, request.cookies, events)
+    if change["status"] == "pending":
+        impacts, equipment_rows = await _s60_assessment(event, change, request.cookies, events, equipment, bookings, venues)
+    else:
+        impacts = change.get("impacts") or []
+        equipment_rows = await _change_equipment(event_id, equipment)
+    booking_rows = await _s60_json("Bookings", bookings.get("/bookings", params={"event_id": str(event_id)}))
+    return {"event": event, "request": change, "impacts": impacts,
+            "equipment": equipment_rows, "bookings": booking_rows}
+
+
+async def _s60_write(service: str, response, success: set[int] = frozenset({200})) -> dict:
+    try:
+        received = await response
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"{service} operation incomplete; reload and retry") from exc
+    if received.status_code in success:
+        return received.json()
+    if received.status_code in {401, 403, 404, 409, 422}:
+        raise HTTPException(status_code=received.status_code, detail=received.json().get("detail", "Operation rejected"))
+    raise HTTPException(status_code=502, detail=f"{service} operation incomplete; reload and retry")
+
+
+@app.post("/event-requests/{event_id}/change-requests/{request_id}/accept")
+async def accept_event_change_request(
+    event_id: UUID, request_id: UUID, payload: EventChangeAccept, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+):
+    coordinator = await _authenticate_coordinator(request, users)
+    event = await _change_event(event_id, COORDINATOR_ROLE, request.cookies, events)
+    change = await _s60_request(event_id, request_id, request.cookies, events)
+    if change["status"] not in {"pending", "applying", "accepted"}:
+        raise HTTPException(status_code=409, detail="Change request is no longer pending")
+    if change["status"] == "pending":
+        impacts, requirements = await _s60_assessment(event, change, request.cookies, events, equipment, bookings, venues)
+        if change["accepted_equipment"] != change["proposed_equipment"]:
+            live_items = await _s60_json("Equipment", equipment.get(
+                "/equipment/selection", cookies=request.cookies,
+            ))
+            active_ids = {str(item["id"]) for item in live_items}
+            before = {str(item["equipment_item_id"]): item["required_quantity"]
+                      for item in change["accepted_equipment"]}
+            for item in change["proposed_equipment"]:
+                identity = str(item["equipment_item_id"])
+                if before.get(identity) != item["required_quantity"] and identity not in active_ids:
+                    raise HTTPException(status_code=409, detail=f"Equipment item {identity} is no longer available")
+        if set(payload.impact_ids) != {item["id"] for item in impacts} or len(payload.impact_ids) != len(impacts):
+            raise HTTPException(status_code=409, detail="Impact assessment changed; review it again")
+        if event["updated_at"] != payload.expected_event_updated_at.isoformat().replace("+00:00", "Z"):
+            # ISO formatting differs across PostgREST versions; the Events
+            # owner performs the authoritative timestamp comparison below.
+            from datetime import datetime
+            if datetime.fromisoformat(event["updated_at"].replace("Z", "+00:00")) != payload.expected_event_updated_at:
+                raise HTTPException(status_code=409, detail="Event changed; reload the review")
+        if _equipment_snapshot(requirements) != change["accepted_equipment"]:
+            raise HTTPException(status_code=409, detail="Equipment requirements changed; reload the review")
+        operation_id = payload.operation_id or uuid4()
+        change = await _s60_write("Events", events.post(
+            f"/events/assigned/{event_id}/change-requests/{request_id}/prepare",
+            cookies=request.cookies, headers=_assignment_headers(), json={
+                "operation_id": str(operation_id),
+                "expected_event_updated_at": event["updated_at"], "impacts": impacts,
+            },
+        ))
+    else:
+        operation_id = UUID(change["operation_id"])
+        if payload.operation_id and payload.operation_id != operation_id:
+            raise HTTPException(status_code=409, detail="A different acceptance operation is in progress")
+        if set(payload.impact_ids) != {item["id"] for item in change.get("impacts") or []}:
+            raise HTTPException(status_code=409, detail="Impact assessment changed; reload it")
+    equipment_changed = change["accepted_equipment"] != change["proposed_equipment"]
+    if equipment_changed and change["status"] != "accepted":
+        await _s60_write("Equipment", equipment.post(
+            "/internal/equipment-requirements/change-batches",
+            headers=_assignment_headers(), json={
+                "operation_id": str(operation_id), "event_id": str(event_id),
+                "actor_id": change.get("reviewed_by") or coordinator["id"], "baseline": change["accepted_equipment"],
+                "proposed": change["proposed_equipment"],
+            },
+        ))
+    if change["status"] != "accepted":
+        change = await _s60_write("Events", events.post(
+            f"/events/assigned/{event_id}/change-requests/{request_id}/complete",
+            cookies=request.cookies, headers=_assignment_headers(),
+            json={"operation_id": str(operation_id)},
+        ))
+    if equipment_changed:
+        await _s60_write("Equipment", equipment.post(
+            f"/internal/equipment-requirements/change-batches/{operation_id}/finish",
+            headers=_assignment_headers(),
+        ))
+    return change
+
+
+@app.post("/event-requests/{event_id}/change-requests/{request_id}/reject")
+async def reject_event_change_request(
+    event_id: UUID, request_id: UUID, payload: EventChangeReject, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    await _authenticate_coordinator(request, users)
+    await _change_event(event_id, COORDINATOR_ROLE, request.cookies, events)
+    return await _s60_write("Events", events.post(
+        f"/events/assigned/{event_id}/change-requests/{request_id}/reject",
+        cookies=request.cookies, headers=_assignment_headers(), json=payload.model_dump(),
+    ))
+
+
+@app.post("/event-requests/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve")
+async def resolve_event_change_impact(
+    event_id: UUID, request_id: UUID, impact_id: str, payload: EventImpactResolve, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+):
+    await _authenticate_coordinator(request, users)
+    event = await _change_event(event_id, COORDINATOR_ROLE, request.cookies, events)
+    change = await _s60_request(event_id, request_id, request.cookies, events)
+    if change["status"] != "accepted":
+        raise HTTPException(status_code=409, detail="Accept the change before resolving impacts")
+    item = next((row for row in change.get("impacts") or [] if row["id"] == impact_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Impact not found")
+    if item["status"] != "outstanding":
+        raise HTTPException(status_code=409, detail="Impact is no longer outstanding")
+    accepted_at = change["resolved_at"]
+    kind = item["kind"]
+    evidence = {}
+    if kind == "venue_booking":
+        booking_id = payload.evidence.get("booking_id")
+        if not booking_id:
+            raise HTTPException(status_code=422, detail="A confirmed booking is required as evidence")
+        booking = await _s60_json("Bookings", bookings.get(f"/bookings/{booking_id}"), allowed={404})
+        if booking.get("event_id") != str(event_id) or booking.get("status") != "confirmed":
+            raise HTTPException(status_code=409, detail="Booking is not confirmed for this event")
+        if not booking.get("decided_by") or not booking.get("decided_at") or datetime.fromisoformat(booking["decided_at"].replace("Z", "+00:00")) <= datetime.fromisoformat(accepted_at.replace("Z", "+00:00")):
+            raise HTTPException(status_code=409, detail="Venue Staff must confirm the changed arrangement")
+        if (str(booking["booking_date"]) != str(event["start_date"])
+            or str(booking["start_time"])[:5] != str(event["start_time"])[:5]
+            or str(booking["end_time"])[:5] != str(event["end_time"])[:5]):
+            raise HTTPException(status_code=409, detail="Booking does not cover the accepted event window")
+        venue = await _s60_json("Venues", venues.get(f"/internal/venues/{booking['venue_id']}"))
+        if int(event["expected_attendance"]) > int(venue["capacity"]):
+            raise HTTPException(status_code=409, detail="Venue capacity is still insufficient")
+        for field, venue_field in (("required_facilities", "facilities"), ("required_accessibility", "accessibility")):
+            if set(event.get(field) or []) - set(venue.get(venue_field) or []):
+                raise HTTPException(status_code=409, detail="Venue requirements are still unmet")
+        if event.get("room_layout") and event["room_layout"] not in (venue.get("room_layouts") or []):
+            raise HTTPException(status_code=409, detail="Venue layout is still unsuitable")
+        nearby = await _s60_json("Bookings", bookings.get("/bookings", params={
+            "venue_id": booking["venue_id"], "from": booking["booking_date"], "to": booking["booking_date"],
+        }))
+        if impact._booking_conflict(booking, venue, nearby, event):
+            raise HTTPException(status_code=409, detail="Venue booking still clashes")
+        evidence.update({
+            "booking_id": str(booking_id), "venue_id": str(booking["venue_id"]),
+            "venue_decided_by": booking.get("decided_by"), "venue_decided_at": booking["decided_at"],
+        })
+    elif kind in {"equipment", "technical_support"}:
+        signed_at = event.get("technical_signoff_at")
+        if (event.get("technical_signoff_decision") != "approved" or not signed_at
+            or datetime.fromisoformat(signed_at.replace("Z", "+00:00")) <= datetime.fromisoformat(accepted_at.replace("Z", "+00:00"))
+            or event.get("technical_signoff_by") != event.get("assigned_technical_support_id")):
+            raise HTTPException(status_code=409, detail="Fresh Technical Support sign-off is required")
+        if kind == "equipment":
+            prepared_at = event.get("equipment_preparation_updated_at")
+            if (event.get("equipment_preparation_status") != "ready" or not prepared_at
+                or datetime.fromisoformat(prepared_at.replace("Z", "+00:00")) <= datetime.fromisoformat(accepted_at.replace("Z", "+00:00"))):
+                raise HTTPException(status_code=409, detail="Fresh Technical Support preparation is required")
+            requirements = _equipment_snapshot(await _change_equipment(event_id, equipment))
+            if requirements != change["proposed_equipment"]:
+                raise HTTPException(status_code=409, detail="Equipment requirements changed again")
+            quantity = next((row["required_quantity"] for row in requirements
+                             if str(row["equipment_item_id"]) == item["arrangement_id"]), 0)
+            if quantity and not await _s60_equipment_available(event, item["arrangement_id"], quantity, request.cookies, events, equipment):
+                raise HTTPException(status_code=409, detail="Equipment is unavailable for the accepted window")
+            evidence.update({
+                "equipment_item_id": item["arrangement_id"], "required_quantity": quantity,
+                "equipment_preparation_updated_by": event.get("equipment_preparation_updated_by"),
+                "equipment_preparation_updated_at": event.get("equipment_preparation_updated_at"),
+            })
+        evidence.update({"technical_signoff_by": event.get("technical_signoff_by"),
+                         "technical_signoff_at": signed_at})
+    else:
+        raise HTTPException(status_code=422, detail="This impact cannot be resolved here")
+    return await _s60_write("Events", events.post(
+        f"/events/assigned/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve",
+        cookies=request.cookies, headers=_assignment_headers(),
+        json={**payload.model_dump(), "evidence": evidence},
+    ))
+
+
+async def _s60_edit_review(
+    event_id: UUID, edit: dict, request: Request, events: httpx.AsyncClient,
+    equipment: httpx.AsyncClient, bookings: httpx.AsyncClient, venues: httpx.AsyncClient,
+) -> tuple[dict, dict, list[dict]]:
+    event = await _change_event(event_id, COORDINATOR_ROLE, request.cookies, events)
+    preview = await _s60_write("Events", events.post(
+        f"/events/assigned/{event_id}/edit-impact", json=edit, cookies=request.cookies,
+    ))
+    impacts = []
+    if preview["requires_impact_acceptance"]:
+        original = EventChangeValues.model_validate({field: event.get(field) for field in EventChangeValues.model_fields}).model_dump(mode="json")
+        proposed = EventChangeValues.model_validate({**original, **{
+            field: value for field, value in edit.items() if field in EventChangeValues.model_fields
+        }}).model_dump(mode="json")
+        equipment_rows = await _change_equipment(event_id, equipment)
+        snapshot = _equipment_snapshot(equipment_rows)
+        synthetic = {"accepted_values": original, "proposed_values": proposed,
+                     "accepted_equipment": snapshot, "proposed_equipment": snapshot}
+        impacts, _ = await _s60_assessment(event, synthetic, request.cookies, events, equipment, bookings, venues)
+        for item in impacts:
+            item["id"] = f"edit:{event['edit_version'] + 1}:{item['id']}"
+    return event, preview, impacts
+
+
+@app.post("/event-requests/{event_id}/information/impact")
+async def preview_coordinator_edit_impacts(
+    event_id: UUID, edit: dict, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+):
+    await _authenticate_coordinator(request, users)
+    _, preview, impacts = await _s60_edit_review(event_id, edit, request, events, equipment, bookings, venues)
+    return {**preview, "impacts": impacts}
+
+
+@app.patch("/event-requests/{event_id}/information/significant")
+async def save_coordinator_significant_edit(
+    event_id: UUID, payload: CoordinatorSignificantEdit, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    await _authenticate_coordinator(request, users)
+    before, preview, impacts = await _s60_edit_review(event_id, payload.edit, request, events, equipment, bookings, venues)
+    if not preview["requires_impact_acceptance"]:
+        raise HTTPException(status_code=409, detail="This edit does not require significant impact acceptance")
+    if len(payload.impact_ids) != len(impacts) or set(payload.impact_ids) != {item["id"] for item in impacts}:
+        raise HTTPException(status_code=409, detail="Impact assessment changed; review it again")
+    event = await _s60_write("Events", events.patch(
+        f"/events/assigned/{event_id}", cookies=request.cookies, headers=_assignment_headers(),
+        json={**payload.edit, "impact_accepted": True, "impact_items": impacts},
+    ))
+    await _notify_schedule_change(event_id, before, event, notifications)
+    return event
+
+
+@app.post("/event-requests/{event_id}/information/impacts/{impact_id}/resolve")
+async def resolve_coordinator_edit_impact(
+    event_id: UUID, impact_id: str, payload: EventImpactResolve, request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    equipment: httpx.AsyncClient = Depends(get_equipment_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+):
+    await _authenticate_coordinator(request, users)
+    event = await _change_event(event_id, COORDINATOR_ROLE, request.cookies, events)
+    item = next((row for row in event.get("s60_edit_impacts") or [] if row["id"] == impact_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Impact not found")
+    if item["status"] != "outstanding":
+        raise HTTPException(status_code=409, detail="Impact is no longer outstanding")
+    evidence = {}
+    if item["kind"] == "venue_booking":
+        booking_id = payload.evidence.get("booking_id")
+        if not booking_id:
+            raise HTTPException(status_code=422, detail="A confirmed booking is required as evidence")
+        booking = await _s60_json("Bookings", bookings.get(f"/bookings/{booking_id}"), allowed={404})
+        if booking.get("event_id") != str(event_id) or booking.get("status") != "confirmed":
+            raise HTTPException(status_code=409, detail="Booking is not confirmed for this event")
+        if not booking.get("decided_by") or not booking.get("decided_at") or datetime.fromisoformat(booking["decided_at"].replace("Z", "+00:00")) <= datetime.fromisoformat(item["flagged_at"].replace("Z", "+00:00")):
+            raise HTTPException(status_code=409, detail="Venue Staff must confirm the changed arrangement")
+        if (str(booking["booking_date"]) != str(event["start_date"])
+            or str(booking["start_time"])[:5] != str(event["start_time"])[:5]
+            or str(booking["end_time"])[:5] != str(event["end_time"])[:5]):
+            raise HTTPException(status_code=409, detail="Booking does not cover the accepted event window")
+        venue = await _s60_json("Venues", venues.get(f"/internal/venues/{booking['venue_id']}"))
+        if (int(event["expected_attendance"]) > int(venue["capacity"])
+            or set(event.get("required_facilities") or []) - set(venue.get("facilities") or [])
+            or set(event.get("required_accessibility") or []) - set(venue.get("accessibility") or [])
+            or (event.get("room_layout") and event["room_layout"] not in (venue.get("room_layouts") or []))):
+            raise HTTPException(status_code=409, detail="Venue remains unsuitable")
+        nearby = await _s60_json("Bookings", bookings.get("/bookings", params={
+            "venue_id": booking["venue_id"], "from": booking["booking_date"], "to": booking["booking_date"],
+        }))
+        if impact._booking_conflict(booking, venue, nearby, event):
+            raise HTTPException(status_code=409, detail="Venue booking still clashes")
+        evidence.update({
+            "booking_id": str(booking_id), "venue_id": str(booking["venue_id"]),
+            "venue_decided_by": booking.get("decided_by"), "venue_decided_at": booking["decided_at"],
+        })
+    elif item["kind"] in {"equipment", "technical_support"}:
+        if (event.get("technical_signoff_decision") != "approved"
+            or not event.get("technical_signoff_at")
+            or datetime.fromisoformat(event["technical_signoff_at"].replace("Z", "+00:00")) <= datetime.fromisoformat(item["flagged_at"].replace("Z", "+00:00"))
+            or event.get("technical_signoff_by") != event.get("assigned_technical_support_id")):
+            raise HTTPException(status_code=409, detail="Fresh Technical Support sign-off is required")
+        if item["kind"] == "equipment":
+            prepared_at = event.get("equipment_preparation_updated_at")
+            if (event.get("equipment_preparation_status") != "ready" or not prepared_at
+                or datetime.fromisoformat(prepared_at.replace("Z", "+00:00")) <= datetime.fromisoformat(item["flagged_at"].replace("Z", "+00:00"))):
+                raise HTTPException(status_code=409, detail="Fresh Technical Support preparation is required")
+            current = await _change_equipment(event_id, equipment)
+            quantity = next((row["required_quantity"] for row in current
+                             if str(row["equipment_item_id"]) == item["arrangement_id"]), 0)
+            if not quantity:
+                raise HTTPException(status_code=409, detail="Equipment requirement no longer exists")
+            if not await _s60_equipment_available(event, item["arrangement_id"], quantity, request.cookies, events, equipment):
+                raise HTTPException(status_code=409, detail="Equipment is unavailable for the accepted window")
+            evidence.update({
+                "equipment_item_id": item["arrangement_id"], "required_quantity": quantity,
+                "equipment_preparation_updated_by": event.get("equipment_preparation_updated_by"),
+                "equipment_preparation_updated_at": event.get("equipment_preparation_updated_at"),
+            })
+        evidence.update({"technical_signoff_by": event.get("technical_signoff_by"),
+                         "technical_signoff_at": event.get("technical_signoff_at")})
+    else:
+        raise HTTPException(status_code=422, detail="This impact cannot be resolved here")
+    return await _s60_write("Events", events.post(
+        f"/events/assigned/{event_id}/edit-impacts/{impact_id}/resolve",
+        cookies=request.cookies, headers=_assignment_headers(),
+        json={**payload.model_dump(), "evidence": evidence},
+    ))
+
+
 @app.post("/event-requests", status_code=status.HTTP_201_CREATED)
 async def submit_new_request(
     payload: EventRequestSubmit,
@@ -619,6 +1056,13 @@ async def update_event_information(
         raise HTTPException(status_code=502, detail="Events service unavailable")
 
     event = response.json()
+    await _notify_schedule_change(event_id, before, event, notifications)
+    return event
+
+
+async def _notify_schedule_change(
+    event_id: UUID, before: dict, event: dict, notifications: httpx.AsyncClient,
+) -> None:
     schedule_fields = ("start_date", "start_time", "end_date", "end_time")
     if any(str(before.get(field)) != str(event.get(field)) for field in schedule_fields):
         postponed = _window(event)[0] > _window(before)[0]
@@ -639,7 +1083,6 @@ async def update_event_information(
                 f"{organiser_id}"
             ),
         })
-    return event
 
 
 # S-61: what the events service may answer on a decision and is passed on as
