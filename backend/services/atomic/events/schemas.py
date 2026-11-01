@@ -471,6 +471,8 @@ class CoordinatorEventRead(EventRead):
     edit_version: int = Field(default=0, ge=0)
     edit_history: list[EventChangeRecord] = Field(default_factory=list)
     safety_recheck_required: bool = False
+    s60_edit_impacts: list[dict[str, Any]] = Field(default_factory=list)
+    s60_edit_impact_version: int = 0
 
 
 class EventInformationUpdate(BaseModel):
@@ -484,6 +486,7 @@ class EventInformationUpdate(BaseModel):
 
     expected_version: int = Field(ge=0)
     impact_accepted: bool = False
+    impact_items: list[dict[str, Any]] = Field(default_factory=list)
     name: str | None = None
     purpose: str | None = None
     contact_name: str | None = Field(default=None, max_length=200)
@@ -623,6 +626,7 @@ class TechnicalSupportLoadRequest(BaseModel):
     start_time: time
     end_date: date
     end_time: time
+    exclude_event_id: UUID | None = None
 
 
 class TechnicalSupportLoad(BaseModel):
@@ -749,6 +753,7 @@ class InternalSafetyDecision(BaseModel):
     decision: SafetyDecisionValue
     reason: str | None = None
     safety_officer_id: UUID
+    expected_event_updated_at: datetime
 
     @field_validator("reason", mode="before")
     @classmethod
@@ -831,6 +836,9 @@ class InternalEventUpdate(EventDraftUpdate):
 # actions; the venue and equipment ones arrive from their composites through
 # POST /internal/events/{event_id}/history, which accepts only those.
 EVENT_HISTORY_ACTIONS: dict[str, str] = {
+    "change_request_accepted": "review",
+    "change_request_rejected": "review",
+    "change_impact_resolved": "review",
     "submitted": "submission",
     "edited": "edit",
     "request_approved": "review",
@@ -993,10 +1001,52 @@ class EventChangeRequestRead(BaseModel):
     event_id: UUID
     requested_by: UUID
     submitted_at: datetime
-    status: Literal["pending", "accepted", "rejected"]
+    status: Literal["pending", "applying", "accepted", "rejected"]
     expected_event_updated_at: datetime
     accepted_values: dict[str, Any]
     proposed_values: EventChangeValues
     accepted_equipment: list[EventChangeEquipment]
     proposed_equipment: list[EventChangeEquipment]
     resolved_at: datetime | None = None
+    impacts: list[dict[str, Any]] = Field(default_factory=list)
+    impact_version: int = 0
+    operation_id: UUID | None = None
+    impact_acknowledged_at: datetime | None = None
+    reviewed_by: UUID | None = None
+    decision_reason: str | None = None
+
+
+class ChangeImpactPrepare(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+    expected_event_updated_at: datetime
+    impacts: list[dict[str, Any]]
+
+
+class ChangeImpactComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+
+
+class ChangeRequestReject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
+class ChangeImpactResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_impact_version: int = Field(ge=0)
+    action: str = Field(min_length=1, max_length=200)
+    evidence: dict[str, Any]

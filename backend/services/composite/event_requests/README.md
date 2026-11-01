@@ -43,6 +43,13 @@ Event Coordinators.
 | `PATCH` | `/event-requests/{event_id}` | Event Organiser | Updates an owned request without automatic assignment or reassignment. |
 | `GET` | `/event-requests/{event_id}/change-requests` | Owning Organiser or assigned Coordinator | Returns accepted event data, request history, current Equipment requirements and selectable items for the Organiser. |
 | `POST` | `/event-requests/{event_id}/change-requests` | Owning Event Organiser | S-59: submits a pending comparison without changing accepted arrangements. |
+| `GET` | `/event-requests/{event_id}/change-requests/{request_id}/review` | Assigned Event Coordinator | S-60: live impact assessment and accepted/proposed comparison. |
+| `POST` | `/event-requests/{event_id}/change-requests/{request_id}/accept` | Assigned Event Coordinator | Acknowledge exact impact IDs and apply values through the owning services. |
+| `POST` | `/event-requests/{event_id}/change-requests/{request_id}/reject` | Assigned Event Coordinator | Reject a pending request with a nonblank reason. |
+| `POST` | `/event-requests/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve` | Assigned Event Coordinator | Record owner-backed venue or Technical Support/Equipment evidence. |
+| `POST` | `/event-requests/{event_id}/information/impact` | Assigned Event Coordinator | S-18 significant-edit impact preview. |
+| `PATCH` | `/event-requests/{event_id}/information` | Assigned Event Coordinator | Save an acknowledged significant S-18 edit through Events. |
+| `POST` | `/event-requests/{event_id}/information/impacts/{impact_id}/resolve` | Assigned Event Coordinator | Resolve a significant S-18 edit impact. |
 | `GET` | `/event-requests/unassigned` | Event Coordinator Lead | Lists submitted requests whose `assigned_coordinator_id` is null, oldest submission first, including organiser details. |
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted, active Event Coordinator accounts available for manual selection. |
 | `GET` | `/event-requests/coordinators/{coordinator_id}/active-events` | Event Coordinator Lead | Returns limited active-event summaries for the selected Coordinator across Leads, with scope and warning indicators. |
@@ -83,6 +90,55 @@ the current assigned Coordinator or owning Organiser can read it. The
 submitted state may be unassigned; the request stays pending and becomes
 visible to the Coordinator after S-83 assignment. S-60 owns any later impact
 review or acceptance.
+
+### S-60 impact review and decisions
+
+`GET /event-requests/{event_id}/change-requests/{request_id}/review` returns
+`{event, request, impacts, equipment, bookings}`. Pending proposals are
+assessed against current booking, venue, Equipment and Technical Support data;
+an `applying` or terminal request returns its recorded impacts. Each impact
+has an `id`, `kind`, `arrangement_id`, `reason`, `required_action` and `status`.
+The review does not change accepted values or owner records.
+
+Acceptance requires the Coordinator to acknowledge the exact reviewed impact
+IDs and event timestamp:
+
+```json
+{"expected_event_updated_at":"2026-10-30T09:00:00Z","impact_ids":["venue_booking:55555555-5555-4555-8555-555555555555:capacity"]}
+```
+
+`POST .../accept` returns the accepted request (`status: "accepted"`) only
+after the Events operation and any Equipment batch finish. A retry may include
+the returned `operation_id`. Equipment owns a versioned, idempotent batch;
+Events owns the durable `applying` request and final event/lifecycle update.
+If an owner call is incomplete, the API returns `502` and the recorded
+operation can be retried. A stale review or concurrent decision returns `409`.
+Existing bookings and sign-offs remain in their owning services; outstanding
+impacts block renewed safety submission until explicit re-review.
+
+There is no distributed transaction across Events, Equipment, Bookings and
+Venues. Booking or staff state can change after an impact preview; acceptance
+therefore retains outstanding flags and never treats a prior approval as
+clearance. Resolution checks current owner data again. An unreconciled
+Events/Equipment operation stays `applying` and returns a controlled error
+until the same operation can be retried or administratively reconciled.
+
+`POST .../reject` takes `{"reason":"Venue cannot support the revision"}`.
+It returns the rejected request and keeps accepted event data unchanged.
+`POST .../impacts/{impact_id}/resolve` takes
+`{"expected_impact_version":1,"action":"Confirmed replacement booking reviewed","evidence":{"booking_id":"..."}}`.
+The composite checks the current booking or fresh Technical Support sign-off
+through the owner APIs before Events records the action, actor and time.
+An old Venue Staff or Technical Support approval alone cannot clear a flag.
+
+For S-18, `POST .../information/impact` takes the ordinary assigned edit body
+and returns the Events preview plus `impacts`. `PATCH .../information` takes
+`{"edit":{...},"impact_ids":[...]}` for a significant edit; routine edits
+still use the existing Events route. `POST .../information/impacts/{impact_id}/resolve`
+uses the same impact-resolution body and owner-backed checks.
+All S-60 routes require a signed-in current Coordinator; unrelated callers
+receive `403` or scoped `404`. Invalid bodies receive `422`; unavailable
+owner services receive `502`.
 
 ## Event submission and editing
 

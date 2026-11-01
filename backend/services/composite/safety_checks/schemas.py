@@ -1,6 +1,7 @@
 """Browser input for S-86 Operational Safety Check decisions."""
 
 from enum import Enum
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -16,6 +17,7 @@ class SafetyDecisionRequest(BaseModel):
 
     decision: SafetyDecision
     reason: str | None = None
+    expected_event_updated_at: datetime
 
     @field_validator("reason", mode="before")
     @classmethod

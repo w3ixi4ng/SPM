@@ -26,6 +26,11 @@ queries another service's tables.
 | `GET` | `/events/reassignment-requests/mine` | `events:request_reassignment` | List the caller's request history, including actioned requests after transfer. |
 | `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
 | `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/prepare` | Current Coordinator and trusted service | Save acknowledged impacts and an operation ID before acceptance. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/complete` | Current Coordinator and trusted service | Atomically accept values, lifecycle, request outcome and history after Equipment applies. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/reject` | Current Coordinator and trusted service | Reject a pending proposal with a reason. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve` | Current Coordinator and trusted service | Record validated arrangement re-review evidence. |
+| `POST` | `/events/assigned/{event_id}/edit-impacts/{impact_id}/resolve` | Current Coordinator and trusted service | Resolve a significant S-18 edit impact. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `pending_safety_check`, `confirmed`, and `preparation` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
@@ -61,6 +66,7 @@ because service ports are published for direct testing. See
 | `GET` | `/internal/events/{event_id}/safety-return?coordinator_id=…` | S-87: return a planning event's preserved safety feedback only when the supplied Coordinator is its current assignee. |
 | `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review (to `pending_safety_check`). |
 | `POST` | `/internal/events/{event_id}/safety-submission` | S-17: move the Coordinator's planning event to `pending_safety_check`. See [Safety-check submission](#safety-check-submission-and-sign-off-s-17). |
+| `GET` | `/internal/events/{event_id}/unresolved-change-impacts` | Return Events-owned unresolved S-59 and S-18 impacts for safety readiness. |
 | `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
 | `POST` | `/internal/events/{event_id}/technical-signoff/clear` | S-17: clear the sign-off after a Coordinator equipment change. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Authenticated responsible Lead's versioned compare-and-set transfer, with exact-retry support. |
@@ -949,7 +955,7 @@ creates and deletes real event and Auth records.
 ## Event change requests (S-59)
 
 `events.change_requests` stores each submitted comparison as history. A partial
-unique index permits only one `pending` request per event. Its insert trigger
+unique index permits only one `pending` or `applying` request per event. Its insert trigger
 locks the event, checks the owning Organiser, seven eligible lifecycle states,
 and the event's `updated_at` version, then records accepted fields and a server
 timestamp. Resolved rows remain; the later S-60 workflow will own resolution.
@@ -975,3 +981,42 @@ event's request history (`[]` when none). The owning Organiser and current
 Coordinator can read it. Anonymous, other-role and unrelated callers receive
 `401`, `403` and `404` respectively. Creating a request never changes the
 accepted event, its lifecycle, safety fields or linked arrangements.
+
+## Significant change review (S-60)
+
+Apply only the marked `BEGIN/END S-60 SIGNIFICANT CHANGE REVIEW` block of
+`backend/sql/events.sql` in DEV and TEST after review. The Events owner stores
+the decision state, acknowledged impact list and audit history. All S-60 write
+routes require both the current Coordinator's session and a trusted
+`X-Assignment-Service-Token`. The Events service does not read another
+service's tables.
+
+`POST /events/assigned/{event_id}/change-requests/{request_id}/prepare`
+takes `{operation_id, expected_event_updated_at, impacts}`. It records an
+`applying` operation and freezes unrelated event writes; it does not yet
+change accepted fields. `POST .../complete` takes `{operation_id}` and
+atomically applies the proposed event values, marks the request `accepted`,
+records history and returns confirmed, preparation or pending safety review
+to planning. Older safety decisions remain in history. The composite calls
+complete only after Equipment confirms its own batch. Repeating either call
+with the same operation is safe.
+
+`POST .../reject` takes `{"reason":"Venue unavailable"}` and atomically
+marks a pending request rejected with a trusted reviewer and timestamp.
+`POST .../impacts/{impact_id}/resolve` takes
+`{expected_impact_version, action, evidence}`. The composite first checks
+owner-backed evidence, then Events records the individual resolution, actor
+and time. `POST /events/assigned/{event_id}/edit-impacts/{impact_id}/resolve`
+uses the same body for significant S-18 edits.
+`GET /internal/events/{event_id}/unresolved-change-impacts` requires the
+`X-Assignment-Service-Token` header and returns outstanding items for safety
+readiness. Direct safety submission and resubmission reject
+unresolved items with `409`; the SQL trigger enforces the same rule if a
+caller bypasses those routes.
+
+Successful writes return the current request or event row. Missing or wrong
+sessions return `401`/`403`, unrelated events or missing requests return
+scoped `404`, stale versions and conflicting operations return `409`, invalid
+bodies return `422`, and storage failure returns `500`. A Safety Officer
+decision now requires `expected_event_updated_at` from the detail read; a
+decision from a superseded event version returns `409`.

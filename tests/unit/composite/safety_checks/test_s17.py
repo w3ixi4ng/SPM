@@ -85,9 +85,15 @@ def arrange(
     blocks=(),
     requirements=PROJECTORS,
     user=None,
+    impacts=(),
 ):
     services["users"].get.return_value = response(200, user or profile())
     services["events"].get.return_value = response(200, the_event or event())
+    async def events_get(path, **kwargs):
+        if path.endswith("/unresolved-change-impacts"):
+            return response(200, list(impacts))
+        return services["events"].get.return_value
+    services["events"].get.side_effect = events_get
     rows = [booking(B1, "confirmed")] if bookings is None else bookings
 
     async def bookings_get(path, params=None):
@@ -115,7 +121,8 @@ def refused(result):
 
 
 # --- TC-SAFETYCHECKS-010 --------------------------------------------------
-def test_fully_arranged_event_moves_to_pending_safety_check(client, services):
+def test_fully_arranged_event_moves_to_pending_safety_check(client, services, monkeypatch):
+    monkeypatch.setenv("ASSIGNMENT_SERVICE_SECRET", "unit-assignment-secret")
     arrange(services)
 
     result = client.post(SUBMIT)
@@ -126,13 +133,56 @@ def test_fully_arranged_event_moves_to_pending_safety_check(client, services):
         f"/internal/events/{EVENT_ID}/safety-submission",
         json={"coordinator_id": C1},
     )
-    services["events"].get.assert_awaited_once()
-    assert services["events"].get.await_args.args[0] == f"/events/assigned/{EVENT_ID}"
+    assert [call.args[0] for call in services["events"].get.await_args_list] == [
+        f"/events/assigned/{EVENT_ID}", f"/internal/events/{EVENT_ID}/unresolved-change-impacts",
+    ]
+    assert services["events"].get.await_args_list[1].kwargs["headers"] == {
+        "X-Assignment-Service-Token": "unit-assignment-secret"
+    }
     for name in ("bookings", "equipment", "venues"):
         services[name].post.assert_not_awaited()
         services[name].put.assert_not_awaited()
         services[name].patch.assert_not_awaited()
         services[name].delete.assert_not_awaited()
+
+
+def test_s60_unresolved_impact_blocks_both_readiness_and_submission(client, services):
+    venue_impact = {
+        "id": "venue_booking:b1:capacity", "kind": "venue_booking", "arrangement_id": B1,
+        "reason": "Hall A is too small for 150 attendees", "request_id": "r1",
+    }
+    equipment_impact = {
+        "id": "equipment:p1:requirement", "kind": "equipment", "arrangement_id": "p1",
+        "reason": "Projector quantity increased", "request_id": "r1",
+    }
+    arrange(services, impacts=[venue_impact, equipment_impact])
+
+    preview = client.get(READINESS)
+    submitted = client.post(SUBMIT)
+
+    assert preview.status_code == 200
+    assert preview.json()["ready"] is False
+    refused(submitted)
+    assert codes(submitted) == [("change_impact", B1), ("change_impact", None)]
+    services["events"].post.assert_not_awaited()
+
+    arrange(services, impacts=[equipment_impact])
+    assert codes(client.post(SUBMIT)) == [("change_impact", None)]
+    arrange(services, impacts=[])
+    assert client.post(SUBMIT).status_code == 200
+
+
+def test_s60_impact_owner_failure_never_reports_ready(client, services):
+    arrange(services)
+    async def failed_read(path, **kwargs):
+        if path.endswith("/unresolved-change-impacts"):
+            return response(503, {"detail": "Events unavailable"})
+        return response(200, event())
+    services["events"].get.side_effect = failed_read
+
+    assert client.get(READINESS).status_code == 502
+    assert client.post(SUBMIT).status_code == 502
+    services["events"].post.assert_not_awaited()
 
 
 # --- TC-SAFETYCHECKS-011 --------------------------------------------------
@@ -475,6 +525,6 @@ def test_queue_and_approval_use_new_stage(client, services):
     services["events"].post.return_value = response(
         200, event(status="confirmed", safety_decision="approved")
     )
-    decided = client.post(f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"})
+    decided = client.post(f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved", "expected_event_updated_at": "2026-09-14T00:00:00Z"})
     assert decided.status_code == 200, decided.text
     assert decided.json()["status"] == "confirmed"

@@ -1700,3 +1700,118 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** A notification timeout or failure returned controlled `502`; the accepted Events write was made once and was not reversed.
 - **Status:** Pass
 - **Evidence:** `test_s63.py::test_a_notification_failure_is_reported_after_the_event_was_saved`; 2026-10-31 full Python unit run: 1735 passed, 17 skipped.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01, `S-60/review-impact-of-significant-changes`, TEST Supabase and fresh `.env.test` Docker stack for integration/Chromium; local Python and frontend unit suites. See each case evidence. Full regression still has separate S-53 TEST SQL drift.
+
+## TC-EVENTREQUESTS-300 — only the assigned Coordinator can review
+
+- **Scenario:** Current assignment determines access to the pending proposal and impact review.
+- **Pre-conditions:** Users authenticates O/C/D; Events identifies C as the assigned Coordinator.
+- **Steps:** 1. GET review as C, D, O and anonymous. 2. Reassign E to D via S-84. 3. Repeat.
+- **Test data:** Shared E/O/C/D and one pending request R.
+- **Expected:** C initially sees accepted/proposed values and differences; D gets scoped 404, O cannot use Coordinator review, anonymous gets 401. After transfer only D may act; denied reads reveal no arrangement details.
+- **Actual:** Current Coordinator review succeeded; unrelated and anonymous access was denied and reassignment changed scope.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_review_follows_current_assignment_without_exposing_other_coordinator_data; test_review_requires_coordinator_authentication
+
+## TC-EVENTREQUESTS-301 — time changes identify scheduling impacts
+
+- **Scenario:** New date, time or duration is checked against bookings, setup/turnaround, equipment availability and T's schedule.
+- **Pre-conditions:** B1/B2 booked for the old window; availability APIs return B1 setup clash, B2 free at the proposed time, projector shortage and T overlap.
+- **Steps:** Preview R and inspect item identities/reasons; include an unrelated event's booking B3.
+- **Test data:** 04 Dec 09:00–12:00 → 05 Dec 10:00–14:00; B1 clash, B2 free for the new slot but still booked at the old slot, projector short by 1.
+- **Expected:** B1 flags its old-slot mismatch and setup clash; B2 flags the old-slot mismatch but is not falsely marked clashing. Projector and T have separate reasons; unrelated B3 is absent. An unavailable owner returns a controlled `502`, never a false clearance. Nothing is cancelled.
+- **Actual:** Per-booking old-window and clash reasons were distinguished; live equipment and Technical Support schedules were checked.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_time_change_flags_each_old_booking_but_only_real_clash; test_time_change_revalidates_live_equipment_and_technical_schedule
+
+## TC-EVENTREQUESTS-302 — attendance flags capacity and safety
+
+- **Scenario:** A pax increase identifies affected venues and applicable safety limits.
+- **Pre-conditions:** B1 capacity 130, B2 capacity 220; the safety-review rules require fresh consideration when attendance changes.
+- **Steps:** Preview 120→150; inspect each impact.
+- **Test data:** Capacities 130/220; proposed pax 150.
+- **Expected:** B1 flags `130 < 150`, B2 has no capacity mismatch, and an independent attendance/safety review item explains why the prior safety decision cannot be reused. Existing approvals remain in history. No numeric safety limit is assumed without a source.
+- **Actual:** Only the undersized booking received the capacity flag; safety review was separately identified.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_attendance_and_layout_impacts_are_booking_specific
+
+## TC-EVENTREQUESTS-303 — venue suitability is booking-specific
+
+- **Scenario:** Layout, access, facilities and restrictions are compared with each live booking's venue.
+- **Pre-conditions:** B1 supports theatre only/no hearing loop; B2 supports banquet/hearing loop.
+- **Steps:** Preview proposed banquet layout plus hearing loop; inspect B1/B2.
+- **Test data:** B1/B2 above; proposed `banquet`, `hearing_loop`.
+- **Expected:** B1 receives both explicit deficits; B2 is not incorrectly flagged. Missing venue metadata yields a controlled owner error, not a claimed compatibility result. Both bookings and primary selection remain untouched.
+- **Actual:** Facilities, accessibility and layout were assessed for each booking, with no B2 false flag.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_facilities_and_access_are_assessed_for_each_booking; test_attendance_and_layout_impacts_are_booking_specific
+
+## TC-EVENTREQUESTS-304 — live Equipment is revalidated
+
+- **Scenario:** The proposal's equipment snapshot cannot overrule a later catalogue or availability change.
+- **Pre-conditions:** R proposes projector 2→3; live item is retired or only 2 are available at review time.
+- **Steps:** Preview R, alter fake live Equipment response, attempt acceptance, inspect owners.
+- **Test data:** P quantity 2→3; status `retired` or available quantity 2.
+- **Expected:** A retired changed item is rejected by Equipment with `409` and no accepted outcome. A live item with a quantity shortage is identified as an outstanding impact; acceptance may proceed with the flag, but the flag cannot be resolved until the owner-backed shortage is addressed and a fresh Technical Support decision is recorded. Unchanged grandfathered requirements keep S-59 behavior.
+- **Actual:** Retired changed item was refused; a live quantity shortage remained an outstanding flag after acceptance.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_retired_changed_item_is_rejected_before_durable_prepare; test_live_equipment_shortage_can_be_accepted_with_outstanding_flag
+
+## TC-EVENTREQUESTS-305 — equipment and Technical Support impacts are distinct
+
+- **Scenario:** Changed requirement/preparation and old Technical Support sign-off are explained separately.
+- **Pre-conditions:** P quantity 2 prepared; T approved P=2.
+- **Steps:** Preview P 2→3, then unchanged P; read impacts and sign-off.
+- **Test data:** P 2→3; T signed 2026-12-01T09:00Z.
+- **Expected:** P has requirement/availability/preparation reason; T has its own old-sign-off review reason. Unchanged P is not flagged solely for existing. T's old approval remains visible and is never presented as approval for P=3.
+- **Actual:** Equipment requirement and old Technical Support sign-off produced separate impacts; unchanged equipment did not gain a flag.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_time_change_revalidates_live_equipment_and_technical_schedule; test_unchanged_equipment_is_not_flagged_for_attendance_only
+
+## TC-EVENTREQUESTS-306 — acceptance uses the owning services
+
+- **Scenario:** Composite orchestration applies proposed values without direct cross-schema queries.
+- **Pre-conditions:** C assigned; R pending/fresh; live checks pass; B1/B2/T exist.
+- **Steps:** Accept R; inspect outbound calls and all owner records; retry same operation.
+- **Test data:** Shared E/R; projector 2→3; idempotency key Q.
+- **Expected:** Equipment's atomic batch changes P to 3; Events atomically finalises event fields, R, lifecycle, flags and history. B1/B2/T identities and authoritative sign-offs remain. The response reports accepted only after both owners' writes complete; retry returns one result.
+- **Actual:** Composite used owner APIs; real acceptance changed Events and Equipment once while retaining bookings, sign-offs and attendee.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_acceptance_applies_equipment_before_events_and_never_reports_partial_success; tests/integration/composite/event_requests/test_s60.py::test_real_acceptance_preserves_arrangements
+
+## TC-EVENTREQUESTS-307 — partial failure never looks successful
+
+- **Scenario:** Failure before/after Equipment's write is durable and recoverable.
+- **Pre-conditions:** R pending; Events or Equipment fake fails on a nominated call.
+- **Steps:** 1. Fail Equipment before write. 2. Fail Events finalisation after Equipment batch. 3. Retry Q; try D replay.
+- **Test data:** Q UUID, P 2→3, HTTP 503/timeout.
+- **Expected:** No successful accepted response while incomplete; durable operation blocks conflicting edits/new requests, shows C recovery status, and safe retry commits once. D cannot replay. Compensation, if needed, uses saved Equipment version and cannot overwrite another actor's update.
+- **Actual:** Failed finalisation/finish returned incomplete; persisted operation blocked new requests and same-key retry completed once.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_events_finalization_failure_keeps_operation_applying_until_same_retry_succeeds; test_equipment_finish_failure_returns_incomplete_until_idempotent_recovery; tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery
+
+## TC-EVENTREQUESTS-308 — resolution does not forge staff sign-off
+
+- **Scenario:** C records actual venue/equipment re-review independently of Venue Staff/T's decisions.
+- **Pre-conditions:** Accepted R has B1 and P flags, with old staff approvals preserved.
+- **Steps:** 1. C sends a new booking request for the revised event and attempts clearance before approval. 2. Venue Staff approves B3 through the existing decision workflow. 3. C resolves B1 with B3 as evidence; T re-signs P before C resolves P.
+- **Test data:** B1→B3, P=3, C note `Reviewed replacement`.
+- **Expected:** Request/note alone cannot clear unmet flag; validated evidence references B3 or new T sign-off. Separate C reviewer/action/time are stored. B1 and P resolve independently; D cannot resolve.
+- **Actual:** Coordinator could not forge staff approval; fresh Venue Staff and Technical Support actions supported independent durable resolution.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_impact_resolution_cannot_impersonate_technical_support; test_new_staff_approved_booking_resolves_old_booking_impact_with_trusted_evidence; tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-EVENTREQUESTS-309 — rejection releases S-59's pending slot
+
+- **Scenario:** C's reasoned rejection preserves history and allows O to revise.
+- **Pre-conditions:** R pending; E accepted at 120 attendees.
+- **Steps:** Reject R, submit R2, race another request while R2 is pending or applying.
+- **Test data:** R 120→150 rejected; R2 120→130; blank reason invalid.
+- **Expected:** R remains rejected with C/time/reason; E unchanged. One R2 can become pending only after R is terminal; concurrent duplicate gets 409; applying operation also occupies the one-outstanding slot.
+- **Actual:** Rejection recorded the reason, kept accepted values, and released the one-pending slot only after persistence.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_rejection_releases_pending_slot_without_changing_accepted_event; test_real_concurrent_acceptance_and_recovery

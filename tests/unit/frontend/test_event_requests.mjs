@@ -155,15 +155,16 @@ test('S-18 event information calls use encoded authenticated Kong routes', async
   const form = eventResponseToForm(event)
   try {
     await previewAssignedEventInformation('event 1/2', form, event)
-    await updateAssignedEventInformation('event 1/2', form, event, true)
+    await updateAssignedEventInformation('event 1/2', form, event, true, ['venue:b1:capacity'])
   } finally {
     globalThis.fetch = originalFetch
   }
   assert.deepEqual(calls.map(({ url, options }) => [url, options.method]), [
-    ['/api/events/assigned/event%201%2F2/edit-impact', 'POST'],
-    ['/api/event-requests/event%201%2F2/information', 'PATCH'],
+    ['/api/event-requests/event%201%2F2/information/impact', 'POST'],
+    ['/api/event-requests/event%201%2F2/information/significant', 'PATCH'],
   ])
   assert.equal(calls.every(({ options }) => options.credentials === 'include'), true)
+  assert.deepEqual(JSON.parse(calls[1].options.body).impact_ids, ['venue:b1:capacity'])
 })
 
 test('event list loads the authenticated organisers saved requests', async () => {

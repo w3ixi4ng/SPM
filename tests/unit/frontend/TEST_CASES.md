@@ -3058,3 +3058,52 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Every S-63 row rendered through the existing inbox with all supplied event and action text visible.
 - **Status:** Pass
 - **Evidence:** `test_notifications.mjs::S-63 organiser outcomes remain readable in the existing inbox`; 2026-11-01 Node test run after merging `origin/sprint4` `92b230c`: 217 passed.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01, `S-60/review-impact-of-significant-changes`, TEST Supabase and fresh `.env.test` Docker stack for integration/Chromium; local Python and frontend unit suites. See each case evidence. Full regression still has separate S-53 TEST SQL drift.
+
+## TC-FRONTEND-300 — comparison and impact summary are explicit
+
+- **Scenario:** The assigned Coordinator sees accepted/proposed fields alongside impacted arrangement identity and reason.
+- **Pre-conditions:** Fake review API returns E/R plus B1 capacity and P quantity flags; B2 is unaffected.
+- **Steps:** Render review, inspect changed fields, old sign-offs and flag list.
+- **Test data:** Attendance 120→150; B1 Hall A capacity 130; B2 Hall B capacity 220; P 2→3.
+- **Expected:** 120/150 and 2/3 appear in separate labelled columns; B1 and P have named reasons and pending status; B2 is not presented as impacted. Prior Venue Staff/Technical Support approvals are labelled as pertaining to the old plan; no automatic reset is implied.
+- **Actual:** Chromium displayed accepted/proposed values and item-specific B1, P and T impacts while B2 stayed unaffected.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-FRONTEND-301 — loading, error and stale states do not claim acceptance
+
+- **Scenario:** Slow or failed review/acceptance remains visibly pending and recoverable.
+- **Pre-conditions:** Fake API can delay, return 409, 422 or 502, and later succeed.
+- **Steps:** Load review, submit twice, simulate each failure, reload and retry.
+- **Test data:** R version 4; stale version 5; Equipment 503.
+- **Expected:** Distinct loading, pending, error and recovery states; only one in-flight accept; 409 prompts a current-data reload, 422 identifies the invalid item, 502 shows incomplete/retry status. None of the failures display accepted or remove the request.
+- **Actual:** Injected 502 left the proposal pending and visible; retry succeeded. Unit API cases preserved 409, 422 and 502 details.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]; tests/unit/frontend/test_event_change_review.mjs::S-60 API errors preserve stale and incomplete status for the review UI
+
+## TC-FRONTEND-302 — per-arrangement resolution is visible after refresh
+
+- **Scenario:** C can see pending and resolved re-review items independently.
+- **Pre-conditions:** Accepted R has B1 and P flags; API records B1 resolution while P remains outstanding.
+- **Steps:** Render, resolve B1 through valid flow, reload, inspect statuses and readiness.
+- **Test data:** B1→replacement B3; P quantity 3 still awaiting T re-sign-off.
+- **Expected:** B1 shows reviewer, action and time after reload; P stays pending and the safety submission control remains blocked. An unsuccessful resolution leaves the item pending. No generic dismiss button clears a flag.
+- **Actual:** Venue and equipment items resolved independently with reviewer data after reload; safety remained blocked until all outstanding flags cleared.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-FRONTEND-303 — success, rejection and scope match server state
+
+- **Scenario:** Terminal request outcomes and restricted review controls are rendered accurately.
+- **Pre-conditions:** Fake API returns accepted, rejected or pending R for C; D receives 404.
+- **Steps:** Render each result and D's denied route; inspect actions and history.
+- **Test data:** R accepted by C at 2026-12-02T09:00Z; R2 rejected with reason `Venue unavailable`.
+- **Expected:** Accepted view shows current values, outstanding flags and fresh safety-check requirement; rejected view shows reason/history and no accepted data change; only current C has decision controls; D sees no protected proposal. Routine S-18 edit UI remains available under its existing permissions.
+- **Actual:** Accepted view showed fresh-safety requirement; later rejected request displayed its reason and kept accepted attendance 150; unrelated Coordinator saw no review.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]

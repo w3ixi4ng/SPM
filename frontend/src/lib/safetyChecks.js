@@ -36,7 +36,7 @@ export function safetyCheckErrorMessage(error) {
   if (error?.status === 401) return 'Your session has expired. Please sign in again.'
   if (error?.status === 403) return 'Only Safety Officers can conduct operational safety checks.'
   if (error?.status === 404) return 'This event was not found.'
-  if (error?.status === 409) return 'This safety check has already been decided or is no longer awaiting review.'
+  if (error?.status === 409) return 'This safety check changed or has already been decided. Reload it before trying again.'
   if (error?.status === 422) return error.message || 'Check the decision and provide a reason where required.'
   if (error?.status === 502 || error?.status === 0) return 'Safety review information is temporarily unavailable. Try again.'
   return error?.message || 'Something went wrong. Please try again.'

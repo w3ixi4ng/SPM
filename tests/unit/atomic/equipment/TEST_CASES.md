@@ -468,3 +468,31 @@ developer on 2026-10-28.
 - **Expected:** Both responses contain the same location as descriptive metadata.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_catalogue_and_selection_expose_storage_location`
+
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01, `S-60/review-impact-of-significant-changes`, TEST Supabase and fresh `.env.test` Docker stack for integration/Chromium; local Python and frontend unit suites. See each case evidence. Full regression still has separate S-53 TEST SQL drift.
+
+## TC-EQUIPMENT-300 — a live, versioned batch applies a proposal once
+
+- **Scenario:** Equipment changes are all-or-nothing within the Equipment schema and idempotent per S-60 operation.
+- **Pre-conditions:** E has P quantity 2 and microphone M quantity 1; service-trusted request carries operation Q and a complete baseline.
+- **Steps:** 1. Apply Q proposing P=3 and M removed. 2. Retry Q. 3. Read requirements and history.
+- **Test data:** P 2→3, M 1→removed, Q UUID, expected baseline version V.
+- **Expected:** The first call validates live active/available items and commits both requirement mutations plus audit in one Equipment transaction; retry has no duplicate writes/history. A stale V, retired P or caller without trusted service credential is denied without partial mutation. Existing unrelated requirements remain.
+- **Actual:** Versioned TEST batch applied P=3 and removed M once; exact retry added no audit rows, and invalid direct writes were rejected.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/equipment/test_s60.py::test_versioned_batch_is_idempotent_and_blocks_competing_requirement_writes
+
+## TC-EQUIPMENT-301 — unfinished acceptance cannot be overwritten
+
+- **Scenario:** Equipment reserves an event's requirement set for operation Q until Events finalisation or safe abort.
+- **Pre-conditions:** Q has applied P 2→3 but Events finalisation has not succeeded.
+- **Steps:** 1. Try ordinary S-18 requirement edit P→4. 2. Retry Q. 3. Abort Q conditionally after Events rejects a stale version.
+- **Test data:** Q UUID; baseline P=2; proposed P=3; competing P=4.
+- **Expected:** Competing edit gets 409 while Q owns the lock; retry observes the same result. Abort restores P=2 only if Q still owns the version and Events has not accepted; no rollback overwrites a subsequent owner edit. The lock does not count as a staff sign-off.
+- **Actual:** Applied batch blocked competing P=4; conditional abort restored the baseline, and a finalised batch could not abort over a newer edit.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/equipment/test_s60.py::test_versioned_batch_is_idempotent_and_blocks_competing_requirement_writes

@@ -29,17 +29,17 @@ export default function EventChangeComparison({ event, request, equipment = [], 
     <section aria-label="Event change request" className="border rounded-sm p-5 my-6" style={{ borderColor: '#E3DFD3' }}>
       <h2 className="font-display text-xl mb-2">Change request: {request.status}</h2>
       <p className="font-ui text-sm mb-3">Submitted {new Date(request.submitted_at).toLocaleString()} by {request.requested_by}.</p>
-      {currentDiffersFromBaseline && <p role="status" className="font-ui text-sm mb-3">Accepted event details have changed since this request was submitted. Review the current values below.</p>}
+      {currentDiffersFromBaseline && <p role="status" className="font-ui text-sm mb-3">Current event details differ from the accepted snapshot recorded with this request. The comparison below preserves that original snapshot and shows the latest values.</p>}
       <p className="font-ui text-sm mb-4">Existing venue, equipment, Technical Support and attendee arrangements apply to the accepted event details. They have not yet been validated for this proposal.</p>
       <div className="overflow-x-auto">
         <table className="w-full font-ui text-sm">
-          <thead><tr><th className="text-left pb-2">Changed field</th><th className="text-left pb-2">Currently accepted</th><th className="text-left pb-2">Proposed</th></tr></thead>
+          <thead><tr><th className="text-left pb-2">Changed field</th><th className="text-left pb-2">Accepted when requested</th><th className="text-left pb-2">Proposed</th>{currentDiffersFromBaseline && <th className="text-left pb-2">Current now</th>}</tr></thead>
           <tbody>
             {CHANGE_FIELDS.map(([field, label]) => (
-              <tr key={field}><th scope="row" className="text-left py-2 pr-3">{label}{changed.includes(field) && ' (changed)'}</th><td className="py-2 pr-3">{display(event[field])}</td><td className="py-2">{display(request.proposed_values[field])}</td></tr>
+              <tr key={field}><th scope="row" className="text-left py-2 pr-3">{label}{changed.includes(field) && ' (changed)'}</th><td className="py-2 pr-3">{display(request.accepted_values[field])}</td><td className="py-2">{display(request.proposed_values[field])}</td>{currentDiffersFromBaseline && <td className="py-2">{display(event[field])}</td>}</tr>
             ))}
-            <tr><th scope="row" className="text-left py-2 pr-3">Duration{durationMinutes(event) !== durationMinutes(request.proposed_values) && ' (changed)'}</th><td className="py-2 pr-3">{durationMinutes(event)} minutes</td><td className="py-2">{durationMinutes(request.proposed_values)} minutes</td></tr>
-            <tr><th scope="row" className="text-left py-2 pr-3">Equipment requirements{changed.includes('equipment') && ' (changed)'}</th><td className="py-2 pr-3">{equipmentText(equipment.map((item) => ({ equipment_item_id: item.equipment_item_id, required_quantity: item.required_quantity })), names)}</td><td className="py-2">{equipmentText(request.proposed_equipment, names)}</td></tr>
+            <tr><th scope="row" className="text-left py-2 pr-3">Duration{durationMinutes(request.accepted_values) !== durationMinutes(request.proposed_values) && ' (changed)'}</th><td className="py-2 pr-3">{durationMinutes(request.accepted_values)} minutes</td><td className="py-2">{durationMinutes(request.proposed_values)} minutes</td>{currentDiffersFromBaseline && <td className="py-2">{durationMinutes(event)} minutes</td>}</tr>
+            <tr><th scope="row" className="text-left py-2 pr-3">Equipment requirements{changed.includes('equipment') && ' (changed)'}</th><td className="py-2 pr-3">{equipmentText(request.accepted_equipment, names)}</td><td className="py-2">{equipmentText(request.proposed_equipment, names)}</td>{currentDiffersFromBaseline && <td className="py-2">{equipmentText(equipment, names)}</td>}</tr>
           </tbody>
         </table>
       </div>

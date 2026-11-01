@@ -500,3 +500,41 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Refused Events outcomes preserved their status and made no notification write; notification failures after a save returned controlled `502`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_identified_event_errors_are_preserved` and `test_a_notification_failure_is_controlled_after_the_safety_outcome_is_saved`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01, `S-60/review-impact-of-significant-changes`, TEST Supabase and fresh `.env.test` Docker stack for integration/Chromium; local Python and frontend unit suites. See each case evidence. Full regression still has separate S-53 TEST SQL drift.
+
+## TC-SAFETYCHECKS-300 — unresolved impacts block readiness and submission
+
+- **Scenario:** An existing booking/sign-off cannot make a changed event ready while its re-review flags remain outstanding.
+- **Pre-conditions:** E is planning after significant acceptance; ordinary venue/equipment/technical checks pass; Events returns unresolved B1 and P flags.
+- **Steps:** 1. GET readiness. 2. POST first submission and S-87 resubmission. 3. Resolve B1 only; repeat. 4. Resolve P; repeat.
+- **Test data:** B1 `capacity 130 < 150`, P `quantity 2→3`.
+- **Expected:** Readiness names both flags; submit/resubmit get 409 with the same items. Resolving only B1 leaves P blocking. Once all flags and ordinary readiness checks clear, normal S-17/S-87 submission works. An Events flag-service error fails closed, never reports ready.
+- **Actual:** Two outstanding impacts blocked readiness and submission; one remaining flag still blocked, and owner failure returned 502.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/safety_checks/test_s17.py::test_s60_unresolved_impact_blocks_both_readiness_and_submission; test_s60_impact_owner_failure_never_reports_ready; tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-SAFETYCHECKS-301 — a stale Safety Officer decision cannot reconfirm
+
+- **Scenario:** Acceptance during `pending_safety_check` invalidates the Safety Officer's old review.
+- **Pre-conditions:** E pending at version 4; officer opened its old review; S-60 accepts a significant date change.
+- **Steps:** Submit old approval, inspect E and safety history.
+- **Test data:** 04 Dec→05 Dec; old expected review version 4.
+- **Expected:** Old approval gets 409; E stays planning with recheck required and preserved historical decision entries. A fresh submission is possible only after outstanding impacts resolve.
+- **Actual:** Pending review was superseded by acceptance; old event-version approval returned 409 and fresh safety required resolved impacts.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_significant_acceptance_requires_fresh_safety_for_each_lifecycle_state[pending_safety_check]; tests/unit/atomic/events/test_s86.py::test_old_safety_review_cannot_decide_new_event_version
+
+## TC-SAFETYCHECKS-302 — routine S-18 edits retain existing readiness
+
+- **Scenario:** Non-significant contact and note edits do not add S-60 items or reset safety state.
+- **Pre-conditions:** E planning/confirmed with ordinary readiness satisfied, no S-60 flags.
+- **Steps:** Apply S-18 phone/note edit; query readiness and decision state.
+- **Test data:** Phone `+65 6123 4567`, note `Use east entrance`.
+- **Expected:** No S-60 outstanding item and no new safety check; the existing S-17/S-86/S-87 rules remain unchanged.
+- **Actual:** Routine S-18 edit added no S-60 flag; significant S-18 edit left safety blocked until re-review.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_routine_s18_edit_stays_available_without_service_token; tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle[chromium]

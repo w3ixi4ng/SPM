@@ -11,6 +11,7 @@ OFFICER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 SUPPORT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 VENUE_ID = "44444444-4444-4444-8444-444444444444"
 EQUIPMENT_ID = "55555555-5555-4555-8555-555555555555"
+REVIEW_UPDATED_AT = "2026-09-14T00:00:00Z"
 
 
 def response(status, json):
@@ -88,7 +89,7 @@ def test_only_safety_officers_can_submit_decisions(
     services["users"].get.return_value = me_response
 
     result = client.post(
-        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved", "expected_event_updated_at": REVIEW_UPDATED_AT}
     )
 
     assert result.status_code == expected
@@ -230,14 +231,14 @@ def test_decision_forwards_verified_officer_and_returns_transition(
 
     result = client.post(
         f"/safety-checks/{EVENT_ID}/decision",
-        json={"decision": decision, "reason": reason},
+        json={"decision": decision, "reason": reason, "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert result.status_code == 200
     assert result.json()["status"] == expected_status
     services["events"].post.assert_awaited_once_with(
         f"/internal/events/safety-review/{EVENT_ID}/decision",
-        json={"decision": decision, "reason": reason, "safety_officer_id": OFFICER_ID},
+        json={"decision": decision, "reason": reason, "expected_event_updated_at": REVIEW_UPDATED_AT, "safety_officer_id": OFFICER_ID},
     )
     sent = services["notifications"].post.await_args.kwargs["json"]["notifications"][0]
     assert sent["recipient_id"] == ORGANISER_ID
@@ -263,7 +264,7 @@ def test_identified_event_errors_are_preserved(client, services, status):
 
     result = client.post(
         f"/safety-checks/{EVENT_ID}/decision",
-        json={"decision": "approved"},
+        json={"decision": "approved", "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert result.status_code == status
@@ -287,7 +288,8 @@ def test_a_notification_failure_is_controlled_after_the_safety_outcome_is_saved(
     services["notifications"].post.return_value.status_code = 500
 
     result = client.post(
-        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+        f"/safety-checks/{EVENT_ID}/decision",
+        json={"decision": "approved", "expected_event_updated_at": REVIEW_UPDATED_AT},
     )
 
     assert result.status_code == 502

@@ -17,7 +17,11 @@ def make_user(admin, role):
         "email": email, "password": PASSWORD, "email_confirm": True,
         "app_metadata": {"role": role},
     })
-    return {"id": str(created.user.id), "email": email}
+    user_id = str(created.user.id)
+    admin.schema("users").table("users").insert({
+        "id": user_id, "name": role, "email": email,
+    }).execute()
+    return {"id": user_id, "email": email}
 
 
 def cookie(auth_client, user):
@@ -73,10 +77,19 @@ def test_coordinator_edit_lifecycle_and_audit_round_trip(admin, auth_client):
         assert preview.status_code == 200, preview.text
         assert preview.json()["significant_fields"] == ["expected_attendance"]
 
-        changed = httpx.patch(base, headers=headers, json={
-            "expected_version": 1, "impact_accepted": True,
-            "expected_attendance": 55,
-        }, timeout=15.0)
+        significant_edit = {"expected_version": 1, "expected_attendance": 55}
+        reviewed = httpx.post(
+            f"{GATEWAY_BASE_URL}/event-requests/{event_id}/information/impact",
+            headers=headers, json=significant_edit, timeout=20.0,
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        changed = httpx.patch(
+            f"{GATEWAY_BASE_URL}/event-requests/{event_id}/information",
+            headers=headers, json={
+                "edit": significant_edit,
+                "impact_ids": [item["id"] for item in reviewed.json()["impacts"]],
+            }, timeout=20.0,
+        )
         assert changed.status_code == 200, changed.text
         assert changed.json()["status"] == "planning"
         assert changed.json()["safety_recheck_required"] is True

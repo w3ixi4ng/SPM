@@ -3237,6 +3237,123 @@ notification composites were implemented.
 - **Actual:** The exact five-field projection was returned, and an empty database result returned the expected `404`.
 - **Status:** Pass
 - **Evidence:** `test_s63.py`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01, `S-60/review-impact-of-significant-changes`, TEST Supabase and fresh `.env.test` Docker stack for integration/Chromium; local Python and frontend unit suites. See each case evidence. Full regression still has separate S-53 TEST SQL drift.
+
+**Shared data:** Organiser O, assigned Coordinator C and unrelated Coordinator D; event E with accepted date `2026-12-04`, time `09:00–12:00`, attendance 120, `edit_version` 4; pending request R proposes `2026-12-05`, attendance 150 and projector quantity 3 instead of 2. The fake Events store holds an immutable snapshot of the row before every mutation.
+
+## TC-EVENTS-300 — review is scoped to the current Coordinator
+
+- **Scenario:** Only C can read R's review and make a decision, including after a later S-84 reassignment.
+- **Pre-conditions:** E is assigned to C; D and O have valid sessions.
+- **Steps:** 1. C reads R. 2. D and O read or decide R. 3. Reassign E to D. 4. Repeat as C and D.
+- **Test data:** E/R and C/D above; S-84 moves C→D.
+- **Expected:** C initially gets 200 and D/O get scoped 404/403. After reassignment only D may review or decide. No denied call changes R, E or flags.
+- **Actual:** Current-Coordinator and trusted-service checks denied unrelated decisions; composite review followed reassignment.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_change_decision_requires_current_coordinator_and_trusted_service; tests/unit/composite/event_requests/test_s60.py::test_review_follows_current_assignment_without_exposing_other_coordinator_data
+
+## TC-EVENTS-301 — accepted, proposed and historical baselines remain distinct
+
+- **Scenario:** A Coordinator decision does not erase the original proposal or accepted-before snapshot.
+- **Pre-conditions:** R is pending against E; the impact plan has been stored.
+- **Steps:** 1. Read R. 2. Accept it. 3. Read R and E again.
+- **Test data:** 120→150 attendees; 2026-12-04→05; projector 2→3.
+- **Expected:** R retains `accepted_values`, `proposed_values`, equipment snapshots, requester and submission time; E acquires approved values only after acceptance; R records trusted reviewer/time and terminal status. The audit entry identifies the request and changed fields.
+- **Actual:** Real acceptance retained the 120 baseline and 150 proposal while updating the event only at finalisation.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_acceptance_preserves_arrangements
+
+## TC-EVENTS-302 — compare-and-set refuses stale and concurrent decisions
+
+- **Scenario:** An old proposal or second decision cannot overwrite a newer event or review.
+- **Pre-conditions:** E version 4 and R pending; another edit, reassignment, safety transition or decision may win.
+- **Steps:** 1. Attempt acceptance with an old event version. 2. Race two accepts. 3. Race accept versus reject. 4. Inspect E/R/history.
+- **Test data:** Version 4→5; R ID fixed; two independent requests.
+- **Expected:** Stale call returns 409 with no accepted write; only one decision commits; loser gets 409; one audit entry and one terminal request outcome. A new S-59 request is possible only after a truly terminal outcome.
+- **Actual:** Two competing prepares produced one winner; the loser was stale, and one accepted history entry remained after retry.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery
+
+## TC-EVENTS-303 — significant acceptance returns confirmed and preparation to planning
+
+- **Scenario:** Both post-safety states require a fresh Operational Safety Check after accepted material changes.
+- **Pre-conditions:** E is `confirmed` or `preparation`, with an approved safety decision and historical sign-offs.
+- **Steps:** Accept R in each state; read event, safety metadata and history.
+- **Test data:** Attendance 120→150; status matrix `confirmed`, `preparation`.
+- **Expected:** Both move to `planning`, set `safety_recheck_required`, invalidate the **current** safety approval for readiness, and keep prior decisions/sign-offs in audit history. Venue/equipment/Technical Support records are not deleted or silently reset.
+- **Actual:** Confirmed and preparation both returned to planning with a fresh safety requirement.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_significant_acceptance_requires_fresh_safety_for_each_lifecycle_state[confirmed]; [preparation]
+
+## TC-EVENTS-304 — pending safety review cannot approve a superseded event
+
+- **Scenario:** Accepting a significant proposal during `pending_safety_check` invalidates the in-flight safety review.
+- **Pre-conditions:** E is `pending_safety_check` with no decision; Safety Officer loaded the previous version.
+- **Steps:** 1. Accept R. 2. Submit the old safety decision. 3. Query fresh readiness.
+- **Test data:** Date 2026-12-04→05; old safety review version 4.
+- **Expected:** E returns to `planning` with recheck required; stale safety decision gets 409 and cannot confirm E. The new review sees the accepted change and unresolved impacts.
+- **Actual:** Pending safety review returned to planning; an old Safety Officer event version was rejected.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_significant_acceptance_requires_fresh_safety_for_each_lifecycle_state[pending_safety_check]; tests/unit/atomic/events/test_s86.py::test_old_safety_review_cannot_decide_new_event_version
+
+## TC-EVENTS-305 — rejecting releases the one-pending constraint without applying data
+
+- **Scenario:** C may reject R with a recorded reason, permitting a later Organiser proposal.
+- **Pre-conditions:** R pending; E accepted at 120 attendees; C assigned.
+- **Steps:** 1. Reject with reason `Venue cannot support 150`. 2. Read E/R. 3. Submit a new proposal.
+- **Test data:** R 120→150, next request 120→130.
+- **Expected:** R becomes rejected with C/time/reason; accepted E and arrangements remain unchanged; no re-review flags are activated; the next request can be pending and R remains in history. Blank reason and unrelated actor are denied.
+- **Actual:** A reasoned rejection left 120 accepted and permitted a new pending proposal.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_rejection_releases_pending_slot_without_changing_accepted_event
+
+## TC-EVENTS-306 — flags are durable, scoped and individually resolved
+
+- **Scenario:** A flag has an arrangement ID, cause, reviewer and resolution; hiding a warning cannot clear it.
+- **Pre-conditions:** Accepted R has venue booking B1 and equipment item P flags; B2 is unaffected.
+- **Steps:** 1. Read flags twice. 2. Attempt to resolve B1 with an unknown ID or stale review version. 3. Resolve B1 validly. 4. Read again.
+- **Test data:** B1 `capacity 130 < 150`; P `quantity 2→3`; B2 `capacity 220`.
+- **Expected:** B1/P persist until valid explicit resolution; bad ID/stale version/unauthorised reviewer do not change them. B1 can resolve independently of P and B2 never gains a flag. Reason, resolution action, C and server time remain auditable.
+- **Actual:** Venue and equipment impacts persisted independently; staff-backed resolutions survived reload and left unrelated booking B2 unflagged.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]; tests/unit/composite/event_requests/test_s60.py::test_impact_resolution_cannot_impersonate_technical_support
+
+## TC-EVENTS-307 — S-18 routine edits remain available
+
+- **Scenario:** Editing contact details or internal notes does not enter S-60 or reset prior safety/sign-offs.
+- **Pre-conditions:** E is planning, confirmed or preparation; C is assigned; no pending proposal.
+- **Steps:** PATCH contact phone and internal notes through S-18; read E and S-60 flags.
+- **Test data:** `contact_phone=+65 6123 4567`; `internal_notes=Use east entrance`.
+- **Expected:** Existing S-18 permission, version and audit behavior remain; no impact plan/flags/new safety check. A significant S-18 direct edit remains subject to its existing impact-acceptance contract and must not bypass mandatory S-60 re-review when arrangements exist.
+- **Actual:** Routine S-18 edit stayed available; significant edit required review and left safety blocked until re-review.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_routine_s18_edit_stays_available_without_service_token; tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle[chromium]
+
+## TC-EVENTS-308 — an incomplete cross-service operation is never accepted
+
+- **Scenario:** The Events owner records operation state and refuses a false terminal result.
+- **Pre-conditions:** R pending; Equipment application begins under operation ID Q but fails before Events finalisation.
+- **Steps:** 1. Start Q. 2. Simulate Equipment failure. 3. Read R and E; retry Q. 4. Try a second proposal while Q is unfinished.
+- **Test data:** R projector 2→3; Q UUID; Equipment 503.
+- **Expected:** No 2xx accepted response while Q incomplete; R remains pending/in-progress and blocks a second proposal; E is not reported as accepted. Retry is idempotent and preserves the saved baseline; unresolved operation cannot be silently discarded.
+- **Actual:** Applied Equipment operation and applying Events request remained incomplete after a failed completion; same-operation recovery finalised once.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery
+
+## TC-EVENTS-309 — direct safety transition cannot bypass unresolved flags
+
+- **Scenario:** A caller reaching the exposed Events atomic port cannot skip composite readiness after S-60 acceptance.
+- **Pre-conditions:** E is planning, assigned to C, with an unresolved B1 flag in Events storage.
+- **Steps:** Call atomic `safety-submission` and `safety-resubmit` directly, then resolve B1 and repeat through the usual composite path.
+- **Test data:** B1 `capacity 130 < 150`; C's verified assignment.
+- **Expected:** Both direct transitions reject unresolved impacts with 409; E stays planning. Once resolved, normal S-17/S-87 transitions retain their existing rules. Atomic protection uses only Events-owned data.
+- **Actual:** Direct safety submission returned 409 for unresolved Events flags; composite readiness remained blocked until resolution.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_direct_safety_submission_rejects_unresolved_accepted_impact; tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
 
 ## TC-EVENTS-188 — date, time and duration remain consistent
 
