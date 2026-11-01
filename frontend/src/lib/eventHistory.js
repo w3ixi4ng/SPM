@@ -94,6 +94,10 @@ const SENTENCES = {
   venue_request_withdrawn: (d) => `Withdrew the request for ${d.venue_name}`,
   venue_replacement_requested: (d) => `Requested ${d.venue_name} to replace ${d.replaced_venue_name}`,
   venue_alternative_resolved: (d) => `Arranged an alternative for ${d.venue_name}`,
+  // S-90: keeping the original booking instead of its replacement.
+  venue_restore_requested: (d) => `Asked to keep ${d.venue_name} instead of ${d.replacement_venue_name}`,
+  venue_restore_confirmed: (d) => `Restored ${d.venue_name}${d.replacement_venue_name ? ` and withdrew ${d.replacement_venue_name}` : ''}`,
+  venue_restore_declined: (d) => `Declined restoring ${d.venue_name}`,
   venue_held: (d) => `Held ${d.venue_name}`,
   venue_released: (d) => `Released the hold on ${d.venue_name}`,
   venue_confirmed: (d) => `Confirmed ${d.venue_name}`,

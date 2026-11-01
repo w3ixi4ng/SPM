@@ -866,6 +866,10 @@ COMPOSITE_HISTORY_ACTIONS: dict[str, str] = {
     "venue_request_withdrawn": "venue",
     "venue_replacement_requested": "venue",
     "venue_alternative_resolved": "venue",
+    # S-90: keeping the original booking instead of its replacement.
+    "venue_restore_requested": "venue",
+    "venue_restore_confirmed": "venue",
+    "venue_restore_declined": "venue",
     "venue_held": "venue",
     "venue_released": "venue",
     "venue_confirmed": "venue",

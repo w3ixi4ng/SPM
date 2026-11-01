@@ -35,6 +35,7 @@ from schemas import (
     HoldRequest,
     ReplacementRequest,
     ResolutionRequest,
+    RestoreDecision,
     VenueBookingChange,
     VenueBookingRequest,
     VenuePreparationRequest,
@@ -53,6 +54,8 @@ REPLACEMENT_NOT_NEEDED = "This booking doesn't need a replacement venue"
 RESOLUTION_NOT_NEEDED = "This booking doesn't need alternative arrangements"
 EVENT_CLOSED = "This event's venue bookings can no longer be changed"
 REPLACEMENT_WAITING = "A replacement request for this booking is already with Venue Staff"
+# S-90
+RESTORE_NOT_OFFERED = "Restore is only possible while a replacement is waiting for Venue Staff."
 # Venues checked at once by the S-78 replacement search.
 SEARCH_CONCURRENCY = 6
 CANNOT_REPLACE = "This booking can no longer be replaced"
@@ -1169,6 +1172,119 @@ async def _replaces(booking: dict, bookings) -> dict | None:
             raise
         return None
     return {**replacement.summary(original), "status": original["status"]}
+
+
+# --- S-90: restoring the original booking ------------------------------------
+
+
+def _passed_on(response: httpx.Response) -> HTTPException | None:
+    """The bookings service's own refusal -- the venue isn't free, or there is
+    nothing to restore -- in its own words."""
+    if response.status_code in (401, 403, 404, 409):
+        return HTTPException(
+            status_code=response.status_code, detail=(response.json() or {}).get("detail")
+        )
+    return None
+
+
+@app.post("/venue-bookings/{booking_id}/restore")
+async def request_restore(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-90: the event's Coordinator asks to keep the original booking. Only
+    while its replacement (S-78) still waits for Venue Staff; the bookings
+    service then checks the original venue is free for the whole window it
+    occupies, by its current setup and turnaround. Nothing changes until
+    Venue Staff confirm."""
+    user = await _authenticate(request, users, COORDINATOR_ROLE)
+    original = await _booking_by_id(bookings, booking_id)
+    event = await _fetch(
+        "Events", events, f'/events/assigned/{original["event_id"]}', request.cookies, "Booking not found"
+    )
+    if event.get("status") not in replacement.OPEN_EVENT_STATUSES:
+        raise HTTPException(status_code=409, detail=EVENT_CLOSED)
+    event_bookings = await _list(bookings, "/bookings", {"event_id": str(original["event_id"])})
+    waiting = replacement.active_replacement(original, event_bookings)
+    if original.get("status") not in occupancy.LIVE or waiting is None:
+        raise HTTPException(status_code=409, detail=RESTORE_NOT_OFFERED)
+
+    venue = await _fetch("Venues", venues, f'/venues/{original["venue_id"]}', request.cookies, "Venue not found")
+    response = await _call("Bookings", bookings.post(
+        f"/bookings/{booking_id}/restore-request",
+        params=occupancy.gap_params(venue), cookies=request.cookies,
+    ))
+    if response.status_code == status.HTTP_200_OK:
+        requested = response.json()
+        await _record(events, requested, user, "venue_restore_requested", _venue_details(
+            requested, replacement_venue_name=waiting.get("venue_name"),
+        ))
+        return requested
+    refused = _passed_on(response)
+    if refused:
+        raise refused
+    raise _unavailable("Bookings")
+
+
+@app.get("/venue-bookings/restores")
+async def list_restore_requests(
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-90: for Venue Staff, each open restore request with the replacement
+    confirming it would withdraw."""
+    await _authenticate(request, users, VENUE_STAFF_ROLE)
+    requested = await _list(bookings, "/bookings", {"restore_requested": "true"})
+
+    async def with_replacement(original: dict) -> dict:
+        event_bookings = await _list(bookings, "/bookings", {"event_id": str(original["event_id"])})
+        waiting = replacement.active_replacement(original, event_bookings)
+        summary = {**replacement.summary(waiting), "status": waiting["status"]} if waiting else None
+        return {**original, "replacement": summary}
+
+    return await asyncio.gather(*(with_replacement(row) for row in requested))
+
+
+@app.post("/venue-bookings/{booking_id}/restore-decision")
+async def decide_restore(
+    booking_id: UUID,
+    payload: RestoreDecision,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    venues: httpx.AsyncClient = Depends(get_venues_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-90: Venue Staff confirm or decline. Confirming is checked again by
+    the venue's current setup and turnaround; the bookings service then
+    withdraws the replacement and resolves the original's flag."""
+    staff = await _authenticate(request, users, VENUE_STAFF_ROLE)
+    gap = (
+        await _venue_gap(booking_id, venues, bookings, request.cookies)
+        if payload.decision == "approved" else {"setup_minutes": 0, "turnaround_minutes": 0}
+    )
+    response = await _call("Bookings", bookings.post(
+        f"/bookings/{booking_id}/restore-decision",
+        json=payload.model_dump(), params=gap, cookies=request.cookies,
+    ))
+    if response.status_code == status.HTTP_200_OK:
+        outcome = response.json()
+        withdrawn = outcome.get("withdrawn") or []
+        action = "venue_restore_confirmed" if payload.decision == "approved" else "venue_restore_declined"
+        await _record(events, outcome["booking"], staff, action, _venue_details(
+            outcome["booking"],
+            replacement_venue_name=withdrawn[0].get("venue_name") if withdrawn else None,
+        ))
+        return outcome
+    refused = _passed_on(response)
+    if refused:
+        raise refused
+    raise _unavailable("Bookings")
 
 
 # --- S-75: clashes, and one request by id ------------------------------------

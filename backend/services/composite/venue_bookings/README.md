@@ -47,6 +47,9 @@ all read attempts fail, the existing safe `502` response is returned.
 | `GET` | `/venue-bookings/{id}/replacement-venues` | `event_coordinator` | S-78: venues that could replace an affected (or, S-17, rejected) booking. See [S-78](#s-78-replacement-venues). |
 | `POST` | `/venue-bookings/{id}/replacement` | `event_coordinator` | S-78: request a replacement venue for an affected (or, S-17, rejected) booking. |
 | `POST` | `/venue-bookings/{id}/resolution` | `event_coordinator` | S-78: resolve an affected booking's flag with a note. |
+| `POST` | `/venue-bookings/{id}/restore` | `event_coordinator` | S-90: ask to keep the original booking once its venue is free again, while its replacement waits. See [S-90](#s-90-restoring-the-original-booking). |
+| `GET` | `/venue-bookings/restores` | `venue_staff` | S-90: open restore requests, each with the replacement confirming would withdraw. |
+| `POST` | `/venue-bookings/{id}/restore-decision` | `venue_staff` | S-90: confirm or decline a restore. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
 ## Requests
@@ -597,6 +600,69 @@ request, the booking it replaces:
 Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
 recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
 and `pytest tests/e2e/test_replace_affected_booking.py`.
+## S-90 restoring the original booking
+
+While a replacement (S-78) waits for Venue Staff, the original booking stays
+`held` or `confirmed` and keeps its slot. Once its venue is free again --
+Venue Staff deleted the unavailable period -- the Coordinator may keep it
+instead. No body on any of the three routes except the decision.
+
+### `POST /venue-bookings/{id}/restore`
+
+The event's assigned Coordinator. Offered only while the original is held or
+confirmed and a replacement for it is `pending` or `held`. The bookings
+service then checks the original venue is free for the whole window it
+occupies -- setup, event and turnaround, by the venue's current times -- with
+no other held or confirmed booking and no unavailable period. Nothing else
+changes until Venue Staff confirm. `200` with the original, now carrying
+`restore_requested_at` and `restore_requested_by`; the history records
+`venue_restore_requested`.
+
+| Status | `detail` | When |
+| --- | --- | --- |
+| `403` | `Permission denied` | Not an `event_coordinator`. |
+| `404` | `Booking not found` | No such booking, or the event isn't the caller's. |
+| `409` | `Restore is only possible while a replacement is waiting for Venue Staff.` | No pending or held replacement, or the original isn't held or confirmed. |
+| `409` | `This event's venue bookings can no longer be changed` | The event is cancelled, rejected or over. |
+| `409` | `Studio B is unavailable from 12 Nov 2026 12:30 to 12 Nov 2026 14:00.` | An unavailable period overlaps the occupied window. |
+| `409` | `Studio B is already confirmed on 12 Nov 2026 from 13:00 to 14:00. With 30 min setup and 45 min turnaround it is in use until 14:45.` | Another booking is within the gap. |
+| `409` | `A restore has already been requested for this booking` | Asked twice. |
+| `502` | `Bookings service unavailable` | The bookings service failed. |
+
+### `GET /venue-bookings/restores`
+
+Venue Staff. Every open restore request, oldest first, each with the
+replacement confirming would withdraw:
+
+```json
+[{"id": "aaaaaaaa-…", "venue_name": "Studio B", "event_name": "Alumni networking evening",
+  "booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00",
+  "status": "confirmed", "restore_requested_at": "2026-11-01T02:00:00Z",
+  "replacement": {"id": "11111111-…", "venue_name": "Hall C", "booking_date": "2026-11-12",
+                  "start_time": "10:00:00", "end_time": "12:00:00", "status": "pending"}}]
+```
+
+### `POST /venue-bookings/{id}/restore-decision`
+
+Venue Staff. Body `{"decision": "approved"}` or `{"decision": "declined"}`.
+
+- **Approved:** checked again by the venue's current setup and turnaround
+  (the refusal names the booking in the way, as S-76's do). Every pending or
+  held replacement of the original becomes `withdrawn` (with `withdrawn_at`;
+  it reserves nothing). The original keeps its status, its request clears,
+  and it is resolved for the Coordinator who asked, with the note "Restored
+  to the original venue" -- so `requires_alternative_arrangements` stays
+  false. History: `venue_restore_confirmed`.
+- **Declined:** only the request clears. History: `venue_restore_declined`.
+
+`200` `{"booking": <the original>, "withdrawn": [<each replacement withdrawn>]}`.
+`409` with the bookings service's `detail` when the venue isn't free, there is
+no request to decide, or the original was replaced first. `422` for any other
+decision.
+
+If Venue Staff confirm the replacement first, the original becomes `replaced`
+as before and its restore request clears with it.
+
 ## S-25 venue preparation
 
 `GET /venue-bookings/preparation` is Venue Staff only. It returns confirmed

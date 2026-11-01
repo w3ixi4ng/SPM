@@ -2986,8 +2986,8 @@ Developer decisions (2026-10-30): a freed place is held for the first Attendee i
 
 ## S-57 — View Event Registration List
 
-Drafted 2026-10-30 on `S-57/view-event-registration-list`. Awaiting developer
-confirmation. Developer's answers, 2026-10-30: the empty message must hold
+Drafted 2026-10-30 on `S-57/view-event-registration-list`. Confirmed by the
+developer 2026-11-01. Developer's answers, 2026-10-30: the empty message must hold
 whether nobody ever registered or everyone withdrew, and the Organiser's and
 assigned Coordinator's panels get a **Refresh list** button.
 
@@ -3107,3 +3107,53 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Actual:** Accepted view showed fresh-safety requirement; later rejected request displayed its reason and kept accepted attendance 150; unrelated Coordinator saw no review.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+
+## S-90 — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation. The service decides; these check what the
+Coordinator's event page and the Venue Staff dashboard offer and say.
+
+O: `confirmed` at "Studio B". R: `pending` at "Hall C", replacing O.
+
+Revised for S-90: TC-FRONTEND-275's list of history actions gains
+`venue_restore_requested`, `venue_restore_confirmed` and
+`venue_restore_declined`, matching the events service.
+
+## TC-FRONTEND-286 — the event page offers a restore once the original venue is free
+
+- **Scenario:** Restore is offered only while the replacement waits and the original is no longer flagged (S-90 AC1, AC2).
+- **Steps:** `replacementState(booking, bookings)`.
+- **Test data / Expected:**
+  | `booking` | Label | Actions |
+  | --- | --- | --- |
+  | O, not flagged, R waiting | "Replacement requested: Hall C, waiting for Venue Staff. Studio B is free again." | `["restore"]` |
+  | O, flagged, R waiting | "Replacement requested: Hall C, waiting for Venue Staff" (unchanged) | `["resolve"]` |
+  | O with `restore_requested_at` | "Restore requested: waiting for Venue Staff to confirm Studio B" | `[]` |
+  | O resolved "Restored to the original venue", R `withdrawn` | "Resolved: Restored to the original venue" | `[]` |
+  | R `withdrawn` | "Withdrawn: Studio B was restored" | `[]` |
+  | O `replaced` by R | "Replaced by Hall C" (unchanged) | `[]` |
+- **Actual:** Every row's label and actions as expected; a rejected replacement offers no restore.
+- **Status:** Pass
+- **Evidence:** test_restore_original_venue.mjs::the event page offers a restore once the original venue is free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Node 22.16.0: 221 passed across frontend unit
+
+## TC-FRONTEND-287 — restore requests and decisions go to the composite
+
+- **Scenario:** The three calls and their status label (S-90 AC3).
+- **Steps:** `requestRestore(id)`, `listRestoreRequests()`, `decideRestore(id, decision)`; `bookingStatusMeta("withdrawn")`.
+- **Test data:** `id` `O`; decisions `approved`, `declined`.
+- **Expected:** `POST /api/venue-bookings/O/restore`; `GET /api/venue-bookings/restores`; `POST /api/venue-bookings/O/restore-decision` with `{"decision": "approved"}` / `{"decision": "declined"}`. `withdrawn` reads "Withdrawn" with the `inkFaint` tone.
+- **Actual:** The four requests as expected; `withdrawn` reads "Withdrawn" in `#4C5A70` (inkFaint). A `409` shows the service's own `detail`.
+- **Status:** Pass
+- **Evidence:** test_restore_original_venue.mjs::restore requests and decisions go to the composite; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Node 22.16.0: 221 passed across frontend unit
+
+## TC-FRONTEND-288 — Venue Staff see what confirming a restore will do
+
+- **Scenario:** Each request says which venue is kept and which request is withdrawn (S-90 AC3, AC4).
+- **Steps:** `restoreRequestSummary(row)`.
+- **Test data:** `{...O, event_name: "Alumni networking evening", booking_date: "2026-11-12", start_time: "10:00:00", end_time: "12:00:00", replacement: {venue_name: "Hall C", status: "pending"}}`.
+- **Expected:** `{title: "Alumni networking evening", when: "12 Nov 2026, 10:00 am to 12:00 pm", keeps: "Keep Studio B", withdraws: "Withdraw the request for Hall C"}`.
+- **Actual:** The summary as expected; notices "Studio B restored for Alumni networking evening." and "Restore of Studio B for Alumni networking evening declined."
+- **Status:** Pass
+- **Evidence:** test_restore_original_venue.mjs::venue staff see what confirming a restore will do; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Node 22.16.0: 221 passed across frontend unit

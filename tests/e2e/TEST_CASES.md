@@ -1706,3 +1706,26 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Actual:** Organiser proposal, scoped Coordinator review, acceptance, owner-backed re-review, fresh safety submission, acceptance retry and later rejection display passed in Chromium.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]`; 2026-11-01 TEST Full run: one transient Events 502 on a review read after a saved resolve; isolated rerun passed (`/private/tmp/s60-e2e-s60-rerun.log`).
+
+
+## S-90 — Restore Original Venue Booking (specification)
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation. Only what a browser proves: the Coordinator's button
+and the Venue Staff dashboard section are wired to the composite through
+Kong, for the two roles access.js gives them to. The rules themselves are
+TC-BOOKINGS-124..130 and TC-VENUEBOOKINGS-131..136.
+
+## TC-E2E-270 — a Coordinator restores the original venue and Venue Staff confirm it
+
+- **Scenario:** In a real browser: once the original venue is free, the Coordinator asks to restore it, Venue Staff confirm from their dashboard, and the event page shows the original kept and the replacement withdrawn (S-90 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-90 SQL applied. Through the admin client: Coordinator K; Venue Staff S; venues V and W; confirmed event E assigned to K; O `confirmed` at V; R `pending` at W replacing O; no unavailable period at V.
+- **Steps:**
+  1. As K, open `/coordinator/events/E` and click **Restore original venue**.
+  2. Sign out; as S, open the Venue Staff dashboard and click **Confirm restore** on E's request.
+  3. Sign out; as K, open `/coordinator/events/E`.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → before the click, "Replacement requested: {W}, waiting for Venue Staff. {V} is free again."; after it, "Restore requested: waiting for Venue Staff to confirm {V}" and no **Restore original venue** button. 2 → the "Restore requests" section shows E with "Keep {V}" and "Withdraw the request for {W}"; after confirming, "{V} restored for {E}." and the request is gone. 3 → V's booking reads "Resolved: Restored to the original venue"; W's request reads "Withdrawn".
+- **Actual:** Chromium: K's row read "…waiting for Venue Staff. {V} is free again.", then "Restore requested: waiting for Venue Staff to confirm {V}" with no button; S's Restore requests showed Keep {V} and Withdraw the request for {W}, Confirm restore showed "{V} restored for {E}." and removed the row; K's page then read "Resolved: Restored to the original venue" and "Withdrawn: {V} was restored". E was `planning` (the shared e2e helper), an open status like `confirmed`.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_restore_original_venue.py::test_a_coordinator_restores_the_original_venue_and_venue_staff_confirm_it[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-90 block of `bookings.sql` applied to dev and test; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; with `test_replace_affected_booking.py`: 2 passed

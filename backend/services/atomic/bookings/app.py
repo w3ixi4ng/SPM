@@ -28,6 +28,8 @@ from schemas import (
     BookingRead,
     HoldCreate,
     HoldRelease,
+    RestoreDecision,
+    RestoreOutcome,
     VenuePreparationUpdate,
 )
 from security import require_coordinator, require_user, require_venue_staff
@@ -43,6 +45,11 @@ BLOCKS = "blocks"
 # new request must not overlap either of these.
 LIVE_STATUSES = ["held", "confirmed"]
 CANNOT_RESOLVE = "Only a held or confirmed booking can be resolved"
+# S-90
+CANNOT_RESTORE = "Only a held or confirmed booking can be restored"
+RESTORE_ALREADY_REQUESTED = "A restore has already been requested for this booking"
+NO_RESTORE_REQUEST = "There is no restore request to decide for this booking"
+RESTORED_NOTE = "Restored to the original venue"
 
 
 @app.exception_handler(RequestValidationError)
@@ -609,6 +616,108 @@ def resolve_alternative_arrangements(
     raise HTTPException(status_code=409, detail=CANNOT_RESOLVE)
 
 
+# --- S-90: restoring an original booking -------------------------------------
+
+
+def _restorable(db: Client, booking_id: UUID) -> dict:
+    _expire_holds(db)
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] not in LIVE_STATUSES:
+        raise HTTPException(status_code=409, detail=CANNOT_RESTORE)
+    return booking
+
+
+def _refuse_unless_free(db: Client, booking: dict, gap: Gap, *, staff: bool) -> None:
+    """The original venue must be free for the window the booking occupies:
+    setup, event and turnaround (S-75), with no unavailable period over it
+    (S-77). The booking never clashes with itself."""
+    conflict = _live_overlap(db, {**booking, "id": str(booking["id"])}, gap)
+    if conflict:
+        if staff:
+            _raise_staff_overlap("restore", conflict, gap)
+        _raise_overlap(conflict, gap)
+    block = _block_over(db, booking, gap)
+    if block:
+        _raise_blocked(block)
+
+
+@app.post("/bookings/{booking_id}/restore-request", response_model=BookingRead)
+def request_restore(
+    booking_id: UUID,
+    user=Depends(require_coordinator),
+    gap: Gap = Depends(venue_gap),
+    db: Client = Depends(get_db),
+):
+    """S-90: a Coordinator asks to keep the original booking. Nothing changes
+    until Venue Staff confirm. Whether the event is theirs and a replacement
+    is waiting is the venue_bookings composite's check."""
+    booking = _restorable(db, booking_id)
+    if booking.get("restore_requested_at"):
+        raise HTTPException(status_code=409, detail=RESTORE_ALREADY_REQUESTED)
+    _refuse_unless_free(db, booking, gap, staff=False)
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).update({
+            "restore_requested_at": datetime.now(timezone.utc).isoformat(),
+            "restore_requested_by": str(user.id),
+        })
+        .eq("id", str(booking_id)).in_("status", LIVE_STATUSES)
+        .is_("restore_requested_at", "null")
+    )
+    if result.data:
+        return result.data[0]
+    raise HTTPException(status_code=409, detail=RESTORE_ALREADY_REQUESTED)
+
+
+@app.post("/bookings/{booking_id}/restore-decision", response_model=RestoreOutcome)
+def decide_restore(
+    booking_id: UUID,
+    payload: RestoreDecision,
+    staff=Depends(require_venue_staff),
+    gap: Gap = Depends(venue_gap),
+    db: Client = Depends(get_db),
+):
+    """S-90: Venue Staff confirm or decline. Confirming checks the venue
+    again, withdraws every pending or held replacement, and resolves the
+    original's flag for the Coordinator who asked. Declining only clears the
+    request.
+
+    The replacements go first: once withdrawn none can be confirmed, so the
+    original can't be replaced while it is being resolved."""
+    booking = _restorable(db, booking_id)
+    if not booking.get("restore_requested_at"):
+        raise HTTPException(status_code=409, detail=NO_RESTORE_REQUEST)
+    cleared = {"restore_requested_at": None, "restore_requested_by": None}
+
+    def update_original(values: dict) -> dict:
+        result = _execute(
+            db.schema(SCHEMA).table(TABLE).update({**cleared, **values})
+            .eq("id", str(booking_id)).in_("status", LIVE_STATUSES)
+            .not_.is_("restore_requested_at", "null")
+        )
+        if not result.data:
+            raise HTTPException(status_code=409, detail=NO_RESTORE_REQUEST)
+        return result.data[0]
+
+    if payload.decision == "declined":
+        return {"booking": update_original({}), "withdrawn": []}
+
+    _refuse_unless_free(db, booking, gap, staff=True)
+    now = datetime.now(timezone.utc).isoformat()
+    withdrawn = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .update({"status": "withdrawn", "withdrawn_at": now})
+        .eq("replaces_booking_id", str(booking_id)).in_("status", ["pending", "held"])
+    ).data or []
+    restored = update_original({
+        "alternative_resolved_at": now,
+        "alternative_resolved_by": booking["restore_requested_by"],
+        "alternative_resolution_note": RESTORED_NOTE,
+    })
+    return {"booking": restored, "withdrawn": withdrawn}
+
+
 def _date_range(venue_id, from_date, to_date):
     """A venue filter always comes with a range, so nothing lists a venue's
     whole history at once."""
@@ -625,11 +734,22 @@ def list_bookings(
     venue_id: UUID | None = None,
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    restore_requested: bool = False,
     db: Client = Depends(get_db),
 ):
     # Always filtered: Venue Staff ask by status, a Coordinator by event, and
     # S-30's calendar by venue and date range. Nothing hands out every
     # booking at once.
+    if restore_requested:
+        # S-90: Venue Staff's queue of restore requests, oldest first.
+        _expire_holds(db)
+        operation = (
+            db.schema(SCHEMA).table(TABLE).select("*")
+            .not_.is_("restore_requested_at", "null")
+            .order("restore_requested_at")
+        )
+        return _execute(operation).data
+
     if booking_status == "live":
         # S-76: every held and confirmed booking from a date on, for Venue
         # Staff's clashes to review. Always bounded by a start date.

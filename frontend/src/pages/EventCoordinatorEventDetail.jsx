@@ -45,7 +45,9 @@ import {
   replacementErrorMessages,
   replacementPath,
   replacementState,
+  requestRestore,
   resolveAlternativeArrangements,
+  restoreErrorMessage,
   RESOLUTION_NOTE_MAX,
   shortTime,
   selectPrimaryVenueBooking,
@@ -596,6 +598,8 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
   const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
+  // S-90: the original being restored, and what the last request did.
+  const [restoreState, setRestoreState] = useState({ bookingId: null, error: null, notice: null })
 
   const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
     (bookings) => setState({ status: 'ready', bookings }),
@@ -621,6 +625,20 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
     setCancelNotice(null)
     setResolving(null)
     await load()
+  }
+
+  async function restore(booking) {
+    setRestoreState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await requestRestore(booking.id)
+      await load()
+      setRestoreState({
+        bookingId: null, error: null,
+        notice: `Restore requested. Venue Staff will confirm ${booking.venue_name}.`,
+      })
+    } catch (error) {
+      setRestoreState({ bookingId: null, error: restoreErrorMessage(error), notice: null })
+    }
   }
 
   async function makePrimary(booking) {
@@ -764,6 +782,17 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
                             Find a replacement venue
                           </Link>
                         )}
+                        {replacing.actions.includes('restore') && (
+                          <button
+                            type="button"
+                            onClick={() => restore(booking)}
+                            disabled={restoreState.bookingId === booking.id}
+                            className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                            style={{ borderColor: C.ink, color: C.ink }}
+                          >
+                            {restoreState.bookingId === booking.id ? 'Requesting…' : 'Restore original venue'}
+                          </button>
+                        )}
                         {replacing.actions.includes('resolve') && (
                           <button
                             type="button"
@@ -785,6 +814,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
         </>
       )}
       {primaryState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{primaryState.error}</p>}
+      {restoreState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{restoreState.error}</p>}
       <div className="flex flex-wrap items-center gap-4 mt-6">
         {canRequest && (
           <Link
@@ -797,7 +827,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
           </Link>
         )}
         <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-          {primaryState.notice ?? cancelNotice ?? resolvedNotice ?? notice}
+          {restoreState.notice ?? primaryState.notice ?? cancelNotice ?? resolvedNotice ?? notice}
         </p>
       </div>
       {resolving && <ResolvePanel booking={resolving} onClose={closeResolve} onResolved={handleResolved} />}

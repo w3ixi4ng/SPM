@@ -779,3 +779,92 @@ grant execute on function bookings.set_primary_booking(uuid, uuid)
 notify pgrst, 'reload schema';
 commit;
 -- END S-91 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-90 RESTORE ORIGINAL VENUE
+-- Existing installations: run this entire block in BOTH dev and test, after
+-- the S-78 and S-91 blocks. Fresh installations need it too. Safe to run
+-- twice and data-preserving.
+--
+-- S-90 lets a Coordinator keep an original booking (S-78) once its venue is
+-- free again, instead of the replacement still waiting for Venue Staff.
+--
+-- 1. The original records the Coordinator's request (restore_requested_*)
+--    until Venue Staff decide it.
+-- 2. Confirming withdraws every pending or held replacement of it: the new
+--    `withdrawn` status, with withdrawn_at. Like `replaced` it is not live,
+--    so bookings_no_live_overlap no longer counts it and its slot is free.
+-- 3. A replacement confirmed first still marks the original `replaced`; that
+--    now also clears any restore request, so restore is over.
+begin;
+
+alter table bookings.bookings
+  add column if not exists restore_requested_at timestamptz,
+  add column if not exists restore_requested_by uuid,
+  add column if not exists withdrawn_at timestamptz;
+
+-- Repeated in backend/services/atomic/bookings/schemas.py. Change both.
+alter table bookings.bookings drop constraint if exists bookings_status_allowed;
+alter table bookings.bookings add constraint bookings_status_allowed
+  check (status in ('pending', 'held', 'confirmed', 'rejected', 'replaced', 'withdrawn'));
+
+-- As S-78's, plus `withdrawn`: the replacement may have been pending or held
+-- (never decided) when it was withdrawn.
+alter table bookings.bookings drop constraint if exists bookings_decision_valid;
+alter table bookings.bookings add constraint bookings_decision_valid check (
+  (decision_reason is null or decision_reason ~ '[^[:space:]]')
+  and (decision_alternative is null or decision_alternative ~ '[^[:space:]]')
+  and (
+    status in ('replaced', 'withdrawn')
+    or (status in ('pending', 'held') and decided_by is null and decided_at is null
+      and decision_reason is null and decision_alternative is null)
+    or (status in ('confirmed', 'rejected') and decided_by is not null
+      and decided_at is not null
+      and (status = 'confirmed' or decision_reason is not null
+           or decision_alternative is not null))
+  )
+);
+
+-- Who asked and when go together. Which statuses may ask is the service's
+-- check: a status change (an expiring hold) must never fail on this.
+alter table bookings.bookings drop constraint if exists bookings_restore_request_valid;
+alter table bookings.bookings add constraint bookings_restore_request_valid check (
+  (restore_requested_at is null) = (restore_requested_by is null)
+);
+
+-- A withdrawn booking always has its time. Only a replacement is ever
+-- withdrawn, but that is the service's rule, not this one: deleting the
+-- original (S-80, S-61) sets replaces_booking_id null, and must not fail.
+alter table bookings.bookings drop constraint if exists bookings_withdrawn_valid;
+alter table bookings.bookings add constraint bookings_withdrawn_valid check (
+  (status = 'withdrawn') = (withdrawn_at is not null)
+);
+
+-- Venue Staff's queue: the open requests, oldest first.
+create index if not exists bookings_bookings_restore_requested_idx
+  on bookings.bookings (restore_requested_at)
+  where restore_requested_at is not null;
+
+create or replace function bookings.replace_original_on_confirm()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- An original already replaced by another booking is left as it is. S-17:
+  -- a rejected original is replaced too, so the rejection stops blocking the
+  -- event's submission for the Operational Safety Check. S-90: a restore
+  -- request the original carried is over.
+  update bookings.bookings
+     set status = 'replaced',
+         replaced_by_booking_id = new.id,
+         replaced_at = now(),
+         restore_requested_at = null,
+         restore_requested_by = null
+   where id = new.replaces_booking_id
+     and status in ('pending', 'held', 'confirmed', 'rejected');
+  return new;
+end;
+$$;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-90 RESTORE ORIGINAL VENUE

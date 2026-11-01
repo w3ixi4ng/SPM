@@ -53,6 +53,8 @@ test('each action reads as a plain sentence', () => {
     'safety_submitted', 'safety_resubmitted', 'safety_approved', 'safety_changes_requested', 'safety_rejected',
     'venue_requested', 'venue_request_changed', 'venue_request_withdrawn', 'venue_replacement_requested',
     'venue_alternative_resolved', 'venue_held', 'venue_released', 'venue_confirmed', 'venue_rejected',
+    // S-90
+    'venue_restore_requested', 'venue_restore_confirmed', 'venue_restore_declined',
     'equipment_requirement_set', 'equipment_requirement_removed',
   ]
   assert.deepEqual([...recorded].sort(), [...HISTORY_ACTIONS].sort())
