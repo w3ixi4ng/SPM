@@ -12,6 +12,7 @@ from clients import (
     get_bookings_client,
     get_equipment_client,
     get_events_client,
+    get_notifications_client,
     get_users_client,
     get_venues_client,
 )
@@ -405,9 +406,10 @@ async def decide_safety_check(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
     officer = await _safety_officer(request, users)
-    return await _json(
+    event = await _json(
         "Events",
         events.post(
             f"/internal/events/safety-review/{event_id}/decision",
@@ -418,6 +420,41 @@ async def decide_safety_check(
         ),
         identified={404, 409, 422},
     )
+    decision = event["safety_decision"]
+    reason = event.get("safety_decision_reason")
+    if decision == "approved":
+        message = (
+            f"Operational Safety Check approved for {event['name']}. "
+            "The event is now confirmed. No action is required."
+        )
+    elif decision == "rejected":
+        message = (
+            f"Operational Safety Check rejected for {event['name']}: {reason}. "
+            "Review the comments and contact your Event Coordinator about the next steps."
+        )
+    else:
+        message = (
+            f"Operational Safety Check changes requested for {event['name']}: {reason}. "
+            "Review the comments and work with your Event Coordinator to address them."
+        )
+    organiser_id = event["organiser_id"]
+    sent = await _call(
+        "Notifications",
+        notifications.post("/internal/notifications", json={"notifications": [{
+            "recipient_id": organiser_id,
+            "event_id": str(event_id),
+            "event_name": event["name"],
+            "kind": "safety_check_outcome",
+            "message": message,
+            "deduplication_key": (
+                f"safety_check_outcome:{event_id}:{decision}:"
+                f"{event.get('safety_decided_at') or 'saved'}:{organiser_id}"
+            ),
+        }]})
+    )
+    if sent.status_code != 201:
+        raise _unavailable("Notifications")
+    return event
 
 
 # --- S-82: the safety review's view of an event's change history -------------

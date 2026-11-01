@@ -377,3 +377,41 @@ def test_the_registration_update_kinds_are_accepted(client, db, kind):
         "/internal/notifications", json={"notifications": [{**row, "kind": "venue_closed"}]}
     )
     assert refused.status_code == 422
+
+
+# --- TC-NOTIFICATIONS-016 -------------------------------------------------
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "event_request_decision",
+        "venue_booking_decision",
+        "safety_check_outcome",
+        "event_schedule_changed",
+    ],
+)
+def test_s63_organiser_notification_kinds_are_accepted_and_idempotent(
+    client, db, kind
+):
+    row = {
+        "recipient_id": ORGANISER,
+        "event_id": EVENT_ID,
+        "event_name": "Autumn Forum",
+        "kind": kind,
+        "message": "Autumn Forum changed. Review the event and take the stated action.",
+        "deduplication_key": f"{kind}:{EVENT_ID}:1:{ORGANISER}",
+    }
+    stored = {**row, "id": 1, "created_at": "2026-10-31T10:00:00Z"}
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.side_effect = [
+        SimpleNamespace(data=[stored]),
+        SimpleNamespace(data=[stored]),
+    ]
+
+    first = client.post("/internal/notifications", json={"notifications": [row]})
+    second = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert first.status_code == second.status_code == 201
+    assert first.json() == second.json()
+    assert upsert.execute.call_count == 2
+    for call in db.schema.return_value.table.return_value.upsert.call_args_list[-2:]:
+        assert call.kwargs == {"on_conflict": "deduplication_key"}

@@ -323,7 +323,7 @@ export function previewAssignedEventInformation(id, form, event) {
 }
 
 export function updateAssignedEventInformation(id, form, event, impactAccepted = false) {
-  return requestJSON(`/events/assigned/${encodeURIComponent(id)}`, {
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/information`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(eventInformationPayload(form, event, { impactAccepted })),
@@ -358,14 +358,12 @@ export function submitEventDraft(id, form) {
   return write(`/event-requests/${encodeURIComponent(id)}/submit`, 'POST', form)
 }
 
-// Coordinator-facing: record a decision on an assigned, submitted request.
-// Straight to the events service -- unlike submit/update, a decision never
-// touches assignment, so there is nothing for the composite to orchestrate.
+// S-63: the composite records the decision, then notifies its Organiser.
 export function decideEventRequest(id, { decision, reason, comment }) {
   const body = { decision }
   if (reason) body.reason = reason
   if (comment) body.comment = comment
-  return requestJSON(`/events/${encodeURIComponent(id)}/decision`, {
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/decision`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

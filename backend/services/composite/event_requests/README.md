@@ -55,6 +55,8 @@ Event Coordinators.
 | `POST` | `/event-requests/{event_id}/reassignment` | Responsible Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
+| `POST` | `/event-requests/{event_id}/decision` | Assigned Event Coordinator | Approve, reject or return the request and notify its Organiser of the outcome and any required action. |
+| `PATCH` | `/event-requests/{event_id}/information` | Assigned Event Coordinator | Save S-18 event information; a schedule change also notifies the Organiser that the event was rescheduled or postponed. |
 | `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. S-69: approving notifies every Attendee registered or waiting. |
 | `GET` | `/event-requests/{event_id}/history` | Assigned Event Coordinator, or any Event Coordinator Lead | S-82: who changed or decided what on the event, and when, with names. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
@@ -337,6 +339,30 @@ the least-loaded conflict-free trusted Technical Support account, breaking
 ties by ascending UUID. If none is available, it persists the requirement
 with no assignee and returns `assignment_state: "unassigned"`.
 
+## Organiser decision and schedule notifications (S-63)
+
+`POST /event-requests/{event_id}/decision` accepts the S-14 decision body:
+
+```json
+{"decision": "returned", "reason": "Add the evacuation plan", "comment": "Upload the signed copy"}
+```
+
+After Events atomically accepts the decision, the owning Organiser receives
+one idempotent `event_request_decision` notification. Rejection and return
+messages include the saved reason; a returned request also identifies that
+the Organiser must update and resubmit it. Validation, authorization, missing,
+and stale-decision responses from Events pass through unchanged. A failed
+notification write returns `502`; retrying is safe because its key includes
+the saved decision timestamp and recipient.
+
+`PATCH /event-requests/{event_id}/information` accepts the same S-18 body as
+Events, including required `expected_version`. Routine edits are saved without
+a notification. If the start or end date/time changes, the Organiser receives
+one `event_schedule_changed` notification showing the previous and new window.
+A later start is labelled postponed; every other schedule change is labelled
+rescheduled. Its key uses the saved event edit version, so a stale retry cannot
+create a duplicate.
+
 ## Cancellation decision (S-61)
 
 **`POST /event-requests/{event_id}/cancellation-decision`**, through Kong at
@@ -365,7 +391,9 @@ is passed on unchanged.
   events reserve it. S-69: then every Attendee holding a place or on the
   waiting list (an offered place included) gets one in-app `event_cancelled`
   notification, read from the registrations service and sent to the
-  notifications service in batches of 20:
+  notifications service in batches of 20. S-63 also sends the owning
+  Organiser one notification with the same event identity and cancellation
+  outcome:
 
   ```text
   Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.
@@ -375,10 +403,10 @@ is passed on unchanged.
   12:30 am`. No reason is included. Each is deduplicated on
   `event_cancelled:{event id}:{attendee id}`, so approving again never
   notifies anyone twice. The response is `200` with the event plus
-  `released_bookings` and `notified_attendees`:
+  `released_bookings`, `notified_attendees`, and `organiser_notified`:
 
 ```json
-{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2, "notified_attendees": 4}
+{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2, "notified_attendees": 4, "organiser_notified": true}
 ```
 
 | Status | Detail | Meaning |

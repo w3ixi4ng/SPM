@@ -1676,3 +1676,17 @@ withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
 - **Actual:** Chromium: P's row read "Confirmed"; withdrawing showed "You've withdrawn from this event."; the dashboard then had one row for P, linking to `/public/events/P`, reading "Withdrawn on {today SGT}" with no "Confirmed"; Register showed "You're registered for this event."; the row read "Confirmed" again with no "Withdrawn".
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_view_registration_status.py::test_the_dashboard_shows_a_withdrawal_then_the_place_again[chromium]; full `tests/e2e`: 47 passed, the rest (timeouts across a 23-minute run on the shared test project) all passed on rerun; this journey also passed alone; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-E2E-269 — an Organiser sees an actionable returned-event notice
+
+- **Scenario:** The complete browser journey makes a Coordinator's returned decision visible to the correct Organiser.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; an Organiser owns a submitted request assigned to a Coordinator.
+- **Steps:** Sign in as the Coordinator, return the request with a reason and amendment comment, sign out, sign in as the Organiser, and open the dashboard.
+- **Expected:** The notification panel names the event, says it was returned, shows the reason/comment and tells the Organiser to amend and resubmit. Another Organiser cannot see it.
+- **Actual:** Chromium showed the returned event as Action Required; the owning Organiser's persistent inbox named the event, return, reason, amendment and resubmission action, while another Organiser's inbox did not show it.
+- **Status:** Pass
+- **Evidence:** `test_notify_organiser_event_changes.py::test_an_organiser_sees_an_actionable_returned_event_notice[chromium]`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; 1 passed in 33.24s.

@@ -922,6 +922,16 @@ class HistoryScopeRead(BaseModel):
     # to planning after a review still counts as having reached them.
     safety_reviewed: bool
 
+
+class NotificationScopeRead(BaseModel):
+    """S-63 identity and title needed by cross-service notification flows."""
+
+    id: UUID
+    organiser_id: UUID
+    name: str | None
+    status: str
+    assigned_coordinator_id: UUID | None
+
 class EventChangeValues(BaseModel):
     """Complete proposed S-59 values; never an accepted Events update."""
 

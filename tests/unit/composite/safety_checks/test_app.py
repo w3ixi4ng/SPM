@@ -208,7 +208,7 @@ def test_detail_enriches_event_organiser_venues_technical_support_and_equipment(
 @pytest.mark.parametrize(
     "decision,reason,expected_status",
     [
-        ("approved", None, "preparation"),
+        ("approved", None, "confirmed"),
         ("rejected", "Unsafe crowd route", "safety_rejected"),
         ("changes_requested", "Move equipment away from exit", "planning"),
     ],
@@ -239,6 +239,21 @@ def test_decision_forwards_verified_officer_and_returns_transition(
         f"/internal/events/safety-review/{EVENT_ID}/decision",
         json={"decision": decision, "reason": reason, "safety_officer_id": OFFICER_ID},
     )
+    sent = services["notifications"].post.await_args.kwargs["json"]["notifications"][0]
+    assert sent["recipient_id"] == ORGANISER_ID
+    assert sent["event_id"] == EVENT_ID
+    assert sent["event_name"] == "Safety Forum"
+    assert sent["kind"] == "safety_check_outcome"
+    assert decision.replace("_", " ") in sent["message"].lower()
+    assert sent["deduplication_key"] == (
+        f"safety_check_outcome:{EVENT_ID}:{decision}:"
+        f"2026-10-10T09:00:00Z:{ORGANISER_ID}"
+    )
+    if decision == "approved":
+        assert "event is now confirmed" in sent["message"].lower()
+    else:
+        assert reason in sent["message"]
+        assert "review" in sent["message"].lower()
 
 
 @pytest.mark.parametrize("status", [404, 409, 422])
@@ -253,6 +268,30 @@ def test_identified_event_errors_are_preserved(client, services, status):
 
     assert result.status_code == status
     assert result.json()["detail"] == "identified"
+    services["notifications"].post.assert_not_awaited()
+
+
+def test_a_notification_failure_is_controlled_after_the_safety_outcome_is_saved(
+    client, services
+):
+    authorize(services)
+    services["events"].post.return_value = response(
+        200,
+        event(
+            status="confirmed",
+            safety_decision="approved",
+            safety_officer_id=OFFICER_ID,
+            safety_decided_at="2026-10-10T09:00:00Z",
+        ),
+    )
+    services["notifications"].post.return_value.status_code = 500
+
+    result = client.post(
+        f"/safety-checks/{EVENT_ID}/decision", json={"decision": "approved"}
+    )
+
+    assert result.status_code == 502
+    assert result.json() == {"detail": "Notifications service unavailable"}
 
 
 @pytest.mark.parametrize("failed", ["events", "profiles", "bookings", "venues", "equipment"])

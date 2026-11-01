@@ -25,6 +25,7 @@ HALL_C, ROOM_D, HALL_E, HALL_F, HALL_G, HALL_H, HALL_J, HALL_K = (
 
 EVENT = {
     'id': E1, 'status': 'planning', 'assigned_coordinator_id': C2,
+    'organiser_id': '99999999-9999-4999-8999-999999999999',
     'name': 'Alumni talk', 'purpose': 'Annual alumni lecture',
     'start_date': '2026-11-13', 'start_time': '09:00:00',
     'end_date': '2026-11-13', 'end_time': '18:00:00',
@@ -116,6 +117,11 @@ class World:
     async def events_get(self, path, **kwargs):
         if path.startswith('/events/booking-status/'):
             return fake_response(200, {'id': path.rsplit('/', 1)[-1], 'status': 'planning'})
+        if path == f'/internal/events/{E1}/notification-scope':
+            return fake_response(200, {
+                key: self.event[key]
+                for key in ('id', 'organiser_id', 'name', 'status', 'assigned_coordinator_id')
+            })
         assert path == f'/events/assigned/{E1}', path
         if self.event_status != 200:
             return fake_response(self.event_status, {'detail': 'Event not found'})

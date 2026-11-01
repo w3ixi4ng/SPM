@@ -53,6 +53,7 @@ because service ports are published for direct testing. See
 | `GET` | `/internal/events/coordinator-overview` | Authenticated Lead's scoped S-85 active events, newest update first. |
 | `GET` | `/internal/events/coordinators/{coordinator_id}/active-summary` | Authenticated Lead's limited S-93 summaries across Lead scopes for one Coordinator; no event details. |
 | `GET` | `/internal/events/{event_id}/assignment-scope` | Return an event only to its recorded assigning Lead. |
+| `GET` | `/internal/events/{event_id}/notification-scope` | S-63: minimal event id, name, status, Organiser and Coordinator identity for trusted composite notification flows. |
 | `GET` | `/internal/reassignment-requests/lead` | Return only the authenticated Lead's request history. |
 | `GET` | `/internal/events/safety-review` | S-86 queue source: list `pending_safety_check` events with no current safety decision, oldest update first. |
 | `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |

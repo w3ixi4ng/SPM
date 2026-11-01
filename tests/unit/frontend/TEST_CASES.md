@@ -3034,3 +3034,27 @@ Developer decisions (2026-10-30): "Your registrations" on the Attendee's dashboa
 - **Actual:** "done", "partial", "partial", "inactive".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::each status has its own dot tone; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-FRONTEND-284 — decision and schedule writes use their notification-owning composites
+
+- **Scenario:** Browser actions travel through the services that can save the event and create the Organiser notification.
+- **Pre-conditions:** Mock fetch records requests.
+- **Steps:** Decide an event request and save assigned-event information.
+- **Expected:** Requests use `/api/event-requests/{id}/decision` and `/api/event-requests/{id}/information`; payloads and credentials are preserved.
+- **Actual:** Both helpers used the credentialled composite routes and preserved their request payloads.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs`; 2026-11-01 Node test run after merging `origin/sprint4` `92b230c`: 217 passed.
+
+## TC-FRONTEND-285 — Organiser notifications remain readable in the existing inbox
+
+- **Scenario:** Every S-63 message is displayed without a special per-kind component.
+- **Pre-conditions:** The Organiser dashboard contains `NotificationPanel`.
+- **Steps:** Render rows for each S-63 kind.
+- **Expected:** The event name, decision/change type, reason and action text remain visible; existing notification kinds are unaffected.
+- **Actual:** Every S-63 row rendered through the existing inbox with all supplied event and action text visible.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs::S-63 organiser outcomes remain readable in the existing inbox`; 2026-11-01 Node test run after merging `origin/sprint4` `92b230c`: 217 passed.

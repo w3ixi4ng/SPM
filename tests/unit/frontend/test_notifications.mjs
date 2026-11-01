@@ -75,3 +75,24 @@ test('the invitation links to its event', () => {
   assert.equal(notificationLink({ kind: 'registration_confirmation', event_id: event }), null)
   assert.equal(notificationLink({ kind: 'event_assignment', event_id: event }), null)
 })
+
+// --- TC-FRONTEND-283 -----------------------------------------------------
+test('S-63 organiser outcomes remain readable in the existing inbox', () => {
+  const panel = readFileSync(
+    new URL('../../../frontend/src/components/NotificationPanel.jsx', import.meta.url),
+    'utf8',
+  )
+  const event = '11111111-1111-4111-8111-111111111111'
+  const kinds = [
+    'event_request_decision',
+    'venue_booking_decision',
+    'safety_check_outcome',
+    'event_schedule_changed',
+    'event_cancelled',
+  ]
+
+  assert.match(panel, /row\.message/)
+  for (const kind of kinds) {
+    assert.equal(notificationLink({ kind, event_id: event }), null, kind)
+  }
+})

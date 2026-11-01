@@ -242,7 +242,7 @@ def events():
 
 @pytest.fixture
 def notifications():
-    return MagicMock(post=AsyncMock())
+    return MagicMock(post=AsyncMock(return_value=fake_response(201, [])))
 
 
 @pytest.fixture

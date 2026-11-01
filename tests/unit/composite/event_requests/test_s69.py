@@ -88,6 +88,10 @@ def _row(attendee_id, message=MESSAGE):
     }
 
 
+def _organiser_row(message=MESSAGE):
+    return _row("11111111-1111-4111-8111-111111111111", message)
+
+
 # --- TC-EVENTREQUESTS-124 ----------------------------------------------------
 def test_approving_a_cancellation_notifies_everyone_registered_or_waiting(
     client, approved, bookings, registrations, notifications
@@ -108,12 +112,16 @@ def test_approving_a_cancellation_notifies_everyone_registered_or_waiting(
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "cancelled"
     assert response.json()["notified_attendees"] == 4
-    assert notifications.post.call_count == 1
-    assert notifications.post.call_args.args == ("/internal/notifications",)
+    assert notifications.post.call_count == 2
+    assert all(
+        call.args == ("/internal/notifications",)
+        for call in notifications.post.call_args_list
+    )
     assert _sent_rows(notifications) == [
-        _row(ATTENDEE_A), _row(ATTENDEE_B), _row(WAITING_W), _row(OFFERED_O),
+        _organiser_row(), _row(ATTENDEE_A), _row(ATTENDEE_B),
+        _row(WAITING_W), _row(OFFERED_O),
     ]
-    assert calls == ["bookings", "notifications"]
+    assert calls == ["bookings", "notifications", "notifications"]
 
 
 # --- TC-EVENTREQUESTS-125 ----------------------------------------------------
@@ -128,11 +136,12 @@ def test_the_message_names_an_event_ending_on_a_later_day_in_full(
     response = _approve(client)
 
     assert response.status_code == 200, response.text
-    assert _sent_rows(notifications) == [_row(
-        ATTENDEE_A,
-        "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – "
-        "21 Nov 2026, 12:30 am. It will not take place.",
-    )]
+    rows = _sent_rows(notifications)
+    assert len(rows) == 2
+    assert rows[0] == _organiser_row(rows[0]["message"])
+    assert rows[1] == _row(ATTENDEE_A, rows[0]["message"])
+    assert "20 Nov 2026" in rows[0]["message"]
+    assert "21 Nov 2026, 12:30 am" in rows[0]["message"]
 
 
 # --- TC-EVENTREQUESTS-126 ----------------------------------------------------
@@ -148,9 +157,11 @@ def test_large_events_are_notified_in_batches_of_20(
     assert response.status_code == 200, response.text
     assert response.json()["notified_attendees"] == 25
     sizes = [len(call.kwargs["json"]["notifications"]) for call in notifications.post.call_args_list]
-    assert sizes == [20, 5]
+    assert sizes == [1, 20, 5]
     recipients = [row["recipient_id"] for row in _sent_rows(notifications)]
-    assert sorted(recipients) == sorted(held + waiting)
+    assert sorted(recipients) == sorted([
+        "11111111-1111-4111-8111-111111111111", *held, *waiting,
+    ])
 
 
 # --- TC-EVENTREQUESTS-127 ----------------------------------------------------
@@ -174,11 +185,13 @@ def test_no_one_is_notified_unless_a_cancellation_is_confirmed(
     nobody = _approve(client)
     assert nobody.status_code == 200, nobody.text
     assert nobody.json()["notified_attendees"] == 0
-    notifications.post.assert_not_called()
+    assert nobody.json()["organiser_notified"] is True
+    assert _sent_rows(notifications) == [_organiser_row()]
 
     # (c) The events service refuses the decision.
     registrations.get.reset_mock()
     events.post.return_value = fake_response(403, {"detail": "Permission denied"})
+    notifications.post.reset_mock()
     refused = _approve(client)
     assert refused.status_code == 403
     registrations.get.assert_not_called()
@@ -199,22 +212,30 @@ def test_a_failed_notification_is_retried_by_approving_again(
     down = _approve(client)
     assert down.status_code == 502
     assert down.json()["detail"] == NOT_NOTIFIED
-    notifications.post.assert_not_called()
+    assert _sent_rows(notifications) == [_organiser_row()]
 
     # (b) The notifications service fails.
     _registered(registrations, *everyone)
-    notifications.post.return_value = fake_response(500, {"detail": "boom"})
+    notifications.post.reset_mock()
+    notifications.post.side_effect = [
+        fake_response(201, []),
+        fake_response(500, {"detail": "boom"}),
+    ]
     failed = _approve(client)
     assert failed.status_code == 502
     assert failed.json()["detail"] == NOT_NOTIFIED
 
     # (c) Approving again -- a no-op on the event -- sends them.
     notifications.post.reset_mock()
+    notifications.post.side_effect = None
     notifications.post.return_value = fake_response(201, [])
     retried = _approve(client)
     assert retried.status_code == 200, retried.text
     assert retried.json()["notified_attendees"] == 4
     assert [row["deduplication_key"] for row in _sent_rows(notifications)] == [
-        f"event_cancelled:{EVENT_ID}:{attendee}"
-        for attendee in (ATTENDEE_A, ATTENDEE_B, WAITING_W, OFFERED_O)
+        f"event_cancelled:{EVENT_ID}:11111111-1111-4111-8111-111111111111",
+        *[
+            f"event_cancelled:{EVENT_ID}:{attendee}"
+            for attendee in (ATTENDEE_A, ATTENDEE_B, WAITING_W, OFFERED_O)
+        ],
     ]

@@ -9,7 +9,7 @@ the events service's internal routes.
 
 import asyncio
 import logging
-from datetime import date, time
+from datetime import date, datetime, time
 from uuid import UUID
 
 import httpx
@@ -27,6 +27,8 @@ from schemas import (
     EventRequestUpdate,
     EventChangeSubmit,
     EventChangeValues,
+    EventDecision,
+    EventInformationUpdate,
     TechnicalSupportRequest,
 )
 
@@ -49,6 +51,58 @@ NO_SUPPORT_AVAILABLE = "Technical Support is required but no staff member is cur
 # request stopped being a draft or returned one underneath this call. Same
 # wording as the events service, which cannot be imported across services.
 NO_LONGER_AWAITING_CHANGES = "This request is no longer awaiting changes. Reload to see its current status."
+_NOTIFICATIONS_DOWN = "The event was saved, but the Organiser notification could not be delivered."
+
+
+async def _notify_organiser(notifications: httpx.AsyncClient, row: dict) -> None:
+    """Persist one outcome after its owning service accepted the action."""
+    try:
+        response = await notifications.post(
+            "/internal/notifications", json={"notifications": [row]}
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Notifications service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail=_NOTIFICATIONS_DOWN) from exc
+    if response.status_code != status.HTTP_201_CREATED:
+        raise HTTPException(status_code=502, detail=_NOTIFICATIONS_DOWN)
+
+
+def _decision_message(event: dict) -> str:
+    decision = event["decision"]
+    name = event["name"]
+    if decision == "approved":
+        return f"Event request approved: {name}. Planning can now begin."
+    reason = event.get("decision_reason") or "No reason was provided."
+    if decision == "rejected":
+        return f"Event request rejected: {name}. Reason: {reason}"
+    guidance = (
+        f" Guidance: {event['decision_comment']}" if event.get("decision_comment") else ""
+    )
+    return (
+        f"Event request returned for amendment: {name}. Reason: {reason}.{guidance} "
+        "Update the request and resubmit it."
+    )
+
+
+def _window(event: dict) -> tuple[datetime, datetime]:
+    return (
+        datetime.combine(
+            date.fromisoformat(str(event["start_date"])),
+            time.fromisoformat(str(event["start_time"])),
+        ),
+        datetime.combine(
+            date.fromisoformat(str(event["end_date"])),
+            time.fromisoformat(str(event["end_time"])),
+        ),
+    )
+
+
+def _window_label(event: dict) -> str:
+    start, end = _window(event)
+    start_label = f"{start.day} {start:%b %Y} {start:%H:%M}"
+    if start.date() == end.date():
+        return f"{start_label}–{end:%H:%M}"
+    return f"{start_label}–{end.day} {end:%b %Y} {end:%H:%M}"
 
 
 @app.exception_handler(RequestValidationError)
@@ -500,6 +554,93 @@ async def update_event_request(
     return await _forward_patch(events, event_id, changes, request.cookies)
 
 
+@app.post("/event-requests/{event_id}/decision")
+async def decide_event_request(
+    event_id: UUID,
+    payload: EventDecision,
+    request: Request,
+    events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-63: save the S-14 decision, then tell the event's Organiser."""
+    try:
+        response = await events.post(
+            f"/events/{event_id}/decision",
+            json=payload.model_dump(mode="json", exclude_none=True),
+            cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code in {401, 403, 404, 409, 422}:
+        return JSONResponse(status_code=response.status_code, content=response.json())
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+
+    event = response.json()
+    organiser_id = event["organiser_id"]
+    await _notify_organiser(notifications, {
+        "recipient_id": organiser_id,
+        "event_id": str(event_id),
+        "event_name": event["name"],
+        "kind": "event_request_decision",
+        "message": _decision_message(event),
+        "deduplication_key": (
+            f"event_request_decision:{event_id}:{event['decision']}:"
+            f"{event.get('decided_at') or 'saved'}:{organiser_id}"
+        ),
+    })
+    return event
+
+
+@app.patch("/event-requests/{event_id}/information")
+async def update_event_information(
+    event_id: UUID,
+    payload: EventInformationUpdate,
+    request: Request,
+    events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-63: keep S-18's atomic update and notify only schedule changes."""
+    before = await _assigned_event(event_id, request, events)
+    try:
+        response = await events.patch(
+            f"/events/assigned/{event_id}",
+            json=payload.model_dump(mode="json", exclude_unset=True),
+            cookies=request.cookies,
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Events service unavailable", exc_info=exc)
+        raise HTTPException(status_code=502, detail="Events service unavailable") from exc
+    if response.status_code in {401, 403, 404, 409, 422}:
+        return JSONResponse(status_code=response.status_code, content=response.json())
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(status_code=502, detail="Events service unavailable")
+
+    event = response.json()
+    schedule_fields = ("start_date", "start_time", "end_date", "end_time")
+    if any(str(before.get(field)) != str(event.get(field)) for field in schedule_fields):
+        postponed = _window(event)[0] > _window(before)[0]
+        change = "postponed" if postponed else "rescheduled"
+        organiser_id = event["organiser_id"]
+        await _notify_organiser(notifications, {
+            "recipient_id": organiser_id,
+            "event_id": str(event_id),
+            "event_name": event["name"],
+            "kind": "event_schedule_changed",
+            "message": (
+                f"Event {change}: {event['name']} moved from {_window_label(before)} "
+                f"to {_window_label(event)}. Review the updated event details and contact "
+                "your Event Coordinator if anything needs attention."
+            ),
+            "deduplication_key": (
+                f"event_schedule_changed:{event_id}:{event.get('edit_version', 'saved')}:"
+                f"{organiser_id}"
+            ),
+        })
+    return event
+
+
 # S-61: what the events service may answer on a decision and is passed on as
 # it is. Anything else, or no answer, means nothing was changed.
 _DECISION_PASSTHROUGH = (200, 401, 403, 404, 409, 422)
@@ -592,6 +733,18 @@ async def _notify_cancelled(
     return len(rows)
 
 
+async def _notify_cancelled_organiser(event: dict, notifications: httpx.AsyncClient) -> None:
+    organiser_id = event["organiser_id"]
+    await _notify_organiser(notifications, {
+        "recipient_id": organiser_id,
+        "event_id": event["id"],
+        "event_name": event["name"],
+        "kind": "event_cancelled",
+        "message": _cancelled_message(event),
+        "deduplication_key": f"event_cancelled:{event['id']}:{organiser_id}",
+    })
+
+
 @app.post("/event-requests/{event_id}/cancellation-decision")
 async def decide_cancellation(
     event_id: UUID,
@@ -638,11 +791,13 @@ async def decide_cancellation(
         raise HTTPException(status_code=502, detail=_BOOKINGS_NOT_RELEASED) from exc
     if released.status_code != status.HTTP_200_OK:
         raise HTTPException(status_code=502, detail=_BOOKINGS_NOT_RELEASED)
+    await _notify_cancelled_organiser(event, notifications)
     notified = await _notify_cancelled(event, registrations, notifications)
     return {
         **event,
         "released_bookings": released.json()["deleted"],
         "notified_attendees": notified,
+        "organiser_notified": True,
     }
 
 

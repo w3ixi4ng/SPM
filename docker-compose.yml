@@ -339,6 +339,7 @@ services:
       VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
       EQUIPMENT_SERVICE_URL: ${EQUIPMENT_SERVICE_URL:-http://equipment:8005}
+      NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
     depends_on:
       users:
         condition: service_healthy
@@ -349,6 +350,8 @@ services:
       bookings:
         condition: service_healthy
       equipment:
+        condition: service_healthy
+      notifications:
         condition: service_healthy
     healthcheck:
       test:

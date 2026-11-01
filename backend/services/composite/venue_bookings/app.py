@@ -226,6 +226,57 @@ async def _record(events: httpx.AsyncClient, booking: dict, user: dict, action: 
         logger.error("Could not record %s in the history of event %s", action, event_id, exc_info=exc)
 
 
+async def _event_notification_scope(events: httpx.AsyncClient, event_id) -> dict:
+    response = await _get(
+        "Events", events, f"/internal/events/{event_id}/notification-scope"
+    )
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Events")
+    return response.json()
+
+
+async def _notify_venue_decision(
+    booking: dict,
+    payload: BookingDecision,
+    events: httpx.AsyncClient,
+    notifications: httpx.AsyncClient,
+) -> None:
+    event = await _event_notification_scope(events, booking["event_id"])
+    organiser_id = event["organiser_id"]
+    venue_name = booking.get("venue_name") or "the requested venue"
+    if payload.decision == "approved":
+        message = (
+            f"Venue booking confirmed for {event['name']}: {venue_name}. "
+            "No action is required."
+        )
+    else:
+        details = []
+        if payload.reason:
+            details.append(f"Reason: {payload.reason}.")
+        if payload.alternative:
+            details.append(f"Suggested alternative: {payload.alternative}.")
+        message = (
+            f"Venue booking rejected for {event['name']}: {venue_name}. "
+            f"{' '.join(details)} Review the decision and work with your Event Coordinator "
+            "to arrange another venue."
+        )
+    response = await _call("Notifications", notifications.post(
+        "/internal/notifications", json={"notifications": [{
+            "recipient_id": organiser_id,
+            "event_id": str(booking["event_id"]),
+            "event_name": event["name"],
+            "kind": "venue_booking_decision",
+            "message": message,
+            "deduplication_key": (
+                f"venue_booking_decision:{booking['id']}:{booking['status']}:"
+                f"{booking.get('decided_at') or 'saved'}:{organiser_id}"
+            ),
+        }]}
+    ))
+    if response.status_code != status.HTTP_201_CREATED:
+        raise _unavailable("Notifications")
+
+
 def _today() -> date:
     """The composite's server date: S-75 clashes are checked from today on."""
     return date.today()
@@ -698,6 +749,7 @@ async def decide_venue_booking(
     venues: httpx.AsyncClient = Depends(get_venues_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
     staff = await _authenticate(request, users, VENUE_STAFF_ROLE)
     # Only a confirmation reserves time, so only it needs the venue's setup
@@ -716,6 +768,7 @@ async def decide_venue_booking(
         await _record(events, decided, staff, action, _venue_details(
             decided, reason=payload.reason, alternative=payload.alternative,
         ))
+        await _notify_venue_decision(decided, payload, events, notifications)
         return decided
     conflict = _identified_conflict(response)
     if conflict:

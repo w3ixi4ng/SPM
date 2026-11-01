@@ -252,6 +252,76 @@ class CancellationDecision(BaseModel):
     reason: str | None = None
 
 
+class EventDecision(BaseModel):
+    """S-63 browser decision forwarded to Events before notifying its owner."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected", "returned"]
+    reason: str | None = None
+    comment: str | None = None
+
+    @field_validator("reason", "comment", mode="before")
+    @classmethod
+    def normalise_decision_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def decision_details_match(self):
+        if self.decision in {"rejected", "returned"} and self.reason is None:
+            raise ValueError("reason is required to reject or return a request")
+        if self.decision == "approved" and self.reason is not None:
+            raise ValueError("reason is not accepted when approving a request")
+        if self.comment is not None and self.decision != "returned":
+            raise ValueError("comment is only accepted when returning a request")
+        return self
+
+
+class EventInformationUpdate(BaseModel):
+    """S-18 Coordinator fields mirrored for S-63 composite orchestration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    impact_accepted: bool = False
+    name: str | None = None
+    purpose: str | None = None
+    contact_name: str | None = Field(default=None, max_length=200)
+    contact_email: str | None = Field(default=None, max_length=320)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    internal_notes: str | None = Field(default=None, max_length=4000)
+    start_date: date | None = None
+    start_time: time | None = None
+    end_date: date | None = None
+    end_time: time | None = None
+    expected_attendance: PositiveInt | None = None
+    venue: str | None = None
+    special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] | None = None
+    required_accessibility: list[AccessibilityFeature] | None = None
+
+    @field_validator(
+        "name", "purpose", "contact_name", "contact_email", "contact_phone",
+        "internal_notes", "venue", "special_requirements", "room_layout", mode="before",
+    )
+    @classmethod
+    def normalise_information_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @field_validator("contact_email")
+    @classmethod
+    def plausible_email(cls, value):
+        if value is not None and ("@" not in value or value.startswith("@") or value.endswith("@")):
+            raise ValueError("contact_email must be a valid email address")
+        return value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def unique_information_options(cls, value):
+        return None if value is None else list(dict.fromkeys(value))
+
+
 class EventChangeValues(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

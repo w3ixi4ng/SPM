@@ -1,6 +1,6 @@
 # Safety Checks service
 
-Composite FastAPI service for S-17, S-86 and S-87. It owns no database. It
+Composite FastAPI service for S-17, S-63, S-86 and S-87. It owns no database. It
 authenticates Safety Officers and Event Coordinators through Users, reads the
 current event from Events, enriches safety evidence and feedback, and sends
 lifecycle actions back to the Events atomic owner.
@@ -79,8 +79,12 @@ A successful decision returns the updated Event object. Transitions are:
 
 The Events service conditionally writes only a `pending_safety_check` row with
 a null current safety decision. A stale, repeated, or concurrent attempt returns
-`409` and cannot overwrite the first stored result. S-86 creates no
-notifications.
+`409` and cannot overwrite the first stored result. S-63 then sends the
+owning Organiser one idempotent `safety_check_outcome` notification. Approval
+states that the event is now confirmed. Rejection and requested changes carry
+the Safety Officer's actionable reason and tell the Organiser to work with
+their Event Coordinator. A notification failure is reported as `502` after
+the safety result has been saved; retrying cannot duplicate the notice.
 
 For S-87, only `event_coordinator` passes the composite role check and Events
 also requires the authenticated id to be the event's current assignee. The
@@ -165,7 +169,8 @@ missing one, is `404` "Event not found".
 ## Configuration and running
 
 The service reads `USERS_SERVICE_URL`, `EVENTS_SERVICE_URL`,
-`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, and `EQUIPMENT_SERVICE_URL`.
+`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, `EQUIPMENT_SERVICE_URL`, and
+`NOTIFICATIONS_SERVICE_URL`.
 Every outbound client has a bounded timeout.
 
 Development:

@@ -473,3 +473,27 @@ notified.
 - **Actual:** First run: approval `502` -- the events service hit `23514` on `events_safety_state_consistent`; fixed by the S-69 block of `events.sql`. After it was applied: `201`, `201`; approval `200`, `cancelled`, `notified_attendees` 2; A and W each had exactly one `event_cancelled` row with the expected message and no reason; X none; approving again `200`, A still one; no rows remained. Passed again on a second run.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/event_requests/test_s69.py::test_approving_a_cancellation_notifies_registered_and_waiting_attendees_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-69 blocks of `notifications.sql` and `events.sql` applied to dev and test; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; with `tests/integration/composite/event_requests`, `tests/integration/atomic/notifications` and `tests/integration/atomic/events`: 32 passed, 5 skipped; e2e `test_approve_cancellation.py` and `test_request_event_cancellation.py`: 2 passed
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-EVENTREQUESTS-204 — a real request outcome reaches the Organiser inbox
+
+- **Scenario:** The decision crosses Users, Events and Notifications through Kong and persists for the owning Organiser.
+- **Pre-conditions:** Fresh `.env.test` stack; schemas applied, exposed and granted; one submitted event assigned to a Coordinator.
+- **Steps:** The Coordinator returns it with reason and amendment comment, then the Organiser lists `/api/notifications`.
+- **Expected:** The saved event is returned and the inbox has exactly one `event_request_decision` row naming the event, reason, comment and resubmission action.
+- **Actual:** The returned event persisted and the owning Organiser received exactly one actionable notification with the event name, reason, amendment comment and resubmission instruction.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_a_real_returned_outcome_reaches_the_organiser_inbox`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; full integration suite: 112 passed, 5 skipped.
+
+## TC-EVENTREQUESTS-205 — a real schedule change reaches the Organiser once
+
+- **Scenario:** A significant Coordinator edit and notification persist across the Events/Notifications boundary.
+- **Pre-conditions:** As TC-EVENTREQUESTS-204, with an editable planning event.
+- **Steps:** Move the event to a later date through `/api/event-requests/{id}/information`, then repeat the same request.
+- **Expected:** The first response saves the new date and one postponed notice; the stale repeat is refused and creates no second row.
+- **Actual:** The first edit saved the later date and one postponed notice; the stale retry was refused and the Organiser still had one notice.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_a_real_postponement_reaches_the_organiser_once`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; full integration suite: 112 passed, 5 skipped.
