@@ -89,16 +89,22 @@ def test_a_real_postponement_reaches_the_organiser_once(
     organiser_session["event_ids"].append(event["id"])
     payload = {
         "expected_version": 0,
-        "impact_accepted": True,
         "start_date": "2026-11-20",
         "end_date": "2026-11-20",
     }
 
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=20.0) as api:
+        preview = api.post(
+            f"/event-requests/{event['id']}/information/impact",
+            headers=_headers(coordinator_session), json=payload,
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["requires_impact_acceptance"] is True
+        reviewed = {"edit": payload, "impact_ids": [item["id"] for item in preview.json()["impacts"]]}
         moved = api.patch(
-            f"/event-requests/{event['id']}/information",
+            f"/event-requests/{event['id']}/information/significant",
             headers=_headers(coordinator_session),
-            json=payload,
+            json=reviewed,
         )
         assert moved.status_code == 200, moved.text
         assert moved.json()["start_date"] == "2026-11-20"
@@ -111,9 +117,9 @@ def test_a_real_postponement_reaches_the_organiser_once(
         assert "Review the updated event details" in row["message"]
 
         stale = api.patch(
-            f"/event-requests/{event['id']}/information",
+            f"/event-requests/{event['id']}/information/significant",
             headers=_headers(coordinator_session),
-            json=payload,
+            json=reviewed,
         )
         assert stale.status_code == 409, stale.text
         assert len(_inbox(

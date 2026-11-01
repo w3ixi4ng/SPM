@@ -119,3 +119,14 @@ Equipment Item Details; S-42 Retire Equipment Item.
 - **Expected:** Every API read immediately reflects the current value and the final database value is null.
 - **Status:** Pass (2026-10-28)
 - **Evidence:** `test_app.py::test_storage_location_round_trips_and_can_be_cleared`
+
+## TC-EQUIPMENT-302 — S-60 batch journal and event write lock persist
+
+- **Scenario:** A TEST Equipment batch is atomic, retryable and protects its saved baseline from competing writes.
+- **Pre-conditions:** Fresh `.env.test` stack; Equipment S-60 SQL applied in TEST, schema exposed and granted; trusted service credential configured.
+- **Steps:** 1. Seed projector P=2 and microphone M=1 for opaque event E. 2. Apply operation Q proposing P=3 and M removal; retry Q. 3. Attempt ordinary direct P=4 while Q is applied. 4. Abort Q and inspect the restored rows. 5. Retry the aborted Q. 6. Apply and finalize a new operation, then make a newer P=4 edit and try to abort the finalized operation.
+- **Test data:** Two temporary active items; P 2→3, M 1→removed, Q UUID.
+- **Expected:** The first call writes P=3 and removes M with exactly one audit change per item; identical retry adds none. Direct P=4 gets `409` and does not overwrite Q. Conditional abort restores both original rows; the aborted Q cannot be reused. A finalized operation cannot abort over the newer P=4 edit. All test rows are removed.
+- **Actual:** TEST journal and write lock persisted across requests; retry, abort, finalise and newer edit checks passed.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/equipment/test_s60.py::test_versioned_batch_is_idempotent_and_blocks_competing_requirement_writes

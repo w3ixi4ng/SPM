@@ -88,6 +88,7 @@ def test_coordinator_and_lead_see_an_edit_in_the_history(admin, page, make_user,
     page.get_by_role("button", name="Edit event information").click()
     page.get_by_label("Expected attendance").fill("150")
     page.get_by_role("button", name="Review changes").click()
+    page.get_by_label("I reviewed each impact and proposed next action.").check()
     page.get_by_role("alertdialog").get_by_role("button", name="Accept and save").click()
     expect(page.get_by_text("Event information saved.", exact=True)).to_be_visible(timeout=20000)
 

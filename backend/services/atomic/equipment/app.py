@@ -1,8 +1,10 @@
 import logging
+import os
+import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -26,6 +28,7 @@ from schemas import (
     EquipmentRequirementWrite,
     EquipmentRequirementRemove,
     EquipmentUpdate,
+    EquipmentChangeBatch,
 )
 from security import clear_session_cookies
 
@@ -78,11 +81,86 @@ def _execute(operation):
     try:
         return operation.execute()
     except Exception as exc:
+        if getattr(exc, "code", None) == "23514" and "Requirement change is in progress" in str(exc):
+            raise HTTPException(status_code=409, detail="Requirement change is in progress") from exc
         logger.exception("Equipment storage operation failed", exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Equipment storage unavailable",
         ) from exc
+
+
+def require_change_service(x_assignment_service_token: str | None = Header(default=None)):
+    expected = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Change service is not configured")
+    if not x_assignment_service_token or not secrets.compare_digest(x_assignment_service_token, expected):
+        raise HTTPException(status_code=403, detail="Trusted change service required")
+
+
+def _batch_rpc(db: Client, name: str, params: dict):
+    try:
+        result = db.schema(SCHEMA).rpc(name, params).execute()
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code == "P0002":
+            raise HTTPException(status_code=404, detail="Change operation not found") from exc
+        if code in {"23514", "23505"}:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        logger.exception("Equipment change operation failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Equipment storage unavailable") from exc
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Equipment storage unavailable")
+    return result.data[0]
+
+
+@app.post("/internal/equipment-requirements/change-batches")
+def apply_change_batch(
+    payload: EquipmentChangeBatch,
+    _service=Depends(require_change_service),
+    db: Client = Depends(get_db),
+):
+    for values in (payload.baseline, payload.proposed):
+        if len({item.equipment_item_id for item in values}) != len(values):
+            raise HTTPException(status_code=422, detail="Equipment item IDs must be unique")
+    canonical = lambda items: [item.model_dump(mode="json") for item in sorted(items, key=lambda value: str(value.equipment_item_id))]
+    return _batch_rpc(db, "apply_change_batch", {
+        "p_operation_id": str(payload.operation_id), "p_event_id": str(payload.event_id),
+        "p_actor_id": str(payload.actor_id), "p_baseline": canonical(payload.baseline),
+        "p_proposed": canonical(payload.proposed),
+    })
+
+
+@app.get("/internal/equipment-requirements/change-batches/{operation_id}")
+def get_change_batch(
+    operation_id: UUID,
+    _service=Depends(require_change_service),
+    db: Client = Depends(get_db),
+):
+    rows = _execute(
+        db.schema(SCHEMA).table("change_operations").select("*").eq("id", str(operation_id)).limit(1)
+    ).data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Change operation not found")
+    return rows[0]
+
+
+@app.post("/internal/equipment-requirements/change-batches/{operation_id}/finish")
+def finish_change_batch(
+    operation_id: UUID,
+    _service=Depends(require_change_service),
+    db: Client = Depends(get_db),
+):
+    return _batch_rpc(db, "finish_change_batch", {"p_operation_id": str(operation_id)})
+
+
+@app.post("/internal/equipment-requirements/change-batches/{operation_id}/abort")
+def abort_change_batch(
+    operation_id: UUID,
+    _service=Depends(require_change_service),
+    db: Client = Depends(get_db),
+):
+    return _batch_rpc(db, "abort_change_batch", {"p_operation_id": str(operation_id)})
 
 
 @app.get("/health")

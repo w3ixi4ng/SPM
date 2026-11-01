@@ -14,6 +14,7 @@ import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js
 import Logo from '../components/Logo.jsx'
 import ReassignmentRequestPanel from '../components/ReassignmentRequestPanel.jsx'
 import CoordinatorEventChangePanel from '../components/CoordinatorEventChangePanel.jsx'
+import CoordinatorEditImpacts from '../components/CoordinatorEditImpacts.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
 import {
@@ -112,6 +113,7 @@ function EventInformationEditor({ event, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(() => eventResponseToForm(event))
   const [impact, setImpact] = useState(null)
+  const [impactAcknowledged, setImpactAcknowledged] = useState(false)
   const [state, setState] = useState({ status: 'idle', error: null, notice: null })
 
   useEffect(() => {
@@ -129,7 +131,7 @@ function EventInformationEditor({ event, onSaved }) {
   async function save(acceptImpact = false) {
     setState({ status: 'saving', error: null, notice: null })
     try {
-      const updated = await updateAssignedEventInformation(event.id, form, event, acceptImpact)
+      const updated = await updateAssignedEventInformation(event.id, form, event, acceptImpact, impact?.impacts?.map((item) => item.id) || [])
       setImpact(null)
       setState({ status: 'idle', error: null, notice: 'Event information saved.' })
       onSaved(updated)
@@ -147,6 +149,7 @@ function EventInformationEditor({ event, onSaved }) {
         setState({ status: 'idle', error: null, notice: 'There are no changes to save.' })
       } else if (result.requires_impact_acceptance) {
         setImpact(result)
+        setImpactAcknowledged(false)
         setState({ status: 'idle', error: null, notice: null })
       } else {
         await save(false)
@@ -207,10 +210,12 @@ function EventInformationEditor({ event, onSaved }) {
         <div role="alertdialog" aria-labelledby="impact-heading" className="mt-6 border rounded-sm p-5" style={{ borderColor: C.amber, backgroundColor: `${C.amber}0D` }}>
           <h3 id="impact-heading" className="font-display text-lg" style={{ color: C.ink }}>Review significant changes</h3>
           <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>These changes may affect existing arrangements: {impact.significant_fields.map((field) => FIELD_LABELS[field] || field).join(', ')}.</p>
+          <ul className="mt-2 list-disc pl-5">{impact.impacts?.map((item) => <li key={item.id}>{item.reason} Next action: {item.required_action}</li>)}</ul>
+          <label className="mt-3 flex gap-2"><input type="checkbox" checked={impactAcknowledged} onChange={(e) => setImpactAcknowledged(e.target.checked)} />I reviewed each impact and proposed next action.</label>
           {['confirmed', 'preparation'].includes(event.status) && <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>Accepting returns the event to Planning and requires a fresh Operational Safety Check. Existing venue and equipment sign-offs remain in place.</p>}
           <div className="flex gap-3 mt-4">
             <button type="button" onClick={() => setImpact(null)} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Go back</button>
-            <button type="button" onClick={() => save(true)} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.amber }}>Accept and save</button>
+            <button type="button" disabled={!impactAcknowledged || state.status !== 'idle'} onClick={() => save(true)} className="px-4 py-2 rounded-sm font-ui text-sm text-white disabled:opacity-50" style={{ backgroundColor: C.amber }}>Accept and save</button>
           </div>
         </div>
       )}
@@ -1293,6 +1298,7 @@ export default function EventCoordinatorEventDetail() {
         {state.status === 'ready' && (
           <>
             {isCoordinator && <CoordinatorEventChangePanel eventId={state.event.id} />}
+            {isCoordinator && <CoordinatorEditImpacts event={state.event} onSaved={(updated) => setState({ status: 'ready', event: updated, error: null })} />}
             <CancellationReview
               event={state.event}
               notice={cancellationNotice}

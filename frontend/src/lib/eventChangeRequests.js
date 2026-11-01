@@ -72,3 +72,29 @@ export function submitEventChangeRequest(id, values, equipment) {
     body: JSON.stringify({ values, equipment: equipmentSnapshot(equipment) }),
   })
 }
+
+function reviewPath(eventId, requestId) {
+  return `/event-requests/${encodeURIComponent(eventId)}/change-requests/${encodeURIComponent(requestId)}`
+}
+
+export function getEventChangeReview(eventId, requestId) {
+  return requestJSON(`${reviewPath(eventId, requestId)}/review`)
+}
+
+export function acceptEventChange(eventId, requestId, body) {
+  return requestJSON(`${reviewPath(eventId, requestId)}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+}
+
+export function rejectEventChange(eventId, requestId, reason) {
+  return requestJSON(`${reviewPath(eventId, requestId)}/reject`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+  })
+}
+
+export function resolveEventChangeImpact(eventId, requestId, impactId, body) {
+  return requestJSON(`${reviewPath(eventId, requestId)}/impacts/${encodeURIComponent(impactId)}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+}

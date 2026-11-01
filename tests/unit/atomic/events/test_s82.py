@@ -301,7 +301,8 @@ def test_safety_submissions_and_decisions_are_recorded(client, tables):
     for decision, reason in (
         ("approved", None), ("changes_requested", "Fire exit blocked"), ("rejected", "Capacity over limit"),
     ):
-        body = {"decision": decision, "reason": reason, "safety_officer_id": S}
+        body = {"decision": decision, "reason": reason, "safety_officer_id": S,
+                "expected_event_updated_at": "2026-09-14T00:00:00Z"}
         assert client.post(f"/internal/events/safety-review/{E}/decision", json=body).status_code == 200
 
     events(tables, select=[[assigned(safety_decision="changes_requested")]], update=[[assigned()]])
