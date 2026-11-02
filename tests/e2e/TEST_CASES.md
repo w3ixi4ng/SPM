@@ -1269,18 +1269,22 @@ Confirmed by the developer on 2026-10-11.
 - **Pre-conditions:** The whole `.env.test` stack recreated immediately
   before; S-51 SQL applied; Chromium. Organiser O; at least one Coordinator.
 - **Steps:**
-  1. O signs in, starts a new event request starting `2026-12-10 18:00`,
-     turns **Registration** on.
-  2. Sets closing `2026-12-10 19:00` and opening `2026-11-01 09:00`; clicks
+  1. O signs in, starts a new event request starting at 18:00 on the event
+     day E (today + 40 days), turns **Registration** on.
+  2. Sets closing E 19:00 and opening today + 2 days, 09:00; clicks
      **Submit request**.
-  3. Changes closing to `2026-12-05 18:00`; submits.
+  3. Changes closing to E − 5 days, 18:00; submits.
   4. Opens the submitted request.
+- **Test data:** Dates relative to the day of the run, because the picker
+  disables past days: e.g. run on 2 Nov 2026, E is 12 Dec 2026, opening
+  4 Nov 2026, closing 7 Dec 2026.
 - **Expected:** 2 shows "Registration must close before the event starts." and
-  nothing is submitted. 3 submits. 4 shows "Registration opens 1 Nov 2026,
-  9:00 am and closes 5 Dec 2026, 6:00 pm." with no control to change it.
-- **Actual:** Chromium: closing at 7:00 pm on the start day showed "Registration must close before the event starts." and stayed on `/events/new`; closing 5 Dec submitted; after a reload the period read "Registration opens 1 Nov 2026, 9:00 am and closes 5 Dec 2026, 6:00 pm." with no toggle or pickers.
+  nothing is submitted. 3 submits. 4 shows "Registration opens <opening>,
+  9:00 am and closes <closing>, 6:00 pm." (e.g. "Registration opens 4 Nov
+  2026, 9:00 am and closes 7 Dec 2026, 6:00 pm.") with no control to change it.
+- **Actual:** Chromium, run 2 Nov 2026: closing at 7:00 pm on the event day showed "Registration must close before the event starts." and stayed on `/events/new`; closing 7 Dec submitted; after a reload the request showed "Registration opens 4 Nov 2026, 9:00 am and closes 7 Dec 2026, 6:00 pm." with no registration controls.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_set_registration_period.py::test_organiser_sets_a_registration_period_fixed_once_submitted`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+- **Evidence:** `tests/e2e/test_set_registration_period.py::test_organiser_sets_a_registration_period_fixed_once_submitted`; 2026-11-02, branch `S-90/restore-original-venue-booking`; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`). Dates made relative to the run after the fixed 1 Nov 2026 opening date passed and the picker disabled it.
 
 ## TC-E2E-247 — a visitor reads a confirmed event, then registers as an Attendee
 
@@ -1751,3 +1755,26 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Actual:** Organiser proposal, scoped Coordinator review, acceptance, owner-backed re-review, fresh safety submission, acceptance retry and later rejection display passed in Chromium.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]`; 2026-11-01 TEST Full run: one transient Events 502 on a review read after a saved resolve; isolated rerun passed (`/private/tmp/s60-e2e-s60-rerun.log`).
+
+
+## S-90 — Restore Original Venue Booking (specification)
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation. Only what a browser proves: the Coordinator's button
+and the Venue Staff dashboard section are wired to the composite through
+Kong, for the two roles access.js gives them to. The rules themselves are
+TC-BOOKINGS-124..130 and TC-VENUEBOOKINGS-131..136.
+
+## TC-E2E-270 — a Coordinator restores the original venue and Venue Staff confirm it
+
+- **Scenario:** In a real browser: once the original venue is free, the Coordinator asks to restore it, Venue Staff confirm from their dashboard, and the event page shows the original kept and the replacement withdrawn (S-90 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-90 SQL applied. Through the admin client: Coordinator K; Venue Staff S; venues V and W; confirmed event E assigned to K; O `confirmed` at V; R `pending` at W replacing O; no unavailable period at V.
+- **Steps:**
+  1. As K, open `/coordinator/events/E` and click **Restore original venue**.
+  2. Sign out; as S, open the Venue Staff dashboard and click **Confirm restore** on E's request.
+  3. Sign out; as K, open `/coordinator/events/E`.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → before the click, "Replacement requested: {W}, waiting for Venue Staff. {V} is free again."; after it, "Restore requested: waiting for Venue Staff to confirm {V}" and no **Restore original venue** button. 2 → the "Restore requests" section shows E with "Keep {V}" and "Withdraw the request for {W}"; after confirming, "{V} restored for {E}." and the request is gone. 3 → V's booking reads "Resolved: Restored to the original venue"; W's request reads "Withdrawn".
+- **Actual:** Chromium: K's row read "…waiting for Venue Staff. {V} is free again.", then "Restore requested: waiting for Venue Staff to confirm {V}" with no button; S's Restore requests showed Keep {V} and Withdraw the request for {W}, Confirm restore showed "{V} restored for {E}." and removed the row; K's page then read "Resolved: Restored to the original venue" and "Withdrawn: {V} was restored". E was `planning` (the shared e2e helper), an open status like `confirmed`.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_restore_original_venue.py::test_a_coordinator_restores_the_original_venue_and_venue_staff_confirm_it[chromium]; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST

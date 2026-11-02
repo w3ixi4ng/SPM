@@ -187,3 +187,11 @@ class ResolutionRequest(BaseModel):
     @classmethod
     def strip_note(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+class RestoreDecision(BaseModel):
+    """S-90: Venue Staff confirm or decline a Coordinator's restore request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]

@@ -3617,3 +3617,19 @@ Seminar Room 3 with the Organiser on 30 Oct; neither fits 180 guests".
 - **Actual:** As expected.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s89.py::test_history_is_only_for_a_venue_cancellation_and_the_composite; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## S-90 — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation.
+
+## TC-EVENTS-209 — the history accepts the three restore steps
+
+- **Scenario:** The venue_bookings composite can record a restore being asked for, confirmed and declined in the event's history (S-90 AC3, AC4; S-82).
+- **Pre-conditions:** As the existing composite-history cases.
+- **Steps:** Record one entry of each action through the composite history route.
+- **Test data:** Actions `venue_restore_requested`, `venue_restore_confirmed`, `venue_restore_declined`, details `{"venue_name": "Studio B", "replacement_venue_name": "Hall C"}`.
+- **Expected:** Each is stored with category `venue`. An unknown action is still refused.
+- **Actual:** Each of the three stored with category `venue`; an unknown action `422`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s90.py::test_the_history_accepts_the_three_restore_steps; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
