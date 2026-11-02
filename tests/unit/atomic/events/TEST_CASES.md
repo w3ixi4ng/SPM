@@ -3632,4 +3632,4 @@ developer confirmation.
 - **Expected:** Each is stored with category `venue`. An unknown action is still refused.
 - **Actual:** Each of the three stored with category `venue`; an unknown action `422`.
 - **Status:** Pass
-- **Evidence:** tests/unit/atomic/events/test_s90.py::test_the_history_accepts_the_three_restore_steps; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+- **Evidence:** tests/unit/atomic/events/test_s90.py::test_the_history_accepts_the_three_restore_steps; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`

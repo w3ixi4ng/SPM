@@ -2236,7 +2236,7 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Expected:** `200` with O. The bookings service was called with `setup_minutes=30&turnaround_minutes=45` and K's cookie. One history entry `venue_restore_requested` with V's and W's names.
 - **Actual:** `200`; bookings service called with `setup_minutes=30&turnaround_minutes=45` and K's cookie; one `venue_restore_requested` entry naming Studio B and Hall C.
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_the_assigned_coordinator_asks_to_restore_the_original; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_the_assigned_coordinator_asks_to_restore_the_original; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-132 — restore is offered only while a replacement waits
 
@@ -2247,7 +2247,7 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Expected:** (a)–(c) `409` "Restore is only possible while a replacement is waiting for Venue Staff."; (d) `409` with the S-78 closed-event message; (e) `404` "Booking not found"; (f) `403`. `POST /bookings/O/restore-request` never called.
 - **Actual:** (a)–(c) `409` "Restore is only possible while a replacement is waiting for Venue Staff."; (d) `409` closed-event message; (e) `404`; (f) `403`; restore-request never called, no history.
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_restore_is_offered_only_while_a_replacement_waits; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_restore_is_offered_only_while_a_replacement_waits; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-133 — the bookings service's refusal reaches the Coordinator
 
@@ -2258,7 +2258,7 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Expected:** `409` with that same `detail`, each time; no history entry. A bookings `500` or timeout is `502` "Bookings service unavailable".
 - **Actual:** `409` with each `detail` unchanged, no history; a `500` and a connection error both `502` "Bookings service unavailable".
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_the_bookings_services_refusal_reaches_the_coordinator; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_the_bookings_services_refusal_reaches_the_coordinator; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-134 — Venue Staff see each restore request with the replacement it would withdraw
 
@@ -2269,7 +2269,7 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Expected:** `200` `[{...O, "replacement": {"id": R, "venue_name": "Hall C", "booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00", "status": "pending"}}]`. A Coordinator gets `403`.
 - **Actual:** `200` with O and its pending Hall C replacement; Coordinator `403`.
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_see_each_restore_request_with_the_replacement_it_would_withdraw; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_see_each_restore_request_with_the_replacement_it_would_withdraw; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-135 — Venue Staff confirm or decline the restore
 
@@ -2280,4 +2280,4 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Expected:** `200` with the body, gap `30`/`45` passed, history `venue_restore_confirmed` (V's and W's names); `200`, history `venue_restore_declined`; `409` with the same `detail`, no history. `{"decision": "maybe"}` is `422`. A Coordinator gets `403`.
 - **Actual:** Approved `200` with gap 30/45, history `venue_restore_confirmed` naming Studio B and Hall C; declined `200`, `venue_restore_declined`; `409` passed through with no history; `maybe` `422`; Coordinator `403`.
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_confirm_or_decline_the_restore; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1788 passed and 17 skipped across `tests/unit`
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_confirm_or_decline_the_restore; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`

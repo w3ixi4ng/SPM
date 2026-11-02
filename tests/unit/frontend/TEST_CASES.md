@@ -3202,7 +3202,7 @@ Revised for S-90: TC-FRONTEND-275's list of history actions gains
   | O `replaced` by R | "Replaced by Hall C" (unchanged) | `[]` |
 - **Actual:** Every row's label and actions as expected; a rejected replacement offers no restore.
 - **Status:** Pass
-- **Evidence:** test_restore_original_venue.mjs::the event page offers a restore once the original venue is free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Node 22.16.0: 221 passed across frontend unit
+- **Evidence:** test_restore_original_venue.mjs::the event page offers a restore once the original venue is free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit
 
 ## TC-FRONTEND-287 — restore requests and decisions go to the composite
 
@@ -3212,7 +3212,7 @@ Revised for S-90: TC-FRONTEND-275's list of history actions gains
 - **Expected:** `POST /api/venue-bookings/O/restore`; `GET /api/venue-bookings/restores`; `POST /api/venue-bookings/O/restore-decision` with `{"decision": "approved"}` / `{"decision": "declined"}`. `withdrawn` reads "Withdrawn" with the `inkFaint` tone.
 - **Actual:** The four requests as expected; `withdrawn` reads "Withdrawn" in `#4C5A70` (inkFaint). A `409` shows the service's own `detail`.
 - **Status:** Pass
-- **Evidence:** test_restore_original_venue.mjs::restore requests and decisions go to the composite; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Node 22.16.0: 221 passed across frontend unit
+- **Evidence:** test_restore_original_venue.mjs::restore requests and decisions go to the composite; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit
 
 ## TC-FRONTEND-288 — Venue Staff see what confirming a restore will do
 
@@ -3222,4 +3222,4 @@ Revised for S-90: TC-FRONTEND-275's list of history actions gains
 - **Expected:** `{title: "Alumni networking evening", when: "12 Nov 2026, 10:00 am to 12:00 pm", keeps: "Keep Studio B", withdraws: "Withdraw the request for Hall C"}`.
 - **Actual:** The summary as expected; notices "Studio B restored for Alumni networking evening." and "Restore of Studio B for Alumni networking evening declined."
 - **Status:** Pass
-- **Evidence:** test_restore_original_venue.mjs::venue staff see what confirming a restore will do; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `ca5ff0d`), pre-commit working tree; Node 22.16.0: 221 passed across frontend unit
+- **Evidence:** test_restore_original_venue.mjs::venue staff see what confirming a restore will do; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit
