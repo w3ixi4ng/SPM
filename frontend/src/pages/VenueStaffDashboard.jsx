@@ -7,10 +7,12 @@ import useVenueList from '../components/useVenueList.js'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
 import {
+  bookingDateLabel,
   clashPairLabel,
   clashReviewHeading,
   decideRestore,
   getClashesToReview,
+  outsideHoursWarning,
   listRestoreRequests,
   listPendingVenueBookings,
   listVenuePreparationBookings,
@@ -20,6 +22,7 @@ import {
   restoreErrorMessage,
   restoreNotice,
   restoreRequestSummary,
+  shortTime,
   updateVenuePreparation,
   VENUE_PREPARATION_OPTIONS,
   venuePreparationErrorMessage,
@@ -356,8 +359,8 @@ function ClashesToReview({ venues, error, onRetry }) {
       ) : (
         <>
           <p className="font-ui text-sm leading-relaxed max-w-md mb-6" style={{ color: C.inkFaint }}>
-            These bookings overlap once each venue&apos;s setup and turnaround times are counted.
-            Nothing has been changed or cancelled. Rearrange them with their Coordinators.
+            These bookings overlap once each venue&apos;s setup and turnaround times are counted,
+            or no longer fit its opening hours. Nothing has been changed or cancelled. Rearrange them with their Coordinators.
           </p>
           <ul className="divide-y" aria-label="Clashes to review">
             {venues.map((venue) => (
@@ -370,6 +373,9 @@ function ClashesToReview({ venues, error, onRetry }) {
                   {venue.pairs.map((pair) => (
                     <li key={`${pair.first.id}-${pair.second.id}`}>{clashPairLabel(pair)}</li>
                   ))}
+                  {(venue.outside_hours ?? []).map((entry) => (
+                    <li key={entry.booking_id}>{outsideHoursLabel(entry)}</li>
+                  ))}
                 </ul>
               </li>
             ))}
@@ -380,12 +386,32 @@ function ClashesToReview({ venues, error, onRetry }) {
   )
 }
 
+// S-28 reopened: "Alumni talk, 12 Nov 2026, 09:00–11:00 — Outside the venue's
+// opening hours: …". Staff may see whose booking it is.
+function outsideHoursLabel(entry) {
+  return `${entry.event_name}, ${bookingDateLabel(entry.booking_date)}, `
+    + `${shortTime(entry.start_time)}–${shortTime(entry.end_time)} — `
+    + outsideHoursWarning({ booking_date: entry.booking_date, outside_hours: entry })
+}
+
 // S-75: right after Staff change a venue's setup/turnaround, the bookings
 // those times now make clash. Nothing has been changed or removed.
+// S-28 reopened: also the bookings its new opening hours no longer fit.
 function ClashList({ clashes, onDismiss }) {
-  const { venue, pairs } = clashes
+  const { venue, pairs, outsideHours = [] } = clashes
   return (
     <div className="rounded-sm px-4 py-3 mb-6 font-ui text-sm" style={{ backgroundColor: C.paperDim, color: C.ink }}>
+      {outsideHours.length > 0 && (
+        <div className="mb-3">
+          <p className="flex items-center gap-2 font-medium mb-1" style={{ color: C.rose }}>
+            <AlertTriangle size={16} aria-hidden="true" />
+            {outsideHours.length === 1 ? '1 booking' : `${outsideHours.length} bookings`} at {venue || 'this venue'} no longer fit the opening hours
+          </p>
+          <ul className="list-disc pl-5 space-y-0.5" aria-label="Bookings outside opening hours">
+            {outsideHours.map((entry) => <li key={entry.booking_id}>{outsideHoursLabel(entry)}</li>)}
+          </ul>
+        </div>
+      )}
       {pairs.length === 0 ? (
         <p>No bookings at {venue || 'this venue'} clash under the new setup and turnaround times.</p>
       ) : (
@@ -428,7 +454,9 @@ export default function VenueStaffDashboard({ role }) {
   // S-75: bookings the venue form's new setup/turnaround times make clash.
   // Kept until dismissed: Staff need them to rearrange the bookings.
   const [clashes, setClashes] = useState(
-    location.state?.clashes ? { venue: location.state.clashVenue, pairs: location.state.clashes } : null,
+    location.state?.clashes
+      ? { venue: location.state.clashVenue, pairs: location.state.clashes, outsideHours: location.state.outsideHours ?? [] }
+      : null,
   )
 
   useEffect(() => {

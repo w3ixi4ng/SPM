@@ -37,6 +37,7 @@ import {
 import {
   alternativeArrangementsNotice,
   bookingClashMessage,
+  outsideHoursWarning,
   bookingDateLabel,
   bookingStatusMeta,
   canRequestVenue,
@@ -754,6 +755,12 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
                     {booking.decision_alternative && <p className="whitespace-pre-wrap">Alternative: {booking.decision_alternative}</p>}
                     {booking.decided_at && <p>Decided {new Date(booking.decided_at).toLocaleString()}</p>}
                   </div>
+                )}
+                {outsideHoursWarning(booking) && (
+                  // S-28 reopened: the venue's hours changed; the booking is unchanged.
+                  <p role="alert" className="w-full font-ui text-sm" style={{ color: C.rose }}>
+                    {outsideHoursWarning(booking)}
+                  </p>
                 )}
                 {bookingClashMessage(booking) && (
                   // S-75: flagged for the assigned Coordinator; the booking itself is unchanged.

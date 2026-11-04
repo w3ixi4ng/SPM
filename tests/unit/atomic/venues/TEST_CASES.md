@@ -531,3 +531,60 @@ Two new venue fields, `setup_minutes` and `turnaround_minutes`: whole minutes,
 - **Actual:** List and single reads both carried 30/45.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_every_venue_read_includes_both_times`
+
+---
+
+## S-28 reopened — Venue Staff edit opening hours
+
+Found in UAT (manual check M2-01): S-28's criterion lists operating hours
+among the fields Venue Staff edit, but the first S-28 build kept them
+protected (TC-VENUES-032). Confirmed with the developer on 2026-11-04:
+opening hours become editable; room layouts and the name stay protected;
+existing bookings that fall outside new hours are kept and flagged, never
+removed (S-28 AC3). TC-VENUES-037–049 reserved.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: Venue Staff can edit an existing venue's … operating hours | TC-VENUES-037, 038, 105, TC-FRONTEND-410 to 412, TC-E2E-460 |
+| AC2: Saved edits are reflected immediately in the catalogue and any views referencing the venue | TC-E2E-460 |
+| AC3: Editing a venue does not remove or corrupt its existing booking history | TC-VENUEBOOKINGS-460 to 463, TC-FRONTEND-413, TC-E2E-460 |
+
+## TC-VENUES-037 — Venue Staff replace a venue's opening hours
+
+- **Scenario:** AC1.
+- **Pre-conditions:** Storage fake holds a venue open `mon`–`fri`
+  08:00–20:00. Venue Staff session.
+- **Steps:** `PATCH /venues/{id}` with only `operating_hours`.
+- **Test data:** `[{"day": "mon", "open": "10:00", "close": "16:00"},
+  {"day": "thu", "open": "08:00", "close": "20:00"}]`.
+- **Expected:** `200`; the update writes exactly
+  `{"operating_hours": [<those two>]}` (the whole week replaced: tue, wed and
+  fri are now closed) and nothing else. Another role gets `403`, no session
+  `401`.
+- **Actual:** `200`; update wrote only `operating_hours`, in week order; Coordinator and Attendee `403`; no session `401`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_update_hours.py::test_venue_staff_replace_a_venues_opening_hours, ::test_other_roles_cannot_change_hours, ::test_changing_hours_needs_a_session; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## TC-VENUES-038 — opening hours are checked as on create
+
+- **Pre-conditions:** Storage fake. Venue Staff session.
+- **Steps:** `PATCH /venues/{id}` with each `operating_hours` below.
+- **Test data:** `[]`; `null`; `[{"day": "mon", "open": "18:00", "close":
+  "09:00"}]`; two `mon` entries; `[{"day": "funday", "open": "09:00",
+  "close": "17:00"}]`.
+- **Expected:** `422` each time with the same messages `POST /venues` gives;
+  no update is written.
+- **Actual:** `422` for all five, no write.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_update_hours.py::test_opening_hours_are_checked_as_on_create; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## TC-VENUES-039 — the name and room layouts stay protected
+
+- **Pre-conditions:** As TC-VENUES-038.
+- **Steps:** `PATCH /venues/{id}` with `{"room_layouts": ["banquet"]}`, then
+  `{"name": "New name"}`.
+- **Expected:** `422` both times (extra fields forbidden, as TC-VENUES-032);
+  no update is written.
+- **Actual:** `422` for both, no write.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_update_hours.py::test_the_name_and_room_layouts_stay_protected; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`

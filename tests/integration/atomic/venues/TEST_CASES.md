@@ -101,3 +101,19 @@ the test project.
 - **Actual:** A venue inserted without the columns read as 0/0; PATCH stored 30/45; -5 was 422.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/venues/test_setup_turnaround.py::test_times_are_stored_default_to_zero_and_can_be_updated`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed across venues, bookings and venue_bookings integration.
+
+## TC-VENUES-105 — edited opening hours are stored and read back (S-28 reopened)
+
+- **Scenario:** AC1 against real storage.
+- **Pre-conditions:** `.env.test` stack started immediately before; the
+  `venues` schema applied, exposed and granted. Venue Staff S
+  (`spm-test-*`) and a venue V open `mon`–`fri` 08:00–20:00.
+- **Steps:** 1. As S, `PATCH /venues/V` with `operating_hours` `[{"day":
+  "thu", "open": "10:00", "close": "16:00"}]`. 2. `GET /venues/V`. 3. Delete
+  V and S.
+- **Expected:** 1 → `200`. 2 → `operating_hours` is exactly
+  `[{"day": "thu", "open": "10:00:00", "close": "16:00:00"}]`; every other
+  field unchanged. 3 leaves no rows.
+- **Actual:** `200`; read back exactly Thursday 10:00:00–16:00:00, every other field unchanged; rows deleted.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/venues/test_update_hours.py::test_edited_opening_hours_are_stored_and_read_back; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); venues integration suite: 5 passed

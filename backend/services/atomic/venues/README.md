@@ -8,7 +8,7 @@ another service's tables.
 | Method | Path | Permission | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/venues` | `venues:create` | Add a venue. |
-| `PATCH` | `/venues/{venue_id}` | `venues:update` | Update location, capacity, facilities or accessibility. |
+| `PATCH` | `/venues/{venue_id}` | `venues:update` | Update location, capacity, facilities, accessibility, setup and turnaround, or opening hours. |
 | `GET` | `/venues` | `venues:view` | List every venue, by name A–Z. |
 | `GET` | `/venues/options` | `venues:view` | The fixed facilities, accessibility, room layout and day sets. |
 | `GET` | `/venues/{venue_id}` | `venues:view` | Return one venue. |
@@ -225,9 +225,12 @@ At least one of these fields must be supplied:
 | `accessibility` | array of accessibility codes | Existing fixed set; duplicates removed; `[]` allowed |
 | `setup_minutes` | JSON integer | S-75: 0 or more; strings, fractions and null rejected |
 | `turnaround_minutes` | JSON integer | S-75: 0 or more; strings, fractions and null rejected |
+| `operating_hours` | array of `{day, open, close}` | S-28 reopened: the same rules as on create. Replaces the whole week -- a day left out is now closed. Stored in week order. |
 
 Omitted fields retain their saved values. Explicit nulls, empty bodies and all
-other fields (including name, hours, layouts, description and metadata) are 422.
+other fields (including name, layouts, description and metadata) are 422.
+Changing the hours never touches a booking: the venue_bookings service flags
+any held or confirmed booking they no longer fit (`outside_hours`).
 For example:
 
 ```json

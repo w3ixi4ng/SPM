@@ -65,6 +65,16 @@ class OpeningHours(BaseModel):
         return self
 
 
+def _week_in_order(value: list[OpeningHours]) -> list[OpeningHours]:
+    """One window per day, in week order."""
+    seen: set[str] = set()
+    for hours in value:
+        if hours.day in seen:
+            raise ValueError(f"{hours.day} is listed more than once")
+        seen.add(hours.day)
+    return sorted(value, key=lambda hours: DAYS.index(hours.day))
+
+
 class VenueCreate(BaseModel):
     # Unknown fields are dropped rather than rejected, so a client-supplied
     # created_by is simply ignored -- the service sets it from the session.
@@ -102,17 +112,13 @@ class VenueCreate(BaseModel):
     @field_validator("operating_hours")
     @classmethod
     def one_window_per_day(cls, value: list[OpeningHours]) -> list[OpeningHours]:
-        seen: set[str] = set()
-        for hours in value:
-            if hours.day in seen:
-                raise ValueError(f"{hours.day} is listed more than once")
-            seen.add(hours.day)
-        return sorted(value, key=lambda hours: DAYS.index(hours.day))
+        return _week_in_order(value)
 
 
 class VenueUpdate(BaseModel):
     """Only S-28 fields and S-75's times; omitted values are preserved,
-    explicit nulls refused."""
+    explicit nulls refused. Opening hours replace the whole week (S-28
+    reopened); the name and room layouts stay fixed."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -122,6 +128,7 @@ class VenueUpdate(BaseModel):
     accessibility: list[AccessibilityFeature] = Field(default=None)
     setup_minutes: int = Field(default=None, ge=0, strict=True)
     turnaround_minutes: int = Field(default=None, ge=0, strict=True)
+    operating_hours: list[OpeningHours] = Field(default=None, min_length=1)
 
     @field_validator("location", mode="before")
     @classmethod
@@ -132,6 +139,11 @@ class VenueUpdate(BaseModel):
     @classmethod
     def drop_duplicates(cls, value):
         return _unique_in_order(value)
+
+    @field_validator("operating_hours")
+    @classmethod
+    def one_window_per_day(cls, value):
+        return _week_in_order(value)
 
     @model_validator(mode="after")
     def require_changes(self):

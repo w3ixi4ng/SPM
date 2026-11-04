@@ -313,7 +313,8 @@ def test_blocks_need_a_filter(client, db):
     response = client.get('/blocks')
 
     assert response.status_code == 422
-    assert response.json() == {'detail': 'Filter by venue_id with from and to'}
+    # S-34: blocks no longer need a venue, but always a range.
+    assert response.json() == {'detail': 'Filter by from and to'}
     db.schema.assert_not_called()
 
 

@@ -49,3 +49,24 @@ def entries(bookings: list[dict], blocks: list[dict], *, staff: bool) -> list[di
     found = [_booking_entry(booking) for booking in bookings if booking["status"] in STATES]
     found += [_block_entry(block, staff) for block in blocks]
     return sorted(found, key=lambda entry: (entry["start_date"], entry["start_time"] or ""))
+
+
+def occupied(bookings: list[dict], blocks: list[dict]) -> list[dict]:
+    """S-34: what occupies each venue on a date, for the browser's venue
+    filter. Times only -- no event, coordinator, id, reason or note, so a
+    Coordinator learns nothing about another event."""
+    found = [
+        {"venue_id": booking["venue_id"], **_booking_entry(booking)}
+        for booking in bookings if booking["status"] in STATES
+    ]
+    found += [
+        {
+            "venue_id": block["venue_id"], "state": "blocked",
+            "start_date": block["start_date"], "end_date": block["end_date"],
+            "start_time": block["start_time"], "end_time": block["end_time"],
+        }
+        for block in blocks
+    ]
+    for entry in found:
+        entry.pop("expires_at", None)
+    return sorted(found, key=lambda e: (str(e["venue_id"]), e["start_date"], e["start_time"] or ""))
