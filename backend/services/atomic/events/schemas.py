@@ -597,6 +597,26 @@ def _required_text(value):
     return value
 
 
+class VenueReplanningCreate(BaseModel):
+    """S-78 revision: the venue_bookings composite, about to approve a
+    replacement booking, names who is approving it and which venues it swaps
+    so the history can say so."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: UUID
+    booking_id: UUID
+    venue_name: str = Field(min_length=1, max_length=200)
+    replaced_venue_name: str = Field(min_length=1, max_length=200)
+
+
+class VenueReplanningRead(BaseModel):
+    """Whether this call moved the event, and the status it is in now."""
+
+    replanned: bool
+    status: str
+
+
 class VenueCancellationCreate(BaseModel):
     """S-89: what the Coordinator records when cancelling an event no
     alternative venue could be found for. Who and when are set by the
@@ -893,6 +913,8 @@ EVENT_HISTORY_ACTIONS: dict[str, str] = {
     "safety_approved": "safety",
     "safety_changes_requested": "safety",
     "safety_rejected": "safety",
+    # S-78 revision: a replacement venue sent the event back to planning.
+    "venue_replanned": "venue",
 }
 COMPOSITE_HISTORY_ACTIONS: dict[str, str] = {
     "venue_requested": "venue",

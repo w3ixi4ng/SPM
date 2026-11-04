@@ -18,6 +18,15 @@ INTERNAL_READ_TIMEOUT = httpx.Timeout(
 )
 
 
+def assignment_service_headers() -> dict[str, str]:
+    """S-78 revision: the server-owned credential for the events service's
+    internal replanning route, never copied from an incoming browser request."""
+    secret = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    if not secret:
+        raise RuntimeError("Assignment service is not configured")
+    return {"X-Assignment-Service-Token": secret}
+
+
 def get_users_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=USERS_URL, timeout=INTERNAL_READ_TIMEOUT)
 

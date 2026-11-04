@@ -104,6 +104,8 @@ const SENTENCES = {
   venue_restore_requested: (d) => `Asked to keep ${d.venue_name} instead of ${d.replacement_venue_name}`,
   venue_restore_confirmed: (d) => `Restored ${d.venue_name}${d.replacement_venue_name ? ` and withdrew ${d.replacement_venue_name}` : ''}`,
   venue_restore_declined: (d) => `Declined restoring ${d.venue_name}`,
+  // S-78 revision: an approved replacement sent the event back to planning.
+  venue_replanned: (d) => `Returned to planning: ${d.venue_name} replaced ${d.replaced_venue_name}. A fresh Operational Safety Check is needed.`,
   venue_held: (d) => `Held ${d.venue_name}`,
   venue_released: (d) => `Released the hold on ${d.venue_name}`,
   venue_confirmed: (d) => `Confirmed ${d.venue_name}`,

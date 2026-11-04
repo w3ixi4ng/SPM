@@ -68,6 +68,7 @@ because service ports are published for direct testing. See
 | `POST` | `/internal/events/safety-review/{event_id}/decision` | Atomically record the first safety decision and lifecycle outcome. |
 | `GET` | `/internal/events/{event_id}/safety-return?coordinator_id=…` | S-87: return a planning event's preserved safety feedback only when the supplied Coordinator is its current assignee. |
 | `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review (to `pending_safety_check`). |
+| `POST` | `/internal/events/{event_id}/venue-replanning` | S-78 revision, service token: return a `confirmed` or `pending_safety_check` event to `planning` because a replacement venue is being approved. See [Replanning after a venue replacement](#replanning-after-a-venue-replacement-s-78-revision). |
 | `POST` | `/internal/events/{event_id}/safety-submission` | S-17: move the Coordinator's planning event to `pending_safety_check`. See [Safety-check submission](#safety-check-submission-and-sign-off-s-17). |
 | `GET` | `/internal/events/{event_id}/unresolved-change-impacts` | Return Events-owned unresolved S-59 and S-18 impacts for safety readiness. |
 | `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
@@ -665,6 +666,31 @@ New `EventRead` fields, all null unless S-89 cancelled the event:
 `venue_cancellation_booking_ids`, `venue_cancelled_by`, `venue_cancelled_at`,
 `venue_cancellation_previous_status`, `venue_cancellation_completed_at`. Run the `BEGIN S-89` block of
 [`backend/sql/events.sql`](../../../sql/events.sql) in both dev and test.
+
+## Replanning after a venue replacement (S-78 revision)
+
+A replacement venue is not what the event's Operational Safety Check
+covered, so the venue_bookings composite calls this before it records Venue
+Staff's approval of a replacement booking. No SQL change.
+
+**`POST /internal/events/{event_id}/venue-replanning`** -- header
+`X-Assignment-Service-Token`. Body, all required, any other field `422`:
+
+```json
+{"actor_id": "<venue staff id>", "booking_id": "<replacement id>", "venue_name": "Hall W", "replaced_venue_name": "Hall V"}
+```
+
+- `confirmed` or `pending_safety_check` → `200 {"replanned": true, "status": "planning"}`.
+  The event is set to `planning` with `safety_recheck_required` true and the
+  safety decision, reason, officer and time cleared -- the same reset as an
+  S-60 significant edit. One `venue_replanned` history entry (category
+  `venue`, actor `venue_staff`) records the two venue names, the booking and
+  `previous_status`.
+- Any other status → `200 {"replanned": false, "status": "<current>"}`;
+  nothing written. So is a repeat call, or one that loses a race with
+  another change.
+- `403` `Trusted assignment service required` without the token; `404`
+  `Event not found`.
 
 ## Internal routes (composite-only)
 

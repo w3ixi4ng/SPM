@@ -56,6 +56,8 @@ test('each action reads as a plain sentence', () => {
     'venue_alternative_resolved', 'venue_held', 'venue_released', 'venue_confirmed', 'venue_rejected',
     // S-90
     'venue_restore_requested', 'venue_restore_confirmed', 'venue_restore_declined',
+    // S-78 revision
+    'venue_replanned',
     'equipment_requirement_set', 'equipment_requirement_removed',
   ]
   assert.deepEqual([...recorded].sort(), [...HISTORY_ACTIONS].sort())
@@ -76,6 +78,18 @@ test('an edit lists each changed field', () => {
       'Accessibility: Lift → Lift, Hearing loop',
       'Start date: 18 Nov 2026 → 19 Nov 2026',
     ],
+  )
+})
+
+// TC-FRONTEND-414
+test('a return to planning after a venue replacement reads as a sentence', () => {
+  assert.equal(
+    describeEntry({
+      category: 'venue',
+      action: 'venue_replanned',
+      details: { venue_name: 'Hall W', replaced_venue_name: 'Hall V', previous_status: 'confirmed' },
+    }, {}),
+    'Returned to planning: Hall W replaced Hall V. A fresh Operational Safety Check is needed.',
   )
 })
 

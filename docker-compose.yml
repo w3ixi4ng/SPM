@@ -277,6 +277,8 @@ services:
       VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
       NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
+      # S-78 revision: approving a replacement returns the event to planning.
+      ASSIGNMENT_SERVICE_SECRET: ${ASSIGNMENT_SERVICE_SECRET:-}
     depends_on:
       users:
         condition: service_healthy
