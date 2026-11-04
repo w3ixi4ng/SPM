@@ -315,18 +315,27 @@ export function getAssignedEventRequest(id) {
 }
 
 export function previewAssignedEventInformation(id, form, event) {
-  return requestJSON(`/events/assigned/${encodeURIComponent(id)}/edit-impact`, {
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/information/impact`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(eventInformationPayload(form, event)),
   })
 }
 
-export function updateAssignedEventInformation(id, form, event, impactAccepted = false) {
-  return requestJSON(`/events/assigned/${encodeURIComponent(id)}`, {
+export function updateAssignedEventInformation(id, form, event, impactAccepted = false, impactIds = []) {
+  const edit = eventInformationPayload(form, event, { impactAccepted })
+  return requestJSON(impactAccepted
+    ? `/event-requests/${encodeURIComponent(id)}/information/significant`
+    : `/event-requests/${encodeURIComponent(id)}/information`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(eventInformationPayload(form, event, { impactAccepted })),
+    body: JSON.stringify(impactAccepted ? { edit, impact_ids: impactIds } : edit),
+  })
+}
+
+export function resolveAssignedEditImpact(id, impactId, body) {
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/information/impacts/${encodeURIComponent(impactId)}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
 }
 
@@ -358,14 +367,12 @@ export function submitEventDraft(id, form) {
   return write(`/event-requests/${encodeURIComponent(id)}/submit`, 'POST', form)
 }
 
-// Coordinator-facing: record a decision on an assigned, submitted request.
-// Straight to the events service -- unlike submit/update, a decision never
-// touches assignment, so there is nothing for the composite to orchestrate.
+// S-63: the composite records the decision, then notifies its Organiser.
 export function decideEventRequest(id, { decision, reason, comment }) {
   const body = { decision }
   if (reason) body.reason = reason
   if (comment) body.comment = comment
-  return requestJSON(`/events/${encodeURIComponent(id)}/decision`, {
+  return requestJSON(`/event-requests/${encodeURIComponent(id)}/decision`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

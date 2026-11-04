@@ -41,6 +41,15 @@ Event Coordinators.
 | `POST` | `/event-requests` | Event Organiser | Creates a submitted, unassigned request. |
 | `POST` | `/event-requests/{event_id}/submit` | Event Organiser | Submits a draft unassigned, or resubmits a returned request while preserving its assignment. |
 | `PATCH` | `/event-requests/{event_id}` | Event Organiser | Updates an owned request without automatic assignment or reassignment. |
+| `GET` | `/event-requests/{event_id}/change-requests` | Owning Organiser or assigned Coordinator | Returns accepted event data, request history, current Equipment requirements and selectable items for the Organiser. |
+| `POST` | `/event-requests/{event_id}/change-requests` | Owning Event Organiser | S-59: submits a pending comparison without changing accepted arrangements. |
+| `GET` | `/event-requests/{event_id}/change-requests/{request_id}/review` | Assigned Event Coordinator | S-60: live impact assessment and accepted/proposed comparison. |
+| `POST` | `/event-requests/{event_id}/change-requests/{request_id}/accept` | Assigned Event Coordinator | Acknowledge exact impact IDs and apply values through the owning services. |
+| `POST` | `/event-requests/{event_id}/change-requests/{request_id}/reject` | Assigned Event Coordinator | Reject a pending request with a nonblank reason. |
+| `POST` | `/event-requests/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve` | Assigned Event Coordinator | Record owner-backed venue or Technical Support/Equipment evidence. |
+| `POST` | `/event-requests/{event_id}/information/impact` | Assigned Event Coordinator | S-18 significant-edit impact preview. |
+| `PATCH` | `/event-requests/{event_id}/information/significant` | Assigned Event Coordinator | Save an acknowledged significant S-18 edit through Events. |
+| `POST` | `/event-requests/{event_id}/information/impacts/{impact_id}/resolve` | Assigned Event Coordinator | Resolve a significant S-18 edit impact. |
 | `GET` | `/event-requests/unassigned` | Event Coordinator Lead | Lists submitted requests whose `assigned_coordinator_id` is null, oldest submission first, including organiser details. |
 | `GET` | `/event-requests/coordinators` | Event Coordinator Lead | Lists trusted, active Event Coordinator accounts available for manual selection. |
 | `GET` | `/event-requests/coordinators/{coordinator_id}/active-events` | Event Coordinator Lead | Returns limited active-event summaries for the selected Coordinator across Leads, with scope and warning indicators. |
@@ -53,10 +62,84 @@ Event Coordinators.
 | `POST` | `/event-requests/{event_id}/reassignment` | Responsible Event Coordinator Lead | Transfers an active event to another Coordinator and creates three notifications. |
 | `GET` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Reads the event's Technical Support state. |
 | `POST` | `/event-requests/{event_id}/technical-support-assignment` | Assigned Event Coordinator | Requests and automatically allocates Technical Support when possible. |
-| `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. |
+| `POST` | `/event-requests/{event_id}/decision` | Assigned Event Coordinator | Approve, reject or return the request and notify its Organiser of the outcome and any required action. |
+| `PATCH` | `/event-requests/{event_id}/information` | Assigned Event Coordinator | Save S-18 event information; a schedule change also notifies the Organiser that the event was rescheduled or postponed. |
+| `POST` | `/event-requests/{event_id}/cancellation-decision` | Assigned Event Coordinator | S-61: approve (cancel the event and release its venue bookings) or decline an Organiser's cancellation request. S-69: approving notifies every Attendee registered or waiting. |
+| `POST` | `/event-requests/{event_id}/venue-cancellation` | Assigned Event Coordinator | S-89: cancel an event venue unavailability affects when no alternative venue was found. Releases every booking and hold, notifies the Organiser and Attendees. Repeat to finish an interrupted cancellation. |
+| `GET` | `/event-requests/{event_id}/history` | Assigned Event Coordinator, or any Event Coordinator Lead | S-82: who changed or decided what on the event, and when, with names. |
 | `GET` | `/health` | Infrastructure | Liveness check. |
 
 `GET /event-requests/health` is the gateway-compatible health alias.
+
+### S-59 proposal contract
+
+`POST /event-requests/{event_id}/change-requests` takes `values` with all
+current/proposed date and time fields (`start_date`, `start_time`, `end_date`,
+`end_time`), `expected_attendance`, nullable `venue`,
+`special_requirements`, `room_layout`, `required_facilities` and
+`required_accessibility`; `equipment` is an array of
+`{equipment_item_id, required_quantity}`. The composite reads accepted
+Equipment requirements over HTTP, validates changed items against the active
+catalogue, and sends both snapshots to the Events owner through a trusted
+service request. It does not write Equipment. `201` returns the saved pending
+request; `401` requires sign-in, `403` requires the Organiser role, `404`
+means the event is not owned, `409` means ineligible/stale/duplicate, `422`
+means invalid or unchanged data, and `502` means a dependency failed.
+
+The GET response is `{event, requests, equipment, equipment_options}`; only
+the current assigned Coordinator or owning Organiser can read it. The
+submitted state may be unassigned; the request stays pending and becomes
+visible to the Coordinator after S-83 assignment. S-60 owns any later impact
+review or acceptance.
+
+### S-60 impact review and decisions
+
+`GET /event-requests/{event_id}/change-requests/{request_id}/review` returns
+`{event, request, impacts, equipment, bookings}`. Pending proposals are
+assessed against current booking, venue, Equipment and Technical Support data;
+an `applying` or terminal request returns its recorded impacts. Each impact
+has an `id`, `kind`, `arrangement_id`, `reason`, `required_action` and `status`.
+The review does not change accepted values or owner records.
+
+Acceptance requires the Coordinator to acknowledge the exact reviewed impact
+IDs and event timestamp:
+
+```json
+{"expected_event_updated_at":"2026-10-30T09:00:00Z","impact_ids":["venue_booking:55555555-5555-4555-8555-555555555555:capacity"]}
+```
+
+`POST .../accept` returns the accepted request (`status: "accepted"`) only
+after the Events operation and any Equipment batch finish. A retry may include
+the returned `operation_id`. Equipment owns a versioned, idempotent batch;
+Events owns the durable `applying` request and final event/lifecycle update.
+If an owner call is incomplete, the API returns `502` and the recorded
+operation can be retried. A stale review or concurrent decision returns `409`.
+Existing bookings and sign-offs remain in their owning services; outstanding
+impacts block renewed safety submission until explicit re-review.
+
+There is no distributed transaction across Events, Equipment, Bookings and
+Venues. Booking or staff state can change after an impact preview; acceptance
+therefore retains outstanding flags and never treats a prior approval as
+clearance. Resolution checks current owner data again. An unreconciled
+Events/Equipment operation stays `applying` and returns a controlled error
+until the same operation can be retried or administratively reconciled.
+
+`POST .../reject` takes `{"reason":"Venue cannot support the revision"}`.
+It returns the rejected request and keeps accepted event data unchanged.
+`POST .../impacts/{impact_id}/resolve` takes
+`{"expected_impact_version":1,"action":"Confirmed replacement booking reviewed","evidence":{"booking_id":"..."}}`.
+The composite checks the current booking or fresh Technical Support sign-off
+through the owner APIs before Events records the action, actor and time.
+An old Venue Staff or Technical Support approval alone cannot clear a flag.
+
+For S-18, `POST .../information/impact` takes the ordinary assigned edit body
+and returns the Events preview plus `impacts`. `PATCH .../information/significant` takes
+`{"edit":{...},"impact_ids":[...]}` for a significant edit; routine edits
+use `PATCH .../information`. `POST .../information/impacts/{impact_id}/resolve`
+uses the same impact-resolution body and owner-backed checks.
+All S-60 routes require a signed-in current Coordinator; unrelated callers
+receive `403` or scoped `404`. Invalid bodies receive `422`; unavailable
+owner services receive `502`.
 
 ## Event submission and editing
 
@@ -313,6 +396,31 @@ the least-loaded conflict-free trusted Technical Support account, breaking
 ties by ascending UUID. If none is available, it persists the requirement
 with no assignee and returns `assignment_state: "unassigned"`.
 
+## Organiser decision and schedule notifications (S-63)
+
+`POST /event-requests/{event_id}/decision` accepts the S-14 decision body:
+
+```json
+{"decision": "returned", "reason": "Add the evacuation plan", "comment": "Upload the signed copy"}
+```
+
+After Events atomically accepts the decision, the owning Organiser receives
+one idempotent `event_request_decision` notification. Rejection and return
+messages include the saved reason; a returned request also identifies that
+the Organiser must update and resubmit it. Validation, authorization, missing,
+and stale-decision responses from Events pass through unchanged. A failed
+notification write returns `502`; retrying is safe because its key includes
+the saved decision timestamp and recipient.
+
+`PATCH /event-requests/{event_id}/information` accepts the same S-18 body as
+Events, including required `expected_version`. Routine edits are saved without
+a notification. A significant edit must use the impact preview and
+`PATCH .../information/significant`. If the start or end date/time changes, the Organiser receives
+one `event_schedule_changed` notification showing the previous and new window.
+A later start is labelled postponed; every other schedule change is labelled
+rescheduled. Its key uses the saved event edit version, so a stale retry cannot
+create a duplicate.
+
 ## Cancellation decision (S-61)
 
 **`POST /event-requests/{event_id}/cancellation-decision`**, through Kong at
@@ -338,17 +446,163 @@ is passed on unchanged.
 - **Approved:** the event becomes `cancelled`, and then every venue booking
   for it is deleted through the bookings service, so its times show as
   available. Equipment needs no call, because only `planning` and `confirmed`
-  events reserve it. The response is `200` with the event plus
-  `released_bookings`:
+  events reserve it. S-69: then every Attendee holding a place or on the
+  waiting list (an offered place included) gets one in-app `event_cancelled`
+  notification, read from the registrations service and sent to the
+  notifications service in batches of 20. S-63 also sends the owning
+  Organiser one notification with the same event identity and cancellation
+  outcome:
+
+  ```text
+  Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.
+  ```
+
+  An event ending on a later day reads `20 Nov 2026, 6:00 pm – 21 Nov 2026,
+  12:30 am`. No reason is included. Each is deduplicated on
+  `event_cancelled:{event id}:{attendee id}`, so approving again never
+  notifies anyone twice. The response is `200` with the event plus
+  `released_bookings`, `notified_attendees`, and `organiser_notified`:
 
 ```json
-{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2}
+{"id": "33333333-…", "status": "cancelled", "cancellation_decision": "approved", "released_bookings": 2, "notified_attendees": 4, "organiser_notified": true}
 ```
 
 | Status | Detail | Meaning |
 | --- | --- | --- |
 | `502` | `The events service is unavailable. Nothing was changed.` | No decision was recorded. |
 | `502` | `The event is cancelled, but its venue bookings were not released. Approve again to release them.` | Approving again is safe. The event is not written a second time, and the bookings are removed. |
+| `502` | `The event is cancelled, but its attendees were not notified. Approve again to notify them.` | S-69: the registrations or notifications service failed. Approving again sends the notifications; anyone already notified is not notified twice. |
+
+## Cancelling without an alternative venue (S-89)
+
+**`POST /event-requests/{event_id}/venue-cancellation`**, through Kong at
+`/api/event-requests/{event_id}/venue-cancellation`. Event Coordinator
+session; only the event's currently assigned Coordinator.
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Why the event is cancelled. Trimmed, 1–1000 characters. Shown to the Organiser. |
+| `alternatives_considered` | string | yes | What was discussed with the Organiser and why it did not work. Trimmed, 1–1000 characters. |
+| `expected_version` | integer ≥ 0 | yes | The event's `edit_version` the Coordinator's screen showed. |
+
+```json
+{"reason": "Hall A is closed for structural repairs on the event date", "alternatives_considered": "Discussed Hall B and Seminar Room 3 with the Organiser on 30 Oct; neither fits 180 guests", "expected_version": 7}
+```
+
+Nothing cancels an event automatically: marking a venue unavailable (S-77)
+only flags bookings. This route is the Coordinator's decision, in order:
+
+1. **Affected?** `GET /venue-bookings?event_id=` on the `venue_bookings`
+   composite, with the Coordinator's own cookies. At least one booking must
+   come back with `requires_alternative_arrangements: true` -- S-77's flag,
+   worked out by the composite that owns the rule (an unavailable period over
+   the window a held or confirmed booking occupies, setup and turnaround
+   included, from today on, minus periods the Coordinator already resolved).
+   Any failed read is a `502` and nothing changes.
+2. **Close the bookings.** `POST /internal/events/{id}/bookings/closure` on
+   the bookings service, with a fresh `operation_id`. From here no booking of
+   the event can become pending, held or confirmed, by any route.
+3. **Cancel.** The events service records the cancellation with a guarded
+   write: assigned Coordinator, `expected_version`, a status whose venues may
+   still change, and no Organiser request (S-62) waiting for a decision.
+   - A definite refusal or error answer: the closure is withdrawn
+     (`.../closure/reopen` with the same `operation_id`) and the answer
+     passed on. Another attempt's closure is never withdrawn.
+   - No answer at all: the event is re-read. Cancelled after all -- carry
+     on. Otherwise the closure is **kept** (the write might still land) and
+     the answer is `502`; a later attempt finishes it or, once the closure
+     is two minutes old, withdraws it.
+4. **History.** `POST /internal/events/{id}/venue-cancellation/history`
+   writes the S-82 entry from the stored record. Retried until it succeeds;
+   never written twice.
+5. **Release.** The bookings service moves every `pending`, `held` and
+   `confirmed` booking to `released` -- kept, not deleted -- and closes the
+   event for good. The composite re-reads, and releases once more if
+   anything is still active. Equipment needs no call: requirements reserve
+   stock only while the event's status is committed (S-44), so `cancelled`
+   releases them; the rows stay.
+6. **Notify.** The Organiser gets one `event_cancelled` notification with the
+   reason:
+
+   ```text
+   Event cancelled: Alumni networking evening, 20 Nov 2026, 9:00 am – 9:00 pm. Your Event Coordinator cancelled it because no alternative venue could be found. Reason: Hall A is closed for structural repairs on the event date
+   ```
+
+   Every Attendee holding a place or waiting gets S-69's notification,
+   unchanged. All are deduplicated on `event_cancelled:{event id}:{recipient id}`.
+7. **Complete.** The events service sets `venue_cancellation_completed_at`
+   (it refuses while the history entry is missing).
+
+`200` only once all seven are done:
+
+```json
+{"id": "33333333-…", "status": "cancelled", "venue_cancellation_reason": "Hall A is closed…", "venue_cancellation_completed_at": "2026-11-01T03:01:00Z", "released_bookings": 4, "organiser_notified": true, "notified_attendees": 3, "cancellation_completed": true}
+```
+
+**Finishing an interrupted cancellation.** After step 3 the event is
+`cancelled` even if a later step fails. Calling again resumes it: steps 1–3
+are skipped for an event this route already cancelled (its bookings are
+already closed, and released ones no longer carry the flag), and nothing
+already done is repeated -- no second history entry, no second notification. The Coordinator's page offers **Finish
+cancellation** while `venue_cancellation_completed_at` is null.
+
+| Status | Detail | Meaning |
+| --- | --- | --- |
+| `401` / `403` | | Not signed in / not an Event Coordinator. |
+| `404` | `Event not found or not assigned to you` | Not this Coordinator's event. |
+| `409` | `None of this event's venue bookings is affected by an unavailable venue, so it can't be cancelled here.` | Use the Organiser's request (S-62/S-61). |
+| `409` | `This event is already cancelled.` | Cancelled another way (S-61). |
+| `409` | `This event can't be cancelled from its current status.` | Not planning, pending safety check, confirmed, preparation or safety changes requested. |
+| `409` | `The Organiser has asked to cancel this event. Approve their request instead.` | S-62 request waiting. |
+| `409` | `This event changed since you opened it. Reload and try again.` | Stale `expected_version`, or another write won. |
+| `422` | `Please check the details you entered` | Blank or over-long field, with `errors`. |
+| `502` | `Venue bookings service unavailable` / `Events service unavailable` | A read failed; nothing changed. |
+| `502` | `The event could not be cancelled. Nothing was changed. Try again.` | The closure or the events write failed; the closure was withdrawn. |
+| `502` | `The event was not cancelled, but its venue bookings could not be unlocked. Try again.` | Refused, but withdrawing the closure failed. |
+| `502` | `We couldn't confirm whether the event was cancelled, so its venue bookings stay locked for now. …` | No answer from the events service; the closure is kept until the outcome is known. |
+| `502` | `The event is cancelled, but the cancellation was not recorded in its history. Cancel again to finish.` | |
+| `502` | `The event is cancelled, but its venue bookings were not released. Cancel again to finish.` | |
+| `502` | `The event is cancelled and its venue bookings released, but the Organiser was not notified. Cancel again to finish.` | |
+| `502` | `The event is cancelled, but its attendees were not notified. Cancel again to notify them.` | |
+| `502` | `Everyone was notified, but the cancellation could not be marked complete. Cancel again to finish.` | |
+
+**Known inconsistency (follow-up).** S-61's approval still *deletes* a
+cancelled event's bookings; S-89 releases them and keeps the rows. S-61 was
+deliberately left unchanged here.
+
+## Change history (S-82)
+
+`GET /event-requests/{event_id}/history`, no body. Readable by the event's
+currently assigned Coordinator and by any Lead. A Coordinator who is not
+assigned, including one reassigned away, gets `404` "Event not found", the same as a
+missing event. The entries are the events service's
+(see its [Change history](../../atomic/events/README.md#change-history-s-82)),
+newest first, with each actor's name from the users service:
+
+```json
+{
+  "event_id": "11111111-…",
+  "event_name": "Autumn Forum",
+  "entries": [
+    {"id": 3, "occurred_at": "2026-10-03T01:00:00Z", "category": "assignment",
+     "action": "coordinator_reassigned",
+     "details": {"from_coordinator_id": "aaaaaaaa-…", "to_coordinator_id": "bbbbbbbb-…"},
+     "actor": {"id": "dddddddd-…", "name": "Lee Lead", "role": "event_coordinator_lead"}}
+  ],
+  "people": {"aaaaaaaa-…": "Alex Coordinator", "bbbbbbbb-…": "Blair Coordinator"}
+}
+```
+
+`people` names every user id an entry's `details` mentions. A name no longer
+on file is `null`, and a backfilled entry whose actor was never recorded has
+`"actor": null`.
+
+| Status | When |
+| --- | --- |
+| `401` | No session. |
+| `403` | Any role but Event Coordinator or Event Coordinator Lead. |
+| `404` | No such event, or the Coordinator is not assigned to it. |
+| `502` | Events or Users did not answer: "Events service unavailable" / "Users service unavailable". |
 
 ## Errors
 
@@ -369,6 +623,8 @@ is passed on unchanged.
 | `EVENTS_SERVICE_URL` | Events service, e.g. `http://events:8002`. |
 | `NOTIFICATIONS_SERVICE_URL` | Notifications service, e.g. `http://notifications:8006`. |
 | `BOOKINGS_SERVICE_URL` | S-61: bookings service, e.g. `http://bookings:8004`. |
+| `REGISTRATIONS_SERVICE_URL` | S-69: registrations service, e.g. `http://registrations:8007`. |
+| `VENUE_BOOKINGS_SERVICE_URL` | S-89: the `venue_bookings` composite, for S-77's affected-booking flag, e.g. `http://venue_bookings:8101` (the compose default). |
 | `ASSIGNMENT_SERVICE_SECRET` | Independent random service credential shared only with Events for S-83/S-84 writes. |
 
 ## Running and tests
@@ -388,8 +644,10 @@ Unit tests replace all outbound clients:
 pytest tests/unit/composite/event_requests
 ```
 
-Integration tests require the whole stack and the events, users, and
-notifications schemas applied, granted, and exposed in the test project:
+Integration tests require the whole stack and the events, users, equipment,
+and notifications schemas applied, granted, and exposed in the test project.
+S-59 additionally requires the `BEGIN S-59 EVENT CHANGE REQUESTS` block of
+`backend/sql/events.sql` in both DEV and TEST:
 
 ```bash
 docker compose --env-file .env.test down -v

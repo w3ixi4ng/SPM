@@ -2886,3 +2886,750 @@ a terminal exclusion for any future lifecycle addition.
 - **Actual:** Missing and forged service credentials were denied; older internal create, submit and patch paths could not change Coordinator ownership. Expanded open states transferred with version checks, while stale and unrelated-Lead operations stayed blocked.
 - **Status:** Pass
 - **Evidence:** test_s93.py::test_direct_assignment_writes_require_service_credential; test_s93.py::test_older_internal_routes_cannot_change_coordinator_assignment; test_s93.py::test_reassignment_accepts_open_lifecycle_with_version_guard; test_s84.py::test_internal_reassignment_rejects_stale_or_same_owner_requests
+
+## S-56 — View Confirmed Event Details
+
+Developer decisions (2026-10-27): an event's date, time and venue are shown
+to its Attendees only while it is `confirmed`. An event a significant S-18
+change sent back for re-checking (`planning`, `pending_safety_check`, `safety_changes_requested`)
+stays on its Attendees' list as "Details to be confirmed". The composite reads
+that through a separate internal route that also says the status, so the
+public routes still show only confirmed events.
+
+## TC-EVENTS-187 — the Attendee read says whether the details are confirmed
+
+- **Scenario:** The composite can tell a settled event from one being re-checked, without seeing internal planning fields (S-56 AC2, AC4, AC5).
+- **Pre-conditions:** The fake returns event C as each status in the table.
+- **Steps:** `GET /internal/events/attendee-view/C`.
+- **Test data / Expected:**
+  | Status | Result |
+  | --- | --- |
+  | `confirmed`, `planning`, `pending_safety_check`, `safety_changes_requested` | `200` with the published fields plus `"status"` |
+  | `draft`, `submitted`, `under_review`, `preparation`, `rejected`, `returned`, `safety_rejected`, `cancelled` | `404` "Event not found." |
+  | No such event | `404` "Event not found." |
+
+  The `200` body has the same keys as `/internal/events/published/C`, plus
+  `status`. It has no `organiser_id`, `assigned_coordinator_id`,
+  `safety_decision_reason`, `edit_history` or other internal columns.
+- **Actual:** `planning` row → `200` with the published keys plus `status`; select lists exactly those columns, no internal ones; filtered on `id` and `status in` the four statuses. No row → `404` "Event not found.".
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s56.py::test_the_attendee_read_says_whether_the_details_are_confirmed, ::test_an_event_attendees_may_not_see_is_not_found; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. The events service keeps an append-only `events.event_history`
+table, one row per significant action:
+`{id, event_id, actor_id, actor_role, category, action, details, occurred_at}`.
+`occurred_at` is server time. Actions the events service carries out itself
+are recorded by the events service. Venue and equipment actions are sent by
+their composites to `POST /internal/events/{event_id}/history`.
+
+**Shared test data.**
+
+```
+event E            11111111-1111-4111-8111-111111111111
+Organiser O        22222222-2222-4222-8222-222222222222
+Coordinator C      aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+Coordinator C2     bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
+Lead L             dddddddd-dddd-4ddd-8ddd-dddddddddddd
+Safety Officer S   55555555-5555-4555-8555-555555555555
+Tech Support T     66666666-6666-4666-8666-666666666666
+```
+
+The Supabase fake records every `insert` made on `event_history`.
+
+## TC-EVENTS-188 — a submission is recorded
+
+- **Scenario:** Submitting an event request records who submitted it and when (S-82 AC1).
+- **Pre-conditions:** Supabase fake: the event insert/update returns E owned by O with status `submitted`.
+- **Steps:**
+  1. `POST /events/internal` with a valid submitted body for O.
+  2. `POST /events/E/submit/internal` for O on a `draft` E.
+  3. `POST /events/E/submit/internal` for O on a `returned` E.
+- **Test data:** O and E as above.
+- **Expected:** Each step returns its usual status and inserts exactly one `event_history` row: `{event_id: E, actor_id: O, actor_role: "event_organiser", category: "submission", action: "submitted"}`. `details` is `{}` for steps 1 and 2 and `{"resubmission": true}` for step 3. No `occurred_at` is sent; the database sets it.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_submission_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-189 — a Coordinator's review decision is recorded
+
+- **Scenario:** Approving, rejecting and returning a request are recorded with the reason (S-82 AC1).
+- **Pre-conditions:** E is `submitted`, assigned to C; the decision update succeeds.
+- **Steps:** As C, `POST /events/E/decision` with each body in Test data.
+- **Test data:**
+  | Body | `action` | `details` |
+  | --- | --- | --- |
+  | `{"decision": "approved"}` | `request_approved` | `{"reason": null, "comment": null}` |
+  | `{"decision": "rejected", "reason": "Clashes with exams"}` | `request_rejected` | `{"reason": "Clashes with exams", "comment": null}` |
+  | `{"decision": "returned", "reason": "Add a contact", "comment": "A phone number is enough"}` | `request_returned` | `{"reason": "Add a contact", "comment": "A phone number is enough"}` |
+
+  (S-14 accepts a comment only with a return; the confirmed case had one on the approval, which the service refuses.)
+- **Expected:** `200` each time, and one row per decision with `actor_id: C`, `actor_role: "event_coordinator"`, `category: "review"`, and the `action` and `details` in the table.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_review_decision_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-190 — a cancellation request and its decision are recorded
+
+- **Scenario:** The Organiser's cancellation request and the Coordinator's decision on it are both recorded (S-82 AC1).
+- **Pre-conditions:** E is `planning`, owned by O, assigned to C.
+- **Steps:**
+  1. As O, `POST /events/E/cancellation-request` with `{"reason": "Speaker withdrew"}`.
+  2. As C, `POST /events/E/cancellation-decision` with `{"decision": "declined", "reason": "Replacement speaker found"}`.
+  3. Repeat 2 with `{"decision": "approved"}` on a fresh E.
+- **Test data:** As above.
+- **Expected:**
+  1 → one row `{actor_id: O, actor_role: "event_organiser", category: "review", action: "cancellation_requested", details: {"reason": "Speaker withdrew"}}`.
+  2 → one row `{actor_id: C, actor_role: "event_coordinator", category: "review", action: "cancellation_declined", details: {"reason": "Replacement speaker found"}}`.
+  3 → `action: "cancellation_approved"`, `details: {"reason": null}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_cancellation_request_and_decision_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-191 — a Lead's assignment is recorded once
+
+- **Scenario:** Assigning a Coordinator is recorded; the idempotent repeat is not recorded again (S-82 AC1).
+- **Pre-conditions:** E is `submitted` with no Coordinator; trusted assignment token set.
+- **Steps:**
+  1. As L, `POST /internal/events/E/assignment` with `{"coordinator_id": C}`.
+  2. Repeat step 1 (the fake now returns E already assigned to C by L).
+- **Test data:** As above.
+- **Expected:** 1 → one row `{actor_id: L, actor_role: "event_coordinator_lead", category: "assignment", action: "coordinator_assigned", details: {"coordinator_id": C}}`. 2 → `assignment_created: false` and no further row.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_assignment_is_recorded_once; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-192 — a reassignment request and a reassignment are recorded once
+
+- **Scenario:** The Coordinator's request to be reassigned and the Lead's reassignment are both recorded; an exact retry is not (S-82 AC1).
+- **Pre-conditions:** E is `planning`, assigned to C by L, `coordinator_assignment_version` 2.
+- **Steps:**
+  1. As C, `POST /events/E/reassignment-request` with `{"reason": "Leaving the team"}`.
+  2. As L, `POST /internal/events/E/reassignment` with `{"coordinator_id": C2, "expected_coordinator_id": C, "expected_assignment_version": 2}`.
+  3. Repeat step 2 (exact retry; the fake returns E already moved to C2 at version 3).
+- **Test data:** As above.
+- **Expected:**
+  1 → one row `{actor_id: C, actor_role: "event_coordinator", category: "assignment", action: "reassignment_requested", details: {"reason": "Leaving the team"}}`.
+  2 → one row `{actor_id: L, actor_role: "event_coordinator_lead", category: "assignment", action: "coordinator_reassigned", details: {"from_coordinator_id": C, "to_coordinator_id": C2}}`.
+  3 → `reassignment_created: false` and no further row.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_reassignment_request_and_reassignment_are_recorded_once; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-193 — a Technical Support assignment is recorded
+
+- **Scenario:** The Coordinator assigning Technical Support is recorded (S-82 AC1).
+- **Pre-conditions:** E is `planning`, assigned to C, no Technical Support.
+- **Steps:** `PUT /events/E/technical-support/internal` assigning T on behalf of C.
+- **Test data:** As above.
+- **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "assignment", action: "technical_support_assigned", details: {"technical_support_id": T, "previous_technical_support_id": null}}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_technical_support_assignment_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-194 — a Coordinator's edit is recorded with each changed field
+
+- **Scenario:** One save is one entry listing every changed field's old and new value (S-82 AC1).
+- **Pre-conditions:** E is `planning`, assigned to C, `edit_version` 3, `expected_attendance` 120, `internal_notes` null, `room_layout` `theatre`.
+- **Steps:** As C, `PATCH /events/assigned/E` with `{"expected_version": 3, "impact_accepted": true, "expected_attendance": 150, "internal_notes": "Check lift access", "room_layout": "theatre"}`.
+- **Test data:** As above.
+- **Expected:** `200` and one row `{actor_id: C, actor_role: "event_coordinator", category: "edit", action: "edited", details: {"changes": {"expected_attendance": {"before": 120, "after": 150}, "internal_notes": {"before": null, "after": "Check lift access"}}, "significant": true}}`. `room_layout` is not listed, because it did not change. The existing `edit_history` column is still appended to, as before.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_edit_is_recorded_with_each_changed_field; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-195 — safety-check submissions and decisions are recorded
+
+- **Scenario:** Every step of the Operational Safety Check is recorded (S-82 AC1).
+- **Pre-conditions:** E assigned to C; each internal write succeeds.
+- **Steps:**
+  1. `POST /internal/events/E/safety-submission` for C.
+  2. `POST /internal/events/safety-review/E/decision` as S with each decision below.
+  3. `POST /internal/events/E/safety-resubmit` for C after `changes_requested`.
+- **Test data:**
+  | Decision body | `action` | `details` |
+  | --- | --- | --- |
+  | `{"decision": "approved"}` | `safety_approved` | `{"reason": null}` |
+  | `{"decision": "changes_requested", "reason": "Fire exit blocked"}` | `safety_changes_requested` | `{"reason": "Fire exit blocked"}` |
+  | `{"decision": "rejected", "reason": "Capacity over limit"}` | `safety_rejected` | `{"reason": "Capacity over limit"}` |
+- **Expected:**
+  1 → one row `{actor_id: C, actor_role: "event_coordinator", category: "safety", action: "safety_submitted", details: {}}`.
+  2 → one row per decision, `actor_id: S`, `actor_role: "safety_officer"`, `category: "safety"`, with the table's `action` and `details`.
+  3 → one row `{actor_id: C, category: "safety", action: "safety_resubmitted", details: {}}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_safety_submissions_and_decisions_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-196 — Technical Support's sign-off and preparation status are recorded
+
+- **Scenario:** Equipment decisions owned by the events service are recorded (S-82 AC1).
+- **Pre-conditions:** E is `planning`, Technical Support T assigned, `equipment_preparation_status` `not_started`.
+- **Steps:**
+  1. `PUT /internal/events/E/technical-signoff` as T with `{"decision": "declined", "reason": "Projector unavailable"}`.
+  2. Repeat with `{"decision": "approved"}`.
+  3. As T, `PUT /events/support-assigned/E/equipment-preparation` with `{"status": "in_progress"}`.
+- **Test data:** As above.
+- **Expected:** One row each, all `actor_id: T`, `actor_role: "technical_support"`, `category: "equipment"`:
+  1 → `technical_signoff_declined`, `{"reason": "Projector unavailable"}`.
+  2 → `technical_signoff_approved`, `{"reason": null}`.
+  3 → `equipment_preparation_changed`, `{"from": "not_started", "to": "in_progress"}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-197 — a refused action records nothing
+
+- **Scenario:** Only actions that took effect appear in the history.
+- **Pre-conditions:** As in each row.
+- **Steps / Test data / Expected:**
+  | Attempt | Response | `event_history` inserts |
+  | --- | --- | --- |
+  | `POST /events/E/decision` as C on an already-decided E | `409` | none |
+  | `POST /events/E/decision` as C2 (not assigned) | `404` | none |
+  | `PATCH /events/assigned/E` with a stale `expected_version` 2 | `409` | none |
+  | `PATCH /events/assigned/E` changing nothing | `200` | none |
+  | `POST /internal/events/E/assignment` for C on E already assigned to C2 | `409` | none |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_refused_action_records_nothing; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-198 — a failed history write does not undo the action
+
+- **Scenario:** The history is best effort: if recording fails, the action still stands and the failure is logged.
+- **Pre-conditions:** The decision update succeeds; the `event_history` insert raises.
+- **Steps:** As C, `POST /events/E/decision` with `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `200` with the approved event, and one `ERROR` log record naming E and `request_approved`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_failed_history_write_does_not_undo_the_action; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-199 — composites append an entry through the internal route
+
+- **Scenario:** Venue and equipment actions owned by other services are added through one validated internal route.
+- **Pre-conditions:** E exists unless a row says otherwise.
+- **Steps:** `POST /internal/events/E/history` with each body below.
+- **Test data / Expected:**
+  | Body | Response |
+  | --- | --- |
+  | `{"actor_id": C, "actor_role": "event_coordinator", "action": "venue_requested", "details": {"booking_id": "99999999-9999-4999-8999-999999999999", "venue_name": "Hall One"}}` | `201` with `id`, `event_id: E`, `category: "venue"`, the body's fields and a server `occurred_at` |
+  | Same, `"action": "made_up"` | `422` |
+  | Same, `"action": "request_approved"` (an action only the events service records) | `422` |
+  | Same, plus `"occurred_at": "2020-01-01T00:00:00Z"` | `422` |
+  | Same, plus `"category": "safety"` | `422` |
+  | Same, on an event that does not exist | `404` "Event not found" |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_composites_append_through_the_internal_route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-200 — the full history reads newest first
+
+- **Scenario:** The internal read returns every entry for one event, newest first.
+- **Pre-conditions:** The fake holds three rows for E at `2026-10-01T01:00Z`, `2026-10-02T01:00Z`, `2026-10-03T01:00Z`, and one row for another event.
+- **Steps:**
+  1. `GET /internal/events/E/history`.
+  2. `GET /internal/events/<missing id>/history`.
+- **Test data:** As above.
+- **Expected:** 1 → `200`, E's three rows only, ordered `2026-10-03`, `2026-10-02`, `2026-10-01`, each with `id, event_id, actor_id, actor_role, category, action, details, occurred_at`. 2 → `404` "Event not found".
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_full_history_reads_newest_first; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-201 — the safety view keeps only what the safety review needs
+
+- **Scenario:** `scope=safety` returns attendance, venue or layout, access and equipment changes, and the safety decisions (S-82 AC3).
+- **Pre-conditions:** The fake holds these rows for E:
+  1. `submitted`
+  2. `coordinator_assigned`
+  3. `edited`, changes `expected_attendance` 120→150 and `internal_notes` null→"Call Ada"
+  4. `edited`, changes `contact_phone` only
+  5. `venue_confirmed`
+  6. `equipment_requirement_set`
+  7. `safety_changes_requested`
+  8. `request_approved`
+- **Steps:** `GET /internal/events/E/history?scope=safety`.
+- **Test data:** As above.
+- **Expected:** `200` with rows 7, 6, 5 and 3, newest first. Row 3's `details.changes` holds only `expected_attendance`. Rows 1, 2, 4 and 8 are left out. Safety-relevant edit fields are `expected_attendance`, `venue`, `room_layout`, `required_facilities` and `required_accessibility`. `scope=other` → `422`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_safety_view_keeps_only_what_the_review_needs; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-202 — no route changes or removes an entry
+
+- **Scenario:** History entries cannot be edited or deleted through the service (S-82 AC4).
+- **Pre-conditions:** E has one history row with id 7.
+- **Steps:** Send `PUT`, `PATCH` and `DELETE` to `/internal/events/E/history` and to `/internal/events/E/history/7`.
+- **Test data:** As above.
+- **Expected:** `405` for each method on the collection path and `404` or `405` for each on the entry path. The fake records no `update` or `delete` on `event_history`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_no_route_changes_or_removes_an_entry; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-206 — an Organiser's edit after submission is recorded; a draft edit is not
+
+- **Scenario:** Organisers can still edit a request once it is submitted (S-12 recheck, S-13 returned), and those edits are history like a Coordinator's. A draft is still the Organiser's alone (S-82 AC1). Added during implementation and not in the confirmed set.
+- **Pre-conditions:** Signed in as O.
+- **Steps:**
+  1. `PATCH /events/E` with `{"expected_attendance": 150}` on E `submitted` with 120.
+  2. `PATCH /events/E` with `{"name": "Draft"}` on E `draft`.
+- **Test data:** As above. `PATCH /events/E/internal` (the composite's edit-recheck route) records the same way.
+- **Expected:** `200` both times. Step 1 records one row `{actor_id: O, actor_role: "event_organiser", category: "edit", action: "edited", details: {"changes": {"expected_attendance": {"before": 120, "after": 150}}, "significant": true}}`. Step 2 records nothing.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_an_organisers_edit_after_submission_is_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-207 — the history scope says who may read the history, and nothing else
+
+- **Scenario:** The composites need the event's name, status, Coordinator and whether it has been safety-reviewed to decide who may read its history. The Lead and Safety Officer have no other route that returns any event. Added during implementation and not in the confirmed set.
+- **Pre-conditions:** E is `planning`, assigned to C, with one `safety_review_history` record.
+- **Steps:**
+  1. `GET /internal/events/E/history-scope`.
+  2. The same with no safety review history.
+  3. The same for a missing event.
+- **Test data:** As above.
+- **Expected:** 1 → `200` with exactly `{"id": E, "name": "Autumn Forum", "status": "planning", "assigned_coordinator_id": C, "safety_reviewed": true}`; no organiser, notes or other column. 2 → `safety_reviewed: false`. 3 → `404`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_the_history_scope_says_who_may_read_it; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full Python unit suite: 1,659 passed, 17 skipped; full TEST integration suite: 104 passed, 5 skipped.
+Full Python unit run: 1,659 passed, 17 skipped; focused Events S-59 cases passed where marked below.
+
+Customer criteria were verified against `Product_backlog_final.xlsx`, Product
+Backlog row 62 (S-59); row 63 assigns impact review and acceptance to S-60.
+Proposed team rules for confirmation:
+eligible states are `submitted`, `under_review`, `returned`, `planning`,
+`pending_safety_check`, `confirmed`, and `preparation`; one pending request per
+event; a proposal is a comparison snapshot, never an accepted event edit.
+`safety_changes_requested`, `safety_rejected`, drafts and terminal states use
+their existing workflows or cannot be changed. The developer confirmed these
+team-defined lifecycle and concurrency rules for S-59.
+
+## TC-EVENTS-187 — only the owning Organiser may propose in eligible states
+
+- **Scenario:** The Events owner enforces identity and lifecycle for a new proposal.
+- **Pre-conditions:** Fake Events storage contains organiser O's event E once in each lifecycle state, assigned to C except for one unassigned submitted event; another organiser U, C, a Lead, and an anonymous caller are available.
+- **Steps:** 1. POST a changed attendance proposal as O in every state. 2. Repeat as U, C, Lead, and anonymously. 3. Read E after each attempt.
+- **Test data:** O `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; U `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`; C `cccccccc-cccc-4ccc-8ccc-cccccccccccc`; attendance 120→150; states `draft`, `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, `confirmed`, `preparation`, `safety_changes_requested`, `safety_rejected`, `cancelled`, `rejected`.
+- **Expected:** O gets `201` in the seven confirmed eligible states, including an unassigned submitted event. Other states get `409`; U gets `404` without event data; C and Lead get `403`; anonymous gets `401`. No rejected attempt creates a request or changes E.
+- **Actual:** Seven eligible states, including unassigned submitted, created a proposal; denied statuses and roles did not insert.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted as the approved supporting contract for S-63 on 2026-10-31 before the
+notification composites were implemented.
+
+## TC-EVENTS-208 — notification composites receive only the event identity they need
+
+- **Scenario:** A trusted composite can resolve the owning Organiser and event title without receiving unrelated event details.
+- **Pre-conditions:** Event `33333333-3333-4333-8333-333333333333` exists with an Organiser, Coordinator, name and status; a second id is missing.
+- **Steps:** `GET /internal/events/{id}/notification-scope` for the existing and missing ids.
+- **Expected:** The existing id returns only `id`, `organiser_id`, `name`, `status`, and `assigned_coordinator_id`; the missing id returns `404 Event not found`.
+- **Actual:** The exact five-field projection was returned, and an empty database result returned the expected `404`.
+- **Status:** Pass
+- **Evidence:** `test_s63.py`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Python unit suite 1,783 passed, 17 skipped; frontend unit 219 passed; lint passes with 3 existing warnings; build passes; `git diff --check` clean. TEST Supabase and fresh `.env.test` stack for integration (119 passed, 5 skipped) and Chromium. See each case evidence.
+
+**Shared data:** Organiser O, assigned Coordinator C and unrelated Coordinator D; event E with accepted date `2026-12-04`, time `09:00–12:00`, attendance 120, `edit_version` 4; pending request R proposes `2026-12-05`, attendance 150 and projector quantity 3 instead of 2. The fake Events store holds an immutable snapshot of the row before every mutation.
+
+## TC-EVENTS-300 — review is scoped to the current Coordinator
+
+- **Scenario:** Only C can read R's review and make a decision, including after a later S-84 reassignment.
+- **Pre-conditions:** E is assigned to C; D and O have valid sessions.
+- **Steps:** 1. C reads R. 2. D and O read or decide R. 3. Reassign E to D. 4. Repeat as C and D.
+- **Test data:** E/R and C/D above; S-84 moves C→D.
+- **Expected:** C initially gets 200 and D/O get scoped 404/403. After reassignment only D may review or decide. No denied call changes R, E or flags.
+- **Actual:** Current-Coordinator and trusted-service checks denied unrelated decisions; composite review followed reassignment.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_change_decision_requires_current_coordinator_and_trusted_service; tests/unit/composite/event_requests/test_s60.py::test_review_follows_current_assignment_without_exposing_other_coordinator_data
+
+## TC-EVENTS-301 — accepted, proposed and historical baselines remain distinct
+
+- **Scenario:** A Coordinator decision does not erase the original proposal or accepted-before snapshot.
+- **Pre-conditions:** R is pending against E; the impact plan has been stored.
+- **Steps:** 1. Read R. 2. Accept it. 3. Read R and E again.
+- **Test data:** 120→150 attendees; 2026-12-04→05; projector 2→3.
+- **Expected:** R retains `accepted_values`, `proposed_values`, equipment snapshots, requester and submission time; E acquires approved values only after acceptance; R records trusted reviewer/time and terminal status. The audit entry identifies the request and changed fields.
+- **Actual:** Real acceptance retained the 120 baseline and 150 proposal while updating the event only at finalisation.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_acceptance_preserves_arrangements
+
+## TC-EVENTS-302 — compare-and-set refuses stale and concurrent decisions
+
+- **Scenario:** An old proposal or second decision cannot overwrite a newer event or review.
+- **Pre-conditions:** E version 4 and R pending; another edit, reassignment, safety transition or decision may win.
+- **Steps:** 1. Attempt acceptance with an old event version. 2. Race two accepts. 3. Race accept versus reject. 4. Inspect E/R/history.
+- **Test data:** Version 4→5; R ID fixed; two independent requests.
+- **Expected:** Stale call returns 409 with no accepted write; only one decision commits; loser gets 409; one audit entry and one terminal request outcome. A new S-59 request is possible only after a truly terminal outcome.
+- **Actual:** Two competing prepares produced one winner; the loser was stale, and one accepted history entry remained after retry.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery
+
+## TC-EVENTS-303 — significant acceptance returns confirmed and preparation to planning
+
+- **Scenario:** Both post-safety states require a fresh Operational Safety Check after accepted material changes.
+- **Pre-conditions:** E is `confirmed` or `preparation`, with an approved safety decision and historical sign-offs.
+- **Steps:** Accept R in each state; read event, safety metadata and history.
+- **Test data:** Attendance 120→150; status matrix `confirmed`, `preparation`.
+- **Expected:** Both move to `planning`, set `safety_recheck_required`, invalidate the **current** safety approval for readiness, and keep prior decisions/sign-offs in audit history. Venue/equipment/Technical Support records are not deleted or silently reset.
+- **Actual:** Confirmed and preparation both returned to planning with a fresh safety requirement.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_significant_acceptance_requires_fresh_safety_for_each_lifecycle_state[confirmed]; [preparation]
+
+## TC-EVENTS-304 — pending safety review cannot approve a superseded event
+
+- **Scenario:** Accepting a significant proposal during `pending_safety_check` invalidates the in-flight safety review.
+- **Pre-conditions:** E is `pending_safety_check` with no decision; Safety Officer loaded the previous version.
+- **Steps:** 1. Accept R. 2. Submit the old safety decision. 3. Query fresh readiness.
+- **Test data:** Date 2026-12-04→05; old safety review version 4.
+- **Expected:** E returns to `planning` with recheck required; stale safety decision gets 409 and cannot confirm E. The new review sees the accepted change and unresolved impacts.
+- **Actual:** Pending safety review returned to planning; an old Safety Officer event version was rejected.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_significant_acceptance_requires_fresh_safety_for_each_lifecycle_state[pending_safety_check]; tests/unit/atomic/events/test_s86.py::test_old_safety_review_cannot_decide_new_event_version
+
+## TC-EVENTS-305 — rejecting releases the one-pending constraint without applying data
+
+- **Scenario:** C may reject R with a recorded reason, permitting a later Organiser proposal.
+- **Pre-conditions:** R pending; E accepted at 120 attendees; C assigned.
+- **Steps:** 1. Reject with reason `Venue cannot support 150`. 2. Read E/R. 3. Submit a new proposal.
+- **Test data:** R 120→150, next request 120→130.
+- **Expected:** R becomes rejected with C/time/reason; accepted E and arrangements remain unchanged; no re-review flags are activated; the next request can be pending and R remains in history. Blank reason and unrelated actor are denied.
+- **Actual:** A reasoned rejection left 120 accepted and permitted a new pending proposal.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_rejection_releases_pending_slot_without_changing_accepted_event
+
+## TC-EVENTS-306 — flags are durable, scoped and individually resolved
+
+- **Scenario:** A flag has an arrangement ID, cause, reviewer and resolution; hiding a warning cannot clear it.
+- **Pre-conditions:** Accepted R has venue booking B1 and equipment item P flags; B2 is unaffected.
+- **Steps:** 1. Read flags twice. 2. Attempt to resolve B1 with an unknown ID or stale review version. 3. Resolve B1 validly. 4. Read again.
+- **Test data:** B1 `capacity 130 < 150`; P `quantity 2→3`; B2 `capacity 220`.
+- **Expected:** B1/P persist until valid explicit resolution; bad ID/stale version/unauthorised reviewer do not change them. B1 can resolve independently of P and B2 never gains a flag. Reason, resolution action, C and server time remain auditable.
+- **Actual:** Venue and equipment impacts persisted independently; staff-backed resolutions survived reload and left unrelated booking B2 unflagged.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]; tests/unit/composite/event_requests/test_s60.py::test_impact_resolution_cannot_impersonate_technical_support
+
+## TC-EVENTS-307 — S-18 routine edits remain available
+
+- **Scenario:** Editing contact details or internal notes does not enter S-60 or reset prior safety/sign-offs.
+- **Pre-conditions:** E is planning, confirmed or preparation; C is assigned; no pending proposal.
+- **Steps:** PATCH contact phone and internal notes through S-18; read E and S-60 flags.
+- **Test data:** `contact_phone=+65 6123 4567`; `internal_notes=Use east entrance`.
+- **Expected:** Existing S-18 permission, version and audit behavior remain; no impact plan/flags/new safety check. A significant S-18 direct edit remains subject to its existing impact-acceptance contract and must not bypass mandatory S-60 re-review when arrangements exist.
+- **Actual:** Routine S-18 edit stayed available; significant edit required review and left safety blocked until re-review.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_routine_s18_edit_stays_available_without_service_token; tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle[chromium]
+
+## TC-EVENTS-308 — an incomplete cross-service operation is never accepted
+
+- **Scenario:** The Events owner records operation state and refuses a false terminal result.
+- **Pre-conditions:** R pending; Equipment application begins under operation ID Q but fails before Events finalisation.
+- **Steps:** 1. Start Q. 2. Simulate Equipment failure. 3. Read R and E; retry Q. 4. Try a second proposal while Q is unfinished.
+- **Test data:** R projector 2→3; Q UUID; Equipment 503.
+- **Expected:** No 2xx accepted response while Q incomplete; R remains pending/in-progress and blocks a second proposal; E is not reported as accepted. Retry is idempotent and preserves the saved baseline; unresolved operation cannot be silently discarded.
+- **Actual:** Applied Equipment operation and applying Events request remained incomplete after a failed completion; same-operation recovery finalised once.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery
+
+## TC-EVENTS-309 — direct safety transition cannot bypass unresolved flags
+
+- **Scenario:** A caller reaching the exposed Events atomic port cannot skip composite readiness after S-60 acceptance.
+- **Pre-conditions:** E is planning, assigned to C, with an unresolved B1 flag in Events storage.
+- **Steps:** Call atomic `safety-submission` and `safety-resubmit` directly, then resolve B1 and repeat through the usual composite path.
+- **Test data:** B1 `capacity 130 < 150`; C's verified assignment.
+- **Expected:** Both direct transitions reject unresolved impacts with 409; E stays planning. Once resolved, normal S-17/S-87 transitions retain their existing rules. Atomic protection uses only Events-owned data.
+- **Actual:** Direct safety submission returned 409 for unresolved Events flags; composite readiness remained blocked until resolution.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_direct_safety_submission_rejects_unresolved_accepted_impact; tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-EVENTS-188 — date, time and duration remain consistent
+
+- **Scenario:** A proposal stores the four existing event date/time fields, with duration derived from their interval.
+- **Pre-conditions:** O owns a confirmed E, 2026-11-18 09:00–12:00 SGT; no pending request; fake storage records inserts.
+- **Steps:** 1. Propose 2026-11-19 with both dates moved. 2. In separate fresh events, propose 10:00–13:30 and a 4-hour duration from 09:00. 3. Try an end before the start and a missing end.
+- **Test data:** Date `2026-11-19`; time `10:00`–`13:30`; duration 240 minutes; invalid same-day end `08:00`.
+- **Expected:** Valid proposals record the resulting start/end fields and derived durations of 210 or 240 minutes; accepted E remains 09:00–12:00. Invalid intervals get `422` with field errors and no insert. Multi-day events follow the existing end-after-start rule.
+- **Actual:** Valid date/time/duration changes remained in the proposal; invalid same-day end was rejected.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## TC-EVENTS-189 — attendance and venue proposals keep accepted values intact
+
+- **Scenario:** Each supported scalar or structured Events field may be proposed alone or together.
+- **Pre-conditions:** O owns confirmed E with attendance 120, venue preference `Main Hall`, layout `theatre`, facilities `[projector]`, accessibility `[wheelchair_access]` and special requirements `Quiet entry`.
+- **Steps:** 1. Submit separate requests on fresh events for attendance 150, venue preference `North Hall`, layout `banquet`, facilities `[projector,stage]`, accessibility `[wheelchair_access,lift]`, and note `Step-free loading`. 2. Submit one request with all changes. 3. Read accepted E and proposal.
+- **Test data:** Values above; an unknown facility `laser_cannon` is also tried.
+- **Expected:** Each valid request returns `201` with exactly the changed fields and the accepted comparison baseline; E's accepted fields do not change. Unknown option gets `422`; list order/duplicates alone are not counted as changes.
+- **Actual:** Attendance, venue, layout and facilities changes were serialized into the proposal while accepted data was not updated.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## TC-EVENTS-190 — request identity, time, status and baseline are server owned
+
+- **Scenario:** The stored request is attributable and independent of accepted event data.
+- **Pre-conditions:** O owns submitted E; fake clock is `2026-10-27T09:15:00Z`; accepted attendance is 120 and no request exists.
+- **Steps:** 1. POST proposed attendance 150 with forged `organiser_id`, `submitted_at`, `status`, and baseline fields. 2. POST only the valid proposal. 3. Read the stored request and E.
+- **Test data:** Forged actor U, timestamp `2000-01-01T00:00:00Z`, status `accepted`; valid proposed attendance 150.
+- **Expected:** Forged server fields get `422`. Valid request records E's ID, trusted O ID, server timestamp, `pending` status, accepted baseline 120 and proposed 150. E remains at 120 in `submitted` status.
+- **Actual:** Forged server fields were rejected; the persisted row used the authenticated Organiser, server timestamp, pending status and accepted attendance 120 baseline while E remained unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced`, 2026-10-30.
+
+## TC-EVENTS-191 — no-op and duplicate requests cannot be stored
+
+- **Scenario:** Effective equality and a database uniqueness rule prevent redundant pending proposals.
+- **Pre-conditions:** O owns E; existing values contain whitespace-normalizable text and duplicate-free option lists; fake storage models one winning insert and a unique-conflict loser.
+- **Steps:** 1. Submit `{}` and normalized values equal to accepted E. 2. Submit a real change twice, including two concurrent calls. 3. Read request rows.
+- **Test data:** `Main Hall` versus ` Main Hall `; facilities `[stage,projector]` versus `[projector,stage]`; attendance 120→150.
+- **Expected:** Empty/equal proposals get `422` without rows; exactly one real pending request is stored. A duplicate or concurrent loser gets `409` and does not replace the first proposal or change E.
+- **Actual:** No-op and duplicate submissions were rejected; concurrent requests to TEST Supabase left exactly one pending row and returned 201/409.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`, 2026-10-30.
+
+## TC-EVENTS-192 — read access follows the current event assignment
+
+- **Scenario:** Proposal details are visible to O and the currently assigned Coordinator only.
+- **Pre-conditions:** Pending request R belongs to O's E; C is assigned; D is unrelated; then S-84 transfers E from C to D.
+- **Steps:** 1. GET R as O, C, D, another organiser and anonymously. 2. Transfer E through S-84. 3. Repeat as C and D.
+- **Test data:** E `11111111-1111-4111-8111-111111111111`; C/D UUIDs as distinct accounts.
+- **Expected:** Initially O and C get `200` with current-versus-proposed values; D and other organiser get `404`; anonymous gets `401`. After transfer D gets `200`, C gets `404`; Lead scope is not broadened.
+- **Actual:** Owner/current-Coordinator reads passed; simulated reassignment moved read access to the new Coordinator.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## TC-EVENTS-193 — failures and stale event state leave accepted data unchanged
+
+- **Scenario:** Persistence failures or lifecycle changes cannot partially apply a proposal.
+- **Pre-conditions:** O owns submitted E with accepted attendance 120; fake insert can fail; another operation may move E to `cancelled` after initial read.
+- **Steps:** 1. Submit attendance 150 while storage fails. 2. Retry after E becomes cancelled. 3. Inspect E and requests.
+- **Test data:** Simulated Supabase write exception; `submitted`→`cancelled` race.
+- **Expected:** Storage failure yields controlled `500`/`502`, stale status yields `409`, and neither changes accepted attendance, status, venue, equipment or historical rows. No pending request survives a failed write.
+- **Actual:** Storage conflicts and failures returned controlled errors without an accepted-event update.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## TC-EVENTS-194 — existing direct edits cannot bypass a pending proposal
+
+- **Scenario:** S-13 submitted-event PATCH cannot turn an S-59 proposal into accepted event data.
+- **Pre-conditions:** O owns submitted E with attendance 120; C owns planning E2; an S-59 request on E proposes 150.
+- **Steps:** 1. As O, PATCH E's date, time, attendance, venue fields and registration settings through the existing organiser route. 2. PATCH an unrelated contact field if allowed by the existing route. 3. As C, exercise S-18's impact-reviewed edit of E2.
+- **Test data:** Attendance 150; venue `North Hall`; contact `Sam Lee`.
+- **Expected:** O cannot directly change any S-59 eligible accepted field on submitted E; response directs the user to Request Changes and E stays at 120. Unrelated permitted edits and C's S-18 workflow retain their existing rules; S-59 does not silently accept R.
+- **Actual:** A pending request blocked a direct accepted-field PATCH with 409.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py` plus S-13/S-18 regressions.
+
+## TC-EVENTS-195 — arrangements and lifecycle remain attached to accepted data
+
+- **Scenario:** Creating a proposal changes no existing arrangement, sign-off or lifecycle record.
+- **Pre-conditions:** Fake Events storage has confirmed E with Technical Support T, approved safety decision and history; the composite passes a read-only equipment comparison. O proposes a new date and equipment quantity.
+- **Steps:** 1. Create R. 2. Inspect the exact Events storage calls and reread E's owned fields. 3. Read R's comparison.
+- **Test data:** Date 2026-11-18→2026-11-19; projector quantity 2→3.
+- **Expected:** No Events update occurs; E stays confirmed with the same Technical Support assignment, safety decision and history. R marks proposed arrangements as unreviewed. The cross-service booking, equipment and attendee preservation is verified in TC-EVENTREQUESTS-201.
+- **Actual:** Unit tests verified no Events update; Chromium verified that booking, Equipment requirements, Technical Support sign-off and attendee registration remained attached to accepted event data.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_s59.py`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-30.
+
+## TC-EVENTS-196 — direct atomic proposal writes require trusted composite access
+
+- **Scenario:** An exposed Events port cannot accept a forged equipment baseline or actor from a direct caller.
+- **Pre-conditions:** O owns E; the composite has a server-held Event Change service credential; direct callers have no credential or a forged one.
+- **Steps:** 1. POST an internal proposal with O's cookie but no service credential. 2. Repeat with a forged credential and forged accepted equipment snapshot. 3. Repeat through the authenticated composite. 4. Inspect stored actor/baseline.
+- **Test data:** Accepted projector quantity 2, forged baseline 9, proposed 3; O `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`.
+- **Expected:** Direct calls get `403` before storage access. The composite call succeeds only with its server-held credential, and atomic Events still verifies O's trusted session/ownership; caller-supplied actor, timestamp and baseline fields cannot override the validated values.
+- **Actual:** Missing or forged service credentials were rejected before persistence.
+- **Status:** Pass
+- **Evidence:** Full rebased TEST run on 2026-10-30; `tests/unit/atomic/events/test_s59.py`.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria (developer, 2026-11-01): (1) the system never cancels or
+rejects an event affected by venue unavailability automatically; (2) after
+working with the Event Organiser on alternatives, the assigned Coordinator
+may cancel the event with a recorded reason; (3) cancelling releases all of
+the event's venue bookings, tentative holds and equipment reservations;
+(4) the Event Organiser is notified and currently registered Attendees are
+notified as in S-69.
+
+Drafted 2026-11-01 on `S-89/coordinator-cancels-event-without-alternative-venue`
+(from `origin/sprint4` `ca5ff0d`). Confirmed by the developer 2026-11-01. Revised 2026-11-01 at the developer's
+request: the S-82 entry is no longer best effort inside the cancellation
+write but its own retryable step (TC-EVENTS-410/411), the event row keeps
+the previous status that step needs, and completion waits for it
+(TC-EVENTS-407).
+IDs 400–449 (unit) and 450–499 (integration) are reserved for S-89 so they
+cannot collide with S-60's parallel 3xx block.
+
+The events service records the cancellation; the event_requests composite
+has already verified the venue unavailability. The route is internal:
+`POST /internal/events/{id}/venue-cancellation` needs both the
+server-owned `X-Assignment-Service-Token` (as S-83) and the Coordinator's own
+session, and is not reachable through Kong. Body:
+`{"reason", "alternatives_considered", "expected_version", "affected_booking_ids"}`.
+
+Shared data: event E `22222222-2222-4222-8222-222222222222`, status
+`confirmed`, `edit_version` 7, assigned Coordinator C
+`cccccccc-cccc-4ccc-8ccc-cccccccccccc`, Organiser O; affected booking B1
+`b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1`. Reason "Hall A is closed for
+structural repairs on the event date". Alternatives "Discussed Hall B and
+Seminar Room 3 with the Organiser on 30 Oct; neither fits 180 guests".
+
+## TC-EVENTS-400 — the assigned Coordinator's cancellation is recorded on the event
+
+- **Scenario:** A valid cancellation makes the event `cancelled` and stores who, when, why, the alternatives, the affected bookings and the previous status (S-89 AC2).
+- **Pre-conditions:** Fake DB returns E for the assignment read; the guarded update returns E with the new values. Valid token; session of C.
+- **Steps:** `POST /internal/events/E/venue-cancellation` with the shared body, `expected_version` 7, `affected_booking_ids` [B1].
+- **Test data:** As above.
+- **Expected:** `200`, `status` `cancelled`. The single update sets `status`, `venue_cancellation_reason`, `venue_cancellation_alternatives`, `venue_cancellation_booking_ids`, `venue_cancelled_by` = C, `venue_cancelled_at`, `venue_cancellation_previous_status` `confirmed`, `edit_version` 8, and is filtered on `id` E, `assigned_coordinator_id` C, `edit_version` 7, status in the five open statuses, `venue_cancelled_at` null and the S-62 request rule. No `cancellation_*` column is written. No history entry is written here (TC-EVENTS-410).
+- **Actual:** As expected; no history insert.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_assigned_coordinators_cancellation_is_recorded_on_the_event; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-401 — only the assigned Coordinator, through the composite, can cancel
+
+- **Scenario:** No browser can call the route directly, and no other user can use it (S-89: only the assigned Coordinator).
+- **Pre-conditions:** As TC-EVENTS-400.
+- **Steps:** Call the route (a) without the token; (b) with a wrong token; (c) with the token and no session; (d) with the token and an Organiser, Venue Staff or Lead session; (e) with the token as Coordinator D, who is not assigned to E.
+- **Test data:** D `dddddddd-dddd-4ddd-8ddd-dddddddddddd`.
+- **Expected:** (a), (b) `403`; (c) `401`; (d) `403`; (e) `404` "Event not found". No update and no history entry in any case.
+- **Actual:** (a), (b) `403`; (c) `401`; (d) `403` for Organiser, Venue Staff and Lead; (e) `404` "Event not found". No update or history in any case.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_browser_without_the_service_token_cannot_cancel; tests/unit/atomic/events/test_s89.py::test_no_session_is_not_authenticated; tests/unit/atomic/events/test_s89.py::test_other_roles_cannot_cancel; tests/unit/atomic/events/test_s89.py::test_a_coordinator_not_assigned_to_the_event_gets_404; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-402 — the reason and alternatives must both be recorded
+
+- **Scenario:** A cancellation without a recorded reason or without the alternatives considered is refused (S-89 AC2 and the proposed audit rule).
+- **Pre-conditions:** As TC-EVENTS-400.
+- **Steps:** Send the body with, in turn: `reason` `"   "`; `reason` missing; `alternatives_considered` `""`; `reason` of 1001 characters; `alternatives_considered` of 1001 characters; `expected_version` missing; `expected_version` -1; `affected_booking_ids` `[]`; an unknown field `"status": "cancelled"`.
+- **Test data:** As listed.
+- **Expected:** Every case `422` "Please check the details you entered" with the field named. 1000-character values are accepted. Leading/trailing whitespace is trimmed before saving. No update, no history entry.
+- **Actual:** All nine bodies `422` "Please check the details you entered" with no update; 1000-character values accepted and trimmed.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_reason_and_alternatives_must_both_be_recorded; tests/unit/atomic/events/test_s89.py::test_values_are_trimmed_and_1000_characters_are_accepted; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-403 — only an event whose venues can still change is cancellable
+
+- **Scenario:** The status gate matches the events S-78 lets a Coordinator replace a venue for.
+- **Pre-conditions:** As TC-EVENTS-400, E's status varied.
+- **Steps:** Cancel E in each status.
+- **Test data:** `planning`, `pending_safety_check`, `confirmed`, `preparation`, `safety_changes_requested` (accepted); `draft`, `submitted`, `under_review`, `returned`, `rejected`, `safety_rejected` (refused).
+- **Expected:** Accepted statuses → `200` `cancelled`, with that status stored as `venue_cancellation_previous_status`. Refused statuses → `409` "This event can't be cancelled from its current status." with no update.
+- **Actual:** The five open statuses `200`, each stored as `venue_cancellation_previous_status`; the six others `409` with the expected detail and no update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_an_event_whose_venues_can_still_change_is_cancellable; tests/unit/atomic/events/test_s89.py::test_any_other_status_is_refused; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-404 — a waiting Organiser request is decided through S-61 instead
+
+- **Scenario:** Two cancellation paths never race on one event: while the Organiser's request awaits a decision, S-89 is refused (proposed rule).
+- **Pre-conditions:** (a) E has `cancellation_requested_at` set and `cancellation_decision` null. (b) As (a) with `cancellation_decision` `declined`.
+- **Steps:** Cancel E as C.
+- **Test data:** As above.
+- **Expected:** (a) `409` "The Organiser has asked to cancel this event. Approve their request instead." No update. (b) `200` `cancelled`; the declined request's columns are unchanged.
+- **Actual:** (a) `409` with the expected detail, no update; (b) `200`, no `cancellation_*` column written, and the write itself carries the request rule.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_waiting_organiser_request_is_decided_through_s61_instead; tests/unit/atomic/events/test_s89.py::test_a_declined_organiser_request_does_not_stand_in_the_way; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-405 — stale and concurrent cancellations have one outcome
+
+- **Scenario:** A screen loaded before the event changed, or a second tab losing the race, cannot cancel or write history twice.
+- **Pre-conditions:** (a) E's `edit_version` is 8 (someone edited it). (b) E is read at version 7, but the guarded update matches no row (another write landed first).
+- **Steps:** Cancel with `expected_version` 7.
+- **Test data:** As above.
+- **Expected:** (a) `409` "This event changed since you opened it. Reload and try again." with no update. (b) `409` with the same detail after re-reading. No history entry in either case.
+- **Actual:** (a) `409` stale-screen detail, no update; (b) `409` after re-reading, no history; losing to an S-62 request names it.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_screen_older_than_the_event_cannot_cancel; tests/unit/atomic/events/test_s89.py::test_a_write_that_loses_the_race_is_refused_without_history; tests/unit/atomic/events/test_s89.py::test_losing_to_an_organiser_request_says_so; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-406 — repeating a cancellation resumes it; another cancellation is final
+
+- **Scenario:** The composite retries a partly finished cancellation by calling again, which must not rewrite the record.
+- **Pre-conditions:** (a) E is `cancelled` with `venue_cancelled_by` C. (b) E is `cancelled` through S-61 (`cancellation_decision` `approved`, `venue_cancelled_at` null).
+- **Steps:** Cancel E as C, (a) with a different reason text.
+- **Test data:** As above.
+- **Expected:** (a) `200` with the stored event unchanged: the original reason stays, there is no update and no second history entry. (b) `409` "This event is already cancelled." with no update.
+- **Actual:** (a) `200` with the original reason, no update, no history; (b) `409` "This event is already cancelled."
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_repeating_a_cancellation_resumes_it_without_rewriting; tests/unit/atomic/events/test_s89.py::test_an_event_cancelled_through_s61_is_final; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-407 — completion is marked once, only after a recorded venue cancellation
+
+- **Scenario:** `venue_cancellation_completed_at` records that every step finished, so a reload can tell whether "Finish cancellation" is still needed; it never precedes the history entry.
+- **Pre-conditions:** (a) E is venue-cancelled, its history entry exists, not completed. (b) Already completed. (c) Venue-cancelled but no history entry. (d) E is `confirmed`. (e) The token is missing.
+- **Steps:** `POST /internal/events/E/venue-cancellation/complete` as C.
+- **Test data:** As above.
+- **Expected:** (a) `200`; one guarded update sets `venue_cancellation_completed_at` where it is null. (b) `200`, no update. (c) `409` "The cancellation has not been recorded in the event history yet.", no update. (d) `409` "This event has not been cancelled for venue unavailability." (e) `403`.
+- **Actual:** As expected in all five.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_completion_is_marked_once; tests/unit/atomic/events/test_s89.py::test_completing_again_changes_nothing; tests/unit/atomic/events/test_s89.py::test_completion_waits_for_the_history_entry; tests/unit/atomic/events/test_s89.py::test_only_a_venue_cancellation_can_be_completed; tests/unit/atomic/events/test_s89.py::test_completion_needs_the_service_token; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-408 — a cancelled event stays closed to edits and requests
+
+- **Scenario:** Regression: S-18 edits, S-59/S-60 change proposals and S-62 cancellation requests are refused on an S-89-cancelled event.
+- **Pre-conditions:** E is venue-cancelled.
+- **Steps:** As C, `PATCH /events/assigned/E` (S-18); through the composite's token, `POST /events/E/change-request/internal` (S-59); as O, `POST /events/E/cancellation-request` (S-62).
+- **Test data:** Any valid bodies.
+- **Expected:** Each is refused with `409`, as for an S-61-cancelled event. No update.
+- **Actual:** S-18 edit `409`; S-62 request `409`; S-59 internal change request `409` "This event cannot receive a change request". No update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_cancelled_event_stays_closed_to_coordinator_edits; tests/unit/atomic/events/test_s89.py::test_a_cancelled_event_stays_closed_to_organiser_requests; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-409 — a storage failure is reported, never a cancellation
+
+- **Scenario:** If the update raises, nothing claims the event is cancelled.
+- **Pre-conditions:** The fake's guarded update raises.
+- **Steps:** Cancel E as C.
+- **Test data:** As TC-EVENTS-400.
+- **Expected:** `500` "Event storage unavailable". No history entry.
+- **Actual:** `500` "Event storage unavailable"; no history entry.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_a_storage_failure_is_reported_never_a_cancellation; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+## TC-EVENTS-410 — the S-82 entry is built from the stored record, once
+
+- **Scenario:** History is durable and retryable: the entry comes from the event row alone, so a retry writes exactly the same entry, and never a second one (developer's 2026-11-01 requirement).
+- **Pre-conditions:** E is venue-cancelled with reason, alternatives, `venue_cancellation_booking_ids` [B1], `venue_cancelled_by` C, `venue_cancelled_at` 2026-11-01T02:00:00Z, previous status `confirmed`. (a) No entry yet. (b) An entry exists. (c) No entry, but the insert raises `23505` (a concurrent duplicate, refused by the unique index). (d) The insert raises anything else.
+- **Steps:** `POST /internal/events/E/venue-cancellation/history` as C with the token.
+- **Test data:** As above.
+- **Expected:** (a) `200` `{"recorded": true}`; one insert of `{event_id E, actor_id C, actor_role event_coordinator, category review, action cancelled_venue_unavailable, details {reason, alternatives_considered, previous_status confirmed, affected_booking_ids [B1]}, occurred_at 2026-11-01T02:00:00Z}`. (b) `200`, no insert. (c) `200` `{"recorded": true}`. (d) `500` "Event storage unavailable".
+- **Actual:** As expected in all four.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_the_history_entry_is_built_from_the_stored_record; tests/unit/atomic/events/test_s89.py::test_recording_again_never_writes_a_second_entry; tests/unit/atomic/events/test_s89.py::test_a_concurrent_duplicate_counts_as_recorded; tests/unit/atomic/events/test_s89.py::test_a_failed_history_write_is_reported; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-411 — the history step is only for a venue cancellation, through the composite
+
+- **Scenario:** No entry can be written for an event this route did not cancel, or from a browser.
+- **Pre-conditions:** (a) E is `confirmed`. (b) The token is missing.
+- **Steps:** `POST /internal/events/E/venue-cancellation/history` as C.
+- **Test data:** As above.
+- **Expected:** (a) `409` "This event has not been cancelled for venue unavailability." (b) `403`. No insert.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s89.py::test_history_is_only_for_a_venue_cancellation_and_the_composite; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## S-90 — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation.
+
+## TC-EVENTS-209 — the history accepts the three restore steps
+
+- **Scenario:** The venue_bookings composite can record a restore being asked for, confirmed and declined in the event's history (S-90 AC3, AC4; S-82).
+- **Pre-conditions:** As the existing composite-history cases.
+- **Steps:** Record one entry of each action through the composite history route.
+- **Test data:** Actions `venue_restore_requested`, `venue_restore_confirmed`, `venue_restore_declined`, details `{"venue_name": "Studio B", "replacement_venue_name": "Hall C"}`.
+- **Expected:** Each is stored with category `venue`. An unknown action is still refused.
+- **Actual:** Each of the three stored with category `venue`; an unknown action `422`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s90.py::test_the_history_accepts_the_three_restore_steps; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`

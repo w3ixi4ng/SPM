@@ -32,7 +32,8 @@ surviving a page load.
   session and the case reports Blocked (see below).
 - **Steps:**
   1. Open `/signup` through Kong.
-  2. Fill first name, last name, email, password, confirm password.
+  2. Fill first name, last name, email, password, confirm password, and choose
+     **Event Organiser** (S-01).
   3. Submit the form.
   4. Wait for the browser to leave `/signup`.
 - **Test data:** `Ada` / `Lovelace` / `spm-e2e-<random>@example.com` /
@@ -42,7 +43,7 @@ surviving a page load.
   `/users/me` to have returned it, and the route guard to have resolved it.
 - **Actual:** Redirected to `/dashboard/event-organiser`.
 - **Status:** Pass
-- **Evidence:** `test_sign_up.py::test_sign_up_lands_on_the_organiser_dashboard`
+- **Evidence:** `test_sign_up.py::test_sign_up_lands_on_the_organiser_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 
 > If the test project has email confirmation on, the case skips with the fix
 > spelled out rather than failing. That is **Blocked**, not Fail — the code is
@@ -1268,18 +1269,22 @@ Confirmed by the developer on 2026-10-11.
 - **Pre-conditions:** The whole `.env.test` stack recreated immediately
   before; S-51 SQL applied; Chromium. Organiser O; at least one Coordinator.
 - **Steps:**
-  1. O signs in, starts a new event request starting `2026-12-10 18:00`,
-     turns **Registration** on.
-  2. Sets closing `2026-12-10 19:00` and opening `2026-11-01 09:00`; clicks
+  1. O signs in, starts a new event request starting at 18:00 on the event
+     day E (today + 40 days), turns **Registration** on.
+  2. Sets closing E 19:00 and opening today + 2 days, 09:00; clicks
      **Submit request**.
-  3. Changes closing to `2026-12-05 18:00`; submits.
+  3. Changes closing to E − 5 days, 18:00; submits.
   4. Opens the submitted request.
+- **Test data:** Dates relative to the day of the run, because the picker
+  disables past days: e.g. run on 2 Nov 2026, E is 12 Dec 2026, opening
+  4 Nov 2026, closing 7 Dec 2026.
 - **Expected:** 2 shows "Registration must close before the event starts." and
-  nothing is submitted. 3 submits. 4 shows "Registration opens 1 Nov 2026,
-  9:00 am and closes 5 Dec 2026, 6:00 pm." with no control to change it.
-- **Actual:** Chromium: closing at 7:00 pm on the start day showed "Registration must close before the event starts." and stayed on `/events/new`; closing 5 Dec submitted; after a reload the period read "Registration opens 1 Nov 2026, 9:00 am and closes 5 Dec 2026, 6:00 pm." with no toggle or pickers.
+  nothing is submitted. 3 submits. 4 shows "Registration opens <opening>,
+  9:00 am and closes <closing>, 6:00 pm." (e.g. "Registration opens 4 Nov
+  2026, 9:00 am and closes 7 Dec 2026, 6:00 pm.") with no control to change it.
+- **Actual:** Chromium, run 2 Nov 2026: closing at 7:00 pm on the event day showed "Registration must close before the event starts." and stayed on `/events/new`; closing 7 Dec submitted; after a reload the request showed "Registration opens 4 Nov 2026, 9:00 am and closes 7 Dec 2026, 6:00 pm." with no registration controls.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_set_registration_period.py::test_organiser_sets_a_registration_period_fixed_once_submitted`; `.env.test` stack recreated with `--build` immediately before (events, users, registrations verified on the test project's `SUPABASE_URL`), 2026-10-25, branch `S-51/configure-registration-and-open-close-period`; S-51 SQL applied to the test project; run headed with `--slowmo 400`: 3 passed in 70 s
+- **Evidence:** `tests/e2e/test_set_registration_period.py::test_organiser_sets_a_registration_period_fixed_once_submitted`; 2026-11-02, branch `S-90/restore-original-venue-booking`; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`). Dates made relative to the run after the fixed 1 Nov 2026 opening date passed and the picker disabled it.
 
 ## TC-E2E-247 — a visitor reads a confirmed event, then registers as an Attendee
 
@@ -1418,6 +1423,25 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_join_waiting_list.py::test_a_waitlisted_attendee_sees_their_place_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-52/join-waiting-list` (on S-50 `a3011b3`), pre-commit working tree
 
+## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
+
+## TC-E2E-260 — an Attendee sign-up lands on the Attendee dashboard
+
+- **Scenario:** Choosing Attendee on the real form ends on the Attendee
+  dashboard, and the page will not submit until a role is chosen (AC1, AC3).
+- **Pre-conditions:** As TC-E2E-201.
+- **Steps:**
+  1. Open `/signup` through Kong; check neither **Attendee** nor **Event
+     Organiser** is selected.
+  2. Fill every other field and submit.
+  3. Choose **Attendee** and submit again.
+- **Test data:** As TC-E2E-201, with a fresh `spm-e2e-*` address.
+- **Expected:** 1: both role buttons report not pressed. 2: the page stays on
+  `/signup` showing "Choose whether you're signing up as an Attendee or an
+  Event Organiser." 3: the browser ends on `/dashboard/attendee`.
+- **Actual:** Chromium: both buttons started `aria-pressed="false"`; submitting without a role stayed on `/signup` with the role message; after choosing Attendee the browser ended on `/dashboard/attendee`.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_sign_up.py::test_an_attendee_sign_up_lands_on_the_attendee_dashboard[chromium]`; `.env.test` stack recreated with `--build` immediately before (users container's `SUPABASE_URL` matched `.env.test`); 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
 ## S-49 — Registration Confirmation Notification
 
 ## TC-E2E-256 — an Attendee sees the confirmation on their dashboard after registering
@@ -1441,21 +1465,19 @@ Confirmed by the developer on 2026-10-25. Latest execution: S-88 branch, uncommi
 
 ## S-53 — Withdraw Registration
 
-## TC-E2E-257 — an Attendee withdraws and the next in line gets the place
+## TC-E2E-257 — an Attendee withdraws from the event page
 
-- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, is no longer registered, and the Attendee first on the waiting list is moved to Confirmed and notified (S-53 AC1–AC4).
+- **Scenario:** In a real browser: a registered Attendee withdraws from the event page after confirming, and is no longer registered (S-53 AC1, AC2). Amended by S-55 (2026-10-30): what happens to the next in line moved to TC-E2E-264, because the place is now offered, not given. The old steps 5–6 are dropped. Amended by S-58 (2026-10-30): P now stays on A's dashboard as Withdrawn rather than disappearing.
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-53 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B ("S-53 E2E Attendee B") and C; A holds P's one place; B, then C, are on P's waiting list.
 - **Steps:**
   1. As A, open `/public/events/P` and click **Withdraw registration**.
   2. Click **Keep my place**.
   3. Click **Withdraw registration**, then **Withdraw**.
   4. Reload; open the dashboard.
-  5. As B, open the dashboard.
-  6. As C, open `/public/events/P`.
-- **Expected:** 1 → "Withdraw from {P's name}? Your place goes to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (B took the place), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard has no row for P. 5 → the row for P reads "Confirmed", and Notifications shows "A place opened up: you're now registered for {P's name}, …". 6 → "You're on the waiting list. You're next in line."
-- **Actual:** Chromium: the prompt showed with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button, and no row for P on A's dashboard; B's row read Confirmed with "A place opened up: you're now registered for {P}, …" in Notifications; C saw "You're on the waiting list. You're next in line."
+- **Expected:** 1 → "Withdraw from {P's name}? Your place will be offered to the next person on the waiting list." with **Withdraw** and **Keep my place**. 2 → the prompt closes and "You're registered for this event." is still shown. 3 → "You've withdrawn from this event.", with no "You're registered for this event.". The event is full again (the place is held for B), so **Join the waiting list** is shown. 4 → after the reload, no withdrawn message, no "You're registered" and no **Withdraw registration**. The dashboard's one row for P reads "Withdrawn on {today, SGT}" (S-58), not "Confirmed".
+- **Actual:** Chromium: the prompt showed the S-55 wording with Withdraw and Keep my place; Keep my place closed it with A still registered; Withdraw showed "You've withdrawn from this event." and Join the waiting list; after reload no withdrawn message, no registered line, no Withdraw button; A's dashboard had one row for P reading "Withdrawn on {today SGT}", not "Confirmed".
 - **Status:** Pass
-- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_and_the_next_in_line_gets_the_place[chromium]; run headed with `--slowmo 600`: 1 passed in 46 s; with the S-48/49/50/52 registration journeys headless: 8 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Evidence:** tests/e2e/test_withdraw_registration.py::test_an_attendee_withdraws_from_the_event_page[chromium]; full `tests/e2e`: 47 passed, the rest (timeouts across a 23-minute run on the shared test project) all passed on rerun; this journey also passed alone; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
 
 ## S-93 confirmed specification — inactive Coordinator handoff in Chromium
 
@@ -1475,3 +1497,284 @@ Coordinator inactive through trusted Auth metadata.
 - **Actual:** L1 saw both active event summaries and an inactive-owner count of two, transferred only its own event and saw the count fall to one. L2 then transferred its event, leaving A with zero active events. Cross-Lead rows remained read-only and ordinary oversight stayed scoped.
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]`; final rebuilt `.env.test` stack, 2026-10-25 (1 passed). Full Chromium regression before the final UI selection-race fix: 51 passed.
+
+## S-56 — View Confirmed Event Details
+
+## TC-E2E-259 — an Attendee sees when and where their event is, and "to be confirmed" while it is re-checked
+
+- **Scenario:** In a real browser: a registered Attendee's dashboard shows the confirmed date, time and primary venue, hides them while the event is re-checked, and shows them again once it is confirmed (S-56 AC1–AC5).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, no new SQL. Through the admin client: Organiser O; confirmed event P owned by O, starting `2026-12-04 18:00`, ending `2026-12-04 21:00`, registration open from yesterday to a week out (SGT); venues V1 and V2; confirmed bookings of V1 (submitted first) and V2 for P; Attendee A holding a place at P.
+- **Steps:**
+  1. As A, open the dashboard.
+  2. Through the admin client, set P to `planning`; reload.
+  3. Set P to `confirmed` again; reload.
+- **Expected:** 1 → P's card in "Your registrations" shows "4 Dec 2026, 6:00 pm to 9:00 pm" and V1's name, and not V2's name. It shows none of P's purpose, expected attendance, organiser or coordinator. 2 → P's card is still there and reads "Details to be confirmed. The date, time and venue will show here once the event is confirmed again.", with no date and neither venue's name. 3 → the date, time and V1's name are back.
+- **Actual:** Chromium: the card showed "4 Dec 2026, 6:00 pm to 9:00 pm" and Hall One, not Room Two, with no purpose, attendance, organiser or coordinator; after `planning` and a reload it read the "Details to be confirmed…" line with no date or venue; after re-confirming, the date and Hall One were back.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_confirmed_event_details.py::test_an_attendee_sees_when_and_where_and_to_be_confirmed_while_rechecked[chromium]; with the S-48/50/51/52/53 registration journeys: 9 passed (S-52 and S-53's `Confirmed` locators made exact, since a held card now also reads "Venue to be confirmed"); `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## S-92 — Record Equipment Storage Location
+
+## TC-E2E-261 — Technical Support records, edits and finds an equipment location
+
+## TC-E2E-262 — a Coordinator designates the attendee-facing primary venue
+
+- **Pre-conditions:** The fresh `.env.test` stack has an assigned Coordinator, its Organiser and an Attendee. Their event has two confirmed venue bookings.
+- **Steps:** The Coordinator opens the event, marks the second venue primary, and the Organiser confirms both venues remain visible. The Attendee opens the published event. The primary booking is then cancelled/replaced and the Coordinator returns to the event.
+- **Expected:** The Coordinator and Organiser see both venues and the Primary label. The Attendee sees only the selected primary. After it is removed, the Coordinator is prompted to choose a new primary and the Attendee sees `Venue to be confirmed` until that choice is made.
+
+- **Scenario:** The full browser journey shows the same storage location in the catalogue and live availability results.
+- **Pre-conditions:** Fresh `.env.test` stack, S-92 SQL applied, Chromium, temporary Technical Support account.
+- **Steps:** Add a projector at `Store B, Shelf 4`; confirm the catalogue; edit it to `AV Cage, Rack 2`; check a future availability window.
+- **Expected:** Both catalogue states show the saved value; availability shows the updated location and still reports all 3 projectors available, proving the location does not reserve anything.
+- **Status:** Pass (2026-10-28)
+- **Evidence:** `tests/e2e/test_equipment_storage_location.py::test_storage_location_is_recorded_edited_and_shown_in_availability[chromium]`
+
+## S-82 — View Event Change History
+
+`test_view_event_change_history.py`. The history has its own screen,
+`/events/:id/history` (developer decision 9b), with a "Back to …" link in the
+header.
+
+## TC-E2E-262 — a Coordinator's edit shows in their and a Lead's change history
+
+- **Scenario:** In a real browser, through Kong: an edit made in the UI is recorded and both the assigned Coordinator and a Lead can read who changed what and when; nothing on the screen can change an entry (S-82 AC1, AC2, AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, S-82 SQL applied. Through the admin client:
+  - Organiser O, named "Ada Organiser".
+  - Lead L. L assigned nothing.
+  - Coordinator C, named "Alex Coordinator".
+  - Event E "History Forum <6 hex>", `planning`, owned by O, assigned to C by a different Lead, `expected_attendance` 120.
+- **Steps:**
+  1. As C, open `/coordinator/events/E` and change Expected attendance to 150; save.
+  2. Select "View change history".
+  3. Sign in as L; under "Coordinator active events" choose C, then select "Change history" on E. (L did not assign E, so it is not in L's own oversight.)
+  4. Open `/events/E/history` as Organiser O.
+- **Expected:**
+  1. The edit saves.
+  2. The URL is `/events/E/history`. The newest entry reads "Edited the event" with "Expected attendance: 120 → 150", "Alex Coordinator, Event Coordinator", and today's date in Singapore time. The screen has a "Back to event" link, and no button or field that edits or deletes an entry.
+  3. The same entry.
+  4. The Organiser is sent back to their dashboard; no history is shown.
+- **Actual:** Chromium: the Coordinator's edit saved; the history's newest entry read "Edited the event", "Expected attendance: 120 → 150", "Alex Coordinator, Event Coordinator" and today's date, with a "Back to event" link and no buttons or text fields; the Lead reached the same entry from "Coordinator active events"; the Organiser was sent back to their dashboard.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_event_change_history.py::test_coordinator_and_lead_see_an_edit_in_the_history[chromium]; full e2e suite 61 passed on a `.env.test` stack recreated with `--build` (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-E2E-263 — a Safety Officer sees only the safety review's history
+
+- **Scenario:** In a real browser, the Safety Officer reaches the history from the safety check and sees attendance changes and safety decisions, not contact edits or assignments (S-82 AC3).
+- **Pre-conditions:** As TC-E2E-262, plus Safety Officer S, named "Sam Safety". E is `pending_safety_check`. Its history holds, through the internal route and the admin client:
+  - `coordinator_assigned`
+  - an `edited` entry changing `contact_phone`
+  - an `edited` entry changing `expected_attendance` 120→150
+- **Steps:**
+  1. As S, open `/safety-checks/E` and request changes with reason "Fire exit blocked".
+  2. Select "View change history" on the same page.
+- **Expected:**
+  - 2 → `/events/E/history` lists, newest first, "Requested safety changes: Fire exit blocked" by "Sam Safety, Safety Officer", then "Expected attendance: 120 → 150".
+  - No contact phone change and no "Assigned …" entry is shown.
+  - The back link reads "Back to safety checks" and leads to the Safety Officer's dashboard. A decided event's safety check page no longer opens, so the link can't go back to it.
+- **Actual:** Chromium: after requesting changes, the history listed exactly two entries: "Requested safety changes: Fire exit blocked" by "Sam Safety, Safety Officer", then "Expected attendance: 120 → 150". No contact phone or assignment entry; back link "Back to safety checks".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_event_change_history.py::test_safety_officer_sees_only_the_safety_history[chromium]; full e2e suite 61 passed on a `.env.test` stack recreated with `--build` (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full Chromium regression: 66 passed.
+
+## TC-E2E-259 — Organiser proposal persists and assigned Coordinator sees it
+
+- **Scenario:** Chromium proves the Organiser and assigned Coordinator see one unapproved proposal through Kong after reload.
+- **Pre-conditions:** Fresh `.env.test` stack with S-59 Events SQL applied, exposed and granted; temporary Organiser O, assigned Coordinator C and unrelated Coordinator D; confirmed `Autumn Forum` accepted for 2026-11-18 09:00–12:00, attendance 120, theatre layout, projector quantity 2, with an existing venue booking and Technical Support sign-off. The test removes all created rows and accounts.
+- **Steps:** 1. O opens E's detail and selects Request Changes. 2. Propose attendance 150, banquet layout and projector quantity 3; inspect changed-field comparison and submit. 3. Reload O's page and verify pending status, accepted-versus-proposed values, timestamp and arrangement warning. 4. Sign in as C, open E, and verify the same pending comparison. 5. Sign in as D and attempt E's proposal URL. 6. Verify accepted event/booking/equipment/sign-off values and clean up.
+- **Test data:** O/C/D distinct `spm-e2e-*` accounts; accepted 120/theatre/2, proposed 150/banquet/3.
+- **Expected:** Request Changes starts with accepted values; submitting yields a pending proposal and no event mutation. O and C see accepted 120/theatre/2 beside proposed 150/banquet/3 after reload, with a server time and a statement that existing arrangements apply to accepted details only. D sees no proposal. E remains confirmed at 120, the booking and sign-off remain, and Equipment still records projector quantity 2. No S-60 Accept action appears.
+- **Actual:** The Organiser submitted and reloaded a mixed proposal; the assigned Coordinator saw it, the unrelated Coordinator did not, and accepted event and linked arrangements stayed unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; both S-59 Chromium cases passed on 2026-10-30 after the frontend guard fix.
+
+## S-55 — Notify Waitlisted Attendee of Opening
+
+## TC-E2E-264 — a freed place is offered to the first in line, who must accept it
+
+- **Scenario:** In a real browser: when a place frees up, the Attendee first on the waiting list is invited and finds the offer from their notification and dashboard. Declining passes it to the next in line, who is registered only once they accept (S-55 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-55 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B and C; A holds P's one place; B, then C, are on P's waiting list.
+- **Steps:**
+  1. As A, open `/public/events/P`, click **Withdraw registration**, then **Withdraw**.
+  2. As B, open the dashboard.
+  3. Click **View event** on the invitation.
+  4. Click **Decline**, then **Keep my offer**.
+  5. Click **Decline**, then **Decline** in the confirmation.
+  6. As C, open the dashboard, then `/public/events/P`.
+  7. Click **Accept place**.
+  8. Open the dashboard.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → "You've withdrawn from this event." 2 → P's row reads "Place offered", not "Confirmed". Notifications shows "A place opened up at {P's name}, …It's held for you: accept it on the event page to register." with a **View event** link. 3 → `/public/events/P` shows "A place is being held for you. Accept it to register, or decline to pass it to the next person." with **Accept place** and **Decline**, and no "You're registered for this event.". 4 → "Decline this place? You'll leave the waiting list." with **Decline** and **Keep my offer**. Keep my offer closes it, and the held message is still shown. 5 → "You've declined the place and left the waiting list.", and **Join the waiting list** is shown (the place is now held for C). 6 → C's row reads "Place offered" and C's Notifications shows the same invitation. The event page shows the held message and **Accept place**. 7 → "You're registered for this event." 8 → P's row reads "Confirmed", and Notifications shows "Registration confirmed: {P's name}, …".
+- **Actual:** Chromium: A withdrew; B's row read "Place offered" (not Confirmed) with the invitation and View event link; the link opened P's page with the held message and Accept place, no registered line; Keep my offer kept the offer; Decline showed the declined message and Join the waiting list; C's row read "Place offered" with the invitation; Accept place showed "You're registered for this event."; C's dashboard read Confirmed with "Registration confirmed: {P}, …".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_waiting_list_offer.py::test_a_freed_place_is_offered_to_the_first_in_line_who_must_accept_it[chromium]; full `tests/e2e`: 67 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-57 — View Event Registration List (specification)
+
+Drafted 2026-10-30 on `S-57/view-event-registration-list`. Confirmed by the
+developer 2026-10-30. Only what a browser can prove: the **Refresh list** button
+re-reads without a page load, and the Coordinator's page shows the list and
+agrees with the service about who may see it. Access rules, ordering and
+withdrawals are covered by TC-EVENTREGISTRATIONS-062 to -065 and -109.
+
+## TC-E2E-265 — the Organiser refreshes the list after withdrawals
+
+- **Scenario:** In a real browser, with the event page left open, the Organiser sees withdrawals after clicking **Refresh list**, and is told when no one is left (S-57 AC2–AC5).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 5, registration open yesterday to tomorrow (SGT), starting ten days out; Attendees A ("S-57 E2E Attendee A") and B ("S-57 E2E Attendee B"), both holding a place at P.
+- **Steps:**
+  1. As O, open `/events/P`.
+  2. Without leaving the page, A withdraws through the API (`DELETE /api/event-registrations/events/P/registration` with A's session).
+  3. Click **Refresh list**.
+  4. B withdraws the same way; click **Refresh list**.
+- **Test data:** Emails `spm-e2e-*`; names as above.
+- **Expected:** 1 → "Registered attendees" shows "2 attendees registered" with A's and B's names and emails. 3 → "1 attendee registered", B listed, A's name not on the page; the URL did not change and no navigation occurred. 4 → "No one is currently registered for this event." and no attendee rows.
+- **Actual:** Chromium: "2 attendees registered" with both names and emails; after A withdrew in a separate session and Refresh list, "1 attendee registered" with B only; after B withdrew and Refresh list, "No one is currently registered for this event."; same URL, and a page-load marker set before the first refresh survived both.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_registration_list.py::test_the_organiser_refreshes_the_list_after_withdrawals[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed
+
+## TC-E2E-266 — the assigned Coordinator sees the registration list
+
+- **Scenario:** The Coordinator assigned to the event sees who is registered on their event page, without the Organiser's close/reopen control (S-57 AC1, AC2).
+- **Pre-conditions:** As TC-E2E-265, plus Coordinator C as P's `assigned_coordinator_id`; only A holds a place.
+- **Steps:**
+  1. As C, open `/coordinator/events/P`.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** A "Registered attendees" section shows "1 attendee registered" with A's name and email, a **Refresh list** button, and no **Close registration** button.
+- **Actual:** Chromium: Registered attendees showed "1 attendee registered", A's name and email and Refresh list; no Close registration button on the page.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_registration_list.py::test_the_assigned_coordinator_sees_the_registration_list[chromium]; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); no new SQL; 2026-10-30, branch `S-57/view-event-registration-list` (on sprint4 `44701d3`), pre-commit working tree; with `test_register_for_event.py`, `test_cap_registration.py` and `test_withdraw_registration.py`: 9 passed
+
+## S-71 — Notify Coordinator — Availability Change
+
+## TC-E2E-267 — Technical Support makes equipment unavailable and the Coordinator is told
+
+- **Scenario:** The full browser journey lets a Coordinator react before the event when catalogue availability changes.
+- **Pre-conditions:** Fresh `.env.test` stack with S-71 SQL, Chromium, Technical Support T, Coordinator C, confirmed event E assigned to C, and available equipment P required by E.
+- **Steps:** As T, edit P to Unavailable. Sign in as C and open Notifications.
+- **Expected:** T sees the saved catalogue status. C sees one notification naming E and P and telling them to arrange replacement equipment before the event.
+- **Actual:** Chromium showed the saved Unavailable status and one Coordinator notification naming the event and equipment and directing replacement before the event.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_equipment_availability_notification.py::test_support_makes_equipment_unavailable_and_the_coordinator_is_told[chromium]`;
+  fresh `.env.test` stack; 2026-10-31, branch
+  `S-71/notify-coordinator-availability-change` on Sprint 4 `95f29c6`: 1 passed.
+
+## S-58 — View My Registration Status
+
+## TC-E2E-268 — the dashboard shows a withdrawal, then the place again
+
+- **Scenario:** In a real browser: the Attendee's own dashboard shows their status and keeps it current. Confirmed before, Withdrawn after withdrawing, and Confirmed again after re-registering, with one row throughout (S-58 AC1, AC2, AC3). Waiting list and Place offered on the dashboard are already proven by TC-E2E-255 and TC-E2E-264.
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-58 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 5, registration open from yesterday to a week out (SGT), starting 14 days out; Attendee A holding a place at P.
+- **Steps:**
+  1. As A, open the dashboard.
+  2. Open `/public/events/P`, click **Withdraw registration**, then **Withdraw**.
+  3. Open the dashboard.
+  4. Open `/public/events/P` and click **Register**.
+  5. Open the dashboard.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → "Your registrations" has one row for P reading "Confirmed". 2 → "You've withdrawn from this event." 3 → one row for P, still linking to `/public/events/P`, reading "Withdrawn on {today, SGT, e.g. 30 Oct 2026}"; no "Confirmed" for P. 4 → "You're registered for this event." 5 → one row for P reading "Confirmed", and no "Withdrawn" text for P.
+- **Actual:** Chromium: P's row read "Confirmed"; withdrawing showed "You've withdrawn from this event."; the dashboard then had one row for P, linking to `/public/events/P`, reading "Withdrawn on {today SGT}" with no "Confirmed"; Register showed "You're registered for this event."; the row read "Confirmed" again with no "Withdrawn".
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_view_registration_status.py::test_the_dashboard_shows_a_withdrawal_then_the_place_again[chromium]; full `tests/e2e`: 47 passed, the rest (timeouts across a 23-minute run on the shared test project) all passed on rerun; this journey also passed alone; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-58 SQL applied to dev and test; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-E2E-269 — an Organiser sees an actionable returned-event notice
+
+- **Scenario:** The complete browser journey makes a Coordinator's returned decision visible to the correct Organiser.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; an Organiser owns a submitted request assigned to a Coordinator.
+- **Steps:** Sign in as the Coordinator, return the request with a reason and amendment comment, sign out, sign in as the Organiser, and open the dashboard.
+- **Expected:** The notification panel names the event, says it was returned, shows the reason/comment and tells the Organiser to amend and resubmit. Another Organiser cannot see it.
+- **Actual:** Chromium showed the returned event as Action Required; the owning Organiser's persistent inbox named the event, return, reason, amendment and resubmission action, while another Organiser's inbox did not show it.
+- **Status:** Pass
+- **Evidence:** `test_notify_organiser_event_changes.py::test_an_organiser_sees_an_actionable_returned_event_notice[chromium]`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; 1 passed in 33.24s.
+
+## S-68 — Notify Attendee — Event Rescheduled
+
+Acceptance criteria and test cases confirmed by the developer on 2026-11-01
+before implementation.
+
+## TC-E2E-270 — a registered Attendee sees the newly confirmed event window
+
+- **Scenario:** The real browser inbox updates only after a revised event passes its final safety approval.
+- **Pre-conditions:** Fresh `.env.test` stack and Chromium; E was previously confirmed for 18 Nov, is now pending a fresh safety decision for 20 Nov, A is registered, and U is unrelated.
+- **Steps:** Confirm A and U have no early reschedule notice; approve E as the Safety Officer; sign in as A, inspect and reload the notification inbox; sign in as U and inspect theirs.
+- **Test data:** Event "Rescheduled Forum"; new window 20 Nov 2026 13:00–16:00.
+- **Expected:** Before approval nobody sees a reschedule notice. Afterwards A sees one persistent notice naming E and its complete new window; U sees none.
+- **Actual:** Before approval A's inbox contained no event notice. After the Safety Officer approved the revised event, A saw the event name, `20 Nov 2026, 1:00 pm to 4:00 pm`, and confirmation that the registration remained active; the notice survived reload. U saw no notice.
+- **Status:** Pass
+- **Evidence:** `test_notify_attendee_event_rescheduled.py::test_registered_attendee_sees_reschedule_only_after_final_approval[chromium]`; 2026-11-01 fresh `.env.test` stack verified against the test project; 1 passed in 69.17s. Related Operational Safety and initial-confirmation regressions: 3 passed.
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs
+TC-E2E-400–449 reserved for S-89 (S-60 holds 3xx). Spec file
+`test_cancel_event_without_alternative_venue.py`. Needs the revised S-89 SQL in
+the test project; Blocked until then.
+
+## TC-E2E-400 — a Coordinator cancels an event whose venue became unavailable
+
+- **Scenario:** The browser journey: the flagged event offers cancellation, the reason and alternatives are required, the result is visible to the Coordinator, and the Organiser's inbox explains it (AC2–AC4 through Kong and the SPA).
+- **Pre-conditions:** Fresh `.env.test` stack; Chromium. Seeded with the admin client (the shared `add_event`/`add_venue` helpers): a `planning` event E assigned to Coordinator C, with confirmed bookings at V1 and V2 and one registered Attendee, and an unavailable period on V1 over E's V1 booking. (The S-77 marking form is proven in TC-E2E-234, the Attendee's message in TC-EVENTREQUESTS-450.)
+- **Steps:** 1. As C, open `/coordinator/events/E`. 2. Click **Cancel event**. 3. Click **Cancel event** in the panel with both fields empty. 4. Fill the reason and the alternatives, then confirm. 5. Reload. 6. Sign out, sign in as the Organiser, open the dashboard.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → V1's booking shows the alternative-arrangements warning, and **Cancel event** is visible. 2 → the slide-over opens with focus in the reason field. 3 → both field errors show and nothing is sent. 4 → the panel closes, the "Event cancelled" section shows the reason and "Every booking was released and everyone was notified.", and both bookings read "Released". 5 → still "Cancelled" with the reason shown; no **Cancel event** or **Finish cancellation**. 6 → the inbox shows E's cancellation with the reason.
+- **Actual:** Chromium: the flagged row and **Cancel event** showed; the slide-over opened focused on the reason; empty submit showed both field errors and sent nothing; cancelling closed the panel and showed the "Event cancelled" record with the reason and the completion sentence, both bookings "Released"; after reload the same, with no Cancel or Finish button; the Organiser's inbox named the event and the reason; both rows `released` in the database.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_cancel_event_without_alternative_venue.py::test_a_coordinator_cancels_an_event_whose_venue_became_unavailable[chromium]`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0, Playwright Chromium: `test_cancel_event_without_alternative_venue.py` 2 passed (1:20)
+
+## TC-E2E-401 — an unaffected event never offers this cancellation
+
+- **Scenario:** The action is not available just because an event exists.
+- **Pre-conditions:** As TC-E2E-400, with a second event G whose bookings no period affects.
+- **Steps:** As C, open `/coordinator/events/G`.
+- **Test data:** As above.
+- **Expected:** No **Cancel event** button; G's bookings show no warning.
+- **Actual:** Chromium: the row read Confirmed with no warning; no **Cancel event** and no "Venue unavailable" section.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_cancel_event_without_alternative_venue.py::test_an_unaffected_event_never_offers_this_cancellation[chromium]`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0, Playwright Chromium: `test_cancel_event_without_alternative_venue.py` 2 passed (1:20)
+
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Chromium against a fresh `.env.test` stack and TEST Supabase. Full suite: 72 passed, 1 failed. The failure was TC-E2E-300: an equipment resolve saved (200), then the next review read got a transient 502 from Events and the page showed its retryable error. Rerun on its own: passed, with no code change. S-55's withdrawal workflow is integrated; do not reapply S-53 SQL. See each case evidence.
+
+## TC-E2E-300 — Organiser proposal to new safety check
+
+- **Scenario:** Chromium demonstrates Organiser proposal, assigned Coordinator impact review and acceptance, arrangement re-review and the new safety-check requirement through Kong.
+- **Pre-conditions:** Fresh `.env.test` stack with developer-applied S-60 Events/Equipment SQL, exposed schemas and grants; Chromium; throwaway O, C, unrelated D, Venue Staff V and Technical Support T; confirmed E with B1/B2, P quantity 2 and prior safety/T decisions. Fixtures remove all rows/accounts.
+- **Steps:** 1. O proposes 120→150 attendees and P 2→3. 2. C opens R and sees B1's capacity, P and T impacts, while B2 remains unaffected. 3. D attempts review and is denied. 4. C accepts; reload E and verify planning/new safety-check warning while bookings/sign-offs remain. 5. C attempts safety submission and sees outstanding flags. 6. C requests a suitable new B3 booking for the revised event; V approves it through the venue decision workflow; T re-signs after equipment review; C records each resolution. 7. Reload and submit for a fresh Operational Safety Check.
+- **Test data:** E `S-60 Impact Forum <hex>` on 2026-11-18 09:00–12:00; B1 capacity 130; B2 capacity 220; B3 capacity 200; projector 2→3; distinct throwaway O/C/D/V/T users.
+- **Expected:** Proposal does not change accepted data. C sees accepted/proposed comparison and item reasons; D cannot. After acceptance E is planning at 150, P=3, old arrangement records/history still exist; safety submission stays blocked while either flag is outstanding. B1 and P resolve independently with durable action/time; only then does fresh safety submission reach `pending_safety_check`, with old approval not reused. No unrelated booking is marked impacted.
+- **Actual:** Organiser proposal, scoped Coordinator review, acceptance, owner-backed re-review, fresh safety submission, acceptance retry and later rejection display passed in Chromium.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]`; 2026-11-01 TEST Full run: one transient Events 502 on a review read after a saved resolve; isolated rerun passed (`/private/tmp/s60-e2e-s60-rerun.log`).
+
+
+## S-90 — Restore Original Venue Booking (specification)
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation. Only what a browser proves: the Coordinator's button
+and the Venue Staff dashboard section are wired to the composite through
+Kong, for the two roles access.js gives them to. The rules themselves are
+TC-BOOKINGS-124..130 and TC-VENUEBOOKINGS-131..136.
+
+## TC-E2E-270 — a Coordinator restores the original venue and Venue Staff confirm it
+
+- **Scenario:** In a real browser: once the original venue is free, the Coordinator asks to restore it, Venue Staff confirm from their dashboard, and the event page shows the original kept and the replacement withdrawn (S-90 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-90 SQL applied. Through the admin client: Coordinator K; Venue Staff S; venues V and W; confirmed event E assigned to K; O `confirmed` at V; R `pending` at W replacing O; no unavailable period at V.
+- **Steps:**
+  1. As K, open `/coordinator/events/E` and click **Restore original venue**.
+  2. Sign out; as S, open the Venue Staff dashboard and click **Confirm restore** on E's request.
+  3. Sign out; as K, open `/coordinator/events/E`.
+- **Test data:** Emails `spm-e2e-*`.
+- **Expected:** 1 → before the click, "Replacement requested: {W}, waiting for Venue Staff. {V} is free again."; after it, "Restore requested: waiting for Venue Staff to confirm {V}" and no **Restore original venue** button. 2 → the "Restore requests" section shows E with "Keep {V}" and "Withdraw the request for {W}"; after confirming, "{V} restored for {E}." and the request is gone. 3 → V's booking reads "Resolved: Restored to the original venue"; W's request reads "Withdrawn".
+- **Actual:** Chromium: K's row read "…waiting for Venue Staff. {V} is free again.", then "Restore requested: waiting for Venue Staff to confirm {V}" with no button; S's Restore requests showed Keep {V} and Withdraw the request for {W}, Confirm restore showed "{V} restored for {E}." and removed the row; K's page then read "Resolved: Restored to the original venue" and "Withdrawn: {V} was restored". E was `planning` (the shared e2e helper), an open status like `confirmed`.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_restore_original_venue.py::test_a_coordinator_restores_the_original_venue_and_venue_staff_confirm_it[chromium]; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST

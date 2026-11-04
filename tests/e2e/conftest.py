@@ -144,6 +144,10 @@ def make_user(admin):
         admin.schema("registrations").table("waiting_list").delete().eq(
             "attendee_id", user_id
         ).execute()
+        # S-58: withdrawing or declining records the Attendee's withdrawal.
+        admin.schema("registrations").table("withdrawals").delete().eq(
+            "attendee_id", user_id
+        ).execute()
         # users.users cascades from auth.users, so the profile goes with this.
         admin.auth.admin.delete_user(user_id)
 

@@ -33,7 +33,7 @@ def test_staff_mark_a_period_over_a_confirmed_booking_and_its_coordinator_is_tol
         "venue_name": venue["name"], "status": "confirmed",
         "decided_by": staff["id"], "decided_at": "2026-10-01T00:00:00+00:00",
     }).execute().data[0]
-    when = f"{day.day:02d} {day:%b} {day.year}"
+    when = f"{day.day} {day:%b} {day.year}"
 
     # 1-3. Staff mark the period; the description is required for Other.
     sign_in(staff)

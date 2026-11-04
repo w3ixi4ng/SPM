@@ -141,7 +141,7 @@ def test_submit_for_safety_check_to_confirmed(admin, page, make_user, sign_in):
     # 4. The Organiser sees the real stage.
     sign_in(organiser)
     page.wait_for_url(re.compile(r"/dashboard"), timeout=20000)
-    row = page.get_by_role("listitem").filter(has_text=event_name)
+    row = page.get_by_role("tabpanel").get_by_role("listitem").filter(has_text=event_name)
     expect(row).to_contain_text("Pending Safety Check", timeout=20000)
     sign_out(page)
 
@@ -158,5 +158,5 @@ def test_submit_for_safety_check_to_confirmed(admin, page, make_user, sign_in):
     # 6. Confirmed, for the Organiser.
     sign_in(organiser)
     page.wait_for_url(re.compile(r"/dashboard"), timeout=20000)
-    row = page.get_by_role("listitem").filter(has_text=event_name)
+    row = page.get_by_role("tabpanel").get_by_role("listitem").filter(has_text=event_name)
     expect(row).to_contain_text("Confirmed", timeout=20000)

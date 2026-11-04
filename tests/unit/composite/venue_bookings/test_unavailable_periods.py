@@ -12,6 +12,7 @@ HALL_C = 'aaaaaaaa-0000-4aaa-8aaa-aaaaaaaaaaaa'
 BLOCK_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 COOKIE = {'sb_access_token': 'token'}
 C1, C2, C3 = (f'{n}{n}{n}{n}{n}{n}{n}{n}-0000-4000-8000-00000000000{n}' for n in (1, 2, 3))
+O1, O2, O4 = (f'{n}{n}{n}{n}{n}{n}{n}{n}-1111-4111-8111-11111111111{n}' for n in (1, 2, 4))
 
 REQUEST = {'venue_id': STUDIO_B, 'start_date': '2026-11-13', 'start_time': '09:00',
            'end_date': '2026-11-14', 'end_time': '17:00', 'reason': 'equipment_failure',
@@ -41,11 +42,11 @@ G = booking(6, E6, 'Late workshop', 'confirmed', '2026-11-15', '10:00', '12:00')
 LIVE = [F, A, B, D, G]
 
 ACTIVE = [
-    {'id': E1, 'name': 'Alumni talk', 'assigned_coordinator_id': C2},
-    {'id': E2, 'name': 'Board lunch', 'assigned_coordinator_id': C3},
-    {'id': E4, 'name': 'Evening recital', 'assigned_coordinator_id': C3},
-    {'id': E5, 'name': 'Breakfast briefing', 'assigned_coordinator_id': C3},
-    {'id': E6, 'name': 'Late workshop', 'assigned_coordinator_id': C3},
+    {'id': E1, 'name': 'Alumni talk', 'assigned_coordinator_id': C2, 'organiser_id': O1},
+    {'id': E2, 'name': 'Board lunch', 'assigned_coordinator_id': C3, 'organiser_id': O2},
+    {'id': E4, 'name': 'Evening recital', 'assigned_coordinator_id': C3, 'organiser_id': O4},
+    {'id': E5, 'name': 'Breakfast briefing', 'assigned_coordinator_id': C3, 'organiser_id': O1},
+    {'id': E6, 'name': 'Late workshop', 'assigned_coordinator_id': C3, 'organiser_id': O2},
 ]
 
 
@@ -187,36 +188,50 @@ def test_affected_events_are_not_cancelled_and_their_records_are_untouched(clien
 
 
 # --- TC-VENUEBOOKINGS-070 --------------------------------------------------
-def test_each_affected_events_current_coordinator_is_notified_once(client, studio):
+def test_each_affected_events_coordinator_and_organiser_are_notified_once(client, studio):
     mark(client)
 
     studio.services.notifications.post.assert_awaited_once()
     assert studio.services.notifications.post.await_args.args == ('/internal/notifications',)
     rows = studio.sent_notifications()
-    assert [row['recipient_id'] for row in rows] == [C2, C3, C3]
-    assert [row['event_id'] for row in rows] == [E1, E2, E4]
-    assert [row['event_name'] for row in rows] == ['Alumni talk', 'Board lunch', 'Evening recital']
+    assert [row['recipient_id'] for row in rows] == [C2, O1, C3, O2, C3, O4]
+    assert [row['event_id'] for row in rows] == [E1, E1, E2, E2, E4, E4]
+    assert [row['event_name'] for row in rows] == [
+        'Alumni talk', 'Alumni talk', 'Board lunch', 'Board lunch',
+        'Evening recital', 'Evening recital',
+    ]
     assert all(row['kind'] == 'venue_unavailable' for row in rows)
     assert rows[0]['message'] == (
         'Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). '
         'Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements.'
     )
+    assert rows[1]['message'].endswith(
+        'Review the event and work with your Event Coordinator to arrange a replacement.'
+    )
     assert [row['deduplication_key'] for row in rows] == [
         f'venue_unavailable:{BLOCK_ID}:{A["id"]}:{C2}',
+        f'venue_unavailable:{BLOCK_ID}:{A["id"]}:{O1}',
         f'venue_unavailable:{BLOCK_ID}:{B["id"]}:{C3}',
+        f'venue_unavailable:{BLOCK_ID}:{B["id"]}:{O2}',
         f'venue_unavailable:{BLOCK_ID}:{D["id"]}:{C3}',
+        f'venue_unavailable:{BLOCK_ID}:{D["id"]}:{O4}',
     ]
 
 
 # --- TC-VENUEBOOKINGS-071 --------------------------------------------------
 def test_an_affected_booking_whose_event_has_no_current_coordinator_is_still_flagged(client, studio):
-    studio.active = [event for event in ACTIVE if event['id'] != E2]
+    studio.active = [
+        {**event, 'assigned_coordinator_id': None} if event['id'] == E2 else event
+        for event in ACTIVE
+    ]
 
     response = mark(client)
 
     assert response.status_code == 201
     assert [row['id'] for row in response.json()['affected_bookings']] == [A['id'], B['id'], D['id']]
-    assert [(row['event_id'], row['recipient_id']) for row in studio.sent_notifications()] == [(E1, C2), (E4, C3)]
+    assert [(row['event_id'], row['recipient_id']) for row in studio.sent_notifications()] == [
+        (E1, C2), (E1, O1), (E2, O2), (E4, C3), (E4, O4),
+    ]
     assert response.json()['coordinators_notified'] is True
 
 
@@ -226,8 +241,11 @@ def test_more_than_twenty_affected_bookings_are_notified_in_batches(client, stud
                     '2026-11-13', '10:00', '11:00')
             for n in range(25)]
     studio.live = many
-    studio.active = [{'id': row['event_id'], 'name': row['event_name'], 'assigned_coordinator_id': C3}
-                     for row in many]
+    studio.active = [
+        {'id': row['event_id'], 'name': row['event_name'], 'assigned_coordinator_id': C3,
+         'organiser_id': f'99999999-0000-4000-8000-{n:012d}'}
+        for n, row in enumerate(many)
+    ]
 
     response = mark(client)
 
@@ -235,9 +253,9 @@ def test_more_than_twenty_affected_bookings_are_notified_in_batches(client, stud
     assert len(response.json()['affected_bookings']) == 25
     sizes = [len(call.kwargs['json']['notifications'])
              for call in studio.services.notifications.post.await_args_list]
-    assert sizes == [20, 5]
+    assert sizes == [20, 20, 10]
     keys = [row['deduplication_key'] for row in studio.sent_notifications()]
-    assert len(set(keys)) == 25
+    assert len(set(keys)) == 50
 
 
 # --- TC-VENUEBOOKINGS-073 --------------------------------------------------

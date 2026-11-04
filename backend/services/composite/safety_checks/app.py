@@ -1,6 +1,8 @@
 """S-86 cross-service Operational Safety Check workflow."""
 
 import logging
+import os
+from datetime import date, datetime, time
 from uuid import UUID
 
 import httpx
@@ -12,6 +14,8 @@ from clients import (
     get_bookings_client,
     get_equipment_client,
     get_events_client,
+    get_notifications_client,
+    get_registrations_client,
     get_users_client,
     get_venues_client,
 )
@@ -23,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 SAFETY_OFFICER_ROLE = "safety_officer"
 EVENT_COORDINATOR_ROLE = "event_coordinator"
+SCHEDULE_FIELDS = ("start_date", "start_time", "end_date", "end_time")
+NOTIFICATION_BATCH = 20
 
 
 @app.exception_handler(RequestValidationError)
@@ -170,6 +176,131 @@ async def _confirmed_venues(
     return enriched
 
 
+def _timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _schedule_value(field: str, value) -> str | None:
+    if value is None:
+        return None
+    if field.endswith("_date"):
+        return date.fromisoformat(str(value)).isoformat()
+    return time.fromisoformat(str(value)).isoformat()
+
+
+def _previous_confirmed_schedule(event: dict, entries: list[dict]) -> dict | None:
+    """Rebuild the attendee-facing window before the latest review cycle.
+
+    Events owns the immutable history. The most recent earlier approval marks
+    the start of this review cycle; the first ``before`` value for each
+    schedule field after it is therefore the last attendee-facing value.
+    """
+    current_decided_at = _timestamp(event.get("safety_decided_at"))
+    if event.get("safety_decision") != "approved" or current_decided_at is None:
+        return None
+    earlier_approvals = [
+        _timestamp(review.get("decided_at"))
+        for review in event.get("safety_review_history", [])
+        if review.get("decision") == "approved"
+        and _timestamp(review.get("decided_at")) is not None
+        and _timestamp(review.get("decided_at")) < current_decided_at
+    ]
+    if not earlier_approvals:
+        return None
+    previous_approval = max(earlier_approvals)
+    current = {field: event.get(field) for field in SCHEDULE_FIELDS}
+    previous = dict(current)
+    first_changes: set[str] = set()
+    for entry in sorted(entries, key=lambda row: (_timestamp(row.get("occurred_at")) or previous_approval)):
+        occurred_at = _timestamp(entry.get("occurred_at"))
+        if occurred_at is None or not (previous_approval < occurred_at <= current_decided_at):
+            continue
+        changes = (entry.get("details") or {}).get("changes") or {}
+        for field in SCHEDULE_FIELDS:
+            if field in changes and field not in first_changes:
+                previous[field] = changes[field].get("before")
+                first_changes.add(field)
+    if not first_changes:
+        return None
+    previous_values = tuple(_schedule_value(field, previous[field]) for field in SCHEDULE_FIELDS)
+    current_values = tuple(_schedule_value(field, current[field]) for field in SCHEDULE_FIELDS)
+    return previous if previous_values != current_values else None
+
+
+def _day(value: str) -> str:
+    moment = date.fromisoformat(str(value))
+    return f"{moment.day} {moment:%b %Y}"
+
+
+def _clock(value: str) -> str:
+    moment = time.fromisoformat(str(value))
+    hour = moment.hour % 12 or 12
+    return f"{hour}:{moment:%M} {'am' if moment.hour < 12 else 'pm'}"
+
+
+def _window_label(event: dict) -> str:
+    start = f"{_day(event['start_date'])}, {_clock(event['start_time'])}"
+    if str(event["end_date"]) == str(event["start_date"]):
+        return f"{start} to {_clock(event['end_time'])}"
+    return f"{start} to {_day(event['end_date'])}, {_clock(event['end_time'])}"
+
+
+async def _notify_registered_attendees_of_reschedule(
+    event: dict,
+    events: httpx.AsyncClient,
+    registrations: httpx.AsyncClient,
+    notifications: httpx.AsyncClient,
+) -> int:
+    """Tell current place holders only after a revised event is confirmed."""
+    reviews = event.get("safety_review_history") or []
+    if event.get("safety_decision") != "approved" or sum(
+        review.get("decision") == "approved" for review in reviews
+    ) < 2:
+        return 0
+    history = await _json(
+        "Events", events.get(f"/internal/events/{event['id']}/history")
+    )
+    if _previous_confirmed_schedule(event, history) is None:
+        return 0
+    current = await _call(
+        "Registrations", registrations.get(f"/registrations/events/{event['id']}")
+    )
+    if current.status_code != 200:
+        raise _unavailable("Registrations")
+    attendee_ids = list(dict.fromkeys(row["attendee_id"] for row in current.json()))
+    message = (
+        f"Event rescheduled: {event['name']} will now take place "
+        f"{_window_label(event)}. Your registration is still active."
+    )
+    rows = [
+        {
+            "recipient_id": attendee_id,
+            "event_id": str(event["id"]),
+            "event_name": event["name"],
+            "kind": "event_schedule_changed",
+            "message": message,
+            "deduplication_key": (
+                f"event_schedule_changed:{event['id']}:{event['safety_decided_at']}:"
+                f"{attendee_id}"
+            ),
+        }
+        for attendee_id in attendee_ids
+    ]
+    for start in range(0, len(rows), NOTIFICATION_BATCH):
+        sent = await _call(
+            "Notifications",
+            notifications.post(
+                "/internal/notifications",
+                json={"notifications": rows[start:start + NOTIFICATION_BATCH]},
+            ),
+        )
+        if sent.status_code != 201:
+            raise _unavailable("Notifications")
+    return len(rows)
+
+
 @app.get("/safety-checks/coordinator/events/{event_id}")
 async def get_returned_safety_review(
     event_id: UUID,
@@ -257,6 +388,7 @@ async def _flagged_ids(
 
 async def _outstanding(
     event: dict,
+    events: httpx.AsyncClient,
     bookings: httpx.AsyncClient,
     venues: httpx.AsyncClient,
     equipment: httpx.AsyncClient,
@@ -268,7 +400,23 @@ async def _outstanding(
         equipment.get("/internal/equipment-requirements", params={"event_id": event_id}),
     )
     flagged = await _flagged_ids(booking_rows, bookings, venues)
-    return readiness.outstanding(event, booking_rows, flagged, requirements)
+    items = readiness.outstanding(event, booking_rows, flagged, requirements)
+    impacts = await _json(
+        "Events", events.get(
+            f"/internal/events/{event_id}/unresolved-change-impacts",
+            headers={"X-Assignment-Service-Token": os.environ.get("ASSIGNMENT_SERVICE_SECRET", "")},
+        ),
+    )
+    return items + [
+        {
+            "code": "change_impact",
+            "label": impact["reason"],
+            "booking_id": impact.get("arrangement_id") if impact.get("kind") == "venue_booking" else None,
+            "impact_id": impact["id"],
+            "request_id": impact["request_id"],
+        }
+        for impact in impacts
+    ]
 
 
 def _refuse_outstanding(items: list[dict]) -> JSONResponse:
@@ -295,7 +443,7 @@ async def get_readiness(
     """S-17: what submission would refuse, without submitting."""
     await _event_coordinator(request, users)
     event = await _assigned_event(event_id, request, events)
-    items = await _outstanding(event, bookings, venues, equipment)
+    items = await _outstanding(event, events, bookings, venues, equipment)
     return {"ready": not items, "outstanding": items}
 
 
@@ -315,7 +463,7 @@ async def submit_for_safety_check(
     event = await _assigned_event(event_id, request, events)
     if event.get("status") != "planning":
         raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
-    items = await _outstanding(event, bookings, venues, equipment)
+    items = await _outstanding(event, events, bookings, venues, equipment)
     if items:
         return _refuse_outstanding(items)
     return await _json(
@@ -344,7 +492,7 @@ async def resubmit_returned_safety_review(
     event = await _assigned_event(event_id, request, events)
     if event.get("status") != "planning" or event.get("safety_decision") != "changes_requested":
         raise HTTPException(status_code=409, detail=NOT_RETURNED)
-    items = await _outstanding(event, bookings, venues, equipment)
+    items = await _outstanding(event, events, bookings, venues, equipment)
     if items:
         return _refuse_outstanding(items)
     return await _json(
@@ -405,9 +553,11 @@ async def decide_safety_check(
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+    registrations: httpx.AsyncClient = Depends(get_registrations_client),
 ):
     officer = await _safety_officer(request, users)
-    return await _json(
+    event = await _json(
         "Events",
         events.post(
             f"/internal/events/safety-review/{event_id}/decision",
@@ -418,3 +568,107 @@ async def decide_safety_check(
         ),
         identified={404, 409, 422},
     )
+    decision = event["safety_decision"]
+    reason = event.get("safety_decision_reason")
+    if decision == "approved":
+        message = (
+            f"Operational Safety Check approved for {event['name']}. "
+            "The event is now confirmed. No action is required."
+        )
+    elif decision == "rejected":
+        message = (
+            f"Operational Safety Check rejected for {event['name']}: {reason}. "
+            "Review the comments and contact your Event Coordinator about the next steps."
+        )
+    else:
+        message = (
+            f"Operational Safety Check changes requested for {event['name']}: {reason}. "
+            "Review the comments and work with your Event Coordinator to address them."
+        )
+    organiser_id = event["organiser_id"]
+    sent = await _call(
+        "Notifications",
+        notifications.post("/internal/notifications", json={"notifications": [{
+            "recipient_id": organiser_id,
+            "event_id": str(event_id),
+            "event_name": event["name"],
+            "kind": "safety_check_outcome",
+            "message": message,
+            "deduplication_key": (
+                f"safety_check_outcome:{event_id}:{decision}:"
+                f"{event.get('safety_decided_at') or 'saved'}:{organiser_id}"
+            ),
+        }]})
+    )
+    if sent.status_code != 201:
+        raise _unavailable("Notifications")
+    await _notify_registered_attendees_of_reschedule(
+        event, events, registrations, notifications
+    )
+    return event
+
+
+# --- S-82: the safety review's view of an event's change history -------------
+
+# An event has reached the Safety Officer once it is in, or past, the
+# Operational Safety Check -- or once any review was recorded, so an event
+# sent back to planning after a significant change still counts.
+SAFETY_REACHED_STATUSES = frozenset({
+    "pending_safety_check", "safety_changes_requested", "safety_rejected",
+    "confirmed", "preparation",
+})
+# Every user id an entry's details can name, so the page can show a name.
+HISTORY_PEOPLE_KEYS = (
+    "coordinator_id", "from_coordinator_id", "to_coordinator_id",
+    "technical_support_id", "previous_technical_support_id",
+)
+
+
+@app.get("/safety-checks/{event_id}/history")
+async def safety_history(
+    event_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+):
+    """S-82 AC3: attendance, venue or layout, access and equipment changes,
+    and the safety decisions -- Events' `scope=safety` view, with names."""
+    await _safety_officer(request, users)
+    scope = await _json(
+        "Events", events.get(f"/internal/events/{event_id}/history-scope"), identified={404},
+    )
+    if scope["status"] not in SAFETY_REACHED_STATUSES and not scope.get("safety_reviewed"):
+        raise HTTPException(status_code=404, detail="Event not found")
+    entries = await _json(
+        "Events", events.get(f"/internal/events/{event_id}/history", params={"scope": "safety"}),
+    )
+    people_ids = [
+        user_id for entry in entries
+        for user_id in ((entry.get("details") or {}).get(key) for key in HISTORY_PEOPLE_KEYS)
+        if user_id
+    ]
+    profiles = await _profiles(users, [entry.get("actor_id") for entry in entries] + people_ids)
+
+    def name(user_id):
+        return (profiles.get(user_id) or {}).get("name")
+
+    return {
+        "event_id": scope["id"],
+        "event_name": scope.get("name"),
+        "entries": [
+            {
+                "id": entry["id"],
+                "occurred_at": entry["occurred_at"],
+                "category": entry["category"],
+                "action": entry["action"],
+                "details": entry.get("details") or {},
+                "actor": None if not entry.get("actor_id") else {
+                    "id": entry["actor_id"],
+                    "name": name(entry["actor_id"]),
+                    "role": entry.get("actor_role"),
+                },
+            }
+            for entry in entries
+        ],
+        "people": {user_id: name(user_id) for user_id in dict.fromkeys(people_ids)},
+    }

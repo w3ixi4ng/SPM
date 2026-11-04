@@ -26,7 +26,7 @@ test('safety-check helpers use credentialled composite routes', async () => {
   try {
     await listSafetyChecks()
     await getSafetyCheck('event-1')
-    await decideSafetyCheck('event-1', { decision: 'approved', reason: null })
+    await decideSafetyCheck('event-1', { decision: 'approved', reason: null, expected_event_updated_at: '2026-10-30T09:00:00Z' })
     await getReturnedSafetyReview('event-1')
     await resubmitSafetyReview('event-1')
   } finally {
@@ -38,7 +38,7 @@ test('safety-check helpers use credentialled composite routes', async () => {
   assert.equal(calls[2].url, '/api/safety-checks/event-1/decision')
   assert.equal(calls[2].options.method, 'POST')
   assert.equal(calls[2].options.credentials, 'include')
-  assert.deepEqual(JSON.parse(calls[2].options.body), { decision: 'approved', reason: null })
+  assert.deepEqual(JSON.parse(calls[2].options.body), { decision: 'approved', reason: null, expected_event_updated_at: '2026-10-30T09:00:00Z' })
   assert.equal(calls[3].url, '/api/safety-checks/coordinator/events/event-1')
   assert.equal(calls[4].url, '/api/safety-checks/coordinator/events/event-1/resubmit')
   assert.equal(calls[4].options.method, 'POST')

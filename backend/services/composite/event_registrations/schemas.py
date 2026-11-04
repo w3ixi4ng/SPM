@@ -35,6 +35,8 @@ class RegistrationStatus(BaseModel):
     joined_at: datetime | None = None
     # S-52: place in line, 1 = next; null unless waitlisted.
     position: int | None = None
+    # S-55: a freed place is held for this Attendee until they answer.
+    offered: bool = False
 
 
 class WaitingListStatus(BaseModel):
@@ -76,6 +78,7 @@ class MyRegistration(BaseModel):
 
     S-52: or is waiting for. A confirmed place has `registered_at`; a
     waiting-list entry has `joined_at` and its place in line instead.
+    S-58: or withdrew from, with `withdrawn_at`.
     """
 
     event_id: UUID
@@ -84,7 +87,14 @@ class MyRegistration(BaseModel):
     start_time: time | None
     end_date: date | None
     end_time: time | None
-    status: Literal["confirmed", "waitlisted"]
+    # S-55: "offered" -- a waiting-list entry a freed place is held for.
+    # S-58: "withdrawn" -- a place or offer given up, with `withdrawn_at`.
+    status: Literal["confirmed", "waitlisted", "offered", "withdrawn"]
     registered_at: datetime | None
     joined_at: datetime | None
     position: int | None
+    withdrawn_at: datetime | None
+    # S-56: false while a significant change is re-checked, with the dates
+    # and times null. `venue` is the primary venue, for a held place only.
+    details_confirmed: bool
+    venue: str | None

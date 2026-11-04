@@ -105,6 +105,11 @@ def arranged(services):
     """S-17: resubmission first checks every arrangement. One confirmed,
     unflagged booking and no equipment requirement is a ready event."""
     services["events"].get.return_value = response(200, returned_event())
+    async def events_get(path, **kwargs):
+        if path.endswith("/unresolved-change-impacts"):
+            return response(200, [])
+        return services["events"].get.return_value
+    services["events"].get.side_effect = events_get
 
     async def bookings_get(path, params=None):
         if path == "/bookings":

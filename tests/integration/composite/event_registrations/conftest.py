@@ -81,13 +81,13 @@ def confirmed_event(
 
 
 def _delete_user_rows(admin, schema: str, table: str, column: str, user_id: str) -> None:
-    """An exact-id DELETE is safe to repeat if its HTTP/2 response is lost."""
-    for attempt in range(2):
+    """An exact-id DELETE is safe to repeat after a lost or timed-out response."""
+    for attempt in range(3):
         try:
             admin.schema(schema).table(table).delete().eq(column, user_id).execute()
             return
-        except httpx.RemoteProtocolError:
-            if attempt:
+        except (httpx.RemoteProtocolError, httpx.ReadTimeout):
+            if attempt == 2:
                 raise
 
 
@@ -147,6 +147,8 @@ def make_account(admin, auth_client):
     for user_id in made:
         _delete_user_rows(admin, "registrations", "registrations", "attendee_id", user_id)
         _delete_user_rows(admin, "registrations", "waiting_list", "attendee_id", user_id)
+        # S-58: withdrawing or declining records the Attendee's withdrawal.
+        _delete_user_rows(admin, "registrations", "withdrawals", "attendee_id", user_id)
         # S-49: registering leaves a confirmation in the Attendee's inbox.
         _delete_user_rows(admin, "notifications", "notifications", "recipient_id", user_id)
         admin.auth.admin.delete_user(user_id)

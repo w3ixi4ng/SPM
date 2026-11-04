@@ -216,14 +216,51 @@ export function waitingListPlace(position) {
   return `You're ${placeInLine(position)}.`
 }
 
+// S-58: the Singapore calendar day of an instant, as "28 Oct 2026".
+function singaporeDay(instant) {
+  const [year, month, day] = singaporeWallClock(instant).slice(0, 10).split('-').map(Number)
+  return `${day} ${MONTHS[month - 1]} ${year}`
+}
+
 // S-52: whether a "Your registrations" row is a place or a waiting-list entry.
+// S-55: or a waiting-list entry a freed place is held for. S-58: or a place
+// or offer given up.
 export function registrationStatusLabel(row) {
+  if (row?.status === 'withdrawn') {
+    return row.withdrawn_at ? `Withdrawn on ${singaporeDay(row.withdrawn_at)}` : 'Withdrawn'
+  }
+  if (row?.status === 'offered') return 'Place offered'
   if (row?.status !== 'waitlisted') return 'Confirmed'
   return row.position ? `Waiting list · ${placeInLine(row.position)}` : 'Waiting list'
 }
 
+// S-58: the dot beside a row's label -- a secured place, a pending one, or
+// one given up. The label always says the same in words.
+export function registrationStatusTone(row) {
+  if (row?.status === 'withdrawn') return 'inactive'
+  if (row?.status === 'waitlisted' || row?.status === 'offered') return 'partial'
+  return 'done'
+}
+
+// S-56: what a "Your registrations" row shows under the event's name. A held
+// place shows when and where; a waiting-list entry shows when only. While a
+// significant change is re-checked, the details are withheld until confirmed.
+export const DETAILS_PENDING =
+  'Details to be confirmed. The date, time and venue will show here once the event is confirmed again.'
+
+export function registrationDetails(row) {
+  if (row?.details_confirmed === false) return { when: null, venue: null, pending: DETAILS_PENDING }
+  // Only a held place shows where; an offer isn't a place until accepted,
+  // and a withdrawn one (S-58) no longer is.
+  const venue = ['waitlisted', 'offered', 'withdrawn'].includes(row?.status)
+    ? null
+    : row?.venue || 'Venue to be confirmed'
+  return { when: formatEventWhen(row), venue, pending: null }
+}
+
+// S-57: true whether no one ever registered or everyone has since withdrawn.
 export function attendeeCountLabel(count) {
-  if (!count) return 'No one has registered yet.'
+  if (!count) return 'No one is currently registered for this event.'
   return `${count} ${count === 1 ? 'attendee' : 'attendees'} registered`
 }
 
@@ -235,13 +272,31 @@ export function canWithdraw(event, now = new Date()) {
 }
 
 export function withdrawPrompt(event) {
-  return `Withdraw from ${event.name}? Your place goes to the next person on the waiting list.`
+  return `Withdraw from ${event.name}? Your place will be offered to the next person on the waiting list.`
 }
 
-// S-53: gives up the signed-in Attendee's place; the next person waiting
-// takes it.
+// S-53: gives up the signed-in Attendee's place; S-55: it is offered to the
+// next person waiting.
 export function withdrawRegistration(id) {
   return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/registration`, {
     method: 'DELETE',
   })
+}
+
+// S-55: a freed place held for the signed-in Attendee. Only accepting
+// registers them; declining leaves the waiting list and passes it on.
+export function acceptOffer(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/waiting-list/offer`, {
+    method: 'POST',
+  })
+}
+
+export function declineOffer(id) {
+  return requestJSON(`/event-registrations/events/${encodeURIComponent(id)}/waiting-list/offer`, {
+    method: 'DELETE',
+  })
+}
+
+export function declinePrompt() {
+  return "Decline this place? You'll leave the waiting list."
 }

@@ -77,7 +77,7 @@ def test_changes_requested_returns_to_planning_and_appends_immutable_history(cli
     stored = returned_event()
     event_select(db, [current])
     operation = (
-        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.is_.return_value
+        db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.is_.return_value
     )
     operation.execute.return_value = SimpleNamespace(data=[stored])
 
@@ -87,6 +87,7 @@ def test_changes_requested_returns_to_planning_and_appends_immutable_history(cli
             "decision": "changes_requested",
             "reason": "Move speakers away from the emergency exit",
             "safety_officer_id": OFFICER_ID,
+            "expected_event_updated_at": "2026-09-14T00:00:00Z",
         },
     )
 

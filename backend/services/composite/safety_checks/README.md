@@ -1,6 +1,6 @@
 # Safety Checks service
 
-Composite FastAPI service for S-17, S-86 and S-87. It owns no database. It
+Composite FastAPI service for S-17, S-63, S-68, S-86 and S-87. It owns no database. It
 authenticates Safety Officers and Event Coordinators through Users, reads the
 current event from Events, enriches safety evidence and feedback, and sends
 lifecycle actions back to the Events atomic owner.
@@ -17,6 +17,7 @@ Safety Officer's approval makes it `confirmed`.
 | `GET` | `/safety-checks` | List `pending_safety_check` events with no safety decision, enriched with organiser. |
 | `GET` | `/safety-checks/{event_id}` | Return all operational-safety evidence for one eligible event. |
 | `POST` | `/safety-checks/{event_id}/decision` | Record the first safety decision as the authenticated Safety Officer. |
+| `GET` | `/safety-checks/{event_id}/history` | S-82: the safety review's part of the event's change history, for any Safety Officer once the event has reached the safety check. See [Change history](#change-history-s-82). |
 | `GET` | `/safety-checks/coordinator/events/{event_id}` | Return preserved safety feedback and history to the currently assigned Event Coordinator. |
 | `GET` | `/safety-checks/coordinator/events/{event_id}/readiness` | S-17: what is still outstanding before the event can be submitted, without submitting. |
 | `POST` | `/safety-checks/coordinator/events/{event_id}/submit` | S-17: submit a fully arranged planning event for the Operational Safety Check. |
@@ -34,12 +35,14 @@ assignment is introduced: every Safety Officer can access every eligible row.
 The decision body contains only client-owned fields:
 
 ```json
-{"decision": "changes_requested", "reason": "Move speaker cables away from the north exit"}
+{"decision": "changes_requested", "reason": "Move speaker cables away from the north exit", "expected_event_updated_at": "2026-10-30T09:00:00Z"}
 ```
 
 `decision` is `approved`, `rejected`, or `changes_requested`. Rejection and
 changes require a nonblank `reason`; approval accepts no reason. The service
 adds `safety_officer_id` from `/users/me`; a browser cannot select it.
+`expected_event_updated_at` is required and must equal the event timestamp
+returned by the detail read. A prior review page cannot decide a revised event.
 
 ## Responses
 
@@ -77,9 +80,23 @@ A successful decision returns the updated Event object. Transitions are:
 | `changes_requested` | `planning` with preserved current feedback and immutable history |
 
 The Events service conditionally writes only a `pending_safety_check` row with
-a null current safety decision. A stale, repeated, or concurrent attempt returns
-`409` and cannot overwrite the first stored result. S-86 creates no
-notifications.
+a null current safety decision and the same event timestamp. A stale, repeated, or concurrent attempt returns
+`409` and cannot overwrite the first stored result. S-63 then sends the
+owning Organiser one idempotent `safety_check_outcome` notification. Approval
+states that the event is now confirmed. Rejection and requested changes carry
+the Safety Officer's actionable reason and tell the Organiser to work with
+their Event Coordinator. A notification failure is reported as `502` after
+the safety result has been saved; retrying cannot duplicate the notice.
+
+For S-68, a later approval also compares the newly approved attendee-facing
+schedule with the schedule at the preceding approval. If the date or time has
+changed, the service reads the event's current registrations and sends each
+registered Attendee one idempotent `event_schedule_changed` notification. The
+message names the event, gives its new start and end, and confirms that the
+registration remains active. Initial confirmation, rejected or returned safety
+reviews, internal booking problems, edits that restore the previously confirmed
+window, waitlisted people and withdrawn registrations do not produce this
+notification. Notification writes are split into batches of at most 20 rows.
 
 For S-87, only `event_coordinator` passes the composite role check and Events
 also requires the authenticated id to be the event's current assignee. The
@@ -137,6 +154,19 @@ Venue items carry the `booking_id` they are about. The rules are in
 [`readiness.py`](readiness.py); the S-77 flag rule there is repeated from
 `venue_bookings`.
 
+## Change history (S-82)
+
+`GET /safety-checks/{event_id}/history`, no body, Safety Officer only. It
+returns the events service's `scope=safety` view: safety decisions and
+submissions, venue and equipment entries, and edits cut down to attendance,
+venue, layout, facilities and access. The body has the same shape as
+`event_requests`' `GET /event-requests/{event_id}/history`, with names filled
+in. Available once the event has reached the safety check: its status is
+`pending_safety_check`, `safety_changes_requested`, `safety_rejected`,
+`confirmed` or `preparation`, or it has any recorded safety review. That
+last case covers an event sent back to `planning`. Any other event, and a
+missing one, is `404` "Event not found".
+
 ## Errors
 
 | Status | Meaning |
@@ -151,7 +181,10 @@ Venue items carry the `booking_id` they are about. The rules are in
 ## Configuration and running
 
 The service reads `USERS_SERVICE_URL`, `EVENTS_SERVICE_URL`,
-`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, and `EQUIPMENT_SERVICE_URL`.
+`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, `EQUIPMENT_SERVICE_URL`,
+`NOTIFICATIONS_SERVICE_URL`, `REGISTRATIONS_SERVICE_URL`, and
+`ASSIGNMENT_SERVICE_SECRET`. Use the same trusted service secret as Events to
+fetch unresolved S-60 impacts for safety readiness.
 Every outbound client has a bounded timeout.
 
 Development:
@@ -167,7 +200,7 @@ Whole test stack and tests:
 docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/composite/safety_checks
-pytest tests/e2e/test_operational_safety_check.py tests/e2e/test_confirm_event.py
+pytest tests/e2e/test_operational_safety_check.py tests/e2e/test_confirm_event.py tests/e2e/test_notify_attendee_event_rescheduled.py
 ```
 
 Before integration or browser tests, apply

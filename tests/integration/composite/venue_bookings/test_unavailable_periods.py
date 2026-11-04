@@ -68,7 +68,14 @@ def test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_el
             ('09:00:00', '13:00:00', 'safety'),
         ]
 
-    assert snapshot(admin, 'bookings', 'bookings', k) == booking_before
+    booking_after = snapshot(admin, 'bookings', 'bookings', k)
+    # S-90's optional restoration schema records the incident on the booking.
+    if 'restoration_required' in booking_after:
+        assert booking_before['restoration_required'] is False
+        assert booking_after['restoration_required'] is True
+    assert {key: value for key, value in booking_after.items() if key != 'restoration_required'} == {
+        key: value for key, value in booking_before.items() if key != 'restoration_required'
+    }
     assert booking_before['status'] == 'confirmed'
     assert snapshot(admin, 'events', 'events', event_id) == event_before
     assert event_before['status'] == 'planning'

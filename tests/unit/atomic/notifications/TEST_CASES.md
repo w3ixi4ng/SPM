@@ -183,3 +183,74 @@ against a real table is proven by TC-VENUEBOOKINGS-110.
 - **Actual:** `201` with the row, `kind` `waiting_list_promotion`.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_waiting_list_promotion_is_accepted`; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+
+## TC-NOTIFICATIONS-012 — a waiting-list offer is accepted
+
+- **Scenario:** The inbox accepts the S-55 kind, so the next Attendee in line can be invited to take a freed place (S-55 AC1). `waiting_list_promotion` stays allowed for rows S-53 already wrote.
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` with one row of kind `waiting_list_offer`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`, event `11111111-1111-4111-8111-111111111111`, event name "Alumni networking evening", message "A place opened up at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. It's held for you: accept it on the event page to register.", key `waiting_list_offer:77777777-7777-4777-8777-777777777777`.
+- **Expected:** `201` with the row, `kind` `waiting_list_offer`. A row of kind `waiting_list_promotion` is still `201`. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with kind `waiting_list_offer`; `waiting_list_promotion` still `201`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_a_waiting_list_offer_is_accepted; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-69 — Notify Attendee — Event Cancelled
+
+Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30.
+
+## TC-NOTIFICATIONS-013 — an event cancellation is accepted
+
+- **Scenario:** The inbox accepts the S-69 kind, so Attendees can be told an event they hold a place at, or are waiting for, has been cancelled (S-69 AC1).
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` with one row of kind `event_cancelled`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`, event `11111111-1111-4111-8111-111111111111`, event name "Alumni networking evening", message "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. It will not take place.", key `event_cancelled:11111111-1111-4111-8111-111111111111:44444444-4444-4444-8444-444444444444`.
+- **Expected:** `201` with the row, `kind` `event_cancelled`. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with kind `event_cancelled`; `venue_closed` `422`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_an_event_cancellation_is_accepted; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1712 passed and 17 skipped across `tests/unit`
+
+## S-74 — Notify Attendee — Registration Update
+
+Drafted 2026-10-30 on `S-74/notify-attendee-registration-update` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30. TC-NOTIFICATIONS-013 is
+S-69's.
+
+## TC-NOTIFICATIONS-014 — the three registration-update kinds are accepted
+
+- **Scenario:** The inbox accepts S-74's kinds, so an Attendee can be told they joined the waiting list, withdrew, or declined an offered place (S-74 AC1).
+- **Pre-conditions:** Storage fake returns the inserted row.
+- **Steps:** `POST /internal/notifications` once per kind: `waiting_list_joined`, `registration_withdrawn`, `waiting_list_offer_declined`.
+- **Test data:** Recipient `44444444-4444-4444-8444-444444444444`, event `11111111-1111-4111-8111-111111111111`, event name "Alumni networking evening", message "You're on the waiting list for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. You're next in line.", key `<kind>:77777777-7777-4777-8777-777777777777`.
+- **Expected:** `201` with the row and its kind, each time. `venue_closed` is still refused (TC-NOTIFICATIONS-009).
+- **Actual:** `201` with the row for each of the three kinds; `venue_closed` `422`.
+- **Status:** Pass
+- **Evidence:** test_app.py::test_the_registration_update_kinds_are_accepted; 2026-10-31, branch `S-74/notify-attendee-registration-update` (on sprint4 `58d6d9f`), pre-commit working tree; Python 3.12.5, pytest 9.1.1: 1714 passed and 17 skipped across `tests/unit`
+
+## S-71 — Notify Coordinator — Availability Change
+
+### TC-NOTIFICATIONS-015 — equipment availability notices are accepted and deduplicated
+
+- **Scenario:** The notification store recognises the equipment availability kind and preserves one notice when delivery is retried.
+- **Pre-conditions:** Empty fake notification storage.
+- **Steps:** Twice `POST /internal/notifications` with the same `equipment_unavailable` row and deduplication key.
+- **Expected:** Both calls return `201`; storage contains one row identifying the event, affected equipment and recipient.
+- **Actual:** Both calls returned the same stored row through an upsert on the deduplication key.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_an_equipment_unavailable_notification_is_accepted_and_idempotent`; 2026-10-30, branch `S-71/notify-coordinator-availability-change`
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-NOTIFICATIONS-016 — Organiser decision and change kinds are accepted and deduplicated
+
+- **Scenario:** The persistent inbox accepts each S-63 notification type while retaining the existing kinds and idempotency contract.
+- **Pre-conditions:** Fake notification storage returns the upserted row.
+- **Steps:** Twice `POST /internal/notifications` with the same row for each kind: `event_request_decision`, `venue_booking_decision`, `safety_check_outcome`, and `event_schedule_changed`.
+- **Test data:** Organiser `11111111-1111-4111-8111-111111111111`, event `33333333-3333-4333-8333-333333333333`, name "Autumn Forum", a nonblank outcome message, and a stable key containing the kind and event id.
+- **Expected:** Every call returns `201`; each retry resolves to one stored row. Existing S-71/S-74 kinds remain accepted and an unknown kind remains `422`.
+- **Actual:** Every S-63 kind returned `201` on its first request and exact retry; the stable key remained unchanged. Existing kinds, including `equipment_unavailable`, remained valid.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s63_organiser_notification_kinds_are_accepted_and_idempotent`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; Python 3.12, pytest: 1755 passed and 17 skipped across `tests/unit`.

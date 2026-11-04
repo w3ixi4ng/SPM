@@ -10,6 +10,7 @@ import {
   canRetireEquipment,
   equipmentErrorMessage,
   equipmentRetirementErrorMessage,
+  equipmentStorageLocationLabel,
   equipmentStatusLabel,
   listEquipment,
   retireEquipment,
@@ -260,7 +261,9 @@ export default function TechnicalSupportDashboard({ role }) {
           catalogueItem.id === retired.id ? retired : catalogueItem
         )),
       }))
-      setNotice(`${retired.type} was retired from new equipment requests.`)
+      setNotice(retired.availability_notifications_sent === false
+        ? `${retired.type} was retired, but affected Coordinators could not be notified. Contact them directly.`
+        : `${retired.type} was retired from new equipment requests.`)
       setRetirement({ itemId: null, error: null })
     } catch (error) {
       setRetirement({ itemId: null, error: equipmentRetirementErrorMessage(error) })
@@ -380,6 +383,7 @@ export default function TechnicalSupportDashboard({ role }) {
                       <span className="font-ui text-sm" style={{ color: C.inkFaint }}>{item.total_quantity} total</span>
                     </div>
                     {item.description && <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>{item.description}</p>}
+                    <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>{equipmentStorageLocationLabel(item)}</p>
                     <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
                       <p className="font-ui text-xs" style={{ color: item.operational_status === 'available' ? C.green : C.inkFaint }}>
                         {equipmentStatusLabel(item)}

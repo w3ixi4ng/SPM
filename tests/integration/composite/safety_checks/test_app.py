@@ -31,7 +31,7 @@ def test_safety_officer_reviews_enriched_event_and_approves(
     decided = httpx.post(
         f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
         headers=headers,
-        json={"decision": "approved"},
+        json={"decision": "approved", "expected_event_updated_at": body["event"]["updated_at"]},
         timeout=20.0,
     )
     assert decided.status_code == 200, decided.text
@@ -49,7 +49,7 @@ def test_safety_officer_reviews_enriched_event_and_approves(
     repeated = httpx.post(
         f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
         headers=headers,
-        json={"decision": "rejected", "reason": "Must not overwrite"},
+        json={"decision": "rejected", "reason": "Must not overwrite", "expected_event_updated_at": body["event"]["updated_at"]},
         timeout=20.0,
     )
     assert repeated.status_code == 409, repeated.text
@@ -72,6 +72,8 @@ def test_changes_return_to_planning_and_complete_a_fresh_review_cycle(
     before_requirements = admin.schema("equipment").table("requirements").select(
         "id,required_quantity"
     ).eq("event_id", event_id).execute().data
+    original = httpx.get(f"{GATEWAY_BASE_URL}/safety-checks/{event_id}", headers=officer_headers, timeout=20.0)
+    assert original.status_code == 200, original.text
 
     returned = httpx.post(
         f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
@@ -79,6 +81,7 @@ def test_changes_return_to_planning_and_complete_a_fresh_review_cycle(
         json={
             "decision": "changes_requested",
             "reason": "Move speakers away from the emergency exit",
+            "expected_event_updated_at": original.json()["event"]["updated_at"],
         },
         timeout=20.0,
     )
@@ -123,7 +126,7 @@ def test_changes_return_to_planning_and_complete_a_fresh_review_cycle(
     approved = httpx.post(
         f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
         headers=officer_headers,
-        json={"decision": "approved"},
+        json={"decision": "approved", "expected_event_updated_at": resubmitted.json()["updated_at"]},
         timeout=20.0,
     )
     assert approved.status_code == 200, approved.text

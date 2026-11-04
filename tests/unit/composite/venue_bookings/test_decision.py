@@ -12,7 +12,12 @@ PATH = f'/venue-bookings/{BOOKING_ID}/decision'
 @pytest.mark.parametrize('decision', ['approved', 'rejected'])
 def test_staff_decision_forwarded_with_credentials(client, services, decision):
     services.user = me('venue_staff')
-    saved = {'id': BOOKING_ID, 'status': 'confirmed' if decision == 'approved' else 'rejected'}
+    saved = {
+        'id': BOOKING_ID, 'event_id': EVENT_ID, 'venue_id': VENUE_ID,
+        'event_name': 'Alumni networking evening', 'venue_name': 'Studio B',
+        'status': 'confirmed' if decision == 'approved' else 'rejected',
+        'decided_at': '2026-11-01T01:00:00Z',
+    }
     services.bookings.post = AsyncMock(return_value=fake_response(200, saved))
     payload = {'decision': decision, 'reason': ' Repairs ', 'alternative': None}
     result = client.post(PATH, json=payload, cookies={'sb_access_token': 'token'})
@@ -20,12 +25,16 @@ def test_staff_decision_forwarded_with_credentials(client, services, decision):
     # S-75: checked by the booking's venue's current setup and turnaround.
     services.bookings.post.assert_awaited_once_with(f'/bookings/{BOOKING_ID}/decision',
         json={**payload, 'reason': 'Repairs'}, params={'setup_minutes': 0, 'turnaround_minutes': 0}, cookies={'sb_access_token': 'token'})
-    services.events.get.assert_not_called()
+    assert services.events.get.await_args.args[0] == f'/internal/events/{EVENT_ID}/notification-scope'
     # Only an approval reserves time, so only it reads the venue's times.
     if decision == 'approved':
         assert services.venues.get.await_args.args[0] == f'/venues/{VENUE_ID}'
     else:
         services.venues.get.assert_not_called()
+    sent = services.notifications.post.await_args.kwargs['json']['notifications'][0]
+    assert sent['recipient_id'] == '11111111-1111-4111-8111-111111111111'
+    assert sent['kind'] == 'venue_booking_decision'
+    assert ('confirmed' if decision == 'approved' else 'rejected') in sent['message'].lower()
 
 
 @pytest.mark.parametrize('role', ['event_coordinator', 'event_organiser', 'technical_support', 'attendee'])

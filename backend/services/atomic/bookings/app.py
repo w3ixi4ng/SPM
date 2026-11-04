@@ -26,8 +26,13 @@ from schemas import (
     BookingCreate,
     BookingDecision,
     BookingRead,
+    EventBookingsClosure,
+    EventBookingsRelease,
+    EventBookingsReopen,
     HoldCreate,
     HoldRelease,
+    RestoreDecision,
+    RestoreOutcome,
     VenuePreparationUpdate,
 )
 from security import require_coordinator, require_user, require_venue_staff
@@ -43,6 +48,11 @@ BLOCKS = "blocks"
 # new request must not overlap either of these.
 LIVE_STATUSES = ["held", "confirmed"]
 CANNOT_RESOLVE = "Only a held or confirmed booking can be resolved"
+# S-90
+CANNOT_RESTORE = "Only a held or confirmed booking can be restored"
+RESTORE_ALREADY_REQUESTED = "A restore has already been requested for this booking"
+NO_RESTORE_REQUEST = "There is no restore request to decide for this booking"
+RESTORED_NOTE = "Restored to the original venue"
 
 
 @app.exception_handler(RequestValidationError)
@@ -71,6 +81,34 @@ def _execute(operation):
     try:
         return operation.execute()
     except Exception as exc:
+        logger.exception("Booking storage operation failed", exc_info=exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Booking storage unavailable",
+        ) from exc
+
+
+# S-89: the bookings.closed_events trigger refusing a booking of a cancelled
+# event becoming pending, held or confirmed again.
+EVENT_CLOSED = "This event is being cancelled, so its venue bookings can no longer change."
+# An unfinished closure older than this is an abandoned attempt that any
+# later attempt for the same event may withdraw (see bookings.sql).
+ABANDONED_CLOSURE_AFTER = "2 minutes"
+
+
+def _event_closed(exc: Exception) -> bool:
+    return getattr(exc, "code", None) == "P0001" and "event_bookings_closed" in str(
+        getattr(exc, "message", None) or exc
+    )
+
+
+def _write(operation):
+    """_execute, except that the closed-event trigger is the 409 it means."""
+    try:
+        return operation.execute()
+    except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -208,7 +246,10 @@ def _block_over(db: Client, booking: dict, gap: Gap = Gap()):
 
 
 def _date_label(value) -> str:
-    return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
+    # "1 Nov 2026", never "01 Nov 2026": the same as every other date the
+    # app shows, whatever the day of the month.
+    day = datetime.fromisoformat(str(value))
+    return f"{day.day} {day:%b %Y}"
 
 
 def _conflict_detail(conflict: dict, gap: Gap = Gap()) -> str:
@@ -261,8 +302,8 @@ def _raise_blocked(block: dict):
     raise HTTPException(
         status_code=409,
         detail=(
-            f'{block["venue_name"]} is unavailable from {start:%d %b %Y %H:%M} '
-            f'to {end:%d %b %Y %H:%M}.'
+            f'{block["venue_name"]} is unavailable from {_date_label(start)} {start:%H:%M} '
+            f'to {_date_label(end)} {end:%H:%M}.'
         ),
     )
 
@@ -314,6 +355,8 @@ def decide_booking(
             "id", str(booking_id)
     ).in_("status", ["pending", "held"]).execute()
     except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
@@ -369,6 +412,8 @@ def place_hold(
             "id", str(booking_id)
         ).eq("status", "pending").execute()
     except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
             if conflict:
@@ -408,7 +453,7 @@ def release_hold(
         "hold_released_at": datetime.now(timezone.utc).isoformat(),
         "hold_release_reason": payload.reason,
     }
-    result = _execute(
+    result = _write(
         db.schema(SCHEMA).table(TABLE).update(values)
         .eq("id", str(booking_id)).eq("status", "held")
     )
@@ -433,6 +478,83 @@ def delete_event_bookings(
     return {"deleted": len(result.data or [])}
 
 
+@app.post("/internal/events/{event_id}/bookings/closure")
+def close_event_bookings(
+    event_id: UUID,
+    payload: EventBookingsClosure,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-89: before the event is cancelled, close it to new active bookings.
+    From this moment no booking of the event can become pending, held or
+    confirmed by any route. Safe to repeat: an existing closure is returned
+    as it is, with the operation that owns it."""
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "close_event_bookings",
+            {
+                "p_event_id": str(event_id),
+                "p_operation_id": str(payload.operation_id),
+                "p_closed_by": str(coordinator.id),
+                "p_reason": payload.reason,
+            },
+        )
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Booking storage unavailable")
+    return result.data[0]
+
+
+@app.post("/internal/events/{event_id}/bookings/closure/reopen")
+def reopen_event_bookings(
+    event_id: UUID,
+    payload: EventBookingsReopen,
+    _coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-89: the cancellation did not happen, so withdraw the closure intent
+    -- only this operation's, or an abandoned one. A released event is never
+    reopened. `reopened` says whether an intent was removed."""
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "reopen_event_bookings",
+            {
+                "p_event_id": str(event_id),
+                "p_operation_id": str(payload.operation_id),
+                "p_abandoned_after": ABANDONED_CLOSURE_AFTER,
+            },
+        )
+    )
+    return {"reopened": bool(result.data)}
+
+
+@app.post("/internal/events/{event_id}/bookings/release")
+def release_event_bookings(
+    event_id: UUID,
+    payload: EventBookingsRelease,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-89: release every pending, held and confirmed booking of a
+    cancelled event, keeping the rows -- unlike S-61's delete above -- and
+    close the event for good in the same transaction. Called by the
+    event_requests composite after the event is cancelled. Safe to repeat: a
+    second call releases nothing."""
+    result = _execute(
+        db.schema(SCHEMA).rpc(
+            "release_event_bookings",
+            {
+                "p_event_id": str(event_id),
+                "p_operation_id": str(payload.operation_id),
+                "p_released_by": str(coordinator.id),
+                "p_reason": payload.reason,
+            },
+        )
+    )
+    released = [str(row["id"]) for row in result.data or []]
+    return {"released": released, "count": len(released)}
+
+
 # S-80: what a Coordinator may change or cancel. A rejected request is a
 # closed decision; it is left as it is.
 CHANGEABLE_STATUSES = ["pending", "held", "confirmed"]
@@ -446,6 +568,8 @@ _REVIEW_CLEARED = {
     # S-25: preparation belonged to the old confirmed venue and time.
     "venue_preparation_status": "not_started", "venue_preparation_updated_by": None,
     "venue_preparation_updated_at": None, "venue_preparation_version": 0,
+    # S-91: the old venue/time can no longer be the attendee-facing choice.
+    "is_primary": False, "primary_selected_by": None, "primary_selected_at": None,
 }
 
 
@@ -476,7 +600,7 @@ def change_booking(
     if block:
         _raise_blocked(block)
 
-    result = _execute(
+    result = _write(
         db.schema(SCHEMA).table(TABLE)
         .update({**values, "status": "pending", **_REVIEW_CLEARED})
         .eq("id", str(booking_id))
@@ -527,7 +651,7 @@ def _replacement_problem(db: Client, values: dict):
                 "errors": {"replaces_booking_id": message},
             },
         )
-    if original["status"] == "replaced":
+    if original["status"] in ("replaced", "released"):
         raise HTTPException(status_code=409, detail="This booking can no longer be replaced")
     return None
 
@@ -560,6 +684,8 @@ def create_booking(
     try:
         result = db.schema(SCHEMA).table(TABLE).insert(values).execute()
     except Exception as exc:
+        if _event_closed(exc):
+            raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if getattr(exc, "code", None) == "23P01":
             conflict = _live_overlap(db, values, gap)
             if conflict:
@@ -604,6 +730,108 @@ def resolve_alternative_arrangements(
     raise HTTPException(status_code=409, detail=CANNOT_RESOLVE)
 
 
+# --- S-90: restoring an original booking -------------------------------------
+
+
+def _restorable(db: Client, booking_id: UUID) -> dict:
+    _expire_holds(db)
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] not in LIVE_STATUSES:
+        raise HTTPException(status_code=409, detail=CANNOT_RESTORE)
+    return booking
+
+
+def _refuse_unless_free(db: Client, booking: dict, gap: Gap, *, staff: bool) -> None:
+    """The original venue must be free for the window the booking occupies:
+    setup, event and turnaround (S-75), with no unavailable period over it
+    (S-77). The booking never clashes with itself."""
+    conflict = _live_overlap(db, {**booking, "id": str(booking["id"])}, gap)
+    if conflict:
+        if staff:
+            _raise_staff_overlap("restore", conflict, gap)
+        _raise_overlap(conflict, gap)
+    block = _block_over(db, booking, gap)
+    if block:
+        _raise_blocked(block)
+
+
+@app.post("/bookings/{booking_id}/restore-request", response_model=BookingRead)
+def request_restore(
+    booking_id: UUID,
+    user=Depends(require_coordinator),
+    gap: Gap = Depends(venue_gap),
+    db: Client = Depends(get_db),
+):
+    """S-90: a Coordinator asks to keep the original booking. Nothing changes
+    until Venue Staff confirm. Whether the event is theirs and a replacement
+    is waiting is the venue_bookings composite's check."""
+    booking = _restorable(db, booking_id)
+    if booking.get("restore_requested_at"):
+        raise HTTPException(status_code=409, detail=RESTORE_ALREADY_REQUESTED)
+    _refuse_unless_free(db, booking, gap, staff=False)
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE).update({
+            "restore_requested_at": datetime.now(timezone.utc).isoformat(),
+            "restore_requested_by": str(user.id),
+        })
+        .eq("id", str(booking_id)).in_("status", LIVE_STATUSES)
+        .is_("restore_requested_at", "null")
+    )
+    if result.data:
+        return result.data[0]
+    raise HTTPException(status_code=409, detail=RESTORE_ALREADY_REQUESTED)
+
+
+@app.post("/bookings/{booking_id}/restore-decision", response_model=RestoreOutcome)
+def decide_restore(
+    booking_id: UUID,
+    payload: RestoreDecision,
+    staff=Depends(require_venue_staff),
+    gap: Gap = Depends(venue_gap),
+    db: Client = Depends(get_db),
+):
+    """S-90: Venue Staff confirm or decline. Confirming checks the venue
+    again, withdraws every pending or held replacement, and resolves the
+    original's flag for the Coordinator who asked. Declining only clears the
+    request.
+
+    The replacements go first: once withdrawn none can be confirmed, so the
+    original can't be replaced while it is being resolved."""
+    booking = _restorable(db, booking_id)
+    if not booking.get("restore_requested_at"):
+        raise HTTPException(status_code=409, detail=NO_RESTORE_REQUEST)
+    cleared = {"restore_requested_at": None, "restore_requested_by": None}
+
+    def update_original(values: dict) -> dict:
+        result = _execute(
+            db.schema(SCHEMA).table(TABLE).update({**cleared, **values})
+            .eq("id", str(booking_id)).in_("status", LIVE_STATUSES)
+            .not_.is_("restore_requested_at", "null")
+        )
+        if not result.data:
+            raise HTTPException(status_code=409, detail=NO_RESTORE_REQUEST)
+        return result.data[0]
+
+    if payload.decision == "declined":
+        return {"booking": update_original({}), "withdrawn": []}
+
+    _refuse_unless_free(db, booking, gap, staff=True)
+    now = datetime.now(timezone.utc).isoformat()
+    withdrawn = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .update({"status": "withdrawn", "withdrawn_at": now})
+        .eq("replaces_booking_id", str(booking_id)).in_("status", ["pending", "held"])
+    ).data or []
+    restored = update_original({
+        "alternative_resolved_at": now,
+        "alternative_resolved_by": booking["restore_requested_by"],
+        "alternative_resolution_note": RESTORED_NOTE,
+    })
+    return {"booking": restored, "withdrawn": withdrawn}
+
+
 def _date_range(venue_id, from_date, to_date):
     """A venue filter always comes with a range, so nothing lists a venue's
     whole history at once."""
@@ -620,11 +848,24 @@ def list_bookings(
     venue_id: UUID | None = None,
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    restore_requested: bool = False,
     db: Client = Depends(get_db),
 ):
     # Always filtered: Venue Staff ask by status, a Coordinator by event, and
     # S-30's calendar by venue and date range. Nothing hands out every
     # booking at once.
+    if restore_requested:
+        # S-90: Venue Staff's queue of restore requests, oldest first. Only
+        # live originals: one S-89 released with its event can't be restored.
+        _expire_holds(db)
+        operation = (
+            db.schema(SCHEMA).table(TABLE).select("*")
+            .in_("status", LIVE_STATUSES)
+            .not_.is_("restore_requested_at", "null")
+            .order("restore_requested_at")
+        )
+        return _execute(operation).data
+
     if booking_status == "live":
         # S-76: every held and confirmed booking from a date on, for Venue
         # Staff's clashes to review. Always bounded by a start date.
@@ -680,6 +921,43 @@ def get_booking(booking_id: UUID, db: Client = Depends(get_db)):
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     return booking
+
+
+@app.put("/bookings/{booking_id}/primary", response_model=BookingRead)
+def select_primary_booking(
+    booking_id: UUID,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-91: atomically move an event's attendee-facing marker.
+
+    The venue_bookings composite proves that this Coordinator is assigned to
+    the event. This atomic boundary independently verifies the session and
+    confirmed state; PostgreSQL serialises the clear-and-set operation.
+    """
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] != "confirmed":
+        raise HTTPException(
+            status_code=409, detail="Only a confirmed venue booking can be primary"
+        )
+    try:
+        result = db.schema(SCHEMA).rpc(
+            "set_primary_booking",
+            {"p_booking_id": str(booking_id), "p_selected_by": str(coordinator.id)},
+        ).execute()
+    except Exception as exc:
+        # The status may change after the read but before the locked RPC.
+        if getattr(exc, "code", None) == "P0001":
+            raise HTTPException(
+                status_code=409, detail="Only a confirmed venue booking can be primary"
+            ) from exc
+        logger.exception("Primary venue selection failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Booking storage unavailable") from exc
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return result.data[0]
 
 
 @app.put("/bookings/{booking_id}/venue-preparation", response_model=BookingRead)

@@ -163,6 +163,24 @@ export function listVenueBookingsForEvent(eventId) {
   return requestJSON(`/venue-bookings?event_id=${encodeURIComponent(eventId)}`)
 }
 
+export const PRIMARY_VENUE_REQUIRED = 'Choose a new primary venue so attendees know where to go.'
+
+export function primaryVenuePrompt(bookings) {
+  const confirmed = bookings.filter(({ status }) => status === 'confirmed')
+  return confirmed.length > 0 && !confirmed.some(({ is_primary }) => is_primary)
+    ? PRIMARY_VENUE_REQUIRED
+    : null
+}
+
+export function selectPrimaryVenueBooking(id) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(id)}/primary`, { method: 'PUT' })
+}
+
+export function primaryVenueErrorMessage(error) {
+  if ([401, 403, 404, 409].includes(error.status) && error.message) return error.message
+  return "We couldn't change the primary venue. Reload and try again."
+}
+
 const BOOKING_STATUS_META = {
   pending: { label: 'Pending', color: '#B5842B' },
   held: { label: 'Tentatively held', color: '#B5842B' },
@@ -170,6 +188,10 @@ const BOOKING_STATUS_META = {
   rejected: { label: 'Rejected', color: '#B25547' },
   // S-78: its replacement was confirmed, so it no longer reserves the venue.
   replaced: { label: 'Replaced', color: '#4C5A70' },
+  // S-89: its event was cancelled; kept as history, it reserves nothing.
+  released: { label: 'Released', color: '#4C5A70' },
+  // S-90: given up when its original venue was restored; reserves nothing.
+  withdrawn: { label: 'Withdrawn', color: '#4C5A70' },
 }
 
 export function bookingStatusMeta(status) {
@@ -379,6 +401,7 @@ export function decisionNotice(decision, booking) {
 // venue and notes.
 
 const ACTIVE_REPLACEMENT = ['pending', 'held']
+const LIVE_ORIGINAL = ['held', 'confirmed']
 export const RESOLUTION_NOTE_MAX = 500
 
 function replacementsOf(booking, bookings) {
@@ -388,6 +411,11 @@ function replacementsOf(booking, bookings) {
 // What a booking's row offers and says about replacing it: `actions` is what
 // the Coordinator can do ("replace", "resolve"), `label` the state in words.
 export function replacementState(booking, bookings = []) {
+  if (booking.status === 'withdrawn') {
+    // S-90: the Coordinator kept the original instead.
+    const original = bookings.find((row) => row.id === booking.replaces_booking_id)
+    return { actions: [], label: `Withdrawn: ${original?.venue_name ?? 'the original venue'} was restored` }
+  }
   if (booking.status === 'replaced') {
     const replacement = bookings.find((row) => row.id === booking.replaced_by_booking_id)
     return { actions: [], label: `Replaced by ${replacement?.venue_name ?? 'another venue'}` }
@@ -404,6 +432,10 @@ export function replacementState(booking, bookings = []) {
       label: latest?.status === 'rejected' ? `${latest.venue_name} declined the replacement request` : null,
     }
   }
+  if (booking.restore_requested_at) {
+    // S-90: nothing changes until Venue Staff confirm.
+    return { actions: [], label: `Restore requested: waiting for Venue Staff to confirm ${booking.venue_name}` }
+  }
   if (booking.requires_alternative_arrangements) {
     const latest = replacementsOf(booking, bookings).at(-1)
     if (latest && ACTIVE_REPLACEMENT.includes(latest.status)) {
@@ -419,6 +451,17 @@ export function replacementState(booking, bookings = []) {
   }
   if (booking.alternative_resolution_note) {
     return { actions: [], label: `Resolved: ${booking.alternative_resolution_note}` }
+  }
+  if (LIVE_ORIGINAL.includes(booking.status)) {
+    // S-90: the venue is free again while a replacement still waits -- the
+    // Coordinator may keep it instead.
+    const latest = replacementsOf(booking, bookings).at(-1)
+    if (latest && ACTIVE_REPLACEMENT.includes(latest.status)) {
+      return {
+        actions: ['restore'],
+        label: `Replacement requested: ${latest.venue_name}, waiting for Venue Staff. ${booking.venue_name} is free again.`,
+      }
+    }
   }
   if (booking.replaces_booking_id) {
     const original = bookings.find((row) => row.id === booking.replaces_booking_id)
@@ -567,4 +610,55 @@ export function venueBookingChangeErrorMessage(error) {
   if (error.status === 403) return `Your role can't change venue bookings. ${UNCHANGED}`
   if (error.status === 0) return `We couldn't reach the server. Check your connection and try again. ${UNCHANGED}`
   return `The booking service is unavailable. Try again in a moment. ${UNCHANGED}`
+}
+
+// --- S-90: restoring the original booking ------------------------------------
+//
+// Once an original's venue is free again, its Coordinator may keep it instead
+// of the replacement still waiting. Venue Staff confirm; the composite and
+// the bookings service check the venue is free for the whole window.
+
+export function requestRestore(bookingId) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/restore`, { method: 'POST' })
+}
+
+export function listRestoreRequests() {
+  return requestJSON('/venue-bookings/restores')
+}
+
+export function decideRestore(bookingId, decision) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/restore-decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  })
+}
+
+// "13:00:00" -> "1:00 pm", the wording event times use elsewhere.
+function clock12(value) {
+  const [hours, minutes] = value.split(':').map(Number)
+  const meridiem = hours < 12 ? 'am' : 'pm'
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${meridiem}`
+}
+
+// For Venue Staff: what confirming a restore will do.
+export function restoreRequestSummary(row) {
+  return {
+    title: row.event_name,
+    when: `${bookingDateLabel(row.booking_date)}, ${clock12(row.start_time)} to ${clock12(row.end_time)}`,
+    keeps: `Keep ${row.venue_name}`,
+    withdraws: row.replacement ? `Withdraw the request for ${row.replacement.venue_name}` : null,
+  }
+}
+
+export function restoreNotice(decision, row) {
+  return decision === 'approved'
+    ? `${row.venue_name} restored for ${row.event_name}.`
+    : `Restore of ${row.venue_name} for ${row.event_name} declined.`
+}
+
+export function restoreErrorMessage(error) {
+  if (error?.status === 409 && error.message) return error.message
+  if (error?.status === 403) return 'You do not have permission to do this.'
+  return 'We could not reach the booking service. Try again in a moment.'
 }

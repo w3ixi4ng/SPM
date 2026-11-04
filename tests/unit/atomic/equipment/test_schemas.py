@@ -16,12 +16,14 @@ def test_valid_item_is_normalized_and_server_fields_are_forbidden():
     item = EquipmentCreate(
         type="  Wireless Microphone  ",
         description="  Handheld wireless microphone with receiver  ",
+        storage_location="  Store B, Shelf 4  ",
         total_quantity=12,
     )
 
     assert item.model_dump() == {
         "type": "Wireless Microphone",
         "description": "Handheld wireless microphone with receiver",
+        "storage_location": "Store B, Shelf 4",
         "total_quantity": 12,
     }
 
@@ -83,6 +85,7 @@ def test_valid_update_is_normalized(status):
     item = EquipmentUpdate(
         type="  Radio Microphone  ",
         description="   ",
+        storage_location="   ",
         total_quantity=18,
         operational_status=status,
     )
@@ -90,6 +93,7 @@ def test_valid_update_is_normalized(status):
     assert item.model_dump() == {
         "type": "Radio Microphone",
         "description": None,
+        "storage_location": None,
         "total_quantity": 18,
         "operational_status": status,
     }
@@ -115,6 +119,7 @@ def test_invalid_updates_are_rejected(changes):
     payload = {
         "type": "Radio Microphone",
         "description": None,
+        "storage_location": "AV Cage, Rack 2",
         "total_quantity": 18,
         "operational_status": "available",
         **changes,
@@ -122,3 +127,19 @@ def test_invalid_updates_are_rejected(changes):
 
     with pytest.raises(ValidationError):
         EquipmentUpdate(**payload)
+
+
+# --- TC-EQUIPMENT-031 ----------------------------------------------------
+def test_storage_location_is_optional_trimmed_and_limited():
+    assert EquipmentCreate(
+        type="Projector", total_quantity=2, storage_location="  Store A, Bay 9  "
+    ).storage_location == "Store A, Bay 9"
+    assert EquipmentCreate(
+        type="Projector", total_quantity=2, storage_location="   "
+    ).storage_location is None
+
+    with pytest.raises(ValidationError) as exc_info:
+        EquipmentCreate(
+            type="Projector", total_quantity=2, storage_location="x" * 201
+        )
+    assert exc_info.value.errors()[0]["loc"] == ("storage_location",)

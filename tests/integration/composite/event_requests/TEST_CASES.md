@@ -392,3 +392,178 @@ trusted Auth metadata holds Coordinator availability.
 - **Actual:** The real S-84 transfer incremented the version, actioned the pending S-88 request, cleared the inactive-owner count, and preserved linked booking, equipment, technical and edit-history data.
 - **Status:** Pass
 - **Evidence:** test_s93.py::test_inactive_target_is_rejected_but_existing_work_can_be_transferred; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]
+
+---
+
+## S-82 — View Event Change History
+
+## TC-EVENTREQUESTS-123 — real actions show up in the Coordinator's and Lead's history
+
+- **Scenario:** Actions taken through the real services are recorded and read back with names, through Kong (S-82 AC1, AC2).
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied and `events` exposed. Fixtures: Organiser O, Lead L, Coordinators C and C2, all with `spm-event-requests-*` emails. (Since S-83 a Lead assigns explicitly, so no other Coordinator has to be blocked.)
+- **Steps:**
+  1. As O, `POST /api/event-requests` with a valid submitted body.
+  2. As L, `POST /api/event-requests/E/assignment` assigning C.
+  3. As C, `POST /api/events/E/decision` with `{"decision": "approved"}`.
+  4. As C, `GET /api/event-requests/E/history`.
+  5. As L, the same.
+  6. As C2, the same.
+  7. Delete everything created.
+- **Test data:** Event name `S-82 History <6 hex>`, 2026-11-18 09:00–12:00, 40 attendees.
+- **Expected:**
+  - 4 → `200` with three entries, newest first: `request_approved` by C, `coordinator_assigned` by L, and `submitted` by O.
+  - Each actor's `name` is the name stored in `users.users`.
+  - `people` names C.
+  - 5 → the same three entries.
+  - 6 → `404`.
+- **Actual:** Through Kong: three entries newest first (`request_approved` by C, `coordinator_assigned` by L, `submitted` by O) with their stored names; the Lead saw the same entries; C2 got `404`.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s82.py::test_real_actions_show_up_in_the_history; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full integration suite: 104 passed, 5 skipped.
+
+## TC-EVENTREQUESTS-201 — proposal crosses Users, Events and Equipment without changing arrangements
+
+- **Scenario:** The public composite stores a mixed event/equipment proposal through real service boundaries.
+- **Pre-conditions:** Fresh `.env.test` stack with S-59 Events SQL applied, exposed and granted; O, assigned C and unrelated D; confirmed E with accepted attendance 120, projector requirement quantity 2, venue booking, Technical Support sign-off and one attendee. All rows/accounts are temporary and cleaned up.
+- **Steps:** 1. As O, GET current form data and POST attendance 150 plus projector quantity 3 through Kong. 2. Read proposal as O and C and attempt as D. 3. Read E and each linked service record. 4. Reload O/C views. 5. Clean up.
+- **Test data:** E `Autumn Forum`; attendance 120→150; projector quantity 2→3; temporary `spm-test-*` accounts.
+- **Expected:** POST `201`; O and C see one pending comparison with trusted O ID and server timestamp after reload, D gets `404`. E stays confirmed at 120; Equipment still holds quantity 2; booking, sign-off and attendee remain. The proposal explicitly says these accepted arrangements have not been reviewed for the proposed details; cleanup leaves no rows.
+- **Actual:** A mixed attendance, layout and equipment proposal was visible to its owner and assigned Coordinator, hidden from an unrelated Coordinator, and left the accepted event, booking, equipment requirement, Technical Support sign-off and attendee registration unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_mixed_proposal_preserves_accepted_arrangements`; full integration suite 104 passed, 5 skipped on 2026-10-30.
+
+## TC-EVENTREQUESTS-202 — failed, duplicate and stale submissions remain safe
+
+- **Scenario:** Real HTTP and database boundaries enforce one pending request and leave accepted state intact.
+- **Pre-conditions:** Fresh `.env.test` stack and S-59 SQL as TC-EVENTREQUESTS-201; O owns submitted E with attendance 120; C is assigned.
+- **Steps:** 1. Send an invalid empty proposal. 2. Send two attendance proposals concurrently. 3. Retry the losing payload and an old baseline after an accepted S-18 Coordinator edit. 4. Read E and request storage. 5. Clean up.
+- **Test data:** Empty `{}`; attendance proposals 150/180; intervening accepted attendance 130.
+- **Expected:** Empty request `422`; exactly one concurrent proposal `201`, the other `409`; duplicate and stale attempts `409`. The winning request is unchanged, no partial row remains, and E's accepted attendance reflects only the separate S-18 edit (130), never the proposals.
+- **Actual:** Invalid submission was rejected; concurrent submissions produced one pending request; an atomic Events submission with an old event baseline returned 409 after an accepted edit, leaving the accepted value and request rows unchanged.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s59.py::test_two_concurrent_submissions_leave_one_pending_row`; `tests/integration/atomic/events/test_s59.py::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; 2026-10-30.
+
+## S-69 specification — Notify Attendee — Event Cancelled
+
+Drafted 2026-10-30 on `S-69/notify-attendee-event-cancelled` (from
+`origin/sprint4`). Confirmed by the developer 2026-10-30. Needs the S-69
+blocks of `backend/sql/notifications.sql` (the `event_cancelled` kind) and
+`backend/sql/events.sql` (a safety-checked event may be cancelled) applied to
+the test project. The second was found by this case's first run: approving
+the cancellation of a confirmed event failed with `23514` on
+`events_safety_state_consistent`, so no registered Attendee could ever be
+notified.
+
+## TC-EVENTREQUESTS-203 — approving a cancellation notifies registered and waiting Attendees once
+
+- **Scenario:** Through Kong against the test project: when the Coordinator approves a cancellation, every Attendee holding a place or on the waiting list finds one notification naming the event as cancelled, no one else does, and approving again adds none (S-69 AC1–AC3). Also proves the real `notifications.notifications` constraint allows the `event_cancelled` kind, and that the composite reaches the registrations service inside the compose network.
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Organiser O; Coordinator C; confirmed event P owned by O, assigned to C, named "spm-test S-69 <hex>", starting ten days out 18:00–21:00, `expected_attendance` 1, registration open yesterday to tomorrow (SGT), with a pending cancellation request from O (reason "Speaker unavailable"); Attendees A, W and X.
+- **Steps:**
+  1. As A, `POST /api/event-registrations/events/P/registration`.
+  2. As W, `POST /api/event-registrations/events/P/waiting-list`.
+  3. As C, `POST /api/event-requests/P/cancellation-decision` `{"decision": "approved"}`.
+  4. As A, W and X in turn, `GET /api/notifications`.
+  5. As C, approve again; as A, `GET /api/notifications`.
+  6. Delete the rows and accounts.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 1 → `201`. 2 → `201`. 3 → `200`, `"status": "cancelled"`, `"notified_attendees": 2`. 4 → A and W each have exactly one `event_cancelled` row for P, message "Event cancelled: {P's name}, {date}, 6:00 pm – 9:00 pm. It will not take place."; X has none. Neither message contains "Speaker unavailable". 5 → `200`; A still has exactly one. 6 leaves no rows.
+- **Actual:** First run: approval `502` -- the events service hit `23514` on `events_safety_state_consistent`; fixed by the S-69 block of `events.sql`. After it was applied: `201`, `201`; approval `200`, `cancelled`, `notified_attendees` 2; A and W each had exactly one `event_cancelled` row with the expected message and no reason; X none; approving again `200`, A still one; no rows remained. Passed again on a second run.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s69.py::test_approving_a_cancellation_notifies_registered_and_waiting_attendees_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-69 blocks of `notifications.sql` and `events.sql` applied to dev and test; 2026-10-30, branch `S-69/notify-attendee-event-cancelled` (on sprint4 `58d6d9f`), pre-commit working tree; with `tests/integration/composite/event_requests`, `tests/integration/atomic/notifications` and `tests/integration/atomic/events`: 32 passed, 5 skipped; e2e `test_approve_cancellation.py` and `test_request_event_cancellation.py`: 2 passed
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-EVENTREQUESTS-204 — a real request outcome reaches the Organiser inbox
+
+- **Scenario:** The decision crosses Users, Events and Notifications through Kong and persists for the owning Organiser.
+- **Pre-conditions:** Fresh `.env.test` stack; schemas applied, exposed and granted; one submitted event assigned to a Coordinator.
+- **Steps:** The Coordinator returns it with reason and amendment comment, then the Organiser lists `/api/notifications`.
+- **Expected:** The saved event is returned and the inbox has exactly one `event_request_decision` row naming the event, reason, comment and resubmission action.
+- **Actual:** The returned event persisted and the owning Organiser received exactly one actionable notification with the event name, reason, amendment comment and resubmission instruction.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_a_real_returned_outcome_reaches_the_organiser_inbox`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; full integration suite: 112 passed, 5 skipped.
+
+## TC-EVENTREQUESTS-205 — a real schedule change reaches the Organiser once
+
+- **Scenario:** A significant Coordinator edit and notification persist across the Events/Notifications boundary.
+- **Pre-conditions:** As TC-EVENTREQUESTS-204, with an editable planning event.
+- **Steps:** Move the event to a later date through `/api/event-requests/{id}/information`, then repeat the same request.
+- **Expected:** The first response saves the new date and one postponed notice; the stale repeat is refused and creates no second row.
+- **Actual:** The first edit saved the later date and one postponed notice; the stale retry was refused and the Organiser still had one notice.
+- **Status:** Pass
+- **Evidence:** `test_s63.py::test_a_real_postponement_reaches_the_organiser_once`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; fresh verified `.env.test` stack; full integration suite: 112 passed, 5 skipped.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs 450–499
+reserved for S-89 integration cases. Needs the S-89 blocks of
+`backend/sql/events.sql` and `backend/sql/bookings.sql` applied to the test
+project; `event_requests` reaches `venue_bookings` through
+`VENUE_BOOKINGS_SERVICE_URL` (defaulted in `docker-compose.yml`). Blocked
+until the SQL is applied.
+
+## TC-EVENTREQUESTS-450 — an affected two-venue event is cancelled through Kong with everything closed, recorded, released and announced
+
+- **Scenario:** Across real Events, Bookings, Venue Bookings, Registrations, Notifications and Equipment: nothing happens automatically, then the Coordinator's cancellation reaches a consistent final state (S-89 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack. A `confirmed` event E (21 days ahead) with Coordinator K and Organiser O; confirmed bookings at V1 and V2 and a pending replacement for V1 at V3; two registered Attendees and one waiting; a requirement for 4 of item Q (total 10).
+- **Steps:** 1. As Venue Staff, `POST /api/venue-bookings/blocks` over V1's booking. 2. Read E and its bookings. 3. As K, `POST /api/event-requests/E/venue-cancellation`. 4. Read E, its bookings, its closure, its history, the notifications, and (as Technical Support) Q's availability. 5. Repeat step 3.
+- **Test data:** `spm-test-*` rows, deleted afterwards.
+- **Expected:** 2 → E and its bookings unchanged (AC1). 3 → `200`, `released_bookings` 3, `notified_attendees` 3, `cancellation_completed` true. 4 → E `cancelled` with the reason and `venue_cancellation_completed_at`; all three bookings `released`; the closure `closed`; one `cancelled_venue_unavailable` entry by K with the reason; O one `event_cancelled` notification with the reason; each Attendee exactly one ending "It will not take place."; Q 10 available. 5 → `200`, no new notification rows.
+- **Actual:** Before cancelling, E and its bookings unchanged. `200`, `released_bookings` 3, `notified_attendees` 3, completed. E `cancelled` with reason and completion time; three bookings `released`; closure `closed`; one history entry by K with the reason; Organiser one notification with the reason; each Attendee exactly one; Q 10 available. The repeat `200` with no new notifications.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s89.py::test_an_affected_two_venue_event_is_cancelled_with_everything_released_and_announced`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-EVENTREQUESTS-451 — unaffected or unassigned events stay untouched and unlocked
+
+- **Scenario:** The verification uses the real flag and assignments, and a refused attempt leaves no closure behind.
+- **Pre-conditions:** As TC-EVENTREQUESTS-450, with a planning event G whose booking nothing affects, and a second Coordinator D.
+- **Steps:** 1. Mark V1 unavailable. 2. As K, cancel G. 3. As D, cancel E.
+- **Test data:** As above.
+- **Expected:** 2 → `409` "None of this event's venue bookings is affected by an unavailable venue, so it can't be cancelled here." 3 → `404`. Afterwards both events and their bookings unchanged, no `closed_events` row for either, no `event_cancelled` notification.
+- **Actual:** G `409` with the not-affected detail; D `404`; both events and bookings unchanged, no `closed_events` row and no `event_cancelled` notification for either.
+- **Status:** Pass
+- **Evidence:** `tests/integration/composite/event_requests/test_s89.py::test_unaffected_or_unassigned_events_stay_untouched`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Fresh `.env.test` stack and TEST Supabase. Full integration suite: 119 passed, 5 skipped, 0 failed. Significant S-18 edits now go through `PATCH .../information/significant`; routine edits stay on `PATCH .../information`. S-55's withdrawal workflow is integrated; do not reapply S-53 SQL. See each case evidence.
+
+## TC-EVENTREQUESTS-310 — real acceptance persists across service boundaries
+
+- **Scenario:** Accepted proposal, per-booking flags and old sign-offs survive reload through Kong.
+- **Pre-conditions:** Shared; E confirmed with B1/B2, P quantity 2, T sign-off and attendee record; R pending.
+- **Steps:** 1. O submits attendance 120→150 and P 2→3. 2. C opens review and accepts. 3. Reload Events, Equipment, Bookings, Safety readiness and history through HTTP. 4. D attempts review.
+- **Test data:** B1 capacity 130, B2 capacity 220; P 2→3; temporary `spm-test-s60-*` users.
+- **Expected:** E is planning at 150; P=3; R accepted with C/time and retained snapshots; B1/P/T flags have reasons, B2 has no false capacity flag. Both bookings, old sign-offs, T assignment, attendee and history remain. Readiness blocks until resolution; D gets scoped denial.
+- **Actual:** Real Kong acceptance persisted 150 attendees and P=3, preserved linked rows, and left scoped re-review flags blocking safety.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_acceptance_preserves_arrangements
+
+## TC-EVENTREQUESTS-311 — persisted flags resolve one by one
+
+- **Scenario:** Venue and equipment re-review outcomes remain durable and only clear with owner-backed evidence.
+- **Pre-conditions:** Shared; accepted R has B1 and P flags; replacement booking B3 and new T sign-off can be created.
+- **Steps:** 1. Try clearance without evidence. 2. Approve B3, resolve B1. 3. Reload; verify P still blocks. 4. Revalidate P live, have T sign, resolve P. 5. Read readiness/history.
+- **Test data:** B1→B3; P=3.
+- **Expected:** Invalid clearance gets 409; B1 resolution persists with action/time; P remains until its own valid resolution. Old approvals remain in their owner records. Only after both flags resolve and other S-17 items pass is readiness true.
+- **Actual:** Browser reloaded each venue/equipment resolution; owner-backed staff decisions cleared flags one at a time and only then allowed safety submission.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]; tests/unit/composite/event_requests/test_s60.py::test_impact_resolution_cannot_impersonate_technical_support
+
+## TC-EVENTREQUESTS-312 — races and failure do not create false acceptance
+
+- **Scenario:** Real Events/Equipment persistence keeps one decision and one outstanding request, including recoverable interruption.
+- **Pre-conditions:** Shared; R pending; test harness can pause or fail one owner call in a controlled way.
+- **Steps:** 1. Race two acceptances and an Equipment edit. 2. Simulate Events finalisation failure after Equipment batch. 3. Read R/E/P; retry operation; submit R2.
+- **Test data:** R P 2→3; competing P→4; R2 attendance 120→130.
+- **Expected:** One outcome wins; stale callers get 409. Incomplete operation never returns accepted and keeps R2 blocked; retry or conditional abort preserves a coherent accepted state. No duplicate history or lost Equipment edit. A terminal rejection/acceptance permits a later pending R2.
+- **Actual:** Competing prepares yielded one operation; failed completion kept applying and blocked R2, then retry accepted once and reopened the slot.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_real_concurrent_acceptance_and_recovery

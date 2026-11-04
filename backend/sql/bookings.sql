@@ -51,6 +51,11 @@ create table if not exists bookings.bookings (
   venue_preparation_updated_at  timestamptz,
   venue_preparation_version     integer not null default 0,
 
+  -- S-91: one confirmed booking may be the attendee-facing venue.
+  is_primary                 boolean not null default false,
+  primary_selected_by        uuid,
+  primary_selected_at        timestamptz,
+
   booking_date               date not null,
   start_time                 time without time zone not null,
   end_time                   time without time zone not null,
@@ -93,6 +98,13 @@ create table if not exists bookings.bookings (
       and venue_preparation_version = 0)
     or (venue_preparation_updated_by is not null and venue_preparation_updated_at is not null
       and venue_preparation_version > 0)
+  ),
+
+  constraint bookings_primary_valid check (
+    (is_primary and status = 'confirmed'
+      and primary_selected_by is not null and primary_selected_at is not null)
+    or (not is_primary
+      and primary_selected_by is null and primary_selected_at is null)
   ),
 
   -- One date, so the end is simply after the start. A venue's opening hours
@@ -138,6 +150,9 @@ create table if not exists bookings.bookings (
 -- Venue Staff's pending list: filter by status, oldest first.
 create index if not exists bookings_bookings_status_submitted_at_idx
   on bookings.bookings (status, submitted_at);
+
+create unique index if not exists bookings_one_primary_per_event_idx
+  on bookings.bookings (event_id) where is_primary;
 
 -- 3. Grant access to the backend role. Supabase does not pre-configure access
 --    to custom schemas, so both schema usage and table privileges are needed.
@@ -640,3 +655,431 @@ alter table bookings.bookings add constraint bookings_venue_preparation_audit_va
 notify pgrst, 'reload schema';
 commit;
 -- END S-25 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-91 DATA-PRESERVING MIGRATION
+-- Existing installations: run this entire block in BOTH dev and test.
+-- Safe to repeat. Existing events receive their earliest confirmed booking
+-- as the initial primary so the migration preserves attendee information.
+begin;
+
+alter table bookings.bookings
+  add column if not exists is_primary boolean not null default false,
+  add column if not exists primary_selected_by uuid,
+  add column if not exists primary_selected_at timestamptz;
+
+-- Backfill exactly one confirmed booking per event. The decision actor is the
+-- best audit identity; coordinator_id is the fallback for legacy rows.
+with ranked as (
+  select id,
+         row_number() over (
+           partition by event_id order by submitted_at, id
+         ) as position
+  from bookings.bookings
+  where status = 'confirmed'
+)
+update bookings.bookings b
+set is_primary = true,
+    primary_selected_by = coalesce(b.decided_by, b.coordinator_id),
+    primary_selected_at = coalesce(b.decided_at, b.submitted_at)
+from ranked r
+where b.id = r.id and r.position = 1
+  and not exists (
+    select 1 from bookings.bookings current
+    where current.event_id = b.event_id and current.is_primary
+  );
+
+alter table bookings.bookings drop constraint if exists bookings_primary_valid;
+alter table bookings.bookings add constraint bookings_primary_valid check (
+  (is_primary and status = 'confirmed'
+    and primary_selected_by is not null and primary_selected_at is not null)
+  or (not is_primary
+    and primary_selected_by is null and primary_selected_at is null)
+);
+
+create unique index if not exists bookings_one_primary_per_event_idx
+  on bookings.bookings (event_id) where is_primary;
+
+-- First confirmation becomes primary. Losing a confirmed state clears the
+-- marker, but never guesses which remaining venue the Coordinator prefers.
+create or replace function bookings.maintain_primary_booking()
+returns trigger
+language plpgsql
+set search_path = bookings, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(new.event_id::text, 0));
+  if new.status <> 'confirmed' then
+    new.is_primary := false;
+    new.primary_selected_by := null;
+    new.primary_selected_at := null;
+  elsif not exists (
+    select 1 from bookings.bookings b
+    where b.event_id = new.event_id and b.is_primary
+      and (tg_op = 'INSERT' or b.id <> new.id)
+  ) then
+    new.is_primary := true;
+    new.primary_selected_by := coalesce(new.decided_by, new.coordinator_id);
+    new.primary_selected_at := coalesce(new.decided_at, now());
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_maintain_primary_booking on bookings.bookings;
+create trigger bookings_maintain_primary_booking
+  before insert or update of status on bookings.bookings
+  for each row execute function bookings.maintain_primary_booking();
+
+-- Move the marker under one event lock. Clearing then selecting avoids a
+-- transient duplicate while the partial unique index remains the final guard.
+create or replace function bookings.set_primary_booking(
+  p_booking_id uuid,
+  p_selected_by uuid
+)
+returns setof bookings.bookings
+language plpgsql
+security definer
+set search_path = bookings, pg_temp
+as $$
+declare
+  target bookings.bookings%rowtype;
+begin
+  select * into target from bookings.bookings where id = p_booking_id;
+  if not found then return; end if;
+  if target.status <> 'confirmed' then
+    raise exception 'Only a confirmed venue booking can be primary'
+      using errcode = 'P0001';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(target.event_id::text, 0));
+  update bookings.bookings
+     set is_primary = false,
+         primary_selected_by = null,
+         primary_selected_at = null
+   where event_id = target.event_id and is_primary and id <> target.id;
+  update bookings.bookings
+     set is_primary = true,
+         primary_selected_by = p_selected_by,
+         primary_selected_at = now()
+   where id = target.id and status = 'confirmed'
+  returning * into target;
+  if not found then
+    raise exception 'Only a confirmed venue booking can be primary'
+      using errcode = 'P0001';
+  end if;
+  return next target;
+end;
+$$;
+
+revoke execute on function bookings.set_primary_booking(uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function bookings.set_primary_booking(uuid, uuid)
+  to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-91 DATA-PRESERVING MIGRATION
+
+-- BEGIN S-89 RELEASE A CANCELLED EVENT'S BOOKINGS
+-- Existing installations: run this entire block in BOTH dev and test. Safe to
+-- repeat and data-preserving: no booking is deleted or rewritten, and the
+-- only rows ever deleted are this block's own unfinished closure intents.
+--
+-- S-89 releases every booking of an event its Coordinator cancelled because
+-- no alternative venue could be found. Unlike S-61 (which deletes them), the
+-- rows are kept: `released` is terminal and not live, so the venue time is
+-- free while the record of what was booked, by whom and when, remains.
+--
+-- bookings.closed_events closes an event to new active bookings for the
+-- whole cancellation, not just after it:
+--   closing -- recorded BEFORE the events service cancels the event. If the
+--              cancellation does not happen, the operation that recorded it
+--              (operation_id) removes it again; so may a later attempt once
+--              it is more than two minutes old (an abandoned attempt).
+--   closed  -- set by the release itself. Permanent.
+-- While either exists, the trigger below refuses any booking of the event
+-- becoming pending, held or confirmed -- a new request, an S-80 change, a
+-- hold or a Venue Staff confirmation -- whichever route the write comes
+-- from. A hold lapsing or being released (held -> pending) is still allowed:
+-- it gives time back, and expire_holds() runs across every event at once.
+-- event_id stays opaque: no cross-schema reference to events.events.
+begin;
+
+alter table bookings.bookings
+  add column if not exists released_at timestamptz,
+  add column if not exists released_by uuid,
+  add column if not exists release_reason text;
+
+alter table bookings.bookings drop constraint if exists bookings_status_allowed;
+alter table bookings.bookings add constraint bookings_status_allowed
+  check (status in ('pending', 'held', 'confirmed', 'rejected', 'replaced', 'released'));
+
+-- As S-78's, plus `released`: a booking may be released whether it was
+-- pending or held (never decided) or confirmed (decided).
+alter table bookings.bookings drop constraint if exists bookings_decision_valid;
+alter table bookings.bookings add constraint bookings_decision_valid check (
+  (decision_reason is null or decision_reason ~ '[^[:space:]]')
+  and (decision_alternative is null or decision_alternative ~ '[^[:space:]]')
+  and (
+    status in ('replaced', 'released')
+    or (status in ('pending', 'held') and decided_by is null and decided_at is null
+      and decision_reason is null and decision_alternative is null)
+    or (status in ('confirmed', 'rejected') and decided_by is not null
+      and decided_at is not null
+      and (status = 'confirmed' or decision_reason is not null
+           or decision_alternative is not null))
+  )
+);
+
+alter table bookings.bookings drop constraint if exists bookings_released_valid;
+alter table bookings.bookings add constraint bookings_released_valid check (
+  (status = 'released'
+    and released_at is not null and released_by is not null
+    and release_reason = 'event_cancelled')
+  or (status <> 'released'
+    and released_at is null and released_by is null and release_reason is null)
+);
+
+create table if not exists bookings.closed_events (
+  event_id     uuid primary key,
+  operation_id uuid not null,
+  state        text not null default 'closing',
+  closed_by    uuid not null,
+  created_at   timestamptz not null default now(),
+  closed_at    timestamptz,
+  reason       text not null check (reason = 'event_cancelled')
+);
+-- An earlier draft of this block had no state or operation; harmless here.
+alter table bookings.closed_events
+  add column if not exists operation_id uuid,
+  add column if not exists state text not null default 'closing',
+  add column if not exists created_at timestamptz not null default now();
+alter table bookings.closed_events alter column closed_at drop not null;
+alter table bookings.closed_events alter column closed_at drop default;
+update bookings.closed_events set operation_id = gen_random_uuid() where operation_id is null;
+-- A draft row was written by a release, so it is closed.
+update bookings.closed_events set state = 'closed' where closed_at is not null;
+alter table bookings.closed_events alter column operation_id set not null;
+alter table bookings.closed_events drop constraint if exists closed_events_state_valid;
+alter table bookings.closed_events add constraint closed_events_state_valid check (
+  (state = 'closing' and closed_at is null) or (state = 'closed' and closed_at is not null)
+);
+
+grant all on table bookings.closed_events to service_role;
+alter table bookings.closed_events enable row level security;
+
+-- Named to sort before bookings_maintain_primary_booking, and taking the same
+-- per-event lock, so the two triggers never wait on each other and a closure
+-- and a booking write for one event are strictly ordered.
+create or replace function bookings.guard_closed_event()
+returns trigger
+language plpgsql
+set search_path = bookings, pg_temp
+as $$
+begin
+  if new.status not in ('pending', 'held', 'confirmed') then
+    return new;
+  end if;
+  -- Giving time back is always allowed.
+  if tg_op = 'UPDATE' and old.status = 'held' and new.status = 'pending' then
+    return new;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(new.event_id::text, 0));
+  if exists (select 1 from bookings.closed_events where event_id = new.event_id) then
+    raise exception 'event_bookings_closed' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_closed_event_guard on bookings.bookings;
+create trigger bookings_closed_event_guard
+  before insert or update of status on bookings.bookings
+  for each row execute function bookings.guard_closed_event();
+
+-- Record the intent to close. Safe to repeat: an existing closure is kept as
+-- it is (with its own operation) and returned, so the caller can tell
+-- whether it owns it.
+create or replace function bookings.close_event_bookings(
+  p_event_id uuid,
+  p_operation_id uuid,
+  p_closed_by uuid,
+  p_reason text
+)
+returns setof bookings.closed_events
+language plpgsql
+security invoker
+set search_path = bookings, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 0));
+  insert into bookings.closed_events (event_id, operation_id, state, closed_by, reason)
+    values (p_event_id, p_operation_id, 'closing', p_closed_by, p_reason)
+    on conflict (event_id) do nothing;
+  return query select * from bookings.closed_events where event_id = p_event_id;
+end;
+$$;
+
+-- Withdraw an intent whose cancellation did not happen. Only a `closing`
+-- intent, and only by its own operation or once it is abandoned (older than
+-- p_abandoned_after). A `closed` event is never reopened. Returns the rows
+-- removed (none or one).
+create or replace function bookings.reopen_event_bookings(
+  p_event_id uuid,
+  p_operation_id uuid,
+  p_abandoned_after interval
+)
+returns setof bookings.closed_events
+language plpgsql
+security invoker
+set search_path = bookings, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 0));
+  return query
+  delete from bookings.closed_events
+   where event_id = p_event_id
+     and state = 'closing'
+     and (operation_id = p_operation_id or created_at < now() - p_abandoned_after)
+  returning *;
+end;
+$$;
+
+-- Close the event for good and release its active bookings in one
+-- transaction, under the event's lock. Safe to repeat: a second call
+-- releases nothing and keeps the first release's times and actor.
+drop function if exists bookings.release_event_bookings(uuid, uuid, text);
+create or replace function bookings.release_event_bookings(
+  p_event_id uuid,
+  p_operation_id uuid,
+  p_released_by uuid,
+  p_reason text
+)
+returns setof bookings.bookings
+language plpgsql
+security invoker
+set search_path = bookings, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_event_id::text, 0));
+  insert into bookings.closed_events (event_id, operation_id, state, closed_by, closed_at, reason)
+    values (p_event_id, p_operation_id, 'closed', p_released_by, now(), p_reason)
+    on conflict (event_id) do update
+      set state = 'closed',
+          closed_at = coalesce(bookings.closed_events.closed_at, now());
+  return query
+  update bookings.bookings
+     set status = 'released',
+         released_at = now(),
+         released_by = p_released_by,
+         release_reason = p_reason,
+         hold_released_at = case when status = 'held' then now() else hold_released_at end,
+         hold_release_reason = case when status = 'held' then p_reason else hold_release_reason end
+   where event_id = p_event_id
+     and status in ('pending', 'held', 'confirmed')
+  returning *;
+end;
+$$;
+
+revoke execute on function bookings.close_event_bookings(uuid, uuid, uuid, text)
+  from public, anon, authenticated;
+revoke execute on function bookings.reopen_event_bookings(uuid, uuid, interval)
+  from public, anon, authenticated;
+revoke execute on function bookings.release_event_bookings(uuid, uuid, uuid, text)
+  from public, anon, authenticated;
+grant execute on function bookings.close_event_bookings(uuid, uuid, uuid, text) to service_role;
+grant execute on function bookings.reopen_event_bookings(uuid, uuid, interval) to service_role;
+grant execute on function bookings.release_event_bookings(uuid, uuid, uuid, text) to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-89 RELEASE A CANCELLED EVENT'S BOOKINGS
+
+-- BEGIN S-90 RESTORE ORIGINAL VENUE
+-- Existing installations: run this entire block in BOTH dev and test, after
+-- the S-78, S-91 and S-89 blocks. Fresh installations need it too. Safe to run
+-- twice and data-preserving.
+--
+-- S-90 lets a Coordinator keep an original booking (S-78) once its venue is
+-- free again, instead of the replacement still waiting for Venue Staff.
+--
+-- 1. The original records the Coordinator's request (restore_requested_*)
+--    until Venue Staff decide it.
+-- 2. Confirming withdraws every pending or held replacement of it: the new
+--    `withdrawn` status, with withdrawn_at. Like `replaced` it is not live,
+--    so bookings_no_live_overlap no longer counts it and its slot is free.
+-- 3. A replacement confirmed first still marks the original `replaced`; that
+--    now also clears any restore request, so restore is over.
+begin;
+
+alter table bookings.bookings
+  add column if not exists restore_requested_at timestamptz,
+  add column if not exists restore_requested_by uuid,
+  add column if not exists withdrawn_at timestamptz;
+
+-- Repeated in backend/services/atomic/bookings/schemas.py. Change both.
+alter table bookings.bookings drop constraint if exists bookings_status_allowed;
+alter table bookings.bookings add constraint bookings_status_allowed
+  check (status in ('pending', 'held', 'confirmed', 'rejected', 'replaced', 'released', 'withdrawn'));
+
+-- As S-89's, plus `withdrawn`: the replacement may have been pending or held
+-- (never decided) when it was withdrawn.
+alter table bookings.bookings drop constraint if exists bookings_decision_valid;
+alter table bookings.bookings add constraint bookings_decision_valid check (
+  (decision_reason is null or decision_reason ~ '[^[:space:]]')
+  and (decision_alternative is null or decision_alternative ~ '[^[:space:]]')
+  and (
+    status in ('replaced', 'released', 'withdrawn')
+    or (status in ('pending', 'held') and decided_by is null and decided_at is null
+      and decision_reason is null and decision_alternative is null)
+    or (status in ('confirmed', 'rejected') and decided_by is not null
+      and decided_at is not null
+      and (status = 'confirmed' or decision_reason is not null
+           or decision_alternative is not null))
+  )
+);
+
+-- Who asked and when go together. Which statuses may ask is the service's
+-- check: a status change (an expiring hold) must never fail on this.
+alter table bookings.bookings drop constraint if exists bookings_restore_request_valid;
+alter table bookings.bookings add constraint bookings_restore_request_valid check (
+  (restore_requested_at is null) = (restore_requested_by is null)
+);
+
+-- A withdrawn booking always has its time. Only a replacement is ever
+-- withdrawn, but that is the service's rule, not this one: deleting the
+-- original (S-80, S-61) sets replaces_booking_id null, and must not fail.
+alter table bookings.bookings drop constraint if exists bookings_withdrawn_valid;
+alter table bookings.bookings add constraint bookings_withdrawn_valid check (
+  (status = 'withdrawn') = (withdrawn_at is not null)
+);
+
+-- Venue Staff's queue: the open requests, oldest first.
+create index if not exists bookings_bookings_restore_requested_idx
+  on bookings.bookings (restore_requested_at)
+  where restore_requested_at is not null;
+
+create or replace function bookings.replace_original_on_confirm()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- An original already replaced by another booking is left as it is. S-17:
+  -- a rejected original is replaced too, so the rejection stops blocking the
+  -- event's submission for the Operational Safety Check. S-90: a restore
+  -- request the original carried is over.
+  update bookings.bookings
+     set status = 'replaced',
+         replaced_by_booking_id = new.id,
+         replaced_at = now(),
+         restore_requested_at = null,
+         restore_requested_by = null
+   where id = new.replaces_booking_id
+     and status in ('pending', 'held', 'confirmed', 'rejected');
+  return new;
+end;
+$$;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-90 RESTORE ORIGINAL VENUE

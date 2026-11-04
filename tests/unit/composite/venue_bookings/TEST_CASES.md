@@ -818,8 +818,8 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Pre-conditions:** Event E has one active hold; events and bookings clients are mocked.
 - **Steps:** Synchronise E when its authoritative status is `rejected`, `cancelled`, and each nonterminal status; submit a replacement venue request with a changed venue, date or time; repeat the same request unchanged.
 - **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacements change venue to Studio C, date to `2026-11-13`, or time to `13:00`–`16:00`.
-- **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
-- **Actual:** Rejected/cancelled events released and disappeared from actionable results; changed requests released the old hold, while identical retries returned the existing row.
+- **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. The released audit row stays absent from every later actionable-list fetch even though its stored status is now `pending`, so a second dashboard fetch cannot offer a terminal event again. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
+- **Actual:** Rejected/cancelled events released and disappeared from actionable results; their resulting Pending audit rows stayed absent on a later fetch without another release write. Changed requests released the old hold, while identical retries returned the existing row.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py`
 
@@ -2029,6 +2029,255 @@ submission can be cleared. Everything else about S-78 is unchanged.
 - **Evidence:** `test_venue_preparation.py::test_only_venue_staff_can_update`.
 
 ### TC-VENUEBOOKINGS-120 - only live confirmed bookings can be prepared
+
+## S-91 — Designate Primary Venue
+
+### TC-VENUEBOOKINGS-121 — the assigned Coordinator selects a confirmed primary venue
+
+- **Pre-conditions:** The caller is Coordinator C assigned to event E. B1 and B2 are confirmed bookings for E.
+- **Steps:** `PUT /venue-bookings/B2/primary`.
+- **Expected:** The composite verifies C through `/events/assigned/E`, forwards the selection to Bookings, and returns B2 as primary.
+
+### TC-VENUEBOOKINGS-122 — unrelated users cannot select the primary venue
+
+- **Pre-conditions:** B1 belongs to E. Try an unrelated Coordinator, Organiser, Venue Staff, Attendee, and signed-out caller.
+- **Steps:** `PUT /venue-bookings/B1/primary`.
+- **Expected:** The wrong role is `403`, signed out is `401`, and an unrelated Coordinator receives `404` from the assigned-event check. Bookings receives no selection request.
+
+### TC-VENUEBOOKINGS-123 — selection failures are returned honestly
+
+- **Pre-conditions:** The caller is assigned to E. B1 is non-confirmed, missing, or the Bookings dependency fails.
+- **Steps:** Select B1 as primary.
+- **Expected:** A missing booking is `404`; a non-confirmed booking is `409`; a dependency failure is `503`. Nothing is reported as selected.
+
+### TC-VENUEBOOKINGS-124 — Coordinator and Organiser see every venue and the primary marker
+
+- **Pre-conditions:** E has two bookings and B1 is primary. C is assigned to E; O owns E.
+- **Steps:** Each calls `GET /venue-bookings?event_id=E`.
+- **Expected:** Both receive both bookings and the `is_primary` marker. C is checked through `/events/assigned/E`; O through `/events/E`.
+
+### TC-VENUEBOOKINGS-125 — cancelling the primary leaves an explicit choice outstanding
+
+- **Pre-conditions:** B1 is primary and B2 is another confirmed booking for E.
+- **Steps:** C cancels B1 through the existing endpoint, then lists E's bookings.
+- **Expected:** B1 is removed, B2 remains non-primary, and the response contains no primary booking so the UI can prompt C. Cancelling a non-primary leaves B1 primary.
 - **Expected:** Pending, held, rejected, replaced, and missing bookings cannot be updated.
 - **Status:** Pass.
 - **Evidence:** `test_venue_preparation.py::test_nonconfirmed_bookings_are_refused`.
+
+
+## S-82 — View Event Change History
+
+`test_s82.py`. After each venue action takes effect, the composite sends one
+entry to Events `POST /internal/events/{event_id}/history` (TC-EVENTS-199).
+Event E `11111111-1111-4111-8111-111111111111`; booking B
+`99999999-9999-4999-8999-999999999999` for E at venue "Hall One"; Coordinator
+C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; Venue Staff V
+`77777777-7777-4777-8777-777777777777`.
+
+### TC-VENUEBOOKINGS-122 - a Coordinator's venue requests are recorded
+- **Scenario:** Requesting, changing, withdrawing and replacing a venue booking is recorded (S-82 AC1).
+- **Pre-conditions:** Signed in as C, the assigned Coordinator; Bookings accepts each write.
+- **Steps / Test data / Expected:** Each step sends exactly one entry with `actor_id: C` and `actor_role: "event_coordinator"`:
+  | Step | `action` | `details` |
+  | --- | --- | --- |
+  | `POST /venue-bookings` for E at Hall One, 2026-11-18 09:00–12:00 | `venue_requested` | `{"booking_id": B, "venue_name": "Hall One", "start": "2026-11-18T09:00:00", "end": "2026-11-18T12:00:00"}` |
+  | `PATCH /venue-bookings/B` to 10:00–13:00 | `venue_request_changed` | `{"booking_id": B, "venue_name": "Hall One", "from": {"start": "…09:00:00", "end": "…12:00:00", "venue_name": "Hall One"}, "to": {"start": "…10:00:00", "end": "…13:00:00", "venue_name": "Hall One"}}` |
+  | `DELETE /venue-bookings/B` | `venue_request_withdrawn` | `{"booking_id": B, "venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/replacement` with Room Two | `venue_replacement_requested` | `{"booking_id": <new id>, "venue_name": "Room Two", "replaces_booking_id": B, "replaced_venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/resolution` | `venue_alternative_resolved` | `{"booking_id": B, "venue_name": "Hall One"}` |
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_coordinator_venue_requests_are_recorded`, `test_s82.py::test_replacement_and_resolution_are_recorded`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+### TC-VENUEBOOKINGS-123 - Venue Staff decisions are recorded
+- **Scenario:** Holding, releasing, confirming and rejecting a booking is recorded (S-82 AC1).
+- **Pre-conditions:** Signed in as V; Bookings accepts each write.
+- **Steps / Test data / Expected:** Each step sends exactly one entry with `actor_id: V` and `actor_role: "venue_staff"`:
+  | Step | `action` | `details` |
+  | --- | --- | --- |
+  | `POST /venue-bookings/B/hold` | `venue_held` | `{"booking_id": B, "venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/release` | `venue_released` | `{"booking_id": B, "venue_name": "Hall One"}` |
+  | `POST /venue-bookings/B/decision` `{"decision": "approved"}` | `venue_confirmed` | `{"booking_id": B, "venue_name": "Hall One", "reason": null, "alternative": null}` |
+  | `POST /venue-bookings/B/decision` `{"decision": "rejected", "reason": "Under renovation", "alternative": "Studio C"}` | `venue_rejected` | `{"booking_id": B, "venue_name": "Hall One", "reason": "Under renovation", "alternative": "Studio C"}` |
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_venue_staff_decisions_are_recorded`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+### TC-VENUEBOOKINGS-124 - refused venue actions record nothing
+- **Scenario:** Only actions that took effect are recorded.
+- **Pre-conditions:** As in each row.
+- **Steps / Test data / Expected:** No history call is made when:
+  - `POST /venue-bookings` returns `409` (slot taken) or `422` (unsuitable venue);
+  - `POST /venue-bookings/B/decision` comes from a Coordinator (`403`);
+  - Bookings answers `409` to a hold.
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_refused_venue_actions_record_nothing`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+### TC-VENUEBOOKINGS-125 - a failed history write does not undo the venue action
+- **Scenario:** The history is best effort, as in TC-EVENTS-198.
+- **Pre-conditions:** As V; Bookings confirms B; Events history answers `500`, and separately times out.
+- **Steps:** `POST /venue-bookings/B/decision` with `{"decision": "approved"}`.
+- **Expected:** The usual `200` with the confirmed booking each time, and one `ERROR` log record naming E and `venue_confirmed`.
+- **Actual:** As expected.
+- **Status:** Pass.
+- **Evidence:** `test_s82.py::test_a_failed_history_write_does_not_undo_the_venue_action`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+---
+
+## S-71 — Notify Coordinator — Availability Change
+
+### TC-VENUEBOOKINGS-126 — an overlapping venue block retains the S-71 notification contract
+
+- **Scenario:** The established S-77 venue-unavailability flow supplies the
+  venue half of S-71.
+- **Pre-conditions:** A newly saved unavailable period overlaps a confirmed
+  booking for event E, whose current Coordinator is C.
+- **Steps:** Identify the affected booking and build its notification batch.
+- **Expected:** Exactly one `venue_unavailable` notification goes to C. It
+  identifies E and the venue, explains the affected booking window, asks for
+  alternative arrangements, and uses the existing stable deduplication key.
+- **Status:** Pass
+- **Evidence:** `test_unavailable_periods.py::test_every_current_coordinator_is_notified_once`.
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation. Numbering starts after S-71's pending TC-VENUEBOOKINGS-126.
+
+### TC-VENUEBOOKINGS-127 — a venue decision tells the Organiser
+
+- **Scenario:** Confirming or rejecting a venue booking produces one Organiser notification.
+- **Pre-conditions:** Venue Staff is authenticated; Events supplies the event's Organiser and name; Bookings saves the decision.
+- **Steps:** Decide once as approved and once as rejected with a reason and alternative.
+- **Expected:** One `venue_booking_decision` row per successful decision names the event, venue and outcome; rejection includes the reason, offered alternative and what requires attention.
+- **Actual:** Approval and rejection each sent one Organiser row; rejection retained its reason, alternative and replacement action.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_staff_decision_forwarded_with_credentials`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+### TC-VENUEBOOKINGS-128 — venue unavailability tells both responsible people
+
+- **Scenario:** An unavailable period affecting a live booking tells its Coordinator and Organiser.
+- **Pre-conditions:** The S-77 affected-booking fixture and an active event with both recipients.
+- **Steps:** Save the block and retry its notification endpoint.
+- **Expected:** Two `venue_unavailable` rows with recipient-specific stable keys. Both name the event and venue; the Organiser's message says to review the event and coordinate a replacement. Retry creates no duplicate.
+- **Actual:** The Coordinator and Organiser each received one row with distinct recipient keys; retry reused the same keys and the Organiser received replacement guidance.
+- **Status:** Pass
+- **Evidence:** `test_unavailable_periods.py::test_each_affected_events_coordinator_and_organiser_are_notified_once` and `test_retrying_notifies_again_with_the_same_keys`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+### TC-VENUEBOOKINGS-129 — unrelated bookings produce no Organiser notice
+
+- **Scenario:** Pending, rejected, nonoverlapping, or other-venue bookings do not create an availability-change notice.
+- **Pre-conditions:** The existing S-77 nonaffected rows.
+- **Steps:** Save each unavailable period.
+- **Expected:** Notifications receives no row for those bookings.
+- **Actual:** Nonaffected bookings produced no notification rows.
+- **Status:** Pass
+- **Evidence:** S-77 nonaffected-period cases in `test_unavailable_periods.py`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+### TC-VENUEBOOKINGS-130 — a failed venue action cannot announce success
+
+- **Scenario:** A refused booking decision sends no Organiser notification.
+- **Pre-conditions:** Bookings answers `404`, `409`, or `422`.
+- **Steps:** Attempt the decision.
+- **Expected:** The mapped error is returned and Notifications is not called.
+- **Actual:** Each refused decision preserved its mapped error without a notification request.
+- **Status:** Pass
+- **Evidence:** `test_decision.py::test_safe_downstream_errors` and invalid/refused decision cases; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria: see `tests/unit/composite/event_requests/TEST_CASES.md`
+§ S-89. Drafted and confirmed 2026-11-01. IDs 400–449 reserved for S-89.
+
+## TC-VENUEBOOKINGS-400 — marking a venue unavailable never cancels or rejects anything
+
+- **Scenario:** S-89 AC1. An unavailable period flags the bookings it affects but changes no event and no booking.
+- **Pre-conditions:** Venue Staff session. V1 has confirmed booking B1 (event E, `confirmed`) and held booking H2 (event G, `planning`), both inside the new period. Bookings answers the block `201`; notifications `201`.
+- **Steps:** `POST /venue-bookings/blocks` for V1 over both bookings; then `POST /venue-bookings/blocks/{id}/notify`.
+- **Test data:** Period 2026-11-20 08:00 – 2026-11-21 08:00, reason `maintenance`.
+- **Expected:** `201` naming B1 and H2 as affected, then `200`. Across both calls nothing is sent to an events write route (no `/cancellation-decision`, no `/internal/events/*/venue-cancellation`, no `/decision`). Bookings receives no decision, release, `PATCH` or `DELETE`. The only Bookings write is the block insert.
+- **Actual:** `201` naming the affected bookings, then `200`; the only Bookings write was `/blocks`; no Events cancellation/decision write.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s89.py::test_marking_a_venue_unavailable_never_cancels_or_rejects_anything; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-401 — a released booking is listed but carries no flag and no actions
+
+- **Scenario:** After an S-89 cancellation the Coordinator and Organiser still see the event's venue history.
+- **Pre-conditions:** E is `cancelled`; Bookings lists B1 `released` (inside an unavailable period) and J1 `rejected`.
+- **Steps:** `GET /venue-bookings?event_id=E` as the assigned Coordinator, then as the Organiser; `GET /venue-bookings/B1/replacement-venues` and `POST /venue-bookings/B1/replacement` as the Coordinator.
+- **Test data:** As above.
+- **Expected:** Both lists → `200` with B1 `"status": "released"`; for the Coordinator, `requires_alternative_arrangements` false and `clashes` `[]`. The replacement search and request → `409` "This event's venue bookings can no longer be changed"; no booking is created.
+- **Actual:** Both lists `200` with B1 `released`; for the Coordinator no flag and no clashes. Search and request `409` with the expected detail; nothing created.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s89.py::test_a_released_booking_is_listed_without_a_flag; tests/unit/composite/venue_bookings/test_s89.py::test_a_released_booking_of_a_cancelled_event_cannot_be_replaced; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree, after the closure-intent and durable-history revision; Python 3.12.5, pytest 9.2.0, fastapi 0.116.1: 1883 passed and 17 skipped across `tests/unit`
+
+## S-90 — Restore Original Venue Booking
+
+Acceptance criteria and design as in `tests/unit/atomic/bookings/TEST_CASES.md`
+(S-90). This composite decides who may ask and when, passes each venue's
+current setup and turnaround to the bookings service (as S-75 does), and
+records each step in the event's history.
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
+`origin/sprint4`). Confirmed by the developer 2026-11-01.
+
+Coordinator K is assigned to event E (`confirmed`). Booking O: `confirmed` at
+V ("Studio B", 30 min setup, 45 min turnaround), no longer flagged -- its
+unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
+`replaces_booking_id` O.
+
+## TC-VENUEBOOKINGS-131 — the assigned Coordinator asks to restore the original
+
+- **Scenario:** Offered while the replacement waits, with the venue's current gap passed on, and recorded in the history (S-90 AC1, AC2, AC3).
+- **Pre-conditions:** K's session. Events fake answers `GET /events/assigned/E` `200`. Bookings fake: O by id; `GET /bookings?event_id=E` returns O and R; `POST /bookings/O/restore-request` answers `200` with O and `restore_requested_at` set. Venues fake: V with its gap.
+- **Steps:** `POST /venue-bookings/O/restore`.
+- **Test data:** As above.
+- **Expected:** `200` with O. The bookings service was called with `setup_minutes=30&turnaround_minutes=45` and K's cookie. One history entry `venue_restore_requested` with V's and W's names.
+- **Actual:** `200`; bookings service called with `setup_minutes=30&turnaround_minutes=45` and K's cookie; one `venue_restore_requested` entry naming Studio B and Hall C.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_the_assigned_coordinator_asks_to_restore_the_original; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-132 — restore is offered only while a replacement waits
+
+- **Scenario:** No replacement, a confirmed or rejected one, a closed event, or someone else's event: nothing is asked of the bookings service (S-90 AC1).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-131, in turn: (a) no booking replaces O; (b) R `confirmed` (so O `replaced`); (c) R `rejected`; (d) E `cancelled`; (e) `GET /events/assigned/E` answers `404`; (f) a Venue Staff session.
+- **Steps:** `POST /venue-bookings/O/restore`.
+- **Test data:** As above.
+- **Expected:** (a)–(c) `409` "Restore is only possible while a replacement is waiting for Venue Staff."; (d) `409` with the S-78 closed-event message; (e) `404` "Booking not found"; (f) `403`. `POST /bookings/O/restore-request` never called.
+- **Actual:** (a)–(c) `409` "Restore is only possible while a replacement is waiting for Venue Staff."; (d) `409` closed-event message; (e) `404`; (f) `403`; restore-request never called, no history.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_restore_is_offered_only_while_a_replacement_waits; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-133 — the bookings service's refusal reaches the Coordinator
+
+- **Scenario:** The venue isn't free, or a restore is already waiting (S-90 AC2).
+- **Pre-conditions:** As TC-VENUEBOOKINGS-131, but the bookings service answers `409` with, in turn, "Studio B is unavailable from 12 Nov 2026 12:30 to 12 Nov 2026 14:00." and "A restore has already been requested for this booking".
+- **Steps:** `POST /venue-bookings/O/restore` per answer.
+- **Test data:** As above.
+- **Expected:** `409` with that same `detail`, each time; no history entry. A bookings `500` or timeout is `502` "Bookings service unavailable".
+- **Actual:** `409` with each `detail` unchanged, no history; a `500` and a connection error both `502` "Bookings service unavailable".
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_the_bookings_services_refusal_reaches_the_coordinator; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-134 — Venue Staff see each restore request with the replacement it would withdraw
+
+- **Scenario:** The requests are listed for Venue Staff to decide (S-90 AC3).
+- **Pre-conditions:** Venue Staff session. Bookings fake: `GET /bookings?restore_requested=true` returns O; `GET /bookings?event_id=E` returns O and R.
+- **Steps:** `GET /venue-bookings/restores`.
+- **Test data:** As above.
+- **Expected:** `200` `[{...O, "replacement": {"id": R, "venue_name": "Hall C", "booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00", "status": "pending"}}]`. A Coordinator gets `403`.
+- **Actual:** `200` with O and its pending Hall C replacement; Coordinator `403`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_see_each_restore_request_with_the_replacement_it_would_withdraw; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-135 — Venue Staff confirm or decline the restore
+
+- **Scenario:** The decision goes to the bookings service with V's current gap, and each outcome is recorded (S-90 AC3, AC4).
+- **Pre-conditions:** Venue Staff session. Bookings fake answers `POST /bookings/O/restore-decision` `200` `{"booking": <O resolved>, "withdrawn": [<R withdrawn>]}`; then for a decline `{"booking": <O>, "withdrawn": []}`; then `409` "Can't restore this booking: it overlaps …".
+- **Steps:** `POST /venue-bookings/O/restore-decision` with `{"decision": "approved"}`, `{"decision": "declined"}`, `{"decision": "approved"}`.
+- **Test data:** As above.
+- **Expected:** `200` with the body, gap `30`/`45` passed, history `venue_restore_confirmed` (V's and W's names); `200`, history `venue_restore_declined`; `409` with the same `detail`, no history. `{"decision": "maybe"}` is `422`. A Coordinator gets `403`.
+- **Actual:** Approved `200` with gap 30/45, history `venue_restore_confirmed` naming Studio B and Hall C; declined `200`, `venue_restore_declined`; `409` passed through with no history; `maybe` `422`; Coordinator `403`.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_confirm_or_decline_the_restore; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`

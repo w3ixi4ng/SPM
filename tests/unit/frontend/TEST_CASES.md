@@ -6,7 +6,7 @@ Covers `test_access.mjs`, `test_equipment.mjs`, `test_event_requests.mjs`,
 `test_technical_support_assignment.mjs`, and `test_venue_availability.mjs`.
 S-83 adds `test_event_assignments.mjs` and `test_notifications.mjs`; S-84
 adds `test_event_reassignments.mjs`; S-85 adds
-`test_coordinator_overview.mjs`.
+`test_coordinator_overview.mjs`; S-01 adds `test_sign_up.mjs`.
 These tests exercise the shared frontend presentation policy and the events and
 venues API contracts without a browser or network. Backend authentication,
 RBAC, and validation remain authoritative.
@@ -754,8 +754,9 @@ Acceptance criteria, as reworded by the developer for this scope:
 
 - **Steps:** Load and update an item whose id needs URL encoding.
 - **Expected:** Calls use `GET /api/equipment/{id}` and
-  `PUT /api/equipment/{id}`, include credentials, and the update body contains
-  only the four editable fields.
+  `PUT /api/equipment-requirements/equipment/{id}`, include credentials, and
+  the update body contains only the editable fields. The S-71 composite route
+  preserves the item response while coordinating affected-event notices.
 - **Actual:** Both encoded, credentialed Kong calls used the expected methods and the update body omitted protected fields.
 - **Status:** Pass
 - **Evidence:** `test_equipment.mjs` — `equipment detail and update use authenticated Kong routes`
@@ -805,8 +806,9 @@ next unused frontend id.
 
 - **Steps:** Retire an item whose id requires URL encoding.
 - **Expected:** The client sends credentialed
-  `POST /api/equipment/{id}/retire` with no client-controlled lifecycle or
-  catalogue body and returns the retired item response.
+  `POST /api/equipment-requirements/equipment/{id}/retire` with no
+  client-controlled lifecycle or catalogue body and returns the retired item
+  response after S-71 notification orchestration.
 - **Actual:** The encoded, credentialed POST used the explicit retirement path
   and sent no request body.
 - **Status:** Pass
@@ -2528,9 +2530,9 @@ Specification confirmed by the developer before code. Covers `test_registration.
 - **Scenario:** The Organiser's list states how many have registered.
 - **Pre-conditions:** None.
 - **Steps:** Call `attendeeCountLabel(n)`.
-- **Test data / Expected:** `0` → "No one has registered yet."; `1` → "1
-  attendee registered"; `2` → "2 attendees registered".
-- **Actual:** "No one has registered yet.", "1 attendee registered", "2 attendees registered".
+- **Test data / Expected:** `1` → "1 attendee registered"; `2` → "2
+  attendees registered". Revised for S-57: the `0` case is TC-FRONTEND-281.
+- **Actual:** "1 attendee registered", "2 attendees registered".
 - **Status:** Pass
 - **Evidence:** test_registration.mjs::the attendee count reads as a sentence; 2026-10-25, branch `S-48/register-for-event`
 
@@ -2658,13 +2660,13 @@ row reads "Confirmed" (green dot) or "Waiting list · 3rd in line" (amber dot).
 
 ## TC-FRONTEND-264 — the withdraw confirmation says what happens
 
-- **Scenario:** Before withdrawing, the inline confirmation names the event and says where the place goes (S-53 AC3).
+- **Scenario:** Before withdrawing, the inline confirmation names the event and says where the place goes (S-53 AC3). Amended by S-55 (2026-10-30): the place is now offered, not given.
 - **Steps:** `withdrawPrompt(event)`.
 - **Test data:** `{name: "Alumni networking evening"}`.
-- **Expected:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
-- **Actual:** "Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list."
+- **Expected:** "Withdraw from Alumni networking evening? Your place will be offered to the next person on the waiting list."
+- **Actual:** "Withdraw from Alumni networking evening? Your place will be offered to the next person on the waiting list."
 - **Status:** Pass
-- **Evidence:** test_registration.mjs::the withdraw confirmation says what happens; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Evidence:** test_registration.mjs::the withdraw confirmation says what happens; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
 
 ## S-93 confirmed specification — leaving Coordinator Lead view
 
@@ -2694,3 +2696,544 @@ Lead boundaries; ordinary oversight and S-84 controls remain scoped.
 - **Actual:** The dashboard gated transfer controls by actionable scope and used the filtered candidate list; the Chromium journey moved only the responsible Lead’s event and refreshed the inactive count.
 - **Status:** Pass
 - **Evidence:** test_event_assignments.mjs::S-93 dashboard offers a selected inventory and keeps cross-Lead rows read-only; test_event_assignments.mjs::S-93 stale reassignment stays a failure and uses the existing S-84 route; tests/e2e/test_reassign_before_deactivation.py::test_leads_clear_only_their_inactive_coordinator_assignments[chromium]
+
+## S-56 — View Confirmed Event Details
+
+`registrationDetails(row)` decides what each card in "Your registrations"
+shows under the event's name. `row` is one item from
+`GET /api/event-registrations/me/registrations`.
+
+## TC-FRONTEND-267 — a held place shows when and where
+
+- **Scenario:** A registered Attendee's card shows the date, time and primary venue (S-56 AC1, AC3).
+- **Steps:** `registrationDetails(row)`.
+- **Test data / Expected:**
+  | Row | Result |
+  | --- | --- |
+  | `{status: "confirmed", details_confirmed: true, start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", venue: "Hall A"}` | `{when: formatEventWhen(row), venue: "Hall A", pending: null}` |
+  | As above with `venue: null` | `{when: formatEventWhen(row), venue: "Venue to be confirmed", pending: null}` |
+- **Actual:** As expected for both rows.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a held place shows when and where; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-FRONTEND-268 — details being re-checked read "to be confirmed"
+
+- **Scenario:** An event sent back for re-checking shows no date, time or venue (S-56 AC2, AC4).
+- **Steps:** `registrationDetails(row)`.
+- **Test data:** `{status: "confirmed", details_confirmed: false, start_date: null, start_time: null, end_date: null, end_time: null, venue: null}`.
+- **Expected:** `{when: null, venue: null, pending: "Details to be confirmed. The date, time and venue will show here once the event is confirmed again."}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::details being re-checked read to be confirmed; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## TC-FRONTEND-269 — a waiting-list entry shows no venue
+
+- **Scenario:** A waiting Attendee sees the date and their place in line, not the venue (S-56 developer decision).
+- **Steps:** `registrationDetails(row)`.
+- **Test data:** `{status: "waitlisted", position: 2, details_confirmed: true, start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", venue: null}`.
+- **Expected:** `{when: formatEventWhen(row), venue: null, pending: null}`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a waiting-list entry shows no venue; 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
+## S-92 — Record Equipment Storage Location
+
+Test cases confirmed by the developer on 2026-10-28.
+
+## TC-FRONTEND-272 — the equipment form maps storage location safely
+
+- **Scenario:** Technical Support can load, edit and clear an optional location.
+- **Steps:** Map an API item to the form; build update payloads with a spaced location and a blank location; validate 201 characters.
+- **Expected:** Current text loads; surrounding spaces are removed; blank becomes null; more than 200 characters is rejected before sending.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs::storage location is normalized, editable, clearable and length limited`
+
+## TC-FRONTEND-273 — catalogue and availability use clear location wording
+
+- **Scenario:** Equipment location is readable in both required views.
+- **Test data:** `Store B, Shelf 4` and null.
+- **Expected:** The UI reads `Stored at Store B, Shelf 4` or `Storage location not recorded`.
+- **Status:** Pass
+- **Evidence:** `test_equipment.mjs::catalogue and availability use an explicit storage location label`
+
+## S-01 — User accounts: choose Attendee or Event Organiser at sign-up
+
+## TC-FRONTEND-270 — sign-up offers exactly two roles, none chosen
+
+- **Scenario:** The page's choices are the two public roles, with no default (AC1, AC2).
+- **Pre-conditions:** None.
+- **Steps:** Read `SIGN_UP_ROLES` from `frontend/src/lib/signUp.js`; call
+  `validateSignUp` with every other field valid and `role` left at its initial value.
+- **Test data:** First `Ada`, last `Lovelace`, `ada@example.com`, password and
+  confirm `correct-horse-battery-staple`, `role: ''`.
+- **Expected:** `SIGN_UP_ROLES` is exactly `attendee` → "Attendee",
+  `event_organiser` → "Event Organiser", in that order. The result is
+  `{ role: "Choose whether you're signing up as an Attendee or an Event Organiser." }`
+  and nothing else.
+- **Actual:** Exactly Attendee then Event Organiser; with no role the only error was the role message.
+- **Status:** Pass
+- **Evidence:** test_sign_up.mjs::sign-up offers exactly two roles, none chosen; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## TC-FRONTEND-271 — the chosen role is sent with the sign-up
+
+## S-91 — Designate Primary Venue
+
+### TC-FRONTEND-274 — the Coordinator sees and changes the primary venue
+
+- **Pre-conditions:** E has confirmed bookings B1 and B2; B1 is primary.
+- **Steps:** Open E as its assigned Coordinator and choose `Make primary` on B2.
+- **Expected:** Both venues are shown, B1 is labelled Primary, the helper sends `PUT /venue-bookings/B2/primary`, and a successful refresh labels B2 Primary.
+
+### TC-FRONTEND-275 — losing a primary venue produces a clear prompt
+
+- **Pre-conditions:** E has at least one confirmed booking and none is primary after cancellation or replacement.
+- **Steps:** Open or refresh the Coordinator event page.
+- **Expected:** An alert says `Choose a new primary venue so attendees know where to go.` and every confirmed booking offers `Make primary`. A non-primary cancellation does not produce the prompt while another primary remains.
+
+### TC-FRONTEND-276 — the Organiser sees all venues read-only
+
+- **Pre-conditions:** E belongs to Organiser O and has two venue bookings, one primary.
+- **Steps:** O opens the event view.
+- **Expected:** Both venues and their statuses are visible, the primary venue is labelled, and no primary-selection control is present.
+
+### TC-FRONTEND-277 — attendee wording never leaks secondary venues
+
+- **Pre-conditions:** E has a primary and secondary confirmed venue, then a state with no primary.
+- **Steps:** Render public and Attendee event details.
+- **Expected:** Only the primary venue appears in the first state; `Venue to be confirmed` appears in the second.
+
+- **Scenario:** Whichever button was picked is the role the users service receives (AC1).
+- **Pre-conditions:** `fetch` stubbed to record the request and answer `201`.
+- **Steps:** Call `signUp({ name, email, password, role })` once per role.
+- **Test data:** As TC-FRONTEND-270, with `role` `attendee`, then `event_organiser`.
+- **Expected:** `POST /api/users/signup` whose JSON body is
+  `{ name: "Ada Lovelace", email, password, role }` with that role.
+  `validateSignUp` returns `{}` for both.
+- **Actual:** Both requests were `POST /api/users/signup` with the chosen role in the body; validation returned `{}` for both.
+- **Status:** Pass
+- **Evidence:** test_sign_up.mjs::the chosen role is sent with the sign-up; 2026-10-26, branch `S-01/user-accounts` on `4e15f2a` + working tree
+
+## S-82 — View Event Change History
+
+`test_event_history.mjs`, importing `frontend/src/lib/eventHistory.js`.
+
+## TC-FRONTEND-274 — each role reads history from its own route
+
+- **Scenario:** The screen asks the right service for the signed-in role.
+- **Steps:** `historyPath(role, "E1")` for each role.
+- **Test data / Expected:**
+  | Role | Result |
+  | --- | --- |
+  | `event_coordinator`, `event_coordinator_lead` | `"/event-requests/E1/history"` |
+  | `safety_officer` | `"/safety-checks/E1/history"` |
+  | `event_organiser`, `technical_support`, `venue_staff`, `attendee`, `undefined` | `null` |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::each role reads history from its own route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-FRONTEND-275 — each action reads as a plain sentence
+
+- **Scenario:** An entry says what happened in the product's voice.
+- **Steps:** `describeEntry(entry, people)`.
+- **Test data / Expected:** `people = {"C": "Alex Coordinator", "C2": "Blair Coordinator", "T": "Tay Support"}`:
+  | `action` / `details` | Result |
+  | --- | --- |
+  | `submitted`, `{}` | "Submitted the event request" |
+  | `submitted`, `{"resubmission": true}` | "Resubmitted the event request" |
+  | `request_approved` | "Approved the event request" |
+  | `request_returned`, `{"reason": "Add a contact"}` | "Returned the event request: Add a contact" |
+  | `coordinator_assigned`, `{"coordinator_id": "C"}` | "Assigned Alex Coordinator" |
+  | `coordinator_reassigned`, `{"from_coordinator_id": "C", "to_coordinator_id": "C2"}` | "Reassigned from Alex Coordinator to Blair Coordinator" |
+  | `technical_support_assigned`, `{"technical_support_id": "T"}` | "Assigned Tay Support to technical support" |
+  | `venue_confirmed`, `{"venue_name": "Hall One"}` | "Confirmed Hall One" |
+  | `venue_rejected`, `{"venue_name": "Hall One", "reason": "Under renovation"}` | "Rejected Hall One: Under renovation" |
+  | `equipment_requirement_set`, `{"item_name": "Projector", "from_quantity": 2, "to_quantity": 5}` | "Changed Projector from 2 to 5" |
+  | `safety_changes_requested`, `{"reason": "Fire exit blocked"}` | "Requested safety changes: Fire exit blocked" |
+  | `coordinator_assigned`, `{"coordinator_id": "Z"}` (not in `people`) | "Assigned a removed account" |
+  | an action the page does not know, `"made_up"` | "Made up" |
+
+  Every action in TC-EVENTS-188 to -196, TC-VENUEBOOKINGS-122 to -123 and TC-EQUIPMENTREQUIREMENTS-032 has a sentence that is not the fallback.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::each action reads as a plain sentence; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-FRONTEND-276 — an edit lists each changed field
+
+- **Scenario:** An edit shows field labels with before and after, so the reader sees exactly what changed.
+- **Steps:** `describeChanges(entry.details.changes)`.
+- **Test data:** `{"expected_attendance": {"before": 120, "after": 150}, "internal_notes": {"before": null, "after": "Check lift access"}, "required_accessibility": {"before": ["lift"], "after": ["lift", "hearing_loop"]}, "start_date": {"before": "2026-11-18", "after": "2026-11-19"}}`.
+- **Expected:**
+  ```
+  [
+    "Expected attendance: 120 → 150",
+    "Internal notes: (none) → Check lift access",
+    "Accessibility: Lift → Lift, Hearing loop",
+    "Start date: 18 Nov 2026 → 19 Nov 2026"
+  ]
+  ```
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::an edit lists each changed field; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-FRONTEND-277 — who and when are shown plainly
+
+- **Scenario:** Every entry says who, in which role, and when, in Singapore time.
+- **Steps:** `entryActor(entry)` and `entryTime(entry)`.
+- **Test data / Expected:**
+  | Entry | Result |
+  | --- | --- |
+  | `actor: {"name": "Blair Coordinator", "role": "event_coordinator"}` | "Blair Coordinator, Event Coordinator" |
+  | `actor: {"name": null, "role": "venue_staff"}` | "A removed account, Venue Staff" |
+  | `actor: null` (backfilled) | "Not recorded" |
+  | `occurred_at: "2026-10-27T06:05:00Z"` | "27 Oct 2026, 2:05 pm" |
+  | `occurred_at: "2026-10-27T16:30:00Z"` | "28 Oct 2026, 12:30 am" |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_event_history.mjs::who and when are shown plainly; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Full frontend unit suite: 210 passed; full Chromium TEST regression: 66 passed; lint and production build passed.
+Frontend unit run: 210 passed. The rendered S-59 cases below were verified through Chromium against the fresh TEST stack.
+
+## TC-FRONTEND-267 — Request Changes is offered only on eligible owned events
+
+- **Scenario:** The Organiser opens a separate proposal form from their event detail without entering the accepted-event editor.
+- **Pre-conditions:** Render one owned event in each lifecycle state; render the same event to another role; API data is faked.
+- **Steps:** 1. Inspect the detail action in each state. 2. Click Request Changes on a confirmed event. 3. Try the action as another role.
+- **Test data:** `Autumn Forum`, accepted 2026-11-18 09:00–12:00, attendance 120; states `submitted`, `under_review`, `returned`, `planning`, `pending_safety_check`, `confirmed`, `preparation`, `draft`, `safety_rejected`, `cancelled`.
+- **Expected:** The action appears only for the seven confirmed eligible states and the owning Organiser, including an unassigned submitted event; it opens a form with accepted values prefilled. Ineligible state/role has no action, and a server denial still produces a controlled error if the route is opened directly.
+- **Actual:** The eligibility helper allowed exactly the seven approved states; Chromium opened the separate form for an owned confirmed event with accepted values prefilled, while role and direct-route denial checks passed in backend tests.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`; backend S-59 role tests, 2026-10-30.
+
+## TC-FRONTEND-268 — comparison makes accepted and proposed data distinct
+
+- **Scenario:** The form and pending view show what changed without implying an accepted update.
+- **Pre-conditions:** Accepted event has attendance 120, theatre layout, projector quantity 2, confirmed booking and Technical Support sign-off; pending proposal has attendance 150, banquet layout, projector quantity 3.
+- **Steps:** 1. Change the three fields in the form. 2. Inspect changed-field markers and no-op submit state. 3. Resolve submission and reload the pending view.
+- **Test data:** `Autumn Forum`; accepted 120/theatre/2, proposed 150/banquet/3; server timestamp `2026-10-27T09:15:00Z`.
+- **Expected:** Accepted and proposed values are labelled separately; only the three changed fields are marked. Submit is disabled or refused for an effective no-op. Pending status and server timestamp appear after success and reload. Existing booking, equipment, Technical Support and attendee arrangements are labelled as applying to accepted details only; the proposal needs review and no approval is claimed.
+- **Actual:** The form disabled an effective no-op; the pending comparison marked attendance, layout and equipment as changed and showed accepted and proposed values after reload with an unreviewed-arrangements notice.
+- **Status:** Pass
+- **Evidence:** `tests/unit/frontend/test_event_change_requests.mjs`; both tests in `tests/e2e/test_request_event_changes.py`, Chromium, 2026-10-30.
+
+## TC-FRONTEND-269 — loading, failure and duplicate responses are controlled
+
+- **Scenario:** Async state cannot duplicate a request or make a failed submission look accepted.
+- **Pre-conditions:** Fake proposal API supplies slow loading, successful `201`, validation `422`, duplicate/stale `409`, and unavailable `502` responses.
+- **Steps:** 1. Load the form and proposal. 2. Double-submit. 3. Repeat each failure and retry. 4. Navigate away and back after success.
+- **Test data:** Attendance 120→150; invalid end 08:00 before start 09:00; server response `409` for existing pending request.
+- **Expected:** Distinct loading/error/empty states; only one in-flight POST; success shows saved pending comparison. `422` identifies fields, `409` prompts reload and shows the current request, and `502` shows a retryable controlled error. Accepted event values never change in local state because a proposal was sent.
+- **Actual:** Browser tests observed a load error and retry, 422/409/502 submission errors, a successful 201 and pending comparison after reload. Two synchronous clicks produced one POST after the submission guard was added.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_change_request_form_recovers_from_loading_and_submission_errors[chromium]`; frontend unit API helper test, 2026-10-30.
+
+## TC-FRONTEND-270 — assigned Coordinator sees the same pending proposal
+
+- **Scenario:** The Coordinator detail page exposes the proposal as a read-only comparison.
+- **Pre-conditions:** C is assigned to E with pending R; another Coordinator D is unrelated; the API is faked with comparison data and access errors.
+- **Steps:** 1. Load E as C. 2. Inspect pending status, actor/time and differences. 3. Load as D, then simulate an API error and retry.
+- **Test data:** Accepted date `2026-11-18`, proposed `2026-11-19`; accepted projector quantity 2, proposed 3.
+- **Expected:** C sees the proposed changes and accepted values with a clear unreviewed-arrangements message, without an Accept button or S-60 impact-review control. D's denied read reveals no proposal; loading and error states are distinct and retryable.
+- **Actual:** The assigned Coordinator saw the pending comparison after a simulated 502 and retry; an unrelated Coordinator saw no proposal; no Accept control appeared.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_request_event_changes.py::test_organiser_proposes_changes_and_coordinator_sees_them[chromium]`, 2026-10-30.
+
+## S-55 — Notify Waitlisted Attendee of Opening
+
+Developer decisions (2026-10-30): a freed place is held for the first Attendee in line, who is invited to take it. The event page tells them "A place is being held for you. Accept it to register, or decline to pass it to the next person." with **Accept place** (primary) and **Decline** (ghost, with an inline confirm: "Decline this place? You'll leave the waiting list." / **Decline** / **Keep my offer**). After a decline, "You've declined the place and left the waiting list." is shown once. The dashboard row reads "Place offered" in amber. The invitation notification has a **View event** link to the event page. Page components are covered by TC-E2E-264; these cases cover the `frontend/src/lib/` helpers they use.
+
+## TC-FRONTEND-278 — an offered place reads "Place offered" on the dashboard
+
+- **Scenario:** A "Your registrations" row holding an offer is labelled so, and shows no venue, like a waiting-list entry (S-55 AC1).
+- **Steps:** `registrationStatusLabel(row)`; `registrationDetails(row)`.
+- **Test data / Expected:**
+  | `row` | Label | Details |
+  | --- | --- | --- |
+  | `{status: "offered", position: 1, start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", details_confirmed: true}` | "Place offered" | `when` "20 Nov 2026, 6:00 pm to 9:00 pm", `venue` `null` |
+  | `{status: "waitlisted", position: 2}` | "Waiting list · 2nd in line" (unchanged) | — |
+  | `{status: "confirmed"}` | "Confirmed" (unchanged) | — |
+- **Actual:** "Place offered" with `when` "20 Nov 2026, 6:00 pm to 9:00 pm" and `venue` null; "Waiting list · 2nd in line"; "Confirmed".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::an offered place reads "Place offered" on the dashboard; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-FRONTEND-279 — the invitation links to its event
+
+- **Scenario:** A `waiting_list_offer` notification links to the event page where the place can be accepted. Other notifications stay plain text (S-55 AC1).
+- **Steps:** `notificationLink(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{kind: "waiting_list_offer", event_id: "11111111-1111-4111-8111-111111111111"}` | `{href: "/public/events/11111111-1111-4111-8111-111111111111", label: "View event"}` |
+  | `{kind: "registration_confirmation", event_id: "1111…1111"}` | `null` |
+  | `{kind: "event_assignment", event_id: "1111…1111"}` | `null` |
+- **Actual:** `{href: "/public/events/1111…1111", label: "View event"}`; `null`; `null`.
+- **Status:** Pass
+- **Evidence:** test_notifications.mjs::the invitation links to its event; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## TC-FRONTEND-280 — accepting and declining go to the composite
+
+- **Scenario:** The page's two answers reach the routes the composite serves.
+- **Steps:** `acceptOffer("E")`; `declineOffer("E")`, with `fetch` stubbed.
+- **Test data:** Event id `E`.
+- **Expected:** `acceptOffer` sends `POST /api/event-registrations/events/E/waiting-list/offer`. `declineOffer` sends `DELETE` to the same path. Both return the parsed body. `declinePrompt()` returns "Decline this place? You'll leave the waiting list.".
+- **Actual:** `POST` then `DELETE` to `/api/event-registrations/events/E/waiting-list/offer`, each returning the parsed body; `declinePrompt()` "Decline this place? You'll leave the waiting list."
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::accepting and declining go to the composite; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+
+## S-57 — View Event Registration List
+
+Drafted 2026-10-30 on `S-57/view-event-registration-list`. Confirmed by the
+developer 2026-11-01. Developer's answers, 2026-10-30: the empty message must hold
+whether nobody ever registered or everyone withdrew, and the Organiser's and
+assigned Coordinator's panels get a **Refresh list** button.
+
+## TC-FRONTEND-281 — the empty list says no one is currently registered
+
+- **Scenario:** With no current registrations the viewer is clearly told so, including after everyone has withdrawn (S-57 AC5). Revises TC-FRONTEND-255's `0` case only.
+- **Pre-conditions:** None.
+- **Steps:** Call `attendeeCountLabel(n)`.
+- **Test data / Expected:** `0` → "No one is currently registered for this event."; `undefined` → the same; `1` → "1 attendee registered"; `2` → "2 attendees registered".
+- **Actual:** "No one is currently registered for this event." for `0` and `undefined`; "1 attendee registered", "2 attendees registered".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::the empty list says no one is currently registered; 2026-10-30, branch `S-57/view-event-registration-list` rebased on sprint4 `30837ca` (S-55); Node 22.16.0: 214 passed across frontend unit
+
+## S-58 — View My Registration Status
+
+Developer decisions (2026-10-30): "Your registrations" on the Attendee's dashboard shows a **Withdrawn** row for an event the Attendee withdrew from or declined an offer for. It reads "Withdrawn on 28 Oct 2026" (the withdrawal date in Singapore time), with the event's name and date/time, no venue, and a grey (`inkFaint`) outline dot. Confirmed keeps its green dot, and Waiting list / Place offered their amber one. Every dot is paired with its text label. Status is read fresh on each load, with no polling. Page components are covered by TC-E2E-268; these cases cover the `frontend/src/lib/` helpers they use.
+
+## TC-FRONTEND-282 — a withdrawn row says so, and when
+
+- **Scenario:** A "Your registrations" row for an event the Attendee withdrew from reads Withdrawn with the date, in Singapore time, and shows when but not where (S-58 AC1).
+- **Steps:** `registrationStatusLabel(row)`; `registrationDetails(row)`.
+- **Test data / Expected:**
+  | `row` | Label | Details |
+  | --- | --- | --- |
+  | `{status: "withdrawn", withdrawn_at: "2026-10-28T02:15:00+00:00", start_date: "2026-11-20", start_time: "18:00:00", end_date: "2026-11-20", end_time: "21:00:00", details_confirmed: true}` | "Withdrawn on 28 Oct 2026" | `when` "20 Nov 2026, 6:00 pm to 9:00 pm", `venue` `null` |
+  | `{status: "withdrawn", withdrawn_at: "2026-10-28T17:30:00+00:00"}` | "Withdrawn on 29 Oct 2026" (01:30 SGT the next day) | — |
+  | `{status: "withdrawn", withdrawn_at: null}` | "Withdrawn" | — |
+  | `{status: "confirmed"}` | "Confirmed" (unchanged) | — |
+- **Actual:** "Withdrawn on 28 Oct 2026" with `when` "20 Nov 2026, 6:00 pm to 9:00 pm" and `venue` null; "Withdrawn on 29 Oct 2026"; "Withdrawn"; "Confirmed".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::a withdrawn row says so, and when; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## TC-FRONTEND-283 — each status has its own dot tone
+
+- **Scenario:** The dot beside each label distinguishes a secured place, a pending one and a withdrawn one. The label always carries the meaning too (S-58 AC1).
+- **Steps:** `registrationStatusTone(row)`.
+- **Test data / Expected:**
+  | `row` | Result |
+  | --- | --- |
+  | `{status: "confirmed"}` | `"done"` (filled green) |
+  | `{status: "waitlisted", position: 2}` | `"partial"` (filled amber) |
+  | `{status: "offered", position: 1}` | `"partial"` (filled amber) |
+  | `{status: "withdrawn"}` | `"inactive"` (`inkFaint` outline) |
+- **Actual:** "done", "partial", "partial", "inactive".
+- **Status:** Pass
+- **Evidence:** test_registration.mjs::each status has its own dot tone; 2026-10-31, branch `S-58/view-my-registration-status` (on sprint4 `b8830b4`), pre-commit working tree
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-FRONTEND-284 — decision and schedule writes use their notification-owning composites
+
+- **Scenario:** Browser actions travel through the services that can save the event and create the Organiser notification.
+- **Pre-conditions:** Mock fetch records requests.
+- **Steps:** Decide an event request and save assigned-event information.
+- **Expected:** Requests use `/api/event-requests/{id}/decision` and `/api/event-requests/{id}/information`; payloads and credentials are preserved.
+- **Actual:** Both helpers used the credentialled composite routes and preserved their request payloads.
+- **Status:** Pass
+- **Evidence:** `test_event_requests.mjs`; 2026-11-01 Node test run after merging `origin/sprint4` `92b230c`: 217 passed.
+
+## TC-FRONTEND-285 — Organiser notifications remain readable in the existing inbox
+
+- **Scenario:** Every S-63 message is displayed without a special per-kind component.
+- **Pre-conditions:** The Organiser dashboard contains `NotificationPanel`.
+- **Steps:** Render rows for each S-63 kind.
+- **Expected:** The event name, decision/change type, reason and action text remain visible; existing notification kinds are unaffected.
+- **Actual:** Every S-63 row rendered through the existing inbox with all supplied event and action text visible.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs::S-63 organiser outcomes remain readable in the existing inbox`; 2026-11-01 Node test run after merging `origin/sprint4` `92b230c`: 217 passed.
+
+## S-68 — Notify Attendee — Event Rescheduled
+
+Drafted and confirmed by the developer on 2026-11-01 before implementation.
+
+## TC-FRONTEND-286 — Attendee reschedule notifications use the existing inbox
+
+- **Scenario:** A registered Attendee can read the final reschedule notification on their dashboard without a special per-kind component.
+- **Pre-conditions:** The signed-in role is `attendee`; the Notifications service returns an `event_schedule_changed` row containing the event name, new full date/time and confirmation that the registration remains active.
+- **Steps:** Open the Attendee dashboard; load the notification list; display the returned message.
+- **Test data:** Event id `11111111-1111-4111-8111-111111111111`; kind `event_schedule_changed`.
+- **Expected:** The Attendee dashboard includes `NotificationPanel`; it loads the persistent inbox and renders the complete message. The notification remains plain text because its required action is informational.
+- **Actual:** The Attendee dashboard includes the existing persistent `NotificationPanel`, which loads and renders the complete message; `event_schedule_changed` remains informational plain text.
+- **Status:** Pass
+- **Evidence:** `test_notifications.mjs::S-68 attendee reschedule notices remain readable in the existing inbox`; 2026-11-01 full frontend unit run: 218 passed.
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Acceptance criteria: see `tests/unit/composite/event_requests/TEST_CASES.md`
+§ S-89. Drafted and confirmed 2026-11-01; TC-FRONTEND-402's network message
+and TC-FRONTEND-404's sentence wording changed afterwards (see each). IDs
+400–449 reserved for S-89 (S-60 holds 3xx). Pure helpers in a new
+`frontend/src/lib/venueCancellation.js`, plus small additions to
+`venueBookings.js` and `eventHistory.js`; run with
+`node --test tests/unit/frontend/test_venue_cancellation.mjs`.
+
+## TC-FRONTEND-400 — the action is offered only for an affected, cancellable event
+
+- **Scenario:** The Coordinator sees "Cancel event" only when S-89 applies. The server still decides.
+- **Pre-conditions:** None.
+- **Steps:** Call `canCancelForUnavailableVenue(event, bookings)` for each case.
+- **Test data:** (a) `confirmed` event with one booking `requires_alternative_arrangements: true`; (b) as (a) with no flagged booking; (c) as (a) but `status` `cancelled`; (d) as (a) with `cancellation_requested_at` set and `cancellation_decision` null; (e) as (a) with `status` `submitted`; (f) as (a), `status` each of `planning`, `pending_safety_check`, `preparation`, `safety_changes_requested`.
+- **Expected:** (a), (f) `true`; (b)–(e) `false`.
+- **Actual:** (a), (f) and a declined request `true`; (b)–(e) and missing bookings `false`.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 cancellation is offered only for an affected, cancellable event; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-401 — the request body is trimmed and carries the version shown
+
+- **Scenario:** What the panel sends is exactly what the Coordinator typed, plus the version they were looking at (for stale-screen protection).
+- **Pre-conditions:** None.
+- **Steps:** `venueCancellationBody({reason: "  Hall A closed  ", alternativesConsidered: " Hall B too small\n"}, {edit_version: 7})`.
+- **Test data:** As above.
+- **Expected:** `{"reason": "Hall A closed", "alternatives_considered": "Hall B too small", "expected_version": 7}`. `venueCancellationErrors` of the same input with either field blank → `{reason: "Enter why the event is being cancelled."}` / `{alternatives_considered: "Describe the alternatives you discussed with the Organiser."}`.
+- **Actual:** Trimmed body with `expected_version` 7; the field errors as specified; 1000 accepted, 1001 refused.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 request body is trimmed and carries the version shown; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-402 — every server outcome has a message in the product's voice
+
+- **Scenario:** Refusals and partial failures say what happened and what to do next.
+- **Pre-conditions:** None.
+- **Steps:** `venueCancellationErrorMessage(error)` for each error.
+- **Test data:** `409` with each S-89 detail; `404`; `422` with `errors`; `502` with each "Cancel again to finish" detail; a network `TypeError`.
+- **Expected:** `409`/`502` → the server's detail verbatim. `404` → "This event is no longer assigned to you." `422` → field errors mapped to `reason` / `alternatives_considered`. Network → "We couldn't reach the server. Reload the event to see whether it was cancelled." (the request may have arrived before the connection dropped) Every `502` result also sets `retry: true`.
+- **Actual:** `409`/`502` verbatim, `502` with `retry: true`; `404`, `422` field mapping and network message as specified.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 every server outcome has a message in the product voice; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-403 — an unfinished cancellation is recognised after a reload
+
+- **Scenario:** A Coordinator who closed the page after a partial failure is still offered "Finish cancellation".
+- **Pre-conditions:** None.
+- **Steps:** `venueCancellationIncomplete(event)`.
+- **Test data:** (a) `venue_cancelled_at` set, `venue_cancellation_completed_at` null; (b) both set; (c) S-61-cancelled (no `venue_cancelled_at`).
+- **Expected:** (a) `true`; (b), (c) `false`.
+- **Actual:** (a) `true`; (b), (c) `false`.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 an unfinished cancellation is recognised after a reload; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+## TC-FRONTEND-404 — released bookings and the new history entries read clearly
+
+- **Scenario:** Booking history stays legible (preserved records), and S-82 history shows the cancellation and its reason.
+- **Pre-conditions:** None.
+- **Steps:** `bookingStatusMeta("released")`; the history label for `cancelled_venue_unavailable` with `{reason, alternatives_considered}`.
+- **Test data:** Reason "Hall A closed", alternatives "Hall B too small".
+- **Expected:** `{label: "Released", color: "#4C5A70"}` (`inkFaint`, as for Replaced). History (in the existing "Sentence: reason" style): "Cancelled the event as no alternative venue could be found: Hall A closed. Alternatives considered: Hall B too small". Existing labels are unchanged.
+- **Actual:** `Released` in `inkFaint`; the history sentence as specified; `test_event_history.mjs` vocabulary updated and passing.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_venue_cancellation.mjs::S-89 released bookings and the cancellation history read clearly; 2026-11-01, same tree (re-run after the closure-intent revision); Node 22.20.0 `node --test tests/unit/frontend/test_*.mjs`: 222 passed
+
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Python unit suite 1,783 passed, 17 skipped; frontend unit 219 passed; lint passes with 3 existing warnings; build passes; `git diff --check` clean. TEST Supabase and fresh `.env.test` stack for integration (119 passed, 5 skipped) and Chromium. See each case evidence.
+
+## TC-FRONTEND-300 — comparison and impact summary are explicit
+
+- **Scenario:** The assigned Coordinator sees accepted/proposed fields alongside impacted arrangement identity and reason.
+- **Pre-conditions:** Fake review API returns E/R plus B1 capacity and P quantity flags; B2 is unaffected.
+- **Steps:** Render review, inspect changed fields, old sign-offs and flag list.
+- **Test data:** Attendance 120→150; B1 Hall A capacity 130; B2 Hall B capacity 220; P 2→3.
+- **Expected:** 120/150 and 2/3 appear in separate labelled columns; B1 and P have named reasons and pending status; B2 is not presented as impacted. Prior Venue Staff/Technical Support approvals are labelled as pertaining to the old plan; no automatic reset is implied.
+- **Actual:** Chromium displayed accepted/proposed values and item-specific B1, P and T impacts while B2 stayed unaffected.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-FRONTEND-301 — loading, error and stale states do not claim acceptance
+
+- **Scenario:** Slow or failed review/acceptance remains visibly pending and recoverable.
+- **Pre-conditions:** Fake API can delay, return 409, 422 or 502, and later succeed.
+- **Steps:** Load review, submit twice, simulate each failure, reload and retry.
+- **Test data:** R version 4; stale version 5; Equipment 503.
+- **Expected:** Distinct loading, pending, error and recovery states; only one in-flight accept; 409 prompts a current-data reload, 422 identifies the invalid item, 502 shows incomplete/retry status. None of the failures display accepted or remove the request.
+- **Actual:** Injected 502 left the proposal pending and visible; retry succeeded. Unit API cases preserved 409, 422 and 502 details.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]; tests/unit/frontend/test_event_change_review.mjs::S-60 API errors preserve stale and incomplete status for the review UI
+
+## TC-FRONTEND-302 — per-arrangement resolution is visible after refresh
+
+- **Scenario:** C can see pending and resolved re-review items independently.
+- **Pre-conditions:** Accepted R has B1 and P flags; API records B1 resolution while P remains outstanding.
+- **Steps:** Render, resolve B1 through valid flow, reload, inspect statuses and readiness.
+- **Test data:** B1→replacement B3; P quantity 3 still awaiting T re-sign-off.
+- **Expected:** B1 shows reviewer, action and time after reload; P stays pending and the safety submission control remains blocked. An unsuccessful resolution leaves the item pending. No generic dismiss button clears a flag.
+- **Actual:** Venue and equipment items resolved independently with reviewer data after reload; safety remained blocked until all outstanding flags cleared.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-FRONTEND-303 — success, rejection and scope match server state
+
+- **Scenario:** Terminal request outcomes and restricted review controls are rendered accurately.
+- **Pre-conditions:** Fake API returns accepted, rejected or pending R for C; D receives 404.
+- **Steps:** Render each result and D's denied route; inspect actions and history.
+- **Test data:** R accepted by C at 2026-12-02T09:00Z; R2 rejected with reason `Venue unavailable`.
+- **Expected:** Accepted view shows current values, outstanding flags and fresh safety-check requirement; rejected view shows reason/history and no accepted data change; only current C has decision controls; D sees no protected proposal. Routine S-18 edit UI remains available under its existing permissions.
+- **Actual:** Accepted view showed fresh-safety requirement; later rejected request displayed its reason and kept accepted attendance 150; unrelated Coordinator saw no review.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+
+## S-90 — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking`. Awaiting
+developer confirmation. The service decides; these check what the
+Coordinator's event page and the Venue Staff dashboard offer and say.
+
+O: `confirmed` at "Studio B". R: `pending` at "Hall C", replacing O.
+
+Revised for S-90: TC-FRONTEND-275's list of history actions gains
+`venue_restore_requested`, `venue_restore_confirmed` and
+`venue_restore_declined`, matching the events service.
+
+## TC-FRONTEND-286 — the event page offers a restore once the original venue is free
+
+- **Scenario:** Restore is offered only while the replacement waits and the original is no longer flagged (S-90 AC1, AC2).
+- **Steps:** `replacementState(booking, bookings)`.
+- **Test data / Expected:**
+  | `booking` | Label | Actions |
+  | --- | --- | --- |
+  | O, not flagged, R waiting | "Replacement requested: Hall C, waiting for Venue Staff. Studio B is free again." | `["restore"]` |
+  | O, flagged, R waiting | "Replacement requested: Hall C, waiting for Venue Staff" (unchanged) | `["resolve"]` |
+  | O with `restore_requested_at` | "Restore requested: waiting for Venue Staff to confirm Studio B" | `[]` |
+  | O resolved "Restored to the original venue", R `withdrawn` | "Resolved: Restored to the original venue" | `[]` |
+  | R `withdrawn` | "Withdrawn: Studio B was restored" | `[]` |
+  | O `replaced` by R | "Replaced by Hall C" (unchanged) | `[]` |
+- **Actual:** Every row's label and actions as expected; a rejected replacement offers no restore.
+- **Status:** Pass
+- **Evidence:** test_restore_original_venue.mjs::the event page offers a restore once the original venue is free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit
+
+## TC-FRONTEND-287 — restore requests and decisions go to the composite
+
+- **Scenario:** The three calls and their status label (S-90 AC3).
+- **Steps:** `requestRestore(id)`, `listRestoreRequests()`, `decideRestore(id, decision)`; `bookingStatusMeta("withdrawn")`.
+- **Test data:** `id` `O`; decisions `approved`, `declined`.
+- **Expected:** `POST /api/venue-bookings/O/restore`; `GET /api/venue-bookings/restores`; `POST /api/venue-bookings/O/restore-decision` with `{"decision": "approved"}` / `{"decision": "declined"}`. `withdrawn` reads "Withdrawn" with the `inkFaint` tone.
+- **Actual:** The four requests as expected; `withdrawn` reads "Withdrawn" in `#4C5A70` (inkFaint). A `409` shows the service's own `detail`.
+- **Status:** Pass
+- **Evidence:** test_restore_original_venue.mjs::restore requests and decisions go to the composite; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit
+
+## TC-FRONTEND-288 — Venue Staff see what confirming a restore will do
+
+- **Scenario:** Each request says which venue is kept and which request is withdrawn (S-90 AC3, AC4).
+- **Steps:** `restoreRequestSummary(row)`.
+- **Test data:** `{...O, event_name: "Alumni networking evening", booking_date: "2026-11-12", start_time: "10:00:00", end_time: "12:00:00", replacement: {venue_name: "Hall C", status: "pending"}}`.
+- **Expected:** `{title: "Alumni networking evening", when: "12 Nov 2026, 10:00 am to 12:00 pm", keeps: "Keep Studio B", withdraws: "Withdraw the request for Hall C"}`.
+- **Actual:** The summary as expected; notices "Studio B restored for Alumni networking evening." and "Restore of Studio B for Alumni networking evening declined."
+- **Status:** Pass
+- **Evidence:** test_restore_original_venue.mjs::venue staff see what confirming a restore will do; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit

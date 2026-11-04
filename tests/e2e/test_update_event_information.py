@@ -91,7 +91,7 @@ def test_coordinator_updates_event_and_restarts_safety_lifecycle(
     page.get_by_label("End time").fill("13:00")
     page.get_by_role("button", name="Review changes").click()
     dialog = page.get_by_role("alertdialog")
-    expect(dialog).to_contain_text("expected attendance")
+    expect(dialog).to_contain_text("expected attendance", timeout=30000)
     expect(dialog).to_contain_text("end time")
     dialog.get_by_role("button", name="Go back").click()
     unchanged = admin.schema("events").table("events").select(
@@ -102,27 +102,26 @@ def test_coordinator_updates_event_and_restarts_safety_lifecycle(
     assert str(unchanged["end_time"]).startswith("12:00")
 
     page.get_by_role("button", name="Review changes").click()
+    page.get_by_label("I reviewed each impact and proposed next action.").check()
     page.get_by_role("button", name="Accept and save").click()
     expect(page.get_by_text("Event information saved.", exact=True)).to_be_visible(timeout=20000)
     expect(page.get_by_role("button", name="Submit for safety check")).to_be_visible()
     expect(page.get_by_text(venue["name"], exact=False).first).to_be_visible(timeout=20000)
     expect(page.get_by_text(item["type"], exact=False).first).to_be_visible(timeout=20000)
     page.get_by_role("button", name="Submit for safety check").click()
-    expect(page.get_by_text(
-        "Submitted for the Operational Safety Check. The Safety Officer will confirm the event.", exact=True
-    )).to_be_visible(timeout=20000)
+    expect(page.get_by_role("alert")).to_contain_text("outstanding arrangements", timeout=20000)
 
     stored = admin.schema("events").table("events").select(
         "status,expected_attendance,end_time,equipment_preparation_status,"
         "assigned_technical_support_id,safety_recheck_required,safety_decision,"
         "safety_review_history,edit_version,edit_history"
     ).eq("id", event["id"]).single().execute().data
-    assert stored["status"] == "pending_safety_check"
+    assert stored["status"] == "planning"
     assert stored["expected_attendance"] == 120
     assert str(stored["end_time"]).startswith("13:00")
     assert stored["equipment_preparation_status"] == "ready"
     assert stored["assigned_technical_support_id"] == support["id"]
-    assert stored["safety_recheck_required"] is False
+    assert stored["safety_recheck_required"] is True
     assert stored["safety_decision"] is None
     assert len(stored["safety_review_history"]) == 1
     assert stored["safety_review_history"][0]["review_number"] == 1

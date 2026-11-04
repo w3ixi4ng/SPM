@@ -101,7 +101,10 @@ export default function SafetyCheckDetail() {
     }
     setSubmit({ status: 'saving', error: null, result: null })
     try {
-      const result = await decideSafetyCheck(id, { decision, reason: requiredReason ? reason.trim() : null })
+      const result = await decideSafetyCheck(id, {
+        decision, reason: requiredReason ? reason.trim() : null,
+        expected_event_updated_at: state.detail.event.updated_at,
+      })
       setSubmit({ status: 'success', error: null, result })
     } catch (error) {
       setSubmit({ status: 'idle', error: safetyCheckErrorMessage(error), result: null })
@@ -118,7 +121,11 @@ export default function SafetyCheckDetail() {
         {state.status === 'error' && <p role="alert" className="font-ui text-sm" style={{ color: C.rose }}>{state.error}</p>}
         {state.status === 'ready' && (
           <>
-            <h1 className="font-display text-3xl mb-8">{state.detail.event.name}</h1>
+            <h1 className="font-display text-3xl mb-2">{state.detail.event.name}</h1>
+            {/* S-82: attendance, venue, access and equipment changes so far. */}
+            <Link to={`/events/${id}/history`} className="inline-block font-ui text-sm mb-8" style={{ color: C.teal }}>
+              View change history
+            </Link>
             <Evidence detail={state.detail} />
             <section className="mt-10 border-t pt-8" style={{ borderColor: C.line }}>
               <h2 className="font-display text-xl mb-4">Operational safety decision</h2>

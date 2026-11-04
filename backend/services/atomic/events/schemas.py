@@ -409,6 +409,16 @@ class EventRead(BaseModel):
     cancellation_decision_reason: str | None = None
     cancellation_decided_by: UUID | None = None
     cancellation_decided_at: datetime | None = None
+    # S-89: the assigned Coordinator cancelled because venue unavailability
+    # left no alternative. All null otherwise. completed_at stays null until
+    # every booking was released and everyone was notified.
+    venue_cancellation_reason: str | None = None
+    venue_cancellation_alternatives: str | None = None
+    venue_cancellation_booking_ids: list[UUID] | None = None
+    venue_cancelled_by: UUID | None = None
+    venue_cancelled_at: datetime | None = None
+    venue_cancellation_previous_status: str | None = None
+    venue_cancellation_completed_at: datetime | None = None
     # S-51: off, with no period, unless the Organiser turned it on.
     registration_required: bool = False
     registration_opens_at: datetime | None = None
@@ -446,6 +456,14 @@ class PublishedEventRead(BaseModel):
     registration_closed_at: datetime | None = None
 
 
+class AttendeeEventRead(PublishedEventRead):
+    """S-56: an event as its registered Attendees may see it, with its status
+    so the event_registrations composite can tell confirmed details from ones
+    being re-checked after a significant change."""
+
+    status: str
+
+
 class EventChangeRecord(BaseModel):
     """One immutable Coordinator edit, retained for the future S-82 view."""
 
@@ -463,6 +481,8 @@ class CoordinatorEventRead(EventRead):
     edit_version: int = Field(default=0, ge=0)
     edit_history: list[EventChangeRecord] = Field(default_factory=list)
     safety_recheck_required: bool = False
+    s60_edit_impacts: list[dict[str, Any]] = Field(default_factory=list)
+    s60_edit_impact_version: int = 0
 
 
 class EventInformationUpdate(BaseModel):
@@ -476,6 +496,7 @@ class EventInformationUpdate(BaseModel):
 
     expected_version: int = Field(ge=0)
     impact_accepted: bool = False
+    impact_items: list[dict[str, Any]] = Field(default_factory=list)
     name: str | None = None
     purpose: str | None = None
     contact_name: str | None = Field(default=None, max_length=200)
@@ -568,6 +589,29 @@ class CancellationDecisionCreate(BaseModel):
         return self
 
 
+def _required_text(value):
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            raise ValueError("This field is required")
+    return value
+
+
+class VenueCancellationCreate(BaseModel):
+    """S-89: what the Coordinator records when cancelling an event no
+    alternative venue could be found for. Who and when are set by the
+    service; the affected bookings come from the composite's check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+    alternatives_considered: str = Field(max_length=1000)
+    expected_version: int = Field(ge=0)
+    affected_booking_ids: list[UUID] = Field(min_length=1)
+
+    _trim = field_validator("reason", "alternatives_considered", mode="before")(_required_text)
+
+
 class EventOptions(BaseModel):
     room_layouts: list[str]
     facilities: list[str]
@@ -615,6 +659,7 @@ class TechnicalSupportLoadRequest(BaseModel):
     start_time: time
     end_date: date
     end_time: time
+    exclude_event_id: UUID | None = None
 
 
 class TechnicalSupportLoad(BaseModel):
@@ -741,6 +786,7 @@ class InternalSafetyDecision(BaseModel):
     decision: SafetyDecisionValue
     reason: str | None = None
     safety_officer_id: UUID
+    expected_event_updated_at: datetime
 
     @field_validator("reason", mode="before")
     @classmethod
@@ -816,3 +862,229 @@ class InternalTechnicalSignoff(BaseModel):
 class InternalEventUpdate(EventDraftUpdate):
     organiser_id: UUID
     assigned_coordinator_id: UUID | None = None
+
+
+# S-82: the event change history. Every action maps to the category the
+# Safety Officer's view filters on. The events service records its own
+# actions; the venue and equipment ones arrive from their composites through
+# POST /internal/events/{event_id}/history, which accepts only those.
+EVENT_HISTORY_ACTIONS: dict[str, str] = {
+    "change_request_accepted": "review",
+    "change_request_rejected": "review",
+    "change_impact_resolved": "review",
+    "submitted": "submission",
+    "edited": "edit",
+    "request_approved": "review",
+    "request_rejected": "review",
+    "request_returned": "review",
+    "cancellation_requested": "review",
+    "cancellation_approved": "review",
+    "cancellation_declined": "review",
+    "cancelled_venue_unavailable": "review",
+    "coordinator_assigned": "assignment",
+    "reassignment_requested": "assignment",
+    "coordinator_reassigned": "assignment",
+    "technical_support_assigned": "assignment",
+    "technical_signoff_approved": "equipment",
+    "technical_signoff_declined": "equipment",
+    "equipment_preparation_changed": "equipment",
+    "safety_submitted": "safety",
+    "safety_resubmitted": "safety",
+    "safety_approved": "safety",
+    "safety_changes_requested": "safety",
+    "safety_rejected": "safety",
+}
+COMPOSITE_HISTORY_ACTIONS: dict[str, str] = {
+    "venue_requested": "venue",
+    "venue_request_changed": "venue",
+    "venue_request_withdrawn": "venue",
+    "venue_replacement_requested": "venue",
+    "venue_alternative_resolved": "venue",
+    # S-90: keeping the original booking instead of its replacement.
+    "venue_restore_requested": "venue",
+    "venue_restore_confirmed": "venue",
+    "venue_restore_declined": "venue",
+    "venue_held": "venue",
+    "venue_released": "venue",
+    "venue_confirmed": "venue",
+    "venue_rejected": "venue",
+    "equipment_requirement_set": "equipment",
+    "equipment_requirement_removed": "equipment",
+}
+HISTORY_CATEGORIES = {**EVENT_HISTORY_ACTIONS, **COMPOSITE_HISTORY_ACTIONS}
+# The parts of an edit the Operational Safety Check depends on (S-82 AC3).
+SAFETY_EDIT_FIELDS = frozenset({
+    "expected_attendance", "venue", "room_layout",
+    "required_facilities", "required_accessibility",
+})
+SAFETY_HISTORY_CATEGORIES = frozenset({"safety", "venue", "equipment"})
+
+HistoryActorRole = Literal[
+    "event_organiser", "event_coordinator", "event_coordinator_lead",
+    "venue_staff", "technical_support", "safety_officer",
+]
+
+
+class HistoryEntryCreate(BaseModel):
+    """A venue or equipment action from a composite. The time and category
+    are the service's to set, so neither is accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: UUID
+    actor_role: HistoryActorRole
+    action: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("action")
+    @classmethod
+    def composite_action(cls, value):
+        if value not in COMPOSITE_HISTORY_ACTIONS:
+            raise ValueError("not an action this route records")
+        return value
+
+
+class HistoryEntryRead(BaseModel):
+    id: int
+    event_id: UUID
+    # Null only on a backfilled entry whose actor was never stored.
+    actor_id: UUID | None
+    actor_role: str | None
+    category: str
+    action: str
+    details: dict[str, Any]
+    occurred_at: datetime
+
+
+class HistoryScopeRead(BaseModel):
+    """S-82: who may read an event's history, for the composites. No other
+    event detail crosses over."""
+
+    id: UUID
+    name: str | None
+    status: str
+    assigned_coordinator_id: UUID | None
+    # Whether a Safety Officer has ever decided on it, so an event sent back
+    # to planning after a review still counts as having reached them.
+    safety_reviewed: bool
+
+
+class NotificationScopeRead(BaseModel):
+    """S-63 identity and title needed by cross-service notification flows."""
+
+    id: UUID
+    organiser_id: UUID
+    name: str | None
+    status: str
+    assigned_coordinator_id: UUID | None
+
+class EventChangeValues(BaseModel):
+    """Complete proposed S-59 values; never an accepted Events update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+    expected_attendance: PositiveInt
+    venue: str | None = None
+    special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility]
+    required_accessibility: list[AccessibilityFeature]
+
+    @field_validator("venue", "special_requirements", mode="before")
+    @classmethod
+    def trim_optional_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def canonical_options(cls, value: list) -> list:
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def valid_window(self):
+        _check_end_after_start(self.start_date, self.start_time, self.end_date, self.end_time)
+        return self
+
+
+class EventChangeEquipment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    equipment_item_id: UUID
+    required_quantity: PositiveInt
+
+
+class InternalEventChangeCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_event_updated_at: datetime
+    proposed_values: EventChangeValues
+    accepted_equipment: list[EventChangeEquipment]
+    proposed_equipment: list[EventChangeEquipment]
+
+    @model_validator(mode="after")
+    def unique_equipment(self):
+        for items in (self.accepted_equipment, self.proposed_equipment):
+            ids = [item.equipment_item_id for item in items]
+            if len(ids) != len(set(ids)):
+                raise ValueError("Equipment items must be unique")
+        return self
+
+
+class EventChangeRequestRead(BaseModel):
+    id: UUID
+    event_id: UUID
+    requested_by: UUID
+    submitted_at: datetime
+    status: Literal["pending", "applying", "accepted", "rejected"]
+    expected_event_updated_at: datetime
+    accepted_values: dict[str, Any]
+    proposed_values: EventChangeValues
+    accepted_equipment: list[EventChangeEquipment]
+    proposed_equipment: list[EventChangeEquipment]
+    resolved_at: datetime | None = None
+    impacts: list[dict[str, Any]] = Field(default_factory=list)
+    impact_version: int = 0
+    operation_id: UUID | None = None
+    impact_acknowledged_at: datetime | None = None
+    reviewed_by: UUID | None = None
+    decision_reason: str | None = None
+
+
+class ChangeImpactPrepare(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+    expected_event_updated_at: datetime
+    impacts: list[dict[str, Any]]
+
+
+class ChangeImpactComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+
+
+class ChangeRequestReject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
+class ChangeImpactResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_impact_version: int = Field(ge=0)
+    action: str = Field(min_length=1, max_length=200)
+    evidence: dict[str, Any]

@@ -89,11 +89,13 @@ a body — no endpoint accepts or returns a token.
 | `name` | string | yes | 1–100 characters, trimmed |
 | `email` | string | yes | a valid address; lower-cased before storage |
 | `password` | string | yes | 8–72 characters (bcrypt ignores anything past 72) |
+| `role` | string | yes | exactly `attendee` or `event_organiser` |
 
-No other fields are accepted. In particular, public signup has no `role`
-field. After Supabase creates the account, the backend uses its administrative
-client to assign trusted `app_metadata.role=event_organiser`; callers cannot
-select an internal role.
+No other fields are accepted. After Supabase creates the account, the backend
+uses its administrative client to write the chosen `role` to trusted
+`app_metadata.role`. There is no default, and every other role (coordinator,
+venue staff, technical support, ...) is a `422`: those are assigned by an
+administrator, never chosen at sign-up.
 
 ```json
 // 201, plus Set-Cookie: sb_access_token, sb_refresh_token
@@ -246,7 +248,7 @@ uvicorn app:app --reload --port 8001
 
 ```bash
 curl http://localhost:8001/health
-curl -i -X POST http://localhost:8001/users/signup   -H "Content-Type: application/json"   -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correct-horse-battery"}'
+curl -i -X POST http://localhost:8001/users/signup   -H "Content-Type: application/json"   -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correct-horse-battery","role":"attendee"}'
 ```
 
 `-i` shows the `Set-Cookie` headers, which is the part worth checking.

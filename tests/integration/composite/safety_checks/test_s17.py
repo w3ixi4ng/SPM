@@ -63,7 +63,7 @@ def test_submission_through_to_confirmed(admin, auth_client, planning_world):
     # 5. Approved: Confirmed.
     approved = httpx.post(
         f"{GATEWAY_BASE_URL}/safety-checks/{event_id}/decision",
-        headers=officer, json={"decision": "approved"}, timeout=20.0,
+        headers=officer, json={"decision": "approved", "expected_event_updated_at": submitted.json()["updated_at"]}, timeout=20.0,
     )
     assert approved.status_code == 200, approved.text
     assert stored_status() == "confirmed"

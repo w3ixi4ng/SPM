@@ -48,12 +48,14 @@ REQUIREMENT_ID = "33333333-3333-4333-8333-333333333333"
 VALID_ITEM = {
     "type": "Wireless Microphone",
     "description": "Handheld wireless microphone with receiver",
+    "storage_location": "Store B, Shelf 4",
     "total_quantity": 12,
 }
 
 VALID_UPDATE = {
     "type": "Radio Microphone",
     "description": "Updated handheld microphone",
+    "storage_location": "AV Cage, Rack 2",
     "total_quantity": 18,
     "operational_status": "maintenance",
 }

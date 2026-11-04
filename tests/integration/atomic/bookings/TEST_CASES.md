@@ -291,10 +291,14 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
   1. `201`, stored with `replaces_booking_id` A.
   2. `200` `confirmed`.
   3. A is `replaced` with `replaced_by_booking_id` set to the new row and
-     `replaced_at` set. Its other columns are unchanged.
+     `replaced_at` set. Its S-91 primary marker and selection audit are cleared,
+     the replacement is not guessed as primary, and its other columns are unchanged.
   4. `201`: A no longer holds V1.
   Cleanup deletes every row created.
-- **Actual:** Replacement stored with `replaces_booking_id`; approval `200` confirmed; the original became `replaced` with `replaced_by_booking_id` and `replaced_at`, every other column unchanged; a new request at V1 for the same slot `201`.
+- **Actual:** Replacement stored with `replaces_booking_id`; approval `200`
+  confirmed; the original became `replaced`, its primary marker was cleared,
+  and the replacement remained non-primary for the Coordinator to choose; a
+  new request at V1 for the same slot returned `201`.
 - **Status:** Pass
 - **Evidence:** `tests/integration/atomic/bookings/test_replacement_venue.py::test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-14
 
@@ -315,6 +319,13 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 
 ## TC-BOOKINGS-115 — confirming a replacement retires the rejected original
 
+## TC-BOOKINGS-116 — the database keeps exactly one deliberate primary venue
+
+- **Pre-conditions:** The test stack was freshly recreated from `.env.test`; the S-91 Bookings migration is applied, granted and exposed.
+- **Steps:** Create and confirm B1 and B2 for event E; verify the first confirmation becomes primary. Select B2 through `PUT /bookings/B2/primary`; replace or cancel B2.
+- **Test data:** Two distinct venue slots for one event and one Coordinator actor.
+- **Expected:** The unique database rule never permits two primaries. Selection atomically moves the marker from B1 to B2. Removing/replacing B2 leaves no primary and does not silently select B1.
+
 - **Scenario:** The S-78 trigger also replaces a rejected original.
 - **Pre-conditions:** Fresh `.env.test` stack; S-17 block of
   `backend/sql/bookings.sql` applied.
@@ -327,3 +338,66 @@ mapping is in `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_confirmed_replacement_retires_rejected_original`
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs 450–499
+reserved for S-89 integration cases. Needs the S-89 block of
+`backend/sql/bookings.sql` applied to the **test** project (status
+`released`, the `released_*` columns and constraints). Until then these are
+Blocked, not Fail.
+
+## TC-BOOKINGS-450 — release keeps every row and frees the venue time
+
+- **Scenario:** Against real Postgres: the new status satisfies every existing constraint (decision, hold, primary, exclusion), the rows survive, and the slot can be booked again.
+- **Pre-conditions:** `.env.test` stack recreated immediately before; Coordinator and Venue Staff sessions. Seeded for event E: P1 `pending`, H1 `held`, C1 `confirmed` and primary, J1 `rejected`; another event's pending booking.
+- **Steps:** 1. `POST /internal/events/E/bookings/release` with `operation_id` OP. 2. Read the rows with the admin client. 3. Create and confirm a booking for another event at C1's venue and time. 4. Release E again. 5. Submit a new request for E. 6. Reopen E's closure with OP.
+- **Test data:** Rows named `spm-test-*`, deleted afterwards (with E's `closed_events` row).
+- **Expected:** 1 → `200`, count 3. 2 → P1, H1, C1 exist, `released`, `release_reason` `event_cancelled`, `released_by` set; H1 `hold_release_reason` `event_cancelled`; C1 not primary; J1 still `rejected`; the other event's booking unchanged. 3 → `201` then confirmed. 4 → `200`, count 0, `released_at` unchanged. 5 → `409` "This event is being cancelled, so its venue bookings can no longer change." 6 → `200` `{"reopened": false}`: a released event never reopens.
+- **Actual:** 1 `200` count 3; P1, H1, C1 kept as `released` with reason, actor and time, H1's hold-release fields set, C1 no longer primary; J1 `rejected` and the other event's booking unchanged; the slot then held a new confirmed booking; a repeat released nothing and kept `released_at`; a new request for E `409` with the closed detail; reopen `{"reopened": false}`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_release_keeps_every_row_and_frees_the_venue_time`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-BOOKINGS-451 — the closure intent refuses every direct mutation, and is withdrawable
+
+- **Scenario:** The race the developer raised: from the closure intent on -- before the event is cancelled -- no route can make a booking of the event active. Proven only here, against the real trigger.
+- **Pre-conditions:** As TC-BOOKINGS-450. Event E with P (pending), Q (pending), H (held).
+- **Steps:** 1. Record E's closure with operation M; record again with operation N. 2. Directly: `POST /bookings` for E; confirm P; hold Q; S-80 `PATCH` P. 3. Release H's hold; reject Q. 4. Reopen with N, then with M. 5. Confirm P.
+- **Test data:** As above.
+- **Expected:** 1 → `200` `closing` with M, then the same row (operation M). 2 → each `409` "This event is being cancelled, so its venue bookings can no longer change."; P and Q still `pending`. 3 → both `200` (giving time back is allowed). 4 → `{"reopened": false}` then `{"reopened": true}`. 5 → `200` confirmed.
+- **Actual:** Closure `closing` with M; a second attempt got M back. Direct create, confirm, hold and S-80 change each `409` with the closed detail, P and Q still `pending`. Hold release and rejection `200`. Reopen with N `false`, with M `true`; P then confirmed.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_the_closure_intent_refuses_every_direct_mutation_and_is_withdrawable`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-BOOKINGS-452 — confirmations racing the closure never survive the release
+
+- **Scenario:** Concurrent Venue Staff confirmations and the closure are serialised by the per-event lock: each confirmation lands before the closure or is refused by it, nothing deadlocks, and the release leaves nothing active.
+- **Pre-conditions:** As TC-BOOKINGS-450. Eight pending bookings of event E.
+- **Steps:** 1. In parallel: confirm all eight, and record E's closure. 2. Confirm one again. 3. Release E. 4. Read E's bookings.
+- **Test data:** As above.
+- **Expected:** 1 → every confirmation `200` or `409` with the closed detail (no `500`); the closure `200`. 2 → `409`. 3 → `200`. 4 → every row `released`.
+- **Actual:** Eight parallel confirmations and the closure: every answer `200` or `409` with the closed detail, no `500` or deadlock; a later confirmation `409`; after the release every row `released`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/bookings/test_s89.py::test_confirmations_racing_the_closure_never_survive_the_release`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## S-90 specification — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
+`origin/sprint4`). Confirmed by the developer 2026-11-01. Needs the S-90 block of
+`backend/sql/bookings.sql` applied to the test project.
+
+## TC-BOOKINGS-130 — a confirmed restore leaves the replacement withdrawn and its slot free
+
+- **Scenario:** Against the test project: the restore columns and the `withdrawn` status exist, a withdrawn replacement reserves nothing, and a replacement confirmed first clears a restore request (S-90 AC1, AC4). Proves what a fake can't: the status and consistency constraints, the exclusion constraint, and the S-78 trigger.
+- **Pre-conditions:** Fresh `.env.test` stack. Through the admin client: venues V and W; event E; Coordinator K; Venue Staff S. Booking O `confirmed` at V; replacement R `pending` at W for O's date and times.
+- **Steps:**
+  1. As K, `POST /bookings/O/restore-request`.
+  2. As S, `POST /bookings/O/restore-decision` `{"decision": "approved"}`.
+  3. Insert a booking at W for R's date and times and, as S, confirm it.
+  4. Reset: O2 `confirmed` at V with replacement R3 `pending` at W; as K, request a restore of O2; as S, confirm R3.
+  5. Delete the rows.
+- **Test data:** Venue names `spm-test S90 V <hex>` and `spm-test S90 W <hex>`.
+- **Expected:** 1 → `200`, the row has `restore_requested_at`. 2 → `200`; R's row `withdrawn` with `withdrawn_at`; O `confirmed`, request cleared, note "Restored to the original venue". 3 → `200` confirmed (R no longer holds W). 4 → R3 `confirmed`; O2 `replaced` with `restore_requested_at` null. 5 leaves no rows.
+- **Actual:** First run: both S-90 cases passed, but the fixture's teardown failed with `23514` on `bookings_withdrawn_valid` -- deleting the original set the withdrawn replacement's `replaces_booking_id` null (S-78's `on delete set null`), which the rule forbade, so S-80 and S-61 deletions would have failed too. The rule now only ties `withdrawn` to `withdrawn_at`; re-applied to dev and test, leftover row removed. Then: 1 `200`; 2 `200`, R `withdrawn` with `withdrawn_at`, O `confirmed`, request cleared, note "Restored to the original venue"; 3 a new booking in R's slot confirmed; 4 R3 `confirmed`, O2 `replaced` with both restore columns null; no rows remained.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/bookings/test_s90.py::test_a_confirmed_restore_leaves_the_replacement_withdrawn_and_its_slot_free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST

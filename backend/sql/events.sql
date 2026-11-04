@@ -1141,3 +1141,675 @@ alter table events.events add constraint events_registration_closed_needs_regist
 notify pgrst, 'reload schema';
 commit;
 -- END S-50 CLOSE REGISTRATION EARLY
+
+-- BEGIN S-82 EVENT CHANGE HISTORY
+-- Every installation: run through END S-82 in BOTH dev and test. Safe to run
+-- repeatedly and data-preserving: it adds a table and backfills it from what
+-- existing events already record, once per event.
+begin;
+
+-- One row per significant action on an event: who (actor), what (action,
+-- details) and when (occurred_at, server time). Append-only -- see the
+-- revoke and trigger below. actor_id has no foreign key: users live in the
+-- users schema, and an entry outlives the account that made it.
+create table if not exists events.event_history (
+  id          bigint generated always as identity primary key,
+  event_id    uuid not null references events.events (id) on delete cascade,
+  -- Null only for a backfilled entry whose actor was never stored.
+  actor_id    uuid,
+  actor_role  text,
+  category    text not null check (category in (
+    'submission', 'review', 'assignment', 'edit', 'venue', 'equipment', 'safety'
+  )),
+  action      text not null check (btrim(action) <> ''),
+  details     jsonb not null default '{}'::jsonb check (jsonb_typeof(details) = 'object'),
+  occurred_at timestamptz not null default now(),
+  constraint event_history_actor_has_role
+    check (actor_id is null or actor_role is not null)
+);
+create index if not exists event_history_event_occurred
+  on events.event_history (event_id, occurred_at desc, id desc);
+
+-- Entries cannot be edited or deleted (S-82 AC4). The default privileges
+-- above grant service_role everything on new tables, so take the writes
+-- back. The trigger also stops the table owner, e.g. from the SQL Editor.
+revoke update, delete, truncate on events.event_history from service_role, anon, authenticated;
+grant select, insert on events.event_history to service_role;
+
+-- A delete is allowed only as the cascade from deleting the event itself,
+-- which has already removed the event row by the time this runs.
+create or replace function events.event_history_append_only()
+returns trigger language plpgsql as $$
+begin
+  if tg_op = 'DELETE'
+     and not exists (select 1 from events.events where id = old.event_id) then
+    return old;
+  end if;
+  raise exception 'Event history entries cannot be changed or deleted'
+    using errcode = '42501';
+end;
+$$;
+drop trigger if exists event_history_append_only on events.event_history;
+create trigger event_history_append_only
+  before update or delete on events.event_history
+  for each row execute function events.event_history_append_only();
+
+alter table events.event_history enable row level security;
+
+-- Events created before S-82 get the history their own columns can prove.
+-- Skips any event that already has an entry, backfilled or live, so it runs
+-- once per event however often it is called and never doubles a live entry. Who decided a request was never stored,
+-- so those entries have no actor. Returns the number of entries added.
+create or replace function events.backfill_event_history(p_event_id uuid default null)
+returns integer language plpgsql as $$
+declare added integer;
+begin
+  with todo as (
+    select e.* from events.events e
+    where (p_event_id is null or e.id = p_event_id)
+      and not exists (select 1 from events.event_history h where h.event_id = e.id)
+  ),
+  rows as (
+    select id as event_id, organiser_id as actor_id, 'event_organiser' as actor_role,
+           'submission' as category, 'submitted' as action,
+           jsonb_build_object('backfilled', true) as details, submitted_at as occurred_at
+      from todo where submitted_at is not null
+    union all
+    select id, null, null, 'review', 'request_' || decision,
+           jsonb_build_object('reason', decision_reason, 'comment', decision_comment, 'backfilled', true),
+           decided_at
+      from todo where decision is not null and decided_at is not null
+    union all
+    select t.id, (r ->> 'changed_by')::uuid, 'event_coordinator', 'edit', 'edited',
+           jsonb_build_object('changes', r -> 'changes', 'backfilled', true),
+           (r ->> 'changed_at')::timestamptz
+      from todo t, jsonb_array_elements(t.edit_history) r
+    union all
+    select t.id, (r ->> 'safety_officer_id')::uuid, 'safety_officer', 'safety',
+           'safety_' || (r ->> 'decision'),
+           jsonb_build_object('reason', r ->> 'reason', 'backfilled', true),
+           (r ->> 'decided_at')::timestamptz
+      from todo t, jsonb_array_elements(t.safety_review_history) r
+    union all
+    select q.event_id, q.requester_id, 'event_coordinator', 'assignment', 'reassignment_requested',
+           jsonb_build_object('reason', q.reason, 'backfilled', true), q.created_at
+      from events.reassignment_requests q join todo t on t.id = q.event_id
+    union all
+    select id, cancellation_requested_by, 'event_organiser', 'review', 'cancellation_requested',
+           jsonb_build_object('reason', cancellation_reason, 'backfilled', true),
+           cancellation_requested_at
+      from todo where cancellation_requested_by is not null and cancellation_requested_at is not null
+    union all
+    select id, cancellation_decided_by, 'event_coordinator', 'review',
+           'cancellation_' || cancellation_decision,
+           jsonb_build_object('reason', cancellation_decision_reason, 'backfilled', true),
+           cancellation_decided_at
+      from todo where cancellation_decided_by is not null and cancellation_decided_at is not null
+    union all
+    select id, technical_signoff_by, 'technical_support', 'equipment',
+           'technical_signoff_' || technical_signoff_decision,
+           jsonb_build_object('reason', technical_signoff_reason, 'backfilled', true),
+           technical_signoff_at
+      from todo where technical_signoff_by is not null and technical_signoff_at is not null
+    union all
+    select id, equipment_preparation_updated_by, 'technical_support', 'equipment',
+           'equipment_preparation_changed',
+           jsonb_build_object('from', null, 'to', equipment_preparation_status, 'backfilled', true),
+           equipment_preparation_updated_at
+      from todo where equipment_preparation_updated_by is not null
+  )
+  insert into events.event_history (event_id, actor_id, actor_role, category, action, details, occurred_at)
+  select event_id, actor_id, actor_role, category, action, details, occurred_at from rows;
+  get diagnostics added = row_count;
+  return added;
+end;
+$$;
+revoke execute on function events.backfill_event_history(uuid) from public, anon, authenticated;
+grant execute on function events.backfill_event_history(uuid) to service_role;
+
+select events.backfill_event_history();
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-82 EVENT CHANGE HISTORY
+
+-- BEGIN S-59 EVENT CHANGE REQUESTS
+-- Apply this data-preserving block in BOTH dev and test. Requests remain in
+-- Events ownership; equipment item IDs and quantities are comparison data,
+-- never writes to equipment.requirements.
+begin;
+
+create table if not exists events.change_requests (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references events.events(id) on delete cascade,
+  requested_by uuid not null,
+  submitted_at timestamptz not null default now(),
+  status text not null default 'pending',
+  expected_event_updated_at timestamptz not null,
+  accepted_values jsonb not null,
+  proposed_values jsonb not null,
+  accepted_equipment jsonb not null default '[]'::jsonb,
+  proposed_equipment jsonb not null default '[]'::jsonb,
+  resolved_at timestamptz,
+  constraint change_requests_status_allowed
+    check (status in ('pending', 'accepted', 'rejected')),
+  constraint change_requests_resolution_matches_status
+    check ((status = 'pending') = (resolved_at is null)),
+  constraint change_requests_values_objects
+    check (jsonb_typeof(accepted_values) = 'object'
+      and jsonb_typeof(proposed_values) = 'object'),
+  constraint change_requests_equipment_arrays
+    check (jsonb_typeof(accepted_equipment) = 'array'
+      and jsonb_typeof(proposed_equipment) = 'array')
+);
+
+-- One outstanding request, with resolved rows retained as history.
+create unique index if not exists change_requests_one_pending_per_event
+  on events.change_requests(event_id) where status = 'pending';
+create index if not exists change_requests_event_history
+  on events.change_requests(event_id, submitted_at desc);
+
+-- Lock the event while checking its owner, lifecycle and accepted version.
+-- The Events service supplies requested_by from verified Auth and only its
+-- trusted composite can reach the insert route; this trigger repeats the
+-- storage-side checks so concurrent submissions cannot bypass them.
+create or replace function events.validate_change_request()
+returns trigger language plpgsql security invoker
+set search_path = events, pg_temp
+as $$
+declare
+  current_event events.events%rowtype;
+begin
+  select * into current_event from events.events
+    where id = new.event_id for update;
+  if not found then
+    raise exception 'Event not found' using errcode = '23503';
+  end if;
+  if current_event.organiser_id is distinct from new.requested_by then
+    raise exception 'Event not owned by requester' using errcode = '42501';
+  end if;
+  if current_event.status not in (
+    'submitted', 'under_review', 'returned', 'planning',
+    'pending_safety_check', 'confirmed', 'preparation'
+  ) then
+    raise exception 'Event cannot receive a change request'
+      using errcode = '23514';
+  end if;
+  if current_event.updated_at is distinct from new.expected_event_updated_at then
+    raise exception 'Event changed before request submission'
+      using errcode = '23514';
+  end if;
+
+  new.accepted_values := jsonb_build_object(
+    'start_date', current_event.start_date,
+    'start_time', current_event.start_time,
+    'end_date', current_event.end_date,
+    'end_time', current_event.end_time,
+    'expected_attendance', current_event.expected_attendance,
+    'venue', current_event.venue,
+    'special_requirements', current_event.special_requirements,
+    'room_layout', current_event.room_layout,
+    'required_facilities', to_jsonb(current_event.required_facilities),
+    'required_accessibility', to_jsonb(current_event.required_accessibility)
+  );
+  if new.accepted_values = new.proposed_values
+     and new.accepted_equipment = new.proposed_equipment then
+    raise exception 'Change request has no changed values'
+      using errcode = '23514';
+  end if;
+  new.submitted_at := now();
+  new.status := 'pending';
+  new.resolved_at := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists change_request_validate on events.change_requests;
+create trigger change_request_validate before insert on events.change_requests
+  for each row execute function events.validate_change_request();
+
+alter table events.change_requests enable row level security;
+grant usage on schema events to service_role;
+grant all on events.change_requests to service_role;
+-- Existing events schema default grants cover future tables; explicit grant
+-- above is still required when this table is added after the prior grants.
+notify pgrst, 'reload schema';
+commit;
+-- END S-59 EVENT CHANGE REQUESTS
+
+-- BEGIN S-69 CANCEL A SAFETY-CHECKED EVENT
+-- Existing installations: run through END S-69 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving.
+--
+-- S-62 lets an Organiser ask to cancel a confirmed event, and S-61 lets the
+-- Coordinator approve it, but the S-17 rule above only allowed a
+-- safety-approved event to be `confirmed` or `preparation`, so approving
+-- failed with 23514. Cancelling keeps the Safety Officer's decision as it was
+-- -- it is history, like the Coordinator's -- so `cancelled` is allowed in
+-- the two branches where the check has been decided and the event can still
+-- be cancelled. A safety-rejected event is not cancellable (S-62), so its
+-- branch is unchanged.
+alter table events.events drop constraint if exists events_safety_state_consistent;
+alter table events.events add constraint events_safety_state_consistent
+  check (
+    (
+      safety_decision is null
+      and safety_decision_reason is null
+      and safety_officer_id is null
+      and safety_decided_at is null
+      and status not in (
+        'confirmed', 'preparation', 'safety_rejected', 'safety_changes_requested'
+      )
+    )
+    or (
+      safety_decision = 'approved'
+      and safety_decision_reason is null
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status in ('confirmed', 'preparation', 'cancelled')
+    )
+    or (
+      safety_decision = 'rejected'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status = 'safety_rejected'
+    )
+    or (
+      safety_decision = 'changes_requested'
+      and safety_decision_reason is not null
+      and btrim(safety_decision_reason) <> ''
+      and safety_officer_id is not null
+      and safety_decided_at is not null
+      and status in ('planning', 'cancelled')
+    )
+  ) not valid;
+
+notify pgrst, 'reload schema';
+-- END S-69 CANCEL A SAFETY-CHECKED EVENT
+
+-- BEGIN S-89 COORDINATOR CANCELS WITHOUT AN ALTERNATIVE VENUE
+-- Existing installations: run through END S-89 in BOTH dev and test. Safe to
+-- run repeatedly and data-preserving.
+--
+-- The assigned Coordinator cancels an event that venue unavailability affects
+-- and for which no alternative venue was found. The record stays on the event:
+-- why, what alternatives were considered with the Organiser, which affected
+-- bookings justified it, who and when (all set by the service).
+-- venue_cancellation_previous_status keeps what the S-82 history entry needs,
+-- so that entry can be written -- or retried -- from the row alone.
+-- venue_cancellation_completed_at is set only once the history entry exists,
+-- every booking was released and the Organiser and Attendees were notified;
+-- until then the event is cancelled but the operation is still to be
+-- finished.
+begin;
+
+alter table events.events
+  add column if not exists venue_cancellation_reason text,
+  add column if not exists venue_cancellation_alternatives text,
+  add column if not exists venue_cancellation_booking_ids uuid[],
+  add column if not exists venue_cancelled_by uuid,
+  add column if not exists venue_cancelled_at timestamptz,
+  add column if not exists venue_cancellation_previous_status text,
+  add column if not exists venue_cancellation_completed_at timestamptz;
+
+alter table events.events
+  drop constraint if exists events_venue_cancellation_consistent;
+alter table events.events add constraint events_venue_cancellation_consistent
+  check (
+    (
+      venue_cancellation_reason is null
+      and venue_cancellation_alternatives is null
+      and venue_cancellation_booking_ids is null
+      and venue_cancelled_by is null
+      and venue_cancelled_at is null
+      and venue_cancellation_previous_status is null
+      and venue_cancellation_completed_at is null
+    )
+    or (
+      status = 'cancelled'
+      and btrim(venue_cancellation_reason) <> ''
+      and char_length(venue_cancellation_reason) <= 1000
+      and btrim(venue_cancellation_alternatives) <> ''
+      and char_length(venue_cancellation_alternatives) <= 1000
+      and cardinality(venue_cancellation_booking_ids) > 0
+      and venue_cancelled_by is not null
+      and venue_cancelled_at is not null
+      and venue_cancellation_previous_status in (
+        'planning', 'pending_safety_check', 'confirmed', 'preparation',
+        'safety_changes_requested'
+      )
+      and (venue_cancellation_completed_at is null
+           or venue_cancellation_completed_at >= venue_cancelled_at)
+      -- One cancellation path per event: never also an approved S-61 request.
+      and cancellation_decision is distinct from 'approved'
+    )
+  );
+
+-- One S-82 entry per S-89 cancellation, so the history step can be retried
+-- without ever writing a second one. A partial index: other actions may
+-- repeat freely.
+create unique index if not exists event_history_one_venue_cancellation
+  on events.event_history (event_id)
+  where action = 'cancelled_venue_unavailable';
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-89 COORDINATOR CANCELS WITHOUT AN ALTERNATIVE VENUE
+
+-- BEGIN S-60 SIGNIFICANT CHANGE REVIEW
+-- Data-preserving migration. Apply this block in BOTH DEV and TEST only after
+-- the developer reviews the source. Existing requests and event records stay.
+begin;
+
+alter table events.change_requests
+  add column if not exists impacts jsonb not null default '[]'::jsonb,
+  add column if not exists impact_version integer not null default 0,
+  add column if not exists operation_id uuid,
+  add column if not exists impact_acknowledged_at timestamptz,
+  add column if not exists reviewed_by uuid,
+  add column if not exists decision_reason text;
+
+alter table events.events
+  add column if not exists s60_edit_impacts jsonb not null default '[]'::jsonb,
+  add column if not exists s60_edit_impact_version integer not null default 0;
+
+alter table events.change_requests drop constraint if exists change_requests_status_allowed;
+alter table events.change_requests add constraint change_requests_status_allowed
+  check (status in ('pending', 'applying', 'accepted', 'rejected'));
+alter table events.change_requests drop constraint if exists change_requests_resolution_matches_status;
+alter table events.change_requests add constraint change_requests_resolution_matches_status
+  check ((status in ('pending', 'applying')) = (resolved_at is null));
+alter table events.change_requests drop constraint if exists change_requests_impacts_array;
+alter table events.change_requests add constraint change_requests_impacts_array
+  check (jsonb_typeof(impacts) = 'array');
+alter table events.change_requests drop constraint if exists change_requests_impact_version_nonnegative;
+alter table events.change_requests add constraint change_requests_impact_version_nonnegative
+  check (impact_version >= 0);
+drop index if exists events.change_requests_one_pending_per_event;
+create unique index if not exists change_requests_one_outstanding_per_event
+  on events.change_requests(event_id) where status in ('pending', 'applying');
+create unique index if not exists change_requests_operation_unique
+  on events.change_requests(operation_id) where operation_id is not null;
+
+-- The preview is built across service APIs. This transaction locks Events'
+-- owned event and request, then saves exactly what the Coordinator acknowledged
+-- before any accepted value is changed. It cannot grant authority over another
+-- service's records.
+create or replace function events.prepare_change_acceptance(
+  p_request_id uuid, p_coordinator_id uuid, p_operation_id uuid,
+  p_impacts jsonb, p_expected_updated_at timestamptz
+)
+returns setof events.change_requests language plpgsql security invoker
+set search_path = events, pg_temp as $$
+declare r events.change_requests%rowtype; e events.events%rowtype; request_event_id uuid;
+begin
+  if jsonb_typeof(p_impacts) is distinct from 'array' or p_operation_id is null then
+    raise exception 'Invalid impact assessment' using errcode = '23514';
+  end if;
+  select event_id into request_event_id from events.change_requests where id = p_request_id;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  select * into e from events.events where id = request_event_id for update;
+  select * into r from events.change_requests where id = p_request_id for update;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  if e.assigned_coordinator_id is distinct from p_coordinator_id then
+    raise exception 'Not assigned Coordinator' using errcode = '42501';
+  end if;
+  if r.status = 'applying' and r.operation_id = p_operation_id then
+    return next r; return;
+  end if;
+  if r.status <> 'pending' or e.updated_at is distinct from p_expected_updated_at
+     or e.updated_at is distinct from r.expected_event_updated_at then
+    raise exception 'Change request is stale' using errcode = '23514';
+  end if;
+  update events.change_requests set status = 'applying', operation_id = p_operation_id,
+      impacts = p_impacts, impact_acknowledged_at = now(), reviewed_by = p_coordinator_id,
+      impact_version = impact_version + 1
+    where id = p_request_id returning * into r;
+  return next r;
+end;
+$$;
+
+-- Finalise only after the Equipment owner confirms its idempotent batch. The
+-- request, accepted Events fields, lifecycle and immutable audit commit in one
+-- Events transaction. An interrupted response can safely be read/retried.
+create or replace function events.complete_change_acceptance(
+  p_request_id uuid, p_coordinator_id uuid, p_operation_id uuid
+)
+returns setof events.change_requests language plpgsql security invoker
+set search_path = events, pg_temp as $$
+declare r events.change_requests%rowtype; e events.events%rowtype; next_status text; request_event_id uuid;
+begin
+  select event_id into request_event_id from events.change_requests where id = p_request_id;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  select * into e from events.events where id = request_event_id for update;
+  select * into r from events.change_requests where id = p_request_id for update;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  if r.status = 'accepted' and r.operation_id = p_operation_id then return next r; return; end if;
+  if r.status <> 'applying' or r.operation_id is distinct from p_operation_id
+     or e.assigned_coordinator_id is distinct from p_coordinator_id
+     or e.updated_at is distinct from r.expected_event_updated_at then
+    raise exception 'Change request is stale' using errcode = '23514';
+  end if;
+  next_status := case when e.status in ('confirmed','preparation','pending_safety_check')
+    then 'planning' else e.status end;
+  perform set_config('events.s60_operation', p_operation_id::text, true);
+  update events.events set
+    start_date = (r.proposed_values->>'start_date')::date,
+    start_time = (r.proposed_values->>'start_time')::time,
+    end_date = (r.proposed_values->>'end_date')::date,
+    end_time = (r.proposed_values->>'end_time')::time,
+    expected_attendance = (r.proposed_values->>'expected_attendance')::integer,
+    venue = r.proposed_values->>'venue',
+    special_requirements = r.proposed_values->>'special_requirements',
+    room_layout = r.proposed_values->>'room_layout',
+    required_facilities = array(select jsonb_array_elements_text(r.proposed_values->'required_facilities')),
+    required_accessibility = array(select jsonb_array_elements_text(r.proposed_values->'required_accessibility')),
+    status = next_status,
+    safety_recheck_required = case when next_status = 'planning' and e.status <> next_status then true
+                                   else e.safety_recheck_required end,
+    safety_decision = case when e.status <> next_status then null else e.safety_decision end,
+    safety_decision_reason = case when e.status <> next_status then null else e.safety_decision_reason end,
+    safety_officer_id = case when e.status <> next_status then null else e.safety_officer_id end,
+    safety_decided_at = case when e.status <> next_status then null else e.safety_decided_at end,
+    edit_version = e.edit_version + 1
+    where id = e.id;
+  update events.change_requests set status = 'accepted', resolved_at = now()
+    where id = p_request_id returning * into r;
+  insert into events.event_history(event_id, actor_id, actor_role, category, action, details)
+    values (e.id, p_coordinator_id, 'event_coordinator', 'review', 'change_request_accepted',
+      jsonb_build_object('request_id', p_request_id, 'before', r.accepted_values,
+                         'after', r.proposed_values, 'impacts', r.impacts));
+  return next r;
+end;
+$$;
+
+create or replace function events.reject_change_request(
+  p_request_id uuid, p_coordinator_id uuid, p_reason text
+)
+returns setof events.change_requests language plpgsql security invoker
+set search_path = events, pg_temp as $$
+declare r events.change_requests%rowtype; e events.events%rowtype; request_event_id uuid;
+begin
+  if nullif(btrim(p_reason), '') is null then
+    raise exception 'Reason is required' using errcode = '23514';
+  end if;
+  select event_id into request_event_id from events.change_requests where id = p_request_id;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  select * into e from events.events where id = request_event_id for update;
+  select * into r from events.change_requests where id = p_request_id for update;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  if e.assigned_coordinator_id is distinct from p_coordinator_id then
+    raise exception 'Not assigned Coordinator' using errcode = '42501';
+  end if;
+  if r.status <> 'pending' then
+    raise exception 'Change request is no longer pending' using errcode = '23514';
+  end if;
+  update events.change_requests set status = 'rejected', resolved_at = now(),
+      reviewed_by = p_coordinator_id, decision_reason = btrim(p_reason)
+    where id = p_request_id returning * into r;
+  insert into events.event_history(event_id, actor_id, actor_role, category, action, details)
+    values (e.id, p_coordinator_id, 'event_coordinator', 'review', 'change_request_rejected',
+      jsonb_build_object('request_id', p_request_id, 'reason', btrim(p_reason)));
+  return next r;
+end;
+$$;
+
+-- The composite verifies owner-backed evidence first. This function repeats
+-- assignment, version and state checks and appends review evidence atomically.
+create or replace function events.resolve_change_impact(
+  p_request_id uuid, p_coordinator_id uuid, p_impact_id text,
+  p_expected_version integer, p_action text, p_evidence jsonb
+)
+returns setof events.change_requests language plpgsql security invoker
+set search_path = events, pg_temp as $$
+declare r events.change_requests%rowtype; e events.events%rowtype; item jsonb; request_event_id uuid;
+        next_impacts jsonb := '[]'::jsonb; found_item boolean := false;
+begin
+  if nullif(btrim(p_action), '') is null or jsonb_typeof(p_evidence) is distinct from 'object' then
+    raise exception 'Resolution action and evidence are required' using errcode = '23514';
+  end if;
+  select event_id into request_event_id from events.change_requests where id = p_request_id;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  select * into e from events.events where id = request_event_id for update;
+  select * into r from events.change_requests where id = p_request_id for update;
+  if not found then raise exception 'Change request not found' using errcode = 'P0002'; end if;
+  if e.assigned_coordinator_id is distinct from p_coordinator_id then
+    raise exception 'Not assigned Coordinator' using errcode = '42501';
+  end if;
+  if r.status <> 'accepted' or r.impact_version <> p_expected_version then
+    raise exception 'Impact review changed' using errcode = '23514';
+  end if;
+  for item in select value from jsonb_array_elements(r.impacts) loop
+    if item->>'id' = p_impact_id then
+      if item->>'status' <> 'outstanding' then
+        raise exception 'Impact is already resolved' using errcode = '23514';
+      end if;
+      found_item := true;
+      item := item || jsonb_build_object('status','resolved','resolution_action',btrim(p_action),
+        'evidence',p_evidence,'resolved_by',p_coordinator_id,'resolved_at',now());
+    end if;
+    next_impacts := next_impacts || jsonb_build_array(item);
+  end loop;
+  if not found_item then raise exception 'Impact not found' using errcode = 'P0002'; end if;
+  update events.change_requests set impacts = next_impacts, impact_version = impact_version + 1
+    where id = p_request_id returning * into r;
+  insert into events.event_history(event_id, actor_id, actor_role, category, action, details)
+    values(e.id,p_coordinator_id,'event_coordinator','review','change_impact_resolved',
+      jsonb_build_object('request_id',p_request_id,'impact_id',p_impact_id,
+                         'action',btrim(p_action),'evidence',p_evidence));
+  return next r;
+end;
+$$;
+
+-- The composite and atomic routes both show a readable 409. This trigger is
+-- the final guard for a concurrent or direct planning -> safety transition.
+create or replace function events.guard_unresolved_change_impacts()
+returns trigger language plpgsql security invoker
+set search_path = events, pg_temp as $$
+begin
+  if new.status = 'pending_safety_check' and old.status is distinct from new.status
+     and (exists (
+       select 1 from events.change_requests r,
+            lateral jsonb_array_elements(r.impacts) impact
+       where r.event_id = new.id and r.status = 'accepted'
+         and impact->>'status' = 'outstanding'
+     ) or exists (
+       select 1 from jsonb_array_elements(new.s60_edit_impacts) impact
+       where impact->>'status' = 'outstanding'
+     )) then
+    raise exception 'Resolve change impacts before safety submission'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+-- While acceptance is applying Equipment's batch, no unrelated Events write
+-- may change the baseline or assignment and strand the operation. Only the
+-- matching finalisation RPC can update the row.
+create or replace function events.guard_change_operation()
+returns trigger language plpgsql security invoker
+set search_path = events, pg_temp as $$
+declare target_event_id uuid;
+begin
+  target_event_id := case when tg_op = 'DELETE' then old.id else new.id end;
+  if exists (
+    select 1 from events.change_requests
+    where event_id = target_event_id and status = 'applying'
+      and operation_id::text is distinct from nullif(current_setting('events.s60_operation', true), '')
+  ) then
+    raise exception 'Event change acceptance is in progress' using errcode = '23514';
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+drop trigger if exists events_guard_change_operation on events.events;
+create trigger events_guard_change_operation before update or delete on events.events
+  for each row execute function events.guard_change_operation();
+
+create or replace function events.resolve_edit_impact(
+  p_event_id uuid, p_coordinator_id uuid, p_impact_id text,
+  p_expected_version integer, p_action text, p_evidence jsonb
+)
+returns setof events.events language plpgsql security invoker
+set search_path = events, pg_temp as $$
+declare e events.events%rowtype; item jsonb; next_impacts jsonb := '[]'::jsonb;
+        found_item boolean := false;
+begin
+  if nullif(btrim(p_action), '') is null or jsonb_typeof(p_evidence) is distinct from 'object' then
+    raise exception 'Resolution action and evidence are required' using errcode = '23514';
+  end if;
+  select * into e from events.events where id = p_event_id for update;
+  if not found then raise exception 'Event not found' using errcode = 'P0002'; end if;
+  if e.assigned_coordinator_id is distinct from p_coordinator_id then
+    raise exception 'Not assigned Coordinator' using errcode = '42501';
+  end if;
+  if e.s60_edit_impact_version <> p_expected_version then
+    raise exception 'Impact review changed' using errcode = '23514';
+  end if;
+  for item in select value from jsonb_array_elements(e.s60_edit_impacts) loop
+    if item->>'id' = p_impact_id then
+      if item->>'status' <> 'outstanding' then
+        raise exception 'Impact is already resolved' using errcode = '23514';
+      end if;
+      found_item := true;
+      item := item || jsonb_build_object('status','resolved','resolution_action',btrim(p_action),
+        'evidence',p_evidence,'resolved_by',p_coordinator_id,'resolved_at',now());
+    end if;
+    next_impacts := next_impacts || jsonb_build_array(item);
+  end loop;
+  if not found_item then raise exception 'Impact not found' using errcode = 'P0002'; end if;
+  update events.events set s60_edit_impacts = next_impacts,
+    s60_edit_impact_version = s60_edit_impact_version + 1
+    where id = p_event_id returning * into e;
+  insert into events.event_history(event_id,actor_id,actor_role,category,action,details)
+    values(p_event_id,p_coordinator_id,'event_coordinator','review','change_impact_resolved',
+      jsonb_build_object('impact_id',p_impact_id,'action',btrim(p_action),'evidence',p_evidence));
+  return next e;
+end;
+$$;
+drop trigger if exists events_guard_unresolved_change_impacts on events.events;
+create trigger events_guard_unresolved_change_impacts before update on events.events
+  for each row execute function events.guard_unresolved_change_impacts();
+
+revoke execute on function events.prepare_change_acceptance(uuid,uuid,uuid,jsonb,timestamptz)
+  from public, anon, authenticated;
+revoke execute on function events.complete_change_acceptance(uuid,uuid,uuid)
+  from public, anon, authenticated;
+revoke execute on function events.reject_change_request(uuid,uuid,text)
+  from public, anon, authenticated;
+revoke execute on function events.resolve_change_impact(uuid,uuid,text,integer,text,jsonb)
+  from public, anon, authenticated;
+grant execute on function events.prepare_change_acceptance(uuid,uuid,uuid,jsonb,timestamptz) to service_role;
+grant execute on function events.complete_change_acceptance(uuid,uuid,uuid) to service_role;
+grant execute on function events.reject_change_request(uuid,uuid,text) to service_role;
+grant execute on function events.resolve_change_impact(uuid,uuid,text,integer,text,jsonb) to service_role;
+revoke execute on function events.resolve_edit_impact(uuid,uuid,text,integer,text,jsonb)
+  from public, anon, authenticated;
+grant execute on function events.resolve_edit_impact(uuid,uuid,text,integer,text,jsonb) to service_role;
+notify pgrst, 'reload schema';
+commit;
+-- END S-60 SIGNIFICANT CHANGE REVIEW

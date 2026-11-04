@@ -326,7 +326,9 @@ def test_submitting_a_request_writes_nothing_to_the_event(client, services):
     assert response.status_code == 201
     services.events.get.assert_called_once()
     assert services.events.get.call_args.args[0] == f"/events/assigned/{EVENT_ID}"
-    services.events.post.assert_not_called()
+    # S-82: the one write to Events is the history entry, never the event.
+    posted = [call.args[0] for call in services.events.post.call_args_list]
+    assert posted == [f"/internal/events/{EVENT_ID}/history"]
     services.events.patch.assert_not_called()
     services.events.put.assert_not_called()
 
@@ -445,7 +447,7 @@ def test_listing_an_events_requests_needs_a_session(client, services):
 
 
 # --- TC-VENUEBOOKINGS-026 --------------------------------------------------
-@pytest.mark.parametrize("role", ["event_organiser", "venue_staff", "technical_support", "attendee"])
+@pytest.mark.parametrize("role", ["venue_staff", "technical_support", "attendee"])
 def test_only_an_event_coordinator_can_list_an_events_requests(client, services, role):
     services.user = me(role=role)
 

@@ -433,3 +433,66 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 - **Actual:** `200` with the requirement detail; the query used `event_id in (E1, E2)` and no single-event filter; a malformed id returned `422` without storage.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/equipment/test_app.py::test_requirements_can_be_listed_for_a_set_of_events`; `tests/unit/atomic/equipment/test_app.py::test_a_malformed_event_id_in_the_set_is_refused`
+
+---
+
+## S-92 — Record Equipment Storage Location
+
+Story: S-92 Record Equipment Storage Location. Test cases confirmed by the
+developer on 2026-10-28.
+
+## TC-EQUIPMENT-031 — storage location is optional, normalized and bounded
+
+- **Scenario:** Technical Support may record a useful free-text location without storing whitespace-only or excessive input.
+- **Pre-conditions:** An otherwise valid new equipment payload.
+- **Steps:** Validate locations `"  Store A, Bay 9  "`, whitespace only, and 201 characters.
+- **Test data:** `Store A, Bay 9`; `   `; 201 `x` characters.
+- **Expected:** The first becomes `Store A, Bay 9`, blank becomes null, and 201 characters returns a validation error.
+- **Status:** Pass
+- **Evidence:** `test_schemas.py::test_storage_location_is_optional_trimmed_and_limited`
+
+## TC-EQUIPMENT-032 — Technical Support records, edits and clears a location
+
+- **Scenario:** The existing protected catalogue writes persist S-92 metadata.
+- **Pre-conditions:** Authenticated Technical Support and fake equipment storage.
+- **Steps:** Create with `Store B, Shelf 4`; update with an empty location.
+- **Expected:** Create stores and returns the location; update sends null and returns no location. Existing permission tests continue to deny other roles.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_storage_location_is_created_edited_and_cleared_by_technical_support`
+
+## TC-EQUIPMENT-033 — catalogue consumers receive the location
+
+- **Scenario:** Catalogue and selection responses expose the current storage location.
+- **Pre-conditions:** An item stored at `Loading Dock Cabinet 2`.
+- **Steps:** List management catalogue and active selection.
+- **Expected:** Both responses contain the same location as descriptive metadata.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_catalogue_and_selection_expose_storage_location`
+
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Python unit suite 1,783 passed, 17 skipped; frontend unit 219 passed; lint passes with 3 existing warnings; build passes; `git diff --check` clean. TEST Supabase and fresh `.env.test` stack for integration (119 passed, 5 skipped) and Chromium. See each case evidence.
+
+## TC-EQUIPMENT-300 — a live, versioned batch applies a proposal once
+
+- **Scenario:** Equipment changes are all-or-nothing within the Equipment schema and idempotent per S-60 operation.
+- **Pre-conditions:** E has P quantity 2 and microphone M quantity 1; service-trusted request carries operation Q and a complete baseline.
+- **Steps:** 1. Apply Q proposing P=3 and M removed. 2. Retry Q. 3. Read requirements and history.
+- **Test data:** P 2→3, M 1→removed, Q UUID, expected baseline version V.
+- **Expected:** The first call validates live active/available items and commits both requirement mutations plus audit in one Equipment transaction; retry has no duplicate writes/history. A stale V, retired P or caller without trusted service credential is denied without partial mutation. Existing unrelated requirements remain.
+- **Actual:** Versioned TEST batch applied P=3 and removed M once; exact retry added no audit rows, and invalid direct writes were rejected.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/equipment/test_s60.py::test_versioned_batch_is_idempotent_and_blocks_competing_requirement_writes
+
+## TC-EQUIPMENT-301 — unfinished acceptance cannot be overwritten
+
+- **Scenario:** Equipment reserves an event's requirement set for operation Q until Events finalisation or safe abort.
+- **Pre-conditions:** Q has applied P 2→3 but Events finalisation has not succeeded.
+- **Steps:** 1. Try ordinary S-18 requirement edit P→4. 2. Retry Q. 3. Abort Q conditionally after Events rejects a stale version.
+- **Test data:** Q UUID; baseline P=2; proposed P=3; competing P=4.
+- **Expected:** Competing edit gets 409 while Q owns the lock; retry observes the same result. Abort restores P=2 only if Q still owns the version and Events has not accepted; no rollback overwrites a subsequent owner edit. The lock does not count as a staff sign-off.
+- **Actual:** Applied batch blocked competing P=4; conditional abort restored the baseline, and a finalised batch could not abort over a newer edit.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/equipment/test_s60.py::test_versioned_batch_is_idempotent_and_blocks_competing_requirement_writes

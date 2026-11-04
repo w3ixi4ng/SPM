@@ -1,6 +1,7 @@
 import { Bell, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { listNotifications, notificationErrorMessage } from '../lib/notifications.js'
+import { Link } from 'react-router-dom'
+import { listNotifications, notificationErrorMessage, notificationLink } from '../lib/notifications.js'
 
 const C = {
   ink: '#10192B',
@@ -62,14 +63,27 @@ export default function NotificationPanel() {
       )}
       {state.status === 'ready' && state.rows.length > 0 && (
         <ul className="space-y-3">
-          {state.rows.map((row) => (
-            <li key={row.id} className="rounded-sm px-4 py-3" style={{ backgroundColor: C.paperDim }}>
-              <p className="font-ui text-sm" style={{ color: C.ink }}>{row.message}</p>
-              <time className="font-ui text-xs mt-1 block" style={{ color: C.inkFaint }} dateTime={row.created_at}>
-                {displayTime(row.created_at)}
-              </time>
-            </li>
-          ))}
+          {state.rows.map((row) => {
+            const link = notificationLink(row)
+            return (
+              <li key={row.id} className="rounded-sm px-4 py-3" style={{ backgroundColor: C.paperDim }}>
+                <p className="font-ui text-sm" style={{ color: C.ink }}>{row.message}</p>
+                {/* S-55: an invitation leads to the page where the place is accepted. */}
+                {link && (
+                  <Link
+                    to={link.href}
+                    className="font-ui text-sm font-medium underline underline-offset-2 mt-1 inline-block"
+                    style={{ color: C.teal }}
+                  >
+                    {link.label}
+                  </Link>
+                )}
+                <time className="font-ui text-xs mt-1 block" style={{ color: C.inkFaint }} dateTime={row.created_at}>
+                  {displayTime(row.created_at)}
+                </time>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

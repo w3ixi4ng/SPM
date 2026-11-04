@@ -293,7 +293,8 @@ Status resets to Not Executed until re-run.
 - **Scenario:** With real services behind Kong, a period over a confirmed
   booking is saved. The booking is identified and flagged, and the event's
   Coordinator gets a persistent notification. The event and the booking are
-  unchanged (AC1, AC3, AC4, AC5).
+  unchanged apart from S-90's restoration marker when that schema is installed
+  (AC1, AC3, AC4, AC5).
 - **Pre-conditions:** The shared pre-conditions. The venue has setup and
   turnaround 0. A confirmed booking K for the event, `2026-11-12`
   `10:00`–`12:00`, created through the service and approved by Venue Staff.
@@ -313,12 +314,13 @@ Status resets to Not Executed until re-run.
      times, ending "needs alternative arrangements."
   3. K with `"requires_alternative_arrangements": true` and the period in
      `unavailable_periods`.
-  4. K's row is identical to the snapshot, still `confirmed`. The event's
-     row is identical, still `planning`.
+  4. K's row is identical to the snapshot except that S-90's optional
+     `restoration_required` marker changes from `false` to `true`, still
+     `confirmed`. The event's row is identical, still `planning`.
   Cleanup deletes the block, K, the notification and the shared fixtures.
-- **Actual:** Through Kong: period `201` with exactly K affected and notified true; the Coordinator's inbox had one `venue_unavailable` notification naming the period and K's times; K flagged with the period; K and the event rows identical to their snapshots, still `confirmed` and `planning`.
+- **Actual:** Through Kong: period `201` with exactly K affected and notified true; the Coordinator's inbox had one `venue_unavailable` notification naming the period and K's times; K flagged with the period; K stayed `confirmed` with all other booking fields unchanged while S-90's `restoration_required` changed from `false` to `true`; the event stayed `planning` and unchanged.
 - **Status:** Pass
-- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`; `.env.test` stack recreated immediately before (bookings container verified on the test project's `SUPABASE_URL`), 2026-10-12; `pytest tests/integration`: 52 passed, 5 skipped, plus the 2 S-75 helper fixes re-run and passed
+- **Evidence:** `tests/integration/composite/venue_bookings/test_unavailable_periods.py::test_marking_a_period_through_kong_flags_and_notifies_and_changes_nothing_else`; 2026-11-01, isolated `spm-s89` `.env.test` stack recreated immediately before; targeted test 1 passed in 26.61 s against TEST with S-90 SQL already applied.
 
 ### TC-VENUEBOOKINGS-111 — through Kong, a request and a hold inside the period are refused
 
@@ -451,3 +453,43 @@ in the S-80 section of `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 - **Actual:** Both saves returned `200`; the stored actor, timestamp, status and versions were correct; the stale write returned `409`; the Coordinator write returned `403`.
 - **Status:** Pass.
 - **Evidence:** `tests/integration/composite/venue_bookings/test_venue_preparation.py::test_venue_preparation_round_trip`; S-25 SQL applied to both projects; fresh `.env.test` stack; full integration run on 2026-10-25: 74 passed, 5 skipped.
+
+
+## S-82 — View Event Change History
+
+## TC-VENUEBOOKINGS-126 - venue actions reach the event's history
+- **Scenario:** A real request and confirmation cross from venue_bookings into the events history (S-82 AC1).
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied. Through the admin client: Coordinator C, Venue Staff V, a `planning` event E assigned to C, and a venue "S-82 Hall <6 hex>" with operating hours covering the slot.
+- **Steps:**
+  1. As C, `POST /api/venue-bookings` for E at that venue, 2026-11-20 09:00–12:00.
+  2. As V, `POST /api/venue-bookings/<id>/decision` with `{"decision": "approved"}`.
+  3. `GET http://localhost:8002/internal/events/E/history`.
+  4. Delete everything created.
+- **Expected:** 3 → newest first, `venue_confirmed` by V then `venue_requested` by C. Both have `category: "venue"` and the booking's id and venue name in `details`.
+- **Actual:** Events history held `venue_confirmed` by V then `venue_requested` by C, both `venue`, with the booking's id and venue name.
+- **Status:** Pass.
+- **Evidence:** `tests/integration/composite/venue_bookings/test_s82.py::test_venue_actions_reach_the_event_history`; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree.
+
+## S-90 specification — Restore Original Venue Booking
+
+Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
+`origin/sprint4`). Confirmed by the developer 2026-11-01. Needs the S-90 block of
+`backend/sql/bookings.sql` applied to the test project.
+
+## TC-VENUEBOOKINGS-136 — a restore is asked for, confirmed, and recorded through Kong
+
+- **Scenario:** Through Kong against the test project: the venue becomes free again, the Coordinator asks to restore, Venue Staff confirm, and the event keeps its first-choice venue (S-90 AC1–AC4).
+- **Pre-conditions:** Fresh `.env.test` stack, started immediately before. Through the admin client: Coordinator K; Venue Staff S; venues V (30 min setup, 45 min turnaround) and W; confirmed event E assigned to K; booking O `confirmed` at V; an unavailable period at V over O's time.
+- **Steps:**
+  1. As K, `POST /api/venue-bookings/O/replacement` for W.
+  2. As K, `POST /api/venue-bookings/O/restore`.
+  3. As S, delete the period: `DELETE /api/venue-bookings/blocks/{id}`.
+  4. As K, `POST /api/venue-bookings/O/restore` again.
+  5. As S, `GET /api/venue-bookings/restores`, then `POST /api/venue-bookings/O/restore-decision` `{"decision": "approved"}`.
+  6. As K, `GET /api/venue-bookings?event_id=E`; read E's history.
+  7. Delete the rows and accounts.
+- **Test data:** Names `spm-test S90 …`.
+- **Expected:** 1 → `201`, R `pending`. 2 → `409` "Studio … is unavailable from …" (the venue isn't free yet). 3 → `204`. 4 → `200`. 5 → the list holds O with R as its replacement; the decision `200`. 6 → O `confirmed`, `requires_alternative_arrangements` false, note "Restored to the original venue"; R `withdrawn`; history has `venue_restore_requested` and `venue_restore_confirmed`. 7 leaves no rows.
+- **Actual:** 1 `201`; 2 `409` "… is unavailable from …"; 3 `204`; 4 `200`; 5 the list held O with R as its replacement, decision `200`; 6 O `confirmed`, not flagged, note "Restored to the original venue", R `withdrawn`, history held both entries. E was `planning` (the shared world fixture), an open status like `confirmed`.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_s90.py::test_a_restore_is_asked_for_confirmed_and_recorded_through_kong; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST

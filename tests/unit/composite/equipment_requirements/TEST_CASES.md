@@ -487,3 +487,119 @@ Coordinator `C1`, assigned Technical Support `T1`); requirement 4 × Projector
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_failed_clear_blocks_requirement_change`
+
+## TC-EQUIPMENTREQUIREMENTS-031 — location is displayed metadata, not availability input
+
+- **Scenario:** Recording or changing an equipment location cannot reserve equipment or affect any venue.
+- **Pre-conditions:** The same catalogue, events and requirements are returned twice; only the microphone location differs.
+- **Steps:** Calculate availability with no location and with `Remote Warehouse`.
+- **Expected:** The response passes the current location through, while total, reserved, unavailable, available, over-reserved and sufficient values remain identical. No venues dependency exists in this composite.
+- **Status:** Pass
+- **Evidence:** `test_availability.py::test_storage_location_is_metadata_and_never_changes_availability`
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. After a requirement change takes effect, the composite sends
+one entry to Events `POST /internal/events/{event_id}/history`. Sign-off and
+preparation status are recorded by Events itself (TC-EVENTS-196).
+
+## TC-EQUIPMENTREQUIREMENTS-032 — a requirement change is recorded
+
+- **Scenario:** Adding, changing and removing an equipment requirement is recorded (S-82 AC1).
+- **Pre-conditions:** Signed in as Coordinator `C1`, assigned to `E1`; item `P1` "Projector"; Equipment accepts each write.
+- **Steps / Test data / Expected:** Each step sends exactly one entry with `actor_id: C1`, `actor_role: "event_coordinator"`:
+  | Step | `action` | `details` |
+  | --- | --- | --- |
+  | `PUT /equipment-requirements/E1/P1` `{"required_quantity": 2}` with no existing requirement | `equipment_requirement_set` | `{"equipment_item_id": "P1", "item_name": "Projector", "from_quantity": null, "to_quantity": 2}` |
+  | The same with `{"required_quantity": 5, "impact_accepted": true}` | `equipment_requirement_set` | `{… "from_quantity": 2, "to_quantity": 5}` |
+  | `DELETE /equipment-requirements/E1/P1` | `equipment_requirement_removed` | `{"equipment_item_id": "P1", "item_name": "Projector", "from_quantity": 5, "to_quantity": null}` |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_s82.py::test_a_requirement_change_is_recorded`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EQUIPMENTREQUIREMENTS-033 — refused or failed recording leaves the change as it was
+
+- **Scenario:** Refused changes record nothing, and a failed history write does not undo an accepted one.
+- **Pre-conditions:** As TC-EQUIPMENTREQUIREMENTS-032.
+- **Steps / Test data / Expected:**
+  | Case | Response | History |
+  | --- | --- | --- |
+  | `PUT` as Technical Support | `403` | not called |
+  | `PUT` blocked by the sign-off clear failing (TC-EQUIPMENTREQUIREMENTS-029) | `502` | not called |
+  | `PUT` accepted, Events history answers `500` | usual `200` | one `ERROR` log naming `E1` and `equipment_requirement_set` |
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** `test_s82.py::test_refused_or_failed_recording_leaves_the_change`; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+---
+
+## S-71 — Notify Coordinator — Availability Change
+
+Story: S-71 Notify Coordinator — Availability Change.
+Confirmed by the developer on 2026-10-30.
+
+## TC-EQUIPMENTREQUIREMENTS-034 — a degrading equipment change identifies every newly affected confirmed event
+
+- **Scenario:** A Technical Support catalogue change that makes committed
+  equipment insufficient tells each affected event's current Coordinator.
+- **Pre-conditions:** Equipment P1 is active and available with 10 units.
+  Confirmed E1 and preparation E2 overlap and require 3 and 4 units; planning
+  E3 also requires P1. Events returns current Coordinators C1, C2 and C3.
+- **Steps:** Separately update P1 to `unavailable`, to `maintenance`, reduce it
+  to 5 units, and retire it.
+- **Expected:** Each degrading change is saved through Equipment. One
+  `equipment_unavailable` notification per newly affected confirmed or
+  preparation event is sent to its current Coordinator. Each row and message
+  names the event and P1 and tells the Coordinator to arrange replacement
+  equipment. E3 receives none.
+- **Actual:** All four changes produced the two expected current-recipient
+  notices; the planning event was excluded.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_degrading_change_notifies_each_committed_events_current_coordinator`
+
+## TC-EQUIPMENTREQUIREMENTS-035 — only newly insufficient events are notified
+
+- **Scenario:** A quantity change is assessed against live overlapping
+  committed requirements rather than every event that mentions the item.
+- **Pre-conditions:** Confirmed E1 overlaps preparation E2; confirmed E4 is
+  back-to-back and E5 has already been short since before the change.
+- **Steps:** Reduce P1's total quantity.
+- **Expected:** Notifications are created only for events that change from
+  sufficient to insufficient. Back-to-back demand is not combined, an event
+  already short is not re-notified, and recipient ids come from Events'
+  current assignments rather than the requirement audit actor.
+- **Actual:** Overlapping newly short events were returned; the back-to-back
+  and already-short events were excluded.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_only_events_that_become_short_are_returned_and_back_to_back_does_not_overlap`
+
+## TC-EQUIPMENTREQUIREMENTS-036 — harmless catalogue edits do not notify
+
+- **Scenario:** Descriptive or improving changes do not raise replacement
+  warnings.
+- **Steps:** Separately change P1's type, description or storage location;
+  increase its quantity; and make a change that leaves every committed event
+  sufficiently supplied.
+- **Expected:** Equipment saves the edit and Notifications is not called.
+  No venue service is called or changed.
+- **Actual:** Metadata, quantity increase and still-sufficient reduction were
+  saved with no Notifications call.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_harmless_catalogue_edits_do_not_notify`
+
+## TC-EQUIPMENTREQUIREMENTS-037 — retry keys cannot create duplicate notices
+
+- **Scenario:** Retrying notification delivery for one saved availability
+  change does not tell a Coordinator twice.
+- **Pre-conditions:** One saved change has a fixed `updated_at`, affected event
+  E1 and current recipient C1.
+- **Steps:** Build and submit the notification batch twice.
+- **Expected:** Both batches use the same
+  `equipment_unavailable:<item>:<change>:<event>:<recipient>` key, so the
+  Notifications service retains one row.
+- **Actual:** Rebuilding the batch produced an identical key; the notification
+  atomic service's upsert test retained its idempotent contract.
+- **Status:** Pass
+- **Evidence:** `test_s71.py::test_rebuilding_one_saved_change_uses_the_same_deduplication_key`; `tests/unit/atomic/notifications/test_app.py::test_an_equipment_unavailable_notification_is_accepted_and_idempotent`

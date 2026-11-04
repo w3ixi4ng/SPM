@@ -52,9 +52,9 @@ def test_a_waitlisted_attendee_sees_their_place_in_line(admin, page, make_user, 
     page.goto("/dashboard/attendee")
     row = _dashboard_row(page, name)
     expect(row.get_by_text("Waiting list · 2nd in line")).to_be_visible(timeout=20000)
-    expect(row.get_by_text("Confirmed")).to_have_count(0)
+    expect(row.get_by_text("Confirmed", exact=True)).to_have_count(0)
     _sign_out(page)
 
     sign_in(first)
     page.wait_for_url(re.compile(r"/dashboard/attendee$"), timeout=20000)
-    expect(_dashboard_row(page, name).get_by_text("Confirmed")).to_be_visible(timeout=20000)
+    expect(_dashboard_row(page, name).get_by_text("Confirmed", exact=True)).to_be_visible(timeout=20000)

@@ -246,3 +246,127 @@ developer on 2026-10-19. Not yet implemented or executed.
 - **Actual:** `200`; published read showed `registration_closed_at` set and `expected_attendance` 40; reopen `200`, then null; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/events/test_s50.py::test_closing_and_reopening_registration_is_saved; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), 2026-10-26, branch `S-50/cap-registration-at-capacity`, pre-commit working tree
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. Needs the S-82 block of `backend/sql/events.sql` applied to the
+test project: the `events.event_history` table, its grants, its trigger, and
+the `events.backfill_event_history` function.
+
+## TC-EVENTS-203 — an appended entry is stored and read back
+
+- **Scenario:** The table exists, is granted, and round-trips through the service.
+- **Pre-conditions:** Fresh `.env.test` stack; S-82 SQL applied and `events` exposed.
+- **Steps:**
+  1. Through the admin client, create Organiser O, Coordinator C and a `planning` event E owned by O, assigned to C.
+  2. `POST http://localhost:8002/internal/events/E/history` with `{"actor_id": C, "actor_role": "event_coordinator", "action": "venue_requested", "details": {"venue_name": "Hall One"}}`.
+  3. `GET http://localhost:8002/internal/events/E/history`.
+  4. Delete E, C and O.
+- **Test data:** Emails `spm-test-*`.
+- **Expected:** 2 → `201` with an `id` and an `occurred_at` within 60 s of now. 3 → `200` with that one entry, `category: "venue"`. After 4, no `event_history` row for E remains: deleting the event removes its entries.
+- **Actual:** `201` with an id and a server `occurred_at` within a minute; read back as one `venue` entry; deleting the event left no history rows.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_an_appended_entry_is_stored_and_read_back; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-204 — the database refuses to change or delete an entry
+
+- **Scenario:** History entries cannot be edited or deleted, even with the service key (S-82 AC4).
+- **Pre-conditions:** As TC-EVENTS-203, with one entry for E appended.
+- **Steps:**
+  1. Admin client: `update` that entry's `action` to `"request_rejected"`.
+  2. Admin client: `delete` that entry by `id`.
+  3. Read the entry back.
+  4. Delete E (cleanup).
+- **Test data:** As above.
+- **Expected:** 1 and 2 each raise an API error (Postgres `42501` permission denied); 3 shows the entry unchanged; 4 succeeds and removes the entry with E.
+- **Actual:** Both the update and the delete through the service key raised `42501`; the entry read back unchanged.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_the_database_refuses_to_change_or_delete_an_entry; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-EVENTS-205 — backfill rebuilds what existing events already record, once
+
+- **Scenario:** Events created before S-82 get the history their own columns can prove (developer decision 3b).
+- **Pre-conditions:** Fresh `.env.test` stack, S-82 SQL applied. Through the admin client: O, C, Safety Officer S, Lead L; event E owned by O, assigned to C by L, with:
+  - `submitted_at` `2026-10-01T01:00:00Z`
+  - `decision` `approved`, `decided_at` `2026-10-02T01:00:00Z`
+  - one `edit_history` record by C at `2026-10-03T01:00:00Z` changing `expected_attendance` 120→150
+  - one `safety_review_history` record by S at `2026-10-04T01:00:00Z`, `changes_requested`, reason `Fire exit blocked`
+  - one reassignment request by C at `2026-10-05T01:00:00Z`, reason `Leaving the team`
+  - no `event_history` rows
+- **Steps:**
+  1. `rpc("backfill_event_history", {"p_event_id": E})` on the `events` schema.
+  2. Run step 1 again.
+  3. `GET /internal/events/E/history`.
+  4. Delete everything created.
+- **Test data:** As above.
+- **Expected:** 3 → exactly five entries, every one with `details.backfilled: true`, newest first:
+  | `action` | `actor_id` | `occurred_at` |
+  | --- | --- | --- |
+  | `reassignment_requested` | C | `2026-10-05T01:00:00Z` |
+  | `safety_changes_requested` | S | `2026-10-04T01:00:00Z` |
+  | `edited` | C | `2026-10-03T01:00:00Z` |
+  | `request_approved` | null (who decided was never stored) | `2026-10-02T01:00:00Z` |
+  | `submitted` | O | `2026-10-01T01:00:00Z` |
+
+  Step 2 adds nothing.
+- **Actual:** The first backfill added 5 entries, the second 0; the five came back newest first with the expected actors and times, all `backfilled`.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/events/test_s82.py::test_backfill_rebuilds_existing_history_once; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`), S-82 SQL applied to both projects; full integration run 96 passed, 5 skipped; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-59 — Request Event Changes (confirmed specification)
+
+Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `origin/sprint4` d1f6d8b. Developer confirmed SQL applied in DEV and TEST. Fresh `.env.test` stack matched TEST Supabase; full integration suite: 104 passed, 5 skipped.
+
+## TC-EVENTS-201 — proposal SQL persists separately and enforces one pending row
+
+- **Scenario:** The Events-owned table, grants and unique pending constraint work against real Supabase.
+- **Pre-conditions:** Fresh `.env.test` stack; S-59 addition to `backend/sql/events.sql` applied to the test project, `events` exposed and granted; temporary O and C accounts; submitted E owned by O and assigned to C.
+- **Steps:** 1. Through Kong, O proposes attendance 120→150. 2. Read E and the request as O and C. 3. Attempt a second pending proposal and direct concurrent inserts. 4. Inspect the stored actor, timestamp, baseline and status. 5. Delete request, E and accounts.
+- **Test data:** E `Autumn Forum`; attendance 120→150; O/C are `spm-test-*` users.
+- **Expected:** First POST `201`; E stays at 120 and its status/assignment are unchanged. Proposal persists after reload with O's Auth ID, server timestamp, baseline 120, proposed 150, pending status. A second/concurrent insert fails safely with one pending row; cleanup leaves no rows.
+- **Actual:** Proposal persisted separately from the unchanged event; the duplicate and concurrent insert checks left one pending row and cleanup completed.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s59.py::test_change_request_is_stored_separately_and_one_pending_is_enforced` and `::test_stale_event_baseline_cannot_be_stored_as_a_change_request`; full integration suite 104 passed, 5 skipped on 2026-10-30.
+
+## S-89 — Coordinator Cancels Event Without Alternative Venue (draft specification)
+
+Drafted and confirmed 2026-11-01. IDs 450–499
+reserved for S-89 integration cases. Needs the S-89 block of
+`backend/sql/events.sql` applied to the **test** project
+(`venue_cancellation_*` columns and their consistency constraint). Blocked
+until then.
+
+## TC-EVENTS-450 — the recorded cancellation persists and satisfies every event constraint
+
+- **Scenario:** Real Postgres accepts `cancelled` with the S-89 columns from both a never-safety-checked (`planning`) and a safety-approved (`confirmed`) event; the history entry is its own step.
+- **Pre-conditions:** Fresh `.env.test` stack; `ASSIGNMENT_SERVICE_SECRET` set; Coordinator C assigned to seeded events Ep (`planning`) and Ec (`confirmed`, safety approved).
+- **Steps:** 1. As C with the token, cancel Ep and Ec. 2. Read each row and its history; then record history. 3. Repeat step 1 for Ec with another reason and `expected_version` 0. 4. Record Ec's history, then complete it twice.
+- **Test data:** `spm-test-*` events, deleted afterwards.
+- **Expected:** 1 → `200` both. 2 → `cancelled`, reason, alternatives, `venue_cancellation_booking_ids`, `venue_cancelled_by` C, `venue_cancelled_at`, `venue_cancellation_previous_status` = the old status; `cancellation_decision` null; no history until the history step, then exactly one entry with the previous status, affected ids and actor C. 3 → `200`, unchanged, still one entry. 4 → `venue_cancellation_completed_at` set once and unchanged by the repeat.
+- **Actual:** Both events `cancelled` with every S-89 column and the previous status; no history until the history step, then one entry with previous status, affected ids and actor; the resume left the record and the single entry unchanged; completion set once.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s89.py::test_the_recorded_cancellation_persists_and_satisfies_every_constraint`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-EVENTS-451 — a stale version is refused by the database-backed guard
+
+- **Scenario:** A real concurrent edit wins over a cancellation from an old screen.
+- **Pre-conditions:** As TC-EVENTS-450 with a fresh `planning` event Es.
+- **Steps:** 1. Read Es's `edit_version` v. 2. Edit Es through `PATCH /events/assigned/Es` (routine field). 3. Cancel with `expected_version` v.
+- **Test data:** As above.
+- **Expected:** 3 → `409` "This event changed since you opened it. Reload and try again."; Es is still `planning`; no S-89 history row.
+- **Actual:** `409` "This event changed since you opened it. Reload and try again."; still `planning`; no S-89 history entry.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s89.py::test_a_stale_version_is_refused`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)
+
+## TC-EVENTS-452 — history is recorded once and gates completion
+
+- **Scenario:** The durable history step against the real unique index.
+- **Pre-conditions:** As TC-EVENTS-450, a fresh `planning` event.
+- **Steps:** 1. Cancel. 2. Complete. 3. Record history three times. 4. Complete. 5. Insert a second `cancelled_venue_unavailable` row for the event with the admin client.
+- **Test data:** As above.
+- **Expected:** 2 → `409` "The cancellation has not been recorded in the event history yet." 3 → `200` each, one entry, its `occurred_at` = `venue_cancelled_at`, its reason the stored one. 4 → `200`. 5 → refused with `23505`.
+- **Actual:** Early completion `409` with the history detail; three history calls `200` with one entry whose `occurred_at` matches `venue_cancelled_at`; completion `200`; a direct second insert refused with `23505`.
+- **Status:** Pass
+- **Evidence:** `tests/integration/atomic/events/test_s89.py::test_history_is_recorded_once_and_gates_completion`; 2026-11-01, branch `S-89/coordinator-cancels-event-without-alternative-venue` (on sprint4 `ca5ff0d`), pre-commit working tree after the closure-intent and durable-history revision; revised S-89 SQL applied to dev and test by the developer; isolated `spm-s89` compose project recreated with `--env-file .env.test --build` immediately before (published ports +10000, users container verified on the test project's `SUPABASE_URL`); Python 3.12.5, pytest 9.2.0: S-89 integration 8 passed (2:42); full `tests/integration` 120 passed, 5 skipped (the existing S-83 supersessions), 0 failed (22:35)

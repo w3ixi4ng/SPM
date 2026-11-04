@@ -153,6 +153,7 @@ def test_registering_inside_the_period_takes_a_place(client, services):
         "waitlisted": False,
         "joined_at": None,
         "position": None,
+        "offered": False,
     }
     services["registrations"].post.assert_awaited_once_with(
         "/registrations", json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2}
@@ -199,7 +200,7 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": True, "registered_at": REGISTERED_AT,
-        "waitlisted": False, "joined_at": None, "position": None,
+        "waitlisted": False, "joined_at": None, "position": None, "offered": False,
     }
     services["registrations"].get.assert_awaited_with(
         f"/registrations/events/{EVENT_E}/attendees/{ATTENDEE_A}"
@@ -212,7 +213,7 @@ def test_an_attendee_sees_whether_they_hold_a_place(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": False, "joined_at": None, "position": None,
+        "waitlisted": False, "joined_at": None, "position": None, "offered": False,
     }
 
 
@@ -246,6 +247,9 @@ def _organiser_owns_e(services, answer=None):
     async def events_get(path, **kwargs):
         if path == f"/events/{EVENT_E}":
             return answer or response(200, {"id": EVENT_E})
+        # S-57: no role here is E's assigned Coordinator.
+        if path == f"/events/assigned/{EVENT_E}":
+            return response(403, {"detail": "Insufficient permissions"})
         return response(404, {"detail": "Event not found."})
 
     services["events"].get.side_effect = events_get
@@ -341,10 +345,11 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
     base = services["events"].get.side_effect
 
     async def events_get(path, **kwargs):
-        if path == f"/internal/events/published/{EVENT_G}":
+        if path == f"/internal/events/attendee-view/{EVENT_G}":
             return response(200, {**E_PUBLIC, "id": EVENT_G, "name": "Careers fair",
                                   "start_date": "2026-11-10", "start_time": "10:00:00",
-                                  "end_date": "2026-11-10", "end_time": "16:00:00"})
+                                  "end_date": "2026-11-10", "end_time": "16:00:00",
+                                  "status": "confirmed"})
         return await base(path, **kwargs)
 
     services["events"].get.side_effect = events_get
@@ -368,6 +373,11 @@ def test_an_attendee_sees_the_events_they_registered_for(client, services):
         "registered_at": "2026-11-05T04:00:00Z",
         "joined_at": None,
         "position": None,
+        # S-58: only a withdrawn row has a withdrawal time.
+        "withdrawn_at": None,
+        # S-56: the details are confirmed, and the place shows its venue.
+        "details_confirmed": True,
+        "venue": "Seminar Room 2-1",
     }
     services["registrations"].get.assert_any_call(f"/registrations/attendees/{ATTENDEE_A}")
 
@@ -500,10 +510,10 @@ def test_no_confirmed_venue_reads_to_be_confirmed(client, ada):
     )
 
 
-def test_several_confirmed_venues_are_joined(client, ada):
+def test_only_the_primary_confirmed_venue_is_sent(client, ada):
     hall = "99999999-9999-4999-8999-999999999999"
     _bookings_are(ada, [
-        {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed"},
+        {"id": "b1", "venue_id": VENUE_ID, "status": "confirmed", "is_primary": True},
         {"id": "b2", "venue_id": hall, "status": "confirmed"},
     ])
     names = {VENUE_ID: "Seminar Room 2-1", hall: "Hall A"}
@@ -519,7 +529,7 @@ def test_several_confirmed_venues_are_joined(client, ada):
     assert result.status_code == 201
     assert _sent_rows(ada)[0]["message"] == (
         "Registration confirmed: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
-        "at Seminar Room 2-1, Hall A. Name: Ada Tan. Email: ada@example.com."
+        "at Seminar Room 2-1. Name: Ada Tan. Email: ada@example.com."
     )
 
 
@@ -593,6 +603,7 @@ REGISTERED_E = {
     "waitlisted": False,
     "joined_at": None,
     "position": None,
+    "offered": False,
 }
 
 

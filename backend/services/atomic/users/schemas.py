@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -16,6 +17,9 @@ class SignUpRequest(UserBase):
     # 72 bytes is bcrypt's limit -- everything past it is dropped before
     # hashing, so a longer password is not the stronger one it looks like.
     password: str = Field(min_length=8, max_length=72)
+    # The only roles anyone may give themselves. Every other role is assigned
+    # by an administrator, so it is a 422 here rather than a quiet promotion.
+    role: Literal["attendee", "event_organiser"]
 
 
 class LoginRequest(BaseModel):

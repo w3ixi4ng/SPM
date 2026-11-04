@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from .conftest import EVENT_ID, ORGANISER, RECIPIENT, authenticate, notification_row
 
 
@@ -189,6 +191,37 @@ def test_a_venue_unavailable_notification_is_accepted(client, db):
     assert response.json()[0]["kind"] == "venue_unavailable"
 
 
+def test_an_equipment_unavailable_notification_is_accepted_and_idempotent(client, db):
+    row = {
+        **VENUE_UNAVAILABLE,
+        "kind": "equipment_unavailable",
+        "message": (
+            "Equipment availability changed for Projector: the item is under maintenance. "
+            "This affects Alumni talk. Arrange replacement equipment before the event."
+        ),
+        "deduplication_key": (
+            "equipment_unavailable:22222222-2222-4222-8222-222222222222:"
+            "2026-11-10T01:00:00Z:33333333-3333-4333-8333-333333333333:"
+            f"{RECIPIENT}"
+        ),
+    }
+    stored = {**row, "id": 1, "created_at": "2026-11-10T01:00:00Z"}
+    operation = db.schema.return_value.table.return_value.upsert.return_value
+    operation.execute.side_effect = [
+        SimpleNamespace(data=[stored]),
+        SimpleNamespace(data=[stored]),
+    ]
+
+    first = client.post("/internal/notifications", json={"notifications": [row]})
+    second = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert first.status_code == second.status_code == 201
+    assert first.json() == second.json()
+    assert first.json()[0]["kind"] == "equipment_unavailable"
+    for call in db.schema.return_value.table.return_value.upsert.call_args_list[-2:]:
+        assert call.kwargs == {"on_conflict": "deduplication_key"}
+
+
 def test_an_unknown_kind_is_still_refused(client, db):
     response = client.post(
         "/internal/notifications",
@@ -255,3 +288,130 @@ def test_a_waiting_list_promotion_is_accepted(client, db):
 
     assert response.status_code == 201
     assert response.json()[0]["kind"] == "waiting_list_promotion"
+
+
+# --- TC-NOTIFICATIONS-012 -------------------------------------------------
+WAITING_LIST_OFFER = {
+    "recipient_id": "44444444-4444-4444-8444-444444444444",
+    "event_id": "11111111-1111-4111-8111-111111111111",
+    "event_name": "Alumni networking evening",
+    "kind": "waiting_list_offer",
+    "message": (
+        "A place opened up at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, "
+        "at Seminar Room 2-1. It's held for you: accept it on the event page to register."
+    ),
+    "deduplication_key": "waiting_list_offer:77777777-7777-4777-8777-777777777777",
+}
+
+
+def test_a_waiting_list_offer_is_accepted(client, db):
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    stored = {"id": 1, "created_at": "2026-11-06T04:00:00Z"}
+
+    for row in (WAITING_LIST_OFFER, WAITING_LIST_PROMOTION):
+        upsert.execute.return_value = SimpleNamespace(data=[{**row, **stored}])
+        response = client.post("/internal/notifications", json={"notifications": [row]})
+        assert response.status_code == 201
+        assert response.json()[0]["kind"] == row["kind"]
+
+
+# --- TC-NOTIFICATIONS-013 ------------------------------------------------------
+EVENT_CANCELLED = {
+    "recipient_id": "44444444-4444-4444-8444-444444444444",
+    "event_id": "11111111-1111-4111-8111-111111111111",
+    "event_name": "Alumni networking evening",
+    "kind": "event_cancelled",
+    "message": (
+        "Event cancelled: Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. "
+        "It will not take place."
+    ),
+    "deduplication_key": (
+        "event_cancelled:11111111-1111-4111-8111-111111111111:44444444-4444-4444-8444-444444444444"
+    ),
+}
+
+
+def test_an_event_cancellation_is_accepted(client, db):
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.return_value = SimpleNamespace(
+        data=[{**EVENT_CANCELLED, "id": 1, "created_at": "2026-11-06T04:00:00Z"}]
+    )
+
+    response = client.post("/internal/notifications", json={"notifications": [EVENT_CANCELLED]})
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == "event_cancelled"
+    refused = client.post(
+        "/internal/notifications",
+        json={"notifications": [{**EVENT_CANCELLED, "kind": "venue_closed"}]},
+    )
+    assert refused.status_code == 422
+
+
+# --- TC-NOTIFICATIONS-014 ------------------------------------------------------
+@pytest.mark.parametrize(
+    "kind", ["waiting_list_joined", "registration_withdrawn", "waiting_list_offer_declined"]
+)
+def test_the_registration_update_kinds_are_accepted(client, db, kind):
+    row = {
+        "recipient_id": "44444444-4444-4444-8444-444444444444",
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "event_name": "Alumni networking evening",
+        "kind": kind,
+        "message": (
+            "You're on the waiting list for Alumni networking evening, "
+            "20 Nov 2026, 6:00 pm – 9:00 pm. You're next in line."
+        ),
+        "deduplication_key": f"{kind}:77777777-7777-4777-8777-777777777777",
+    }
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.return_value = SimpleNamespace(
+        data=[{**row, "id": 1, "created_at": "2026-11-06T04:00:00Z"}]
+    )
+
+    response = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert response.status_code == 201
+    assert response.json()[0]["kind"] == kind
+    refused = client.post(
+        "/internal/notifications", json={"notifications": [{**row, "kind": "venue_closed"}]}
+    )
+    assert refused.status_code == 422
+
+
+# --- TC-NOTIFICATIONS-016 -------------------------------------------------
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "event_request_decision",
+        "venue_booking_decision",
+        "safety_check_outcome",
+        "event_schedule_changed",
+    ],
+)
+def test_s63_organiser_notification_kinds_are_accepted_and_idempotent(
+    client, db, kind
+):
+    row = {
+        "recipient_id": ORGANISER,
+        "event_id": EVENT_ID,
+        "event_name": "Autumn Forum",
+        "kind": kind,
+        "message": "Autumn Forum changed. Review the event and take the stated action.",
+        "deduplication_key": f"{kind}:{EVENT_ID}:1:{ORGANISER}",
+    }
+    stored = {**row, "id": 1, "created_at": "2026-10-31T10:00:00Z"}
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.side_effect = [
+        SimpleNamespace(data=[stored]),
+        SimpleNamespace(data=[stored]),
+    ]
+
+    first = client.post("/internal/notifications", json={"notifications": [row]})
+    second = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert first.status_code == second.status_code == 201
+    assert first.json() == second.json()
+    assert upsert.execute.call_count == 2
+    for call in db.schema.return_value.table.return_value.upsert.call_args_list[-2:]:
+        assert call.kwargs == {"on_conflict": "deduplication_key"}

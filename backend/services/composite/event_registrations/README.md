@@ -5,7 +5,8 @@ them while registration is open. S-48: each registration can be read back by
 the Attendee who holds it and by the Organiser who owns the event. S-49: a
 recorded registration sends the Attendee an in-app confirmation. Owns no storage: event details and
 registration settings come from `events`, venue names from `bookings` and
-`venues`, the signed-in user from `users`, and places are written to
+`venues` (S-56: the Attendee's own list reads the primary venue's name from
+its booking), the signed-in user from `users`, and places are written to
 `registrations`, and confirmations to `notifications`.
 
 Browser-facing through Kong at `/api/event-registrations`.
@@ -18,10 +19,12 @@ Browser-facing through Kong at `/api/event-registrations`.
 | `GET` | `/event-registrations/events/{event_id}` | none | One confirmed event's public details. |
 | `POST` | `/event-registrations/events/{event_id}/registration` | Attendee | Register the signed-in Attendee, if the period is open, the Organiser hasn't closed it, and a place is left (S-50). |
 | `GET` | `/event-registrations/events/{event_id}/registration` | Attendee | Whether the signed-in Attendee is registered, or on the waiting list. |
-| `DELETE` | `/event-registrations/events/{event_id}/registration` | Attendee | S-53: withdraw the signed-in Attendee's place, until the event starts. The next Attendee waiting takes it and is notified. |
+| `DELETE` | `/event-registrations/events/{event_id}/registration` | Attendee | S-53: withdraw the signed-in Attendee's place, until the event starts. S-55: the freed place is held for the next Attendee waiting, who is invited to take it. |
 | `POST` | `/event-registrations/events/{event_id}/waiting-list` | Attendee | S-50: join a full event's waiting list. |
-| `GET` | `/event-registrations/me/registrations` | Attendee | The confirmed events the signed-in Attendee is registered for or waiting for (S-52), soonest first. |
-| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser | Who has registered for the event, earliest first, and who is on its waiting list. |
+| `POST` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: take the place held for the signed-in Attendee, until the event starts. |
+| `DELETE` | `/event-registrations/events/{event_id}/waiting-list/offer` | Attendee | S-55: decline it; the Attendee leaves the waiting list and the next in line is invited. |
+| `GET` | `/event-registrations/me/registrations` | Attendee | The events the signed-in Attendee is registered for, waiting for (S-52) or withdrew from (S-58), soonest first, with each held place's confirmed date, time and primary venue (S-56). |
+| `GET` | `/event-registrations/events/{event_id}/attendees` | the event's Organiser, or its assigned Coordinator (S-57) | Who is currently registered for the event, earliest first, and who is on its waiting list. |
 | `GET` | `/health`, `/event-registrations/health` | none | Liveness check. |
 
 ## Request
@@ -65,13 +68,17 @@ attendance, contacts or internal notes is ever included.
 **Registration** (`201` from `POST`, `200` from `GET`):
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null, "position": null}
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": true, "registered_at": "2026-11-05T04:00:00Z", "waitlisted": false, "joined_at": null, "position": null, "offered": false}
 ```
 
 `GET` answers `{"registered": false, "registered_at": null, ...}` when the
 Attendee holds no place, with `"waitlisted": true`, `joined_at` and
 `position` if they are on the waiting list. `position` (S-52) is their place
-in line, first come, first served: `1` is next.
+in line, first come, first served: `1` is next. `offered` (S-55) is `true`
+while a freed place is held for them.
+
+S-55: an open offer counts as a taken place, so the event's `is_full` stays
+`true` and newcomers are offered the waiting list, not a place.
 
 **Waiting list** (`201` from `POST /events/{event_id}/waiting-list`):
 
@@ -98,6 +105,19 @@ An event ending on a later day reads `20 Nov 2026, 6:00 pm – 21 Nov 2026,
 A`); none reads `venue to be confirmed`. Any refused or failed `POST` sends
 nothing. If the confirmation can't be built or stored after the place is
 recorded, the `POST` still answers `201` and the failure is only logged.
+
+**Registration updates (S-74).** The Attendee's other status changes are
+notified the same way, to the Attendee who made them, in the same request.
+None names a venue -- only a held place shows where (S-56):
+
+| Change | Kind | Deduplicated on | Message |
+| --- | --- | --- | --- |
+| `POST /events/{id}/waiting-list` | `waiting_list_joined` | the waiting-list entry | "You're on the waiting list for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. You're 2nd in line." (`next in line` when first) |
+| `DELETE /events/{id}/registration` | `registration_withdrawn` | the withdrawn registration | "You've withdrawn from Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm. Your place has been released." |
+| `DELETE /events/{id}/waiting-list/offer` | `waiting_list_offer_declined` | the declined entry | "You've declined the place at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, and left the waiting list." |
+
+A refused request sends nothing; a notice that can't be stored is logged and
+the change still stands. Moving up the waiting list is not notified.
 
 | Status | When | `detail` |
 | --- | --- | --- |
@@ -131,7 +151,10 @@ server's clock, opening is inclusive and closing is exclusive.
     "status": "confirmed",
     "registered_at": "2026-11-05T04:00:00Z",
     "joined_at": null,
-    "position": null
+    "position": null,
+    "withdrawn_at": null,
+    "details_confirmed": true,
+    "venue": "Seminar Room 2-1"
   },
   {
     "event_id": "88888888-8888-4888-8888-888888888888",
@@ -143,30 +166,69 @@ server's clock, opening is inclusive and closing is exclusive.
     "status": "waitlisted",
     "registered_at": null,
     "joined_at": "2026-11-06T04:00:00Z",
-    "position": 2
+    "position": 2,
+    "withdrawn_at": null,
+    "details_confirmed": true,
+    "venue": null
+  },
+  {
+    "event_id": "99999999-9999-4999-8999-999999999999",
+    "name": "Open lecture",
+    "start_date": "2026-11-28",
+    "start_time": "14:00:00",
+    "end_date": "2026-11-28",
+    "end_time": "16:00:00",
+    "status": "withdrawn",
+    "registered_at": null,
+    "joined_at": null,
+    "position": null,
+    "withdrawn_at": "2026-10-28T02:15:00Z",
+    "details_confirmed": true,
+    "venue": null
   }
 ]
 ```
 
 S-52: `status` is `confirmed` for a place and `waitlisted` for a waiting-list
-entry, which has `joined_at` and its place in line instead of
-`registered_at`. Only events that are still `confirmed` are listed. Answers `401` and `403`
-exactly as registering does.
+entry (S-55: `offered` when a freed place is held for it), which has `joined_at` and its place in line instead of
+`registered_at`.
+
+S-58: `withdrawn` for an event the Attendee gave up a place at, or declined
+an offered place for, with `withdrawn_at` (`null` on every other row).
+Registering or joining the waiting list again replaces it: an event appears
+once, as a place, else a waiting-list entry, else a withdrawal. A withdrawn
+row follows the held-place rules below and shows no venue. If withdrawals
+can't be read the route answers `502`, rather than a list missing them.
+
+S-56: `details_confirmed` is `true` while the event is `confirmed`. If a
+significant change sends it back for re-checking (`planning`,
+`pending_safety_check`, `safety_changes_requested`), a held place stays listed
+with `details_confirmed: false` and its dates, times and `venue` all `null`;
+a waiting-list entry is listed only while the event is `confirmed`. Cancelled
+and other events are not listed. `venue` is the primary venue, for a held
+place only: the confirmed booking made first (by `submitted_at`) until S-91
+records one, where a replacement booking (S-78) takes the place of the one it
+replaced. It is `null` while no booking is confirmed. Nothing else about the
+event or its bookings is included.
+
+Answers `401` and `403` exactly as registering does, and `502` "Bookings
+service unavailable" if the venue can't be read.
 
 **Withdrawal** (`200` from `DELETE /events/{event_id}/registration`): the
 Attendee's status afterwards, the same shape as the `GET`:
 
 ```json
-{"event_id": "22222222-2222-4222-8222-222222222222", "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null}
+{"event_id": "22222222-2222-4222-8222-222222222222", "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null, "offered": false}
 ```
 
 Allowed until the event's `start_date` + `start_time`, Singapore time, even
-after the registration period ends or the Organiser closes it. The
-registrations service gives the freed place to the Attendee who has waited
-longest, up to the event's `expected_attendance`. That Attendee gets one
-`waiting_list_promotion` notification: "A place opened up: you're now
-registered for {event}, {date and time}, at {venues}. Name: {name}. Email:
-{email}." Like the S-49 confirmation it is best effort: if it can't be built
+after the registration period ends or the Organiser closes it. S-55: the
+registrations service offers the freed place to the Attendee who has waited
+longest, up to the event's `expected_attendance`. They are **not** registered:
+the place is held for them until they accept or decline, with no expiry. They
+get one `waiting_list_offer` notification: "A place opened up at {event},
+{date and time}, at {venues}. It's held for you: accept it on the event page to
+register." Like the S-49 confirmation it is best effort: if it can't be built
 or stored, the failure is logged and the withdrawal still answers `200`.
 
 | Status | When | `detail` |
@@ -176,6 +238,23 @@ or stored, the failure is logged and the withdrawal still answers `200`.
 | `404` | Not a confirmed event | "Event not found." |
 | `404` | The Attendee holds no place (including only waiting) | "You're not registered for this event." |
 | `409` | The event has started | "This event has already started. You can no longer withdraw." |
+| `502` | Users, Events or Registrations did not answer | "Registrations service unavailable" (or Users, Events) |
+
+**Offer** (S-55). `POST /events/{event_id}/waiting-list/offer` takes the held
+place: `201` with the registration status (`"registered": true`), and the
+S-49 `registration_confirmation` notification. `DELETE` on the same path
+declines: `200` with `"registered": false, "waitlisted": false`, and the
+place is offered to the next in line, who gets a `waiting_list_offer`
+notification. Both are open until the event starts, whatever the
+registration period or an Organiser close says.
+
+| Status | When | `detail` |
+| --- | --- | --- |
+| `401` | Not signed in | "Sign in to respond to this offer." |
+| `403` | Not an Attendee | "Only attendee accounts can register for events." |
+| `404` | Not a confirmed event | "Event not found." |
+| `404` | No place is held for this Attendee | "You don't have a place on offer for this event." |
+| `409` | The event has started | "This event has already started. The place can no longer be taken." |
 | `502` | Users, Events or Registrations did not answer | "Registrations service unavailable" (or Users, Events) |
 
 **Event attendees** (`200` from `GET /events/{event_id}/attendees`):
@@ -204,14 +283,20 @@ or stored, the failure is logged and the withdrawal still answers `200`.
 ```
 
 With no registrations, `count` is `0` and `attendees` is `[]`; `waiting_list`
-is oldest first and `[]` when no one is waiting. Ownership is
-the events service's to decide; its answer is passed on:
+is oldest first and `[]` when no one is waiting. S-57: the list is read fresh
+on every request, and an Attendee who withdrew holds no place, so they are
+not in it.
+
+Who may see it is the events service's to decide, and its answer is passed
+on. The composite asks `GET /events/{event_id}` as the caller, which answers
+the owning Organiser; if that refuses with `403`, it asks
+`GET /events/assigned/{event_id}`, which answers the assigned Coordinator.
 
 | Status | When | `detail` |
 | --- | --- | --- |
 | `401` | Not signed in | "Sign in to see who has registered." |
-| `403` | Signed in, but not an Event Organiser | "Insufficient permissions" |
-| `404` | Missing, or another Organiser's event | "Event not found" |
+| `403` | Signed in, but neither an Event Organiser nor an Event Coordinator | "Insufficient permissions" |
+| `404` | Missing, another Organiser's event, or an event not assigned to this Coordinator | "Event not found" |
 | `502` | A service it depends on did not answer | "Events service unavailable" (or Users, Registrations) |
 
 ## Configuration

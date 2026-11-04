@@ -51,7 +51,7 @@ def test_the_attendees_status_gives_their_place_in_line(client, services):
     assert result.status_code == 200
     assert result.json() == {
         "event_id": EVENT_E, "registered": False, "registered_at": None,
-        "waitlisted": True, "joined_at": A_JOINED, "position": 2,
+        "waitlisted": True, "joined_at": A_JOINED, "position": 2, "offered": False,
     }
 
     services["registrations"].waiting[EVENT_E] = [_row(ATTENDEE_B, "2026-11-05T04:00:00Z")]
@@ -108,10 +108,11 @@ def test_the_attendees_dashboard_list_includes_the_waiting_list(client, services
     base_events = services["events"].get.side_effect
 
     async def events_get(path, **kwargs):
-        if path == f"/internal/events/published/{EVENT_G}":
-            return response(200, published(EVENT_G, name="Careers fair",
-                                           start_date="2026-11-10", start_time="10:00:00",
-                                           end_date="2026-11-10", end_time="16:00:00"))
+        if path == f"/internal/events/attendee-view/{EVENT_G}":
+            return response(200, {**published(EVENT_G, name="Careers fair",
+                                              start_date="2026-11-10", start_time="10:00:00",
+                                              end_date="2026-11-10", end_time="16:00:00"),
+                                   "status": "confirmed"})
         # H is no longer public: the default answer is 404.
         return await base_events(path, **kwargs)
 
@@ -125,12 +126,15 @@ def test_the_attendees_dashboard_list_includes_the_waiting_list(client, services
          "start_date": "2026-11-10", "start_time": "10:00:00",
          "end_date": "2026-11-10", "end_time": "16:00:00",
          "status": "confirmed", "registered_at": "2026-11-02T04:00:00Z",
-         "joined_at": None, "position": None},
+         "joined_at": None, "position": None, "withdrawn_at": None,
+         # S-56: G has no confirmed booking; a waiting-list entry shows no venue.
+         "details_confirmed": True, "venue": None},
         {"event_id": EVENT_E, "name": "Alumni networking evening",
          "start_date": "2026-11-20", "start_time": "18:00:00",
          "end_date": "2026-11-20", "end_time": "21:00:00",
          "status": "waitlisted", "registered_at": None,
-         "joined_at": A_JOINED, "position": 2},
+         "joined_at": A_JOINED, "position": 2, "withdrawn_at": None,
+         "details_confirmed": True, "venue": None},
     ]
     services["registrations"].get.assert_any_call(
         f"/registrations/waiting-list/attendees/{ATTENDEE_A}"

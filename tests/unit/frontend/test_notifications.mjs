@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   listNotifications,
   notificationErrorMessage,
+  notificationLink,
 } from '../../../frontend/src/lib/notifications.js'
 
 // --- TC-FRONTEND-094 -----------------------------------------------------
@@ -63,4 +64,56 @@ test('organiser and coordinator dashboards render the persistent inbox states', 
   assert.match(panel, /No notifications yet\./)
   assert.match(panel, /role="alert"/)
   assert.doesNotMatch(panel, /email|sms|push/i)
+})
+
+// --- TC-FRONTEND-279 -----------------------------------------------------
+test('the invitation links to its event', () => {
+  const event = '11111111-1111-4111-8111-111111111111'
+  assert.deepEqual(notificationLink({ kind: 'waiting_list_offer', event_id: event }), {
+    href: `/public/events/${event}`, label: 'View event',
+  })
+  assert.equal(notificationLink({ kind: 'registration_confirmation', event_id: event }), null)
+  assert.equal(notificationLink({ kind: 'event_assignment', event_id: event }), null)
+})
+
+// --- TC-FRONTEND-283 -----------------------------------------------------
+test('S-63 organiser outcomes remain readable in the existing inbox', () => {
+  const panel = readFileSync(
+    new URL('../../../frontend/src/components/NotificationPanel.jsx', import.meta.url),
+    'utf8',
+  )
+  const event = '11111111-1111-4111-8111-111111111111'
+  const kinds = [
+    'event_request_decision',
+    'venue_booking_decision',
+    'safety_check_outcome',
+    'event_schedule_changed',
+    'event_cancelled',
+  ]
+
+  assert.match(panel, /row\.message/)
+  for (const kind of kinds) {
+    assert.equal(notificationLink({ kind, event_id: event }), null, kind)
+  }
+})
+
+// --- TC-FRONTEND-286 -----------------------------------------------------
+test('S-68 attendee reschedule notices remain readable in the existing inbox', () => {
+  const dashboard = readFileSync(
+    new URL('../../../frontend/src/pages/Dashboard.jsx', import.meta.url),
+    'utf8',
+  )
+  const panel = readFileSync(
+    new URL('../../../frontend/src/components/NotificationPanel.jsx', import.meta.url),
+    'utf8',
+  )
+  const event = '11111111-1111-4111-8111-111111111111'
+
+  assert.match(
+    dashboard,
+    /role === 'event_organiser' \|\| role === 'attendee'\) && <NotificationPanel \/>/,
+  )
+  assert.match(panel, /row\.message/)
+  assert.match(panel, /listNotifications\(\)/)
+  assert.equal(notificationLink({ kind: 'event_schedule_changed', event_id: event }), null)
 })

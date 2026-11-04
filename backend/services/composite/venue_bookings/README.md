@@ -13,8 +13,8 @@ stored by the [`bookings`](../../atomic/bookings/README.md) service.
 | `bookings` — `POST /bookings`, `GET /bookings?status=pending`, `GET /bookings?event_id={id}` | Store and list requests |
 | `bookings` — `GET /bookings?venue_id&from&to`, `GET /blocks?venue_id&from&to`, `POST /blocks`, `DELETE /blocks/{id}` | S-30: the availability calendar and venue blocks |
 | `bookings` — `GET /bookings?status=live&from&venue_id`, `GET /blocks/{id}` | S-77: the bookings an unavailable period affects |
-| `events` — `GET /internal/events/assigned-active` | S-77: each affected event's current Coordinator |
-| `notifications` — `POST /internal/notifications` | Tell Coordinators about unavailable periods and tentative-hold expiry |
+| `events` — `GET /internal/events/assigned-active`, `GET /internal/events/{id}/notification-scope` | Current Coordinator and Organiser identities used by affected-booking and decision notifications |
+| `notifications` — `POST /internal/notifications` | Tell Coordinators and Organisers about unavailable periods, decisions, and tentative-hold expiry |
 | `venues` — `GET /venues`; `bookings` — `GET /bookings/{id}`, `POST /bookings/{id}/alternative-resolution` | S-78: replacement venues and resolutions |
 
 Reached through Kong at `/api/venue-bookings`.
@@ -47,6 +47,9 @@ all read attempts fail, the existing safe `502` response is returned.
 | `GET` | `/venue-bookings/{id}/replacement-venues` | `event_coordinator` | S-78: venues that could replace an affected (or, S-17, rejected) booking. See [S-78](#s-78-replacement-venues). |
 | `POST` | `/venue-bookings/{id}/replacement` | `event_coordinator` | S-78: request a replacement venue for an affected (or, S-17, rejected) booking. |
 | `POST` | `/venue-bookings/{id}/resolution` | `event_coordinator` | S-78: resolve an affected booking's flag with a note. |
+| `POST` | `/venue-bookings/{id}/restore` | `event_coordinator` | S-90: ask to keep the original booking once its venue is free again, while its replacement waits. See [S-90](#s-90-restoring-the-original-booking). |
+| `GET` | `/venue-bookings/restores` | `venue_staff` | S-90: open restore requests, each with the replacement confirming would withdraw. |
+| `POST` | `/venue-bookings/{id}/restore-decision` | `venue_staff` | S-90: confirm or decline a restore. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
 
 ## Requests
@@ -173,6 +176,29 @@ exactly as the bookings service returns them (see
 | `422` | `{"detail": "This venue can't take this booking", "errors": {...}}` | Refused by the checks above. |
 | `502` | `{"detail": "<Users\|Events\|Venues\|Bookings> service unavailable"}` | A downstream service could not be reached or failed. Nothing was saved. |
 
+### Change history (S-82)
+
+Once the bookings service has accepted an action, the composite sends one
+entry for it to the event's change history (Events
+`POST /internal/events/{event_id}/history`). The actor is the signed-in
+Coordinator or Venue Staff member. Refused and failed actions send nothing.
+
+| Route | `action` | `details` beyond `booking_id` and `venue_name` |
+| --- | --- | --- |
+| `POST /venue-bookings` | `venue_requested` | `start`, `end` |
+| `PATCH /venue-bookings/{id}` | `venue_request_changed` | `from`, `to`: each `{start, end, venue_name}` |
+| `DELETE /venue-bookings/{id}` | `venue_request_withdrawn` | — |
+| `POST /venue-bookings/{id}/replacement` | `venue_replacement_requested` | `replaces_booking_id`, `replaced_venue_name` |
+| `POST /venue-bookings/{id}/resolution` | `venue_alternative_resolved` | — |
+| `POST /venue-bookings/{id}/hold` | `venue_held` | — |
+| `POST /venue-bookings/{id}/release` | `venue_released` | — |
+| `POST /venue-bookings/{id}/decision` | `venue_confirmed` / `venue_rejected` | `reason`, `alternative` |
+
+Recording is best effort: if Events can't take the entry, the booking still
+changed, the route answers as usual, and the failure is logged at `ERROR`.
+An identical repeat of `POST /venue-bookings` saves nothing new and records
+nothing.
+
 ## Running it
 
 **First:** every schema it depends on applied and exposed in both the dev and
@@ -214,6 +240,14 @@ the caller and writes the final decision conditionally on `status=pending`.
 `decision_reason`, `decision_alternative`, `decided_by`, and `decided_at`.
 See the [atomic contract](../../atomic/bookings/README.md#s-37-decisions)
 for request/response examples, SQL migration and exact test commands.
+
+S-63 then sends the event's Organiser one idempotent
+`venue_booking_decision` notification. A confirmation identifies the venue
+and says that no action is required. A rejection includes the recorded reason
+and suggested alternative, when supplied, and tells the Organiser to work
+with the Event Coordinator on a replacement. If Events or Notifications is
+unavailable after the booking was saved, the endpoint returns `502`; retrying
+does not duplicate the persisted notice.
 
 Errors use `{"detail":"..."}`: 401 `Not authenticated`; 403 `Permission denied`;
 404 `Booking not found`; 409 `This booking request has already been decided`,
@@ -414,10 +448,13 @@ their Coordinators.
 - **Nothing is changed.** No booking is released, rejected or edited, and no
   event is cancelled or written to.
 - **Coordinators are told.** Each affected booking's event's **current**
-  Coordinator, from `GET /internal/events/assigned-active`, gets one
-  `venue_unavailable` notification:
+  Coordinator and owning Organiser, from
+  `GET /internal/events/assigned-active`, each get one `venue_unavailable`
+  notification:
   `"Studio B is unavailable from 13 Nov 2026 09:00 to 14 Nov 2026 17:00 (Equipment failure). Your booking on 13 Nov 2026 from 10:00 to 12:00 needs alternative arrangements."`
   Its deduplication key is `venue_unavailable:<block id>:<booking id>:<recipient id>`,
+  so each recipient gets one row. The Organiser's message also tells them to
+  review the event and work with the Event Coordinator on a replacement.
   sent in batches of at most 20. A booking whose event has no current
   Coordinator is still listed, but nobody is notified about it.
 - **A failure doesn't undo the period.** If the events or notifications
@@ -563,6 +600,69 @@ request, the booking it replaces:
 Tests: `pytest tests/unit/composite/venue_bookings`, then on a freshly
 recreated `.env.test` stack `pytest tests/integration/composite/venue_bookings`
 and `pytest tests/e2e/test_replace_affected_booking.py`.
+## S-90 restoring the original booking
+
+While a replacement (S-78) waits for Venue Staff, the original booking stays
+`held` or `confirmed` and keeps its slot. Once its venue is free again --
+Venue Staff deleted the unavailable period -- the Coordinator may keep it
+instead. No body on any of the three routes except the decision.
+
+### `POST /venue-bookings/{id}/restore`
+
+The event's assigned Coordinator. Offered only while the original is held or
+confirmed and a replacement for it is `pending` or `held`. The bookings
+service then checks the original venue is free for the whole window it
+occupies -- setup, event and turnaround, by the venue's current times -- with
+no other held or confirmed booking and no unavailable period. Nothing else
+changes until Venue Staff confirm. `200` with the original, now carrying
+`restore_requested_at` and `restore_requested_by`; the history records
+`venue_restore_requested`.
+
+| Status | `detail` | When |
+| --- | --- | --- |
+| `403` | `Permission denied` | Not an `event_coordinator`. |
+| `404` | `Booking not found` | No such booking, or the event isn't the caller's. |
+| `409` | `Restore is only possible while a replacement is waiting for Venue Staff.` | No pending or held replacement, or the original isn't held or confirmed. |
+| `409` | `This event's venue bookings can no longer be changed` | The event is cancelled, rejected or over. |
+| `409` | `Studio B is unavailable from 12 Nov 2026 12:30 to 12 Nov 2026 14:00.` | An unavailable period overlaps the occupied window. |
+| `409` | `Studio B is already confirmed on 12 Nov 2026 from 13:00 to 14:00. With 30 min setup and 45 min turnaround it is in use until 14:45.` | Another booking is within the gap. |
+| `409` | `A restore has already been requested for this booking` | Asked twice. |
+| `502` | `Bookings service unavailable` | The bookings service failed. |
+
+### `GET /venue-bookings/restores`
+
+Venue Staff. Every open restore request, oldest first, each with the
+replacement confirming would withdraw:
+
+```json
+[{"id": "aaaaaaaa-…", "venue_name": "Studio B", "event_name": "Alumni networking evening",
+  "booking_date": "2026-11-12", "start_time": "10:00:00", "end_time": "12:00:00",
+  "status": "confirmed", "restore_requested_at": "2026-11-01T02:00:00Z",
+  "replacement": {"id": "11111111-…", "venue_name": "Hall C", "booking_date": "2026-11-12",
+                  "start_time": "10:00:00", "end_time": "12:00:00", "status": "pending"}}]
+```
+
+### `POST /venue-bookings/{id}/restore-decision`
+
+Venue Staff. Body `{"decision": "approved"}` or `{"decision": "declined"}`.
+
+- **Approved:** checked again by the venue's current setup and turnaround
+  (the refusal names the booking in the way, as S-76's do). Every pending or
+  held replacement of the original becomes `withdrawn` (with `withdrawn_at`;
+  it reserves nothing). The original keeps its status, its request clears,
+  and it is resolved for the Coordinator who asked, with the note "Restored
+  to the original venue" -- so `requires_alternative_arrangements` stays
+  false. History: `venue_restore_confirmed`.
+- **Declined:** only the request clears. History: `venue_restore_declined`.
+
+`200` `{"booking": <the original>, "withdrawn": [<each replacement withdrawn>]}`.
+`409` with the bookings service's `detail` when the venue isn't free, there is
+no request to decide, or the original was replaced first. `422` for any other
+decision.
+
+If Venue Staff confirm the replacement first, the original becomes `replaced`
+as before and its restore request clears with it.
+
 ## S-25 venue preparation
 
 `GET /venue-bookings/preparation` is Venue Staff only. It returns confirmed
@@ -579,3 +679,18 @@ Run unit tests with `python -m pytest tests/unit/composite/venue_bookings`.
 After applying the S-25 bookings migration to the test project and recreating
 the `.env.test` stack, run
 `python -m pytest tests/integration/composite/venue_bookings`.
+
+## S-91 primary venue
+
+`PUT /venue-bookings/{id}/primary` lets only the Coordinator assigned to the
+booking's event designate that confirmed booking as the attendee-facing
+primary venue. It returns the booking with `is_primary: true`; `401`, `403`,
+`404`, and `409` retain their usual authentication, ownership, missing-row,
+and non-confirmed meanings.
+
+`GET /venue-bookings?event_id={id}` is available to the assigned Coordinator
+and the Event Organiser who owns the event. Both receive every venue booking,
+including `is_primary`, `primary_selected_by`, and `primary_selected_at`.
+Attendee-facing services do not use this full projection: they expose only a
+booking that is both confirmed and primary, or “Venue to be confirmed” while
+the Coordinator still needs to choose one.

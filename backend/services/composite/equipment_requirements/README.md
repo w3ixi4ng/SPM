@@ -1,7 +1,7 @@
 # Equipment requirements service
 
-Composite service for S-40, the S-43 Technical Support visibility flow and
-S-17 Technical Support sign-off. It
+Composite service for S-40, the S-43 Technical Support visibility flow,
+S-17 Technical Support sign-off and S-71 affected-event notifications. It
 verifies the signed-in user with `users`, asks `events` for the caller's
 current assignment, then reads or stores requirements through the `equipment`
 atomic service. It owns no database.
@@ -16,6 +16,8 @@ atomic service. It owns no database.
 | `DELETE` | `/equipment-requirements/{event_id}/{equipment_item_id}?impact_accepted=true` | Coordinator | Remove a requirement after accepting its impact while the assigned event is in planning. Clears the S-17 sign-off first. |
 | `POST` | `/equipment-requirements/{event_id}/sign-off` | Technical Support | S-17: approve or decline the event's equipment arrangements. See [Sign-off](#sign-off-s-17). |
 | `GET` | `/equipment-requirements/availability` | Technical Support | S-44: how many of each active item are free for a window. See [Availability check](#availability-check-s-44). |
+| `PUT` | `/equipment-requirements/equipment/{equipment_item_id}` | Technical Support | S-71: update a catalogue item and notify current Coordinators of newly affected confirmed/preparation events. |
+| `POST` | `/equipment-requirements/equipment/{equipment_item_id}/retire` | Technical Support | S-71: retire an item and notify current Coordinators of newly affected confirmed/preparation events. |
 
 ## Request
 
@@ -55,6 +57,7 @@ Successful writes and reads return an equipment requirement:
     "id": "22222222-2222-4222-8222-222222222222",
     "type": "Wireless Microphone",
     "description": "Handheld wireless microphone",
+    "storage_location": "Store B, Shelf 4",
     "total_quantity": 12,
     "operational_status": "available",
     "lifecycle_status": "active"
@@ -67,6 +70,27 @@ Successful writes and reads return an equipment requirement:
 role, `404` for a missing/unassigned event or item, `409` outside planning,
 `422` for invalid input, and `502` when a dependency is unavailable. A write
 without accepted impact returns `409` before the equipment service is called.
+
+S-82: once the equipment service has accepted a change, the composite sends
+it to the event's change history (Events
+`POST /internal/events/{event_id}/history`): `equipment_requirement_set` or
+`equipment_requirement_removed`, by the Coordinator, with `details`
+`{"equipment_item_id", "item_name", "from_quantity", "to_quantity"}`
+(`from_quantity` is `null` for a new requirement and `to_quantity` is `null`
+for a removal). The current requirement is read first, so a `502` from that
+read stops the change before anything is written. Saving the same quantity
+again records nothing. Recording is best effort: if Events can't take the
+entry, the change stands and the failure is logged at `ERROR`. Technical
+Support's sign-off and preparation status are recorded by Events itself.
+
+S-71 catalogue updates and retirement return the saved equipment item plus
+`availability_notifications_sent`. A value of `true` means there were no
+newly affected events or every notice was accepted; `false` means the
+catalogue change is already stored but the notification dependency failed.
+Only `confirmed` and `preparation` events are considered. The composite reads
+their current assignments and requirements, detects events that became short,
+then sends one idempotent `equipment_unavailable` notice per event. Type,
+description and storage-location edits never enter that calculation.
 
 ## Running
 
@@ -159,7 +183,8 @@ Nothing is cached: each call reads live data and returns `checked_at`.
   "quantity": 3,
   "items": [
     {
-      "id": "…", "type": "Wireless Microphone", "operational_status": "available",
+      "id": "…", "type": "Wireless Microphone", "storage_location": "Store B, Shelf 4",
+      "operational_status": "available",
       "total": 12, "reserved": 10, "unavailable": 0, "available": 2,
       "over_reserved": false, "sufficient": false,
       "reservations": [
@@ -174,6 +199,9 @@ Nothing is cached: each call reads live data and returns `checked_at`.
 
 Items are in type order; each item's `reservations` in event start order.
 `sufficient` is `null` when no `quantity` was given.
+`storage_location` is passed through for display only. It changes none of
+`reserved`, `unavailable`, `available`, `over_reserved`, or `sufficient`, and
+the composite makes no call to the venues service.
 
 | Status | Body | Meaning |
 | --- | --- | --- |

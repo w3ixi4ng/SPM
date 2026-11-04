@@ -308,3 +308,58 @@ def test_retirement_is_idempotent_and_preserves_existing_requirement(
         repeated = gateway.post(f"/equipment/{item_id}/retire")
         assert repeated.status_code == 200, repeated.text
         assert repeated.json() == first_retired
+
+
+# --- TC-EQUIPMENT-105 ----------------------------------------------------
+def test_storage_location_round_trips_and_can_be_cleared(
+    admin, make_session, equipment_ids
+):
+    staff = make_session("technical_support")
+    item = {
+        "type": f"spm-test S92 Projector {uuid.uuid4().hex[:8]}",
+        "description": "S-92 integration item",
+        "storage_location": "Store B, Shelf 4",
+        "total_quantity": 3,
+    }
+
+    with httpx.Client(
+        base_url=GATEWAY_BASE_URL, timeout=15.0, headers=staff["headers"]
+    ) as gateway:
+        created = gateway.post("/equipment", json=item)
+        assert created.status_code == 201, created.text
+        saved = created.json()
+        equipment_ids.append(saved["id"])
+        assert saved["storage_location"] == "Store B, Shelf 4"
+
+        updated_payload = {
+            "type": item["type"],
+            "description": item["description"],
+            "storage_location": "AV Cage, Rack 2",
+            "total_quantity": item["total_quantity"],
+            "operational_status": "available",
+        }
+        updated = gateway.put(f"/equipment/{saved['id']}", json=updated_payload)
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["storage_location"] == "AV Cage, Rack 2"
+
+        catalogue = gateway.get("/equipment")
+        assert catalogue.status_code == 200, catalogue.text
+        row = next(entry for entry in catalogue.json() if entry["id"] == saved["id"])
+        assert row["storage_location"] == "AV Cage, Rack 2"
+
+        cleared = gateway.put(
+            f"/equipment/{saved['id']}",
+            json={**updated_payload, "storage_location": None},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["storage_location"] is None
+
+    stored = (
+        admin.schema("equipment")
+        .table("equipment")
+        .select("storage_location")
+        .eq("id", saved["id"])
+        .execute()
+        .data
+    )
+    assert stored == [{"storage_location": None}]

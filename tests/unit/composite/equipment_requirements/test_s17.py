@@ -163,8 +163,11 @@ def test_signoff_limited_to_assigned_support(client, services):
 @pytest.mark.parametrize("action", ["put", "delete"])
 def test_requirement_change_clears_signoff(client, services, action):
     order = []
+    # S-82: the change's history entry is posted to Events after the write.
     services.events.post = AsyncMock(
-        side_effect=lambda *a, **k: order.append("clear") or services.cleared
+        side_effect=lambda path, **k: order.append(
+            "history" if path.endswith("/history") else "clear"
+        ) or services.cleared
     )
     # The browser DELETE is implemented by the audited atomic POST route.
     write = services.equipment.put if action == "put" else services.equipment.post
@@ -182,10 +185,9 @@ def test_requirement_change_clears_signoff(client, services, action):
         response = client.delete(path, params={"impact_accepted": True})
         assert response.status_code == 204, response.text
 
-    assert order == ["clear", "write"]
-    services.events.post.assert_awaited_once_with(
-        f"/internal/events/{EVENT_ID}/technical-signoff/clear"
-    )
+    assert order == ["clear", "write", "history"]
+    clears = [call for call in services.events.post.await_args_list if call.args[0].endswith("/clear")]
+    assert [call.args for call in clears] == [(f"/internal/events/{EVENT_ID}/technical-signoff/clear",)]
 
 
 # --- TC-EQUIPMENTREQUIREMENTS-029 -----------------------------------------

@@ -22,6 +22,10 @@ physical unit. It also owns the event-to-item relationship in
 | `DELETE` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}` | Equipment requirements composite | Delete one event/item relationship. |
 | `PUT` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}/audited` | Equipment requirements composite | Atomically upsert a requirement and append its S-18 history. |
 | `POST` | `/internal/equipment-requirements/{event_id}/{equipment_item_id}/remove-audited` | Equipment requirements composite | Atomically remove a requirement and append its S-18 history. |
+| `POST` | `/internal/equipment-requirements/change-batches` | Trusted `event_requests` service | Apply one versioned, idempotent S-60 requirement batch. |
+| `GET` | `/internal/equipment-requirements/change-batches/{operation_id}` | Trusted `event_requests` service | Inspect a durable batch during recovery. |
+| `POST` | `/internal/equipment-requirements/change-batches/{operation_id}/finish` | Trusted `event_requests` service | Finalize an applied batch after Events accepts. |
+| `POST` | `/internal/equipment-requirements/change-batches/{operation_id}/abort` | Trusted `event_requests` service | Conditionally restore a still-owned batch after Events rejects finalization. |
 
 ## Request
 
@@ -31,6 +35,7 @@ physical unit. It also owns the event-to-item relationship in
 | --- | --- | --- | --- |
 | `type` | string | Yes | Must contain non-whitespace text. |
 | `description` | string or null | No | Blank text becomes null. |
+| `storage_location` | string or null | No | Storage description up to 200 characters; surrounding whitespace is removed and blank becomes null. |
 | `total_quantity` | integer | Yes | Positive whole number. |
 
 The service sets `operational_status="available"`,
@@ -43,6 +48,7 @@ Clients cannot choose these values.
 | --- | --- | --- | --- |
 | `type` | string | Yes | Must contain non-whitespace text. |
 | `description` | string or null | No | Blank text becomes null. |
+| `storage_location` | string or null | No | Storage description up to 200 characters; surrounding whitespace is removed and blank becomes null. |
 | `total_quantity` | integer | Yes | Positive whole number. |
 | `operational_status` | string | Yes | Exactly `available`, `unavailable`, or `maintenance`. |
 
@@ -73,6 +79,30 @@ No-op saves create no duplicate history. Each change records its action,
 before and after quantities, authenticated Coordinator, and server time for
 future S-82 aggregation.
 
+### S-60 versioned requirement batches
+
+The four `change-batches` routes require `X-Assignment-Service-Token` equal
+to the server-side `ASSIGNMENT_SERVICE_SECRET`.
+`POST /internal/equipment-requirements/change-batches` takes
+`operation_id`, `event_id`, `actor_id`, and sorted `baseline` and `proposed`
+arrays of `{equipment_item_id, required_quantity}`. It returns the durable
+operation row with `status: "applied"`. The Equipment SQL function compares
+the live requirement set to the baseline, validates changed items, and writes
+the batch and S-82 requirement history in one transaction. Repeating the same
+operation returns its prior result; a changed payload or stale baseline gets
+`409`. A duplicate item or invalid quantity gets `422`.
+
+`GET /internal/equipment-requirements/change-batches/{operation_id}` returns
+the operation row for recovery.
+`POST /internal/equipment-requirements/change-batches/{operation_id}/finish`
+changes `applied` to `finalized` after Events commits acceptance.
+`POST /internal/equipment-requirements/change-batches/{operation_id}/abort`
+may restore the original rows only if the operation still owns the exact
+proposed snapshot; otherwise it returns `409` for controlled reconciliation.
+Both finish and abort are idempotent in their own terminal state. An unknown
+operation returns `404`; a missing or wrong service token returns `503` or
+`403` respectively. These routes are not exposed through Kong.
+
 ## Response
 
 Creation returns `201`; reads and updates return `200`. An item has this shape:
@@ -82,6 +112,7 @@ Creation returns `201`; reads and updates return `200`. An item has this shape:
   "id": "22222222-2222-4222-8222-222222222222",
   "type": "Wireless Microphone",
   "description": "Handheld wireless microphone with receiver",
+  "storage_location": "Store B, Shelf 4",
   "total_quantity": 12,
   "operational_status": "available",
   "lifecycle_status": "active",
@@ -106,6 +137,10 @@ Errors:
 Run `backend/sql/equipment.sql` in the SQL Editor of both dev and test
 projects, then add `equipment` under **Data API → Settings → Exposed schemas**.
 Both the exposure and the SQL grants are required.
+
+For an existing installation, the block from `BEGIN S-92` through `END S-92`
+adds the optional storage location without changing existing catalogue rows.
+The field is descriptive and is never used in availability calculations.
 
 ## Running
 

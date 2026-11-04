@@ -43,7 +43,11 @@ RoomLayout = Literal[
 # S-36 creates pending requests; S-37 records final staff decisions. S-78: a
 # booking whose replacement is confirmed becomes `replaced`. Keep in step with
 # backend/sql/bookings.sql.
-BookingStatus = Literal["pending", "held", "confirmed", "rejected", "replaced"]
+# S-89: `released` -- its event was cancelled; kept as history, reserves nothing.
+# S-90: `withdrawn` -- a replacement given up when its original was restored.
+BookingStatus = Literal[
+    "pending", "held", "confirmed", "rejected", "replaced", "released", "withdrawn"
+]
 VenuePreparationStatus = Literal["not_started", "in_progress", "ready"]
 HoldReleaseReason = Literal[
     "staff_released",
@@ -164,6 +168,9 @@ class BookingRead(BaseModel):
     venue_preparation_updated_by: UUID | None = None
     venue_preparation_updated_at: datetime | None = None
     venue_preparation_version: int = 0
+    is_primary: bool = False
+    primary_selected_by: UUID | None = None
+    primary_selected_at: datetime | None = None
     id: UUID
     event_id: UUID
     venue_id: UUID
@@ -191,6 +198,38 @@ class BookingRead(BaseModel):
     alternative_resolved_at: datetime | None = None
     alternative_resolved_by: UUID | None = None
     alternative_resolution_note: str | None = None
+    # S-89
+    released_at: datetime | None = None
+    released_by: UUID | None = None
+    release_reason: Literal["event_cancelled"] | None = None
+    # S-90
+    restore_requested_at: datetime | None = None
+    restore_requested_by: UUID | None = None
+    withdrawn_at: datetime | None = None
+
+
+class EventBookingsRelease(BaseModel):
+    """S-89: why every booking of an event is released, and the cancellation
+    operation doing it. Who and when are set by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["event_cancelled"]
+    operation_id: UUID
+
+
+class EventBookingsClosure(EventBookingsRelease):
+    """S-89: the intent to close an event's bookings, recorded before the
+    event is cancelled."""
+
+
+class EventBookingsReopen(BaseModel):
+    """S-89: withdraw this operation's closure intent; its cancellation did
+    not happen."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
 
 
 class VenuePreparationUpdate(BaseModel):
@@ -324,3 +363,19 @@ class AlternativeResolution(BaseModel):
     @classmethod
     def strip_note(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+class RestoreDecision(BaseModel):
+    """S-90: Venue Staff confirm or decline a Coordinator's request to keep
+    the original booking. Who decided and when are not stored on it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "declined"]
+
+
+class RestoreOutcome(BaseModel):
+    """S-90: the original as it now stands, and the replacements withdrawn."""
+
+    booking: BookingRead
+    withdrawn: list[BookingRead]

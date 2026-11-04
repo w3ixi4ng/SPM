@@ -43,7 +43,8 @@ def test_request_insert_passes_only_validated_fields_to_events_schema(client, db
     assert response.status_code == 201
     assert response.json()["status"] == "pending"
     db.schema.assert_called_with("events")
-    assert db.schema.return_value.table.call_args.args[0] == "reassignment_requests"
+    tables = [call.args[0] for call in db.schema.return_value.table.call_args_list]
+    assert "reassignment_requests" in tables
     inserted = db.schema.return_value.table.return_value.insert.call_args.args[0]
     assert inserted == {
         "event_id": EVENT_ID, "requester_id": COORDINATOR_A,

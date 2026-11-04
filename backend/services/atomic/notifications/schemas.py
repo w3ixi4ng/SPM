@@ -8,9 +8,22 @@ NotificationKind = Literal[
     "event_assignment",
     "event_reassignment",
     "venue_unavailable",
+    "equipment_unavailable",
     "venue_hold_expiry",
     "registration_confirmation",
     "waiting_list_promotion",
+    "waiting_list_offer",
+    # S-69: an event an Attendee registered or waited for was cancelled.
+    "event_cancelled",
+    # S-74: an Attendee joined a waiting list, withdrew, or declined an offer.
+    "waiting_list_joined",
+    "registration_withdrawn",
+    "waiting_list_offer_declined",
+    # S-63: important decisions and changes sent to the Event Organiser.
+    "event_request_decision",
+    "venue_booking_decision",
+    "safety_check_outcome",
+    "event_schedule_changed",
 ]
 
 

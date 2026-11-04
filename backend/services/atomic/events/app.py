@@ -1,8 +1,9 @@
 import logging
 from datetime import date, datetime, time, timezone
+from typing import Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -28,6 +29,13 @@ from schemas import (
     CoordinatorEventRead,
     EventInformationImpact,
     EventInformationUpdate,
+    EventChangeValues,
+    EventChangeRequestRead,
+    ChangeImpactPrepare,
+    ChangeImpactComplete,
+    ChangeRequestReject,
+    ChangeImpactResolve,
+    InternalEventChangeCreate,
     EventOptions,
     EquipmentPreparationUpdate,
     EventRead,
@@ -49,12 +57,23 @@ from schemas import (
     OverlappingEvent,
     OverlappingEventsRequest,
     PublishedEventRead,
+    AttendeeEventRead,
     REGISTRATION_FIELDS,
     TechnicalSupportLoad,
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
+    VenueCancellationCreate,
+    EVENT_HISTORY_ACTIONS,
+    HISTORY_CATEGORIES,
+    SAFETY_EDIT_FIELDS,
+    SAFETY_HISTORY_CATEGORIES,
+    HistoryEntryCreate,
+    HistoryEntryRead,
+    HistoryScopeRead,
+    NotificationScopeRead,
 )
 from security import clear_session_cookies
+from security import get_current_user
 
 app = FastAPI(title="Events Service")
 logger = logging.getLogger(__name__)
@@ -62,6 +81,14 @@ logger = logging.getLogger(__name__)
 SCHEMA = "events"
 TABLE = "events"
 REASSIGNMENT_TABLE = "reassignment_requests"
+HISTORY_TABLE = "event_history"
+
+CHANGE_REQUEST_TABLE = "change_requests"
+CHANGE_REQUEST_STATUSES = frozenset({
+    "submitted", "under_review", "returned", "planning",
+    "pending_safety_check", "confirmed", "preparation",
+})
+CHANGE_REQUEST_FIELDS = frozenset(EventChangeValues.model_fields)
 # S-93: every assigned, nonterminal lifecycle state remains open work until
 # a responsible Lead transfers it or the owning workflow closes it.
 ACTIVE_ASSIGNMENT_STATUSES = [
@@ -120,11 +147,25 @@ def _execute(operation):
     try:
         return operation.execute()
     except Exception as exc:
+        if getattr(exc, "code", None) == "23514" and "Event change acceptance is in progress" in str(exc):
+            raise HTTPException(status_code=409, detail="Event change acceptance is in progress") from exc
         logger.exception("Event storage operation failed", exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Event storage unavailable",
         ) from exc
+
+
+def _execute_safety_transition(operation):
+    try:
+        return operation.execute()
+    except Exception as exc:
+        if getattr(exc, "code", None) == "23514" and "Resolve change impacts" in str(exc):
+            raise HTTPException(status_code=409, detail="Resolve change impacts before safety submission") from exc
+        if getattr(exc, "code", None) == "23514" and "Event change acceptance is in progress" in str(exc):
+            raise HTTPException(status_code=409, detail="Event change acceptance is in progress") from exc
+        logger.exception("Event safety transition failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
 
 
 def _submitted_now() -> str:
@@ -204,6 +245,28 @@ def _decided_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _record(db: Client, event_id, actor_id, actor_role: str, action: str, details: dict | None = None) -> None:
+    """S-82: append one entry to the event's change history.
+
+    Called only after the action's own write succeeded. Best effort, by the
+    developer's decision: the action has already taken effect, so a failed
+    entry is logged rather than turned into an error the caller can't act on.
+    The database sets occurred_at.
+    """
+    row = {
+        "event_id": str(event_id),
+        "actor_id": str(actor_id),
+        "actor_role": actor_role,
+        "category": EVENT_HISTORY_ACTIONS[action],
+        "action": action,
+        "details": details or {},
+    }
+    try:
+        db.schema(SCHEMA).table(HISTORY_TABLE).insert(row).execute()
+    except Exception as exc:
+        logger.error("Could not record %s in the history of event %s", action, event_id, exc_info=exc)
+
+
 @app.get("/health")
 @app.get("/events/health", include_in_schema=False)
 def health():
@@ -233,7 +296,9 @@ def create_submitted_event(
     user=Depends(require_permission("events:create")),
     db: Client = Depends(get_db),
 ):
-    return _insert_event(payload, "submitted", str(user.id), db)
+    event = _insert_event(payload, "submitted", str(user.id), db)
+    _record(db, event["id"], user.id, "event_organiser", "submitted")
+    return event
 
 
 @app.get("/events", response_model=list[EventRead])
@@ -365,6 +430,7 @@ def preview_event_information_update(
 def update_assigned_event_information(
     event_id: UUID,
     payload: EventInformationUpdate,
+    x_assignment_service_token: str | None = Header(default=None),
     user=Depends(require_permission("events:update_assigned")),
     db: Client = Depends(get_db),
 ):
@@ -384,6 +450,14 @@ def update_assigned_event_information(
             status_code=409,
             detail="Review and accept the significant event changes before saving",
         )
+    if significant:
+        require_assignment_service(x_assignment_service_token)
+        if any(item.get("status") not in {"outstanding", "informational"} or not item.get("id") or not item.get("reason") for item in payload.impact_items):
+            raise HTTPException(status_code=422, detail="Invalid impact assessment")
+        current_ids = {item.get("id") for item in existing.get("s60_edit_impacts") or []}
+        incoming_ids = {item.get("id") for item in payload.impact_items}
+        if len(incoming_ids) != len(payload.impact_items) or current_ids & incoming_ids:
+            raise HTTPException(status_code=409, detail="Impact assessment changed; reload before editing")
 
     changed_at = datetime.now(timezone.utc).isoformat()
     history = list(existing.get("edit_history") or [])
@@ -395,6 +469,13 @@ def update_assigned_event_information(
     })
     values = {field: change["after"] for field, change in changed.items()}
     values.update({"edit_version": current_version + 1, "edit_history": history})
+    if significant:
+        values.update({
+            "s60_edit_impacts": list(existing.get("s60_edit_impacts") or []) + [
+                {**item, "flagged_at": changed_at} for item in payload.impact_items
+            ],
+            "s60_edit_impact_version": int(existing.get("s60_edit_impact_version") or 0) + 1,
+        })
     if significant and existing["status"] in {"confirmed", "preparation"}:
         values.update({
             "status": "planning",
@@ -415,6 +496,10 @@ def update_assigned_event_information(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail="The event changed. Reload before editing again")
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", "edited",
+        {"changes": changed, "significant": bool(significant)},
+    )
     return result.data[0]
 
 
@@ -457,7 +542,7 @@ def update_equipment_preparation(
     db: Client = Depends(get_db),
 ):
     staff_id = str(user.id)
-    _get_support_assigned_event(event_id, staff_id, db)
+    existing = _get_support_assigned_event(event_id, staff_id, db)
     values = {
         "equipment_preparation_status": payload.status.value,
         "equipment_preparation_updated_by": staff_id,
@@ -476,6 +561,12 @@ def update_equipment_preparation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The event assignment or status changed. Reload and try again.",
+        )
+    before = existing.get("equipment_preparation_status")
+    if before != payload.status.value:
+        _record(
+            db, event_id, staff_id, "technical_support", "equipment_preparation_changed",
+            {"from": before, "to": payload.status.value},
         )
     return result.data[0]
 
@@ -523,6 +614,30 @@ def get_published_event(event_id: UUID, db: Client = Depends(get_db)):
         .select(_PUBLISHED_COLUMNS)
         .eq("id", str(event_id))
         .eq("status", "confirmed")
+    )
+    result = _execute(operation)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found.")
+    return result.data[0]
+
+
+# S-56: what an event's registered Attendees see. Confirmed details are shown;
+# an event a significant S-18 change sent back for re-checking stays on their
+# list as "to be confirmed". Anything else is not theirs to see.
+ATTENDEE_VISIBLE_STATUSES = [
+    "confirmed", "planning", "pending_safety_check", "safety_changes_requested",
+]
+_ATTENDEE_COLUMNS = ",".join(AttendeeEventRead.model_fields)
+
+
+@app.get("/internal/events/attendee-view/{event_id}", response_model=AttendeeEventRead)
+def get_attendee_event(event_id: UUID, db: Client = Depends(get_db)):
+    operation = (
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .select(_ATTENDEE_COLUMNS)
+        .eq("id", str(event_id))
+        .in_("status", ATTENDEE_VISIBLE_STATUSES)
     )
     result = _execute(operation)
     if not result.data:
@@ -734,6 +849,8 @@ def record_safety_decision(
     only one update can match and the loser receives 409 without overwrite.
     """
     current = _safety_review_event(event_id, db)
+    if datetime.fromisoformat(current["updated_at"].replace("Z", "+00:00")) != payload.expected_event_updated_at:
+        raise HTTPException(status_code=409, detail="This Operational Safety Check changed; reload before deciding")
     decided_at = datetime.now(timezone.utc).isoformat()
     history = list(current.get("safety_review_history") or [])
     history.append(
@@ -759,6 +876,7 @@ def record_safety_decision(
         .update(values)
         .eq("id", str(event_id))
         .eq("status", "pending_safety_check")
+        .eq("updated_at", payload.expected_event_updated_at.isoformat())
         .is_("safety_decision", "null")
     )
     result = _execute(operation)
@@ -767,6 +885,10 @@ def record_safety_decision(
             status_code=409,
             detail="This Operational Safety Check has already been decided",
         )
+    _record(
+        db, event_id, payload.safety_officer_id, "safety_officer", f"safety_{payload.decision.value}",
+        {"reason": payload.reason},
+    )
     return result.data[0]
 
 
@@ -805,6 +927,8 @@ def resubmit_safety_returned_event(
     """
 
     _safety_returned_event(event_id, payload.coordinator_id, db)
+    if _unresolved_change_impacts(event_id, db):
+        raise HTTPException(status_code=409, detail="Resolve change impacts before safety resubmission")
     values = {
         "status": "pending_safety_check",
         "safety_decision": None,
@@ -821,12 +945,13 @@ def resubmit_safety_returned_event(
         .eq("safety_decision", "changes_requested")
         .eq("assigned_coordinator_id", str(payload.coordinator_id))
     )
-    result = _execute(operation)
+    result = _execute_safety_transition(operation)
     if not result.data:
         raise HTTPException(
             status_code=409,
             detail="The event changed before it could be resubmitted for safety review",
         )
+    _record(db, event_id, payload.coordinator_id, "event_coordinator", "safety_resubmitted")
     return result.data[0]
 
 
@@ -853,6 +978,8 @@ def submit_for_safety_check(
             status_code=409,
             detail="This event was returned by the Safety Officer. Resubmit it from the safety feedback.",
         )
+    if _unresolved_change_impacts(event_id, db):
+        raise HTTPException(status_code=409, detail="Resolve change impacts before safety submission")
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
@@ -865,9 +992,10 @@ def submit_for_safety_check(
         .eq("assigned_coordinator_id", str(payload.coordinator_id))
         .is_("safety_decision", "null")
     )
-    result = _execute(operation)
+    result = _execute_safety_transition(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NOT_IN_PLANNING)
+    _record(db, event_id, payload.coordinator_id, "event_coordinator", "safety_submitted")
     return result.data[0]
 
 
@@ -913,6 +1041,10 @@ def record_technical_signoff(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_SIGNOFF_ONLY_IN_PLANNING)
+    _record(
+        db, event_id, staff_id, "technical_support", f"technical_signoff_{payload.decision.value}",
+        {"reason": payload.reason},
+    )
     return result.data[0]
 
 
@@ -932,6 +1064,103 @@ def clear_technical_signoff(event_id: UUID, db: Client = Depends(get_db)):
     return result.data[0]
 
 
+def _require_event(event_id: UUID, db: Client) -> None:
+    result = _execute(db.schema(SCHEMA).table(TABLE).select("id").eq("id", str(event_id)))
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+
+@app.post(
+    "/internal/events/{event_id}/history",
+    response_model=HistoryEntryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def append_history(event_id: UUID, payload: HistoryEntryCreate, db: Client = Depends(get_db)):
+    """S-82: a venue or equipment action from its composite. There is
+    deliberately no route that changes or deletes an entry."""
+    _require_event(event_id, db)
+    row = payload.model_dump(mode="json")
+    row.update({"event_id": str(event_id), "category": HISTORY_CATEGORIES[payload.action]})
+    return _execute(db.schema(SCHEMA).table(HISTORY_TABLE).insert(row)).data[0]
+
+
+def _safety_entry(entry: dict) -> dict | None:
+    """The part of an entry the Safety Officer sees, or None for none of it."""
+    if entry["action"] == "change_request_accepted":
+        details = entry.get("details") or {}
+        before = details.get("before") or {}
+        after = details.get("after") or {}
+        changed = {
+            field: {"before": before.get(field), "after": after.get(field)}
+            for field in SAFETY_EDIT_FIELDS | {"start_date", "start_time", "end_date", "end_time"}
+            if before.get(field) != after.get(field)
+        }
+        if changed or details.get("impacts"):
+            return {**entry, "category": "safety", "details": {"changes": changed}}
+        return None
+    if entry["action"] == "change_impact_resolved":
+        return {**entry, "category": "safety"}
+    if entry["category"] in SAFETY_HISTORY_CATEGORIES:
+        return entry
+    if entry["category"] != "edit":
+        return None
+    changes = (entry.get("details") or {}).get("changes") or {}
+    kept = {field: change for field, change in changes.items() if field in SAFETY_EDIT_FIELDS}
+    if not kept:
+        return None
+    return {**entry, "details": {**entry["details"], "changes": kept}}
+
+
+@app.get("/internal/events/{event_id}/notification-scope", response_model=NotificationScopeRead)
+def read_notification_scope(event_id: UUID, db: Client = Depends(get_db)):
+    """S-63: minimal internal event identity for composite notifications."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,organiser_id,name,status,assigned_coordinator_id")
+        .eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result.data[0]
+
+
+@app.get("/internal/events/{event_id}/history-scope", response_model=HistoryScopeRead)
+def read_history_scope(event_id: UUID, db: Client = Depends(get_db)):
+    """S-82: just enough for a composite to decide who may read the history
+    -- the assigned Coordinator, and whether it has reached the Safety
+    Officer -- and to title the page."""
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .select("id,name,status,assigned_coordinator_id,safety_review_history")
+        .eq("id", str(event_id))
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event = result.data[0]
+    return {**event, "safety_reviewed": bool(event.get("safety_review_history"))}
+
+
+@app.get("/internal/events/{event_id}/history", response_model=list[HistoryEntryRead])
+def read_history(
+    event_id: UUID,
+    scope: Literal["all", "safety"] = "all",
+    db: Client = Depends(get_db),
+):
+    """S-82: newest first. `scope=safety` is the Safety Officer's view: the
+    safety, venue and equipment entries, and edits cut to the fields the
+    safety review depends on."""
+    _require_event(event_id, db)
+    entries = _execute(
+        db.schema(SCHEMA).table(HISTORY_TABLE).select("*")
+        .eq("event_id", str(event_id))
+        .order("occurred_at", desc=True)
+        .order("id", desc=True)
+    ).data
+    if scope == "safety":
+        entries = [kept for kept in map(_safety_entry, entries) if kept is not None]
+    return entries
+
+
 @app.get("/events/{event_id}", response_model=EventRead)
 def get_event(
     event_id: UUID,
@@ -939,6 +1168,240 @@ def get_event(
     db: Client = Depends(get_db),
 ):
     return _get_owned_event(event_id, str(user.id), db)
+
+
+def _change_values(event: dict) -> EventChangeValues:
+    return EventChangeValues.model_validate({
+        field: event.get(field) for field in EventChangeValues.model_fields
+    })
+
+
+@app.get("/events/{event_id}/change-requests", response_model=list[EventChangeRequestRead])
+def list_event_change_requests(
+    event_id: UUID,
+    user=Depends(get_current_user),
+    db: Client = Depends(get_db),
+):
+    role = (getattr(user, "app_metadata", None) or {}).get("role")
+    if role == "event_organiser":
+        _get_owned_event(event_id, str(user.id), db)
+    elif role == "event_coordinator":
+        _get_assigned_event(event_id, str(user.id), db)
+    else:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return _execute(
+        db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).select("*")
+        .eq("event_id", str(event_id)).order("submitted_at", desc=True)
+    ).data
+
+
+@app.post(
+    "/events/{event_id}/change-request/internal",
+    response_model=EventChangeRequestRead,
+    status_code=201,
+)
+def create_event_change_request_internal(
+    event_id: UUID,
+    payload: InternalEventChangeCreate,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:request_changes")),
+    db: Client = Depends(get_db),
+):
+    event = _get_owned_event(event_id, str(user.id), db)
+    if event["status"] not in CHANGE_REQUEST_STATUSES:
+        raise HTTPException(status_code=409, detail="This event cannot receive a change request")
+
+    proposed = payload.proposed_values.model_dump(mode="json")
+    accepted = _change_values(event).model_dump(mode="json")
+    # Reuse submitted-event validation, including registration closing before
+    # the newly proposed start. This does not write the accepted event row.
+    candidate = {
+        field: proposed.get(field, event.get(field))
+        for field in EventSubmittedCreate.model_fields
+        if field in proposed or field in event
+    }
+    try:
+        EventSubmittedCreate.model_validate(candidate)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    accepted_equipment = sorted(
+        [item.model_dump(mode="json") for item in payload.accepted_equipment],
+        key=lambda item: item["equipment_item_id"],
+    )
+    proposed_equipment = sorted(
+        [item.model_dump(mode="json") for item in payload.proposed_equipment],
+        key=lambda item: item["equipment_item_id"],
+    )
+    if accepted == proposed and accepted_equipment == proposed_equipment:
+        raise HTTPException(status_code=422, detail="Change request has no changed values")
+
+    values = {
+        "event_id": str(event_id),
+        "requested_by": str(user.id),
+        "expected_event_updated_at": payload.expected_event_updated_at.isoformat(),
+        "accepted_values": accepted,
+        "proposed_values": proposed,
+        "accepted_equipment": accepted_equipment,
+        "proposed_equipment": proposed_equipment,
+    }
+    try:
+        result = db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).insert(values).execute()
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code == "23505":
+            raise HTTPException(status_code=409, detail="A change request is already pending") from exc
+        if code == "23514":
+            raise HTTPException(status_code=409, detail="Event or request values changed; reload and try again") from exc
+        if code in {"23503", "42501"}:
+            raise HTTPException(status_code=404, detail="Event not found") from exc
+        logger.exception("Change request storage failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    return result.data[0]
+
+
+def _change_rpc(db: Client, name: str, params: dict) -> dict:
+    try:
+        result = db.schema(SCHEMA).rpc(name, params).execute()
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code == "P0002":
+            raise HTTPException(status_code=404, detail="Change request or impact not found") from exc
+        if code in {"23514", "23505"}:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if code == "42501":
+            raise HTTPException(status_code=404, detail="Event not found") from exc
+        logger.exception("S-60 Events operation failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Event storage unavailable")
+    return result.data[0]
+
+
+def _change_owned_by_coordinator(event_id: UUID, request_id: UUID, coordinator_id: str, db: Client) -> dict:
+    _get_assigned_event(event_id, coordinator_id, db)
+    rows = _execute(
+        db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).select("*")
+        .eq("event_id", str(event_id)).eq("id", str(request_id)).limit(1)
+    ).data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    return rows[0]
+
+
+@app.post("/events/assigned/{event_id}/change-requests/{request_id}/prepare", response_model=EventChangeRequestRead)
+def prepare_event_change_acceptance(
+    event_id: UUID, request_id: UUID, payload: ChangeImpactPrepare,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(user.id)
+    _change_owned_by_coordinator(event_id, request_id, coordinator_id, db)
+    if len({item.get("id") for item in payload.impacts}) != len(payload.impacts):
+        raise HTTPException(status_code=422, detail="Impact identifiers must be unique")
+    for item in payload.impacts:
+        if not isinstance(item.get("id"), str) or not item.get("reason") or item.get("status") not in {"outstanding", "informational"}:
+            raise HTTPException(status_code=422, detail="Invalid impact assessment")
+    return _change_rpc(db, "prepare_change_acceptance", {
+        "p_request_id": str(request_id), "p_coordinator_id": coordinator_id,
+        "p_operation_id": str(payload.operation_id), "p_impacts": payload.impacts,
+        "p_expected_updated_at": payload.expected_event_updated_at.isoformat(),
+    })
+
+
+@app.post("/events/assigned/{event_id}/change-requests/{request_id}/complete", response_model=EventChangeRequestRead)
+def complete_event_change_acceptance(
+    event_id: UUID, request_id: UUID, payload: ChangeImpactComplete,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(user.id)
+    _change_owned_by_coordinator(event_id, request_id, coordinator_id, db)
+    return _change_rpc(db, "complete_change_acceptance", {
+        "p_request_id": str(request_id), "p_coordinator_id": coordinator_id,
+        "p_operation_id": str(payload.operation_id),
+    })
+
+
+@app.post("/events/assigned/{event_id}/change-requests/{request_id}/reject", response_model=EventChangeRequestRead)
+def reject_event_change_request(
+    event_id: UUID, request_id: UUID, payload: ChangeRequestReject,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(user.id)
+    _change_owned_by_coordinator(event_id, request_id, coordinator_id, db)
+    return _change_rpc(db, "reject_change_request", {
+        "p_request_id": str(request_id), "p_coordinator_id": coordinator_id,
+        "p_reason": payload.reason,
+    })
+
+
+@app.post("/events/assigned/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve", response_model=EventChangeRequestRead)
+def resolve_event_change_impact(
+    event_id: UUID, request_id: UUID, impact_id: str, payload: ChangeImpactResolve,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(user.id)
+    _change_owned_by_coordinator(event_id, request_id, coordinator_id, db)
+    return _change_rpc(db, "resolve_change_impact", {
+        "p_request_id": str(request_id), "p_coordinator_id": coordinator_id,
+        "p_impact_id": impact_id, "p_expected_version": payload.expected_impact_version,
+        "p_action": payload.action, "p_evidence": payload.evidence,
+    })
+
+
+def _unresolved_change_impacts(event_id: UUID, db: Client) -> list[dict]:
+    rows = _execute(
+        db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).select("id,impacts")
+        .eq("event_id", str(event_id)).eq("status", "accepted")
+    ).data
+    request_impacts = [
+        {**item, "request_id": row["id"]}
+        for row in rows for item in (row.get("impacts") or [])
+        if item.get("status") == "outstanding"
+    ]
+    event_rows = _execute(
+        db.schema(SCHEMA).table(TABLE).select("s60_edit_impacts")
+        .eq("id", str(event_id)).limit(1)
+    ).data
+    event = event_rows[0] if event_rows else {}
+    edit_impacts = [
+        {**item, "request_id": None}
+        for item in event.get("s60_edit_impacts") or [] if item.get("status") == "outstanding"
+    ]
+    return request_impacts + edit_impacts
+
+
+@app.post("/events/assigned/{event_id}/edit-impacts/{impact_id}/resolve", response_model=CoordinatorEventRead)
+def resolve_assigned_edit_impact(
+    event_id: UUID, impact_id: str, payload: ChangeImpactResolve,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:update_assigned")),
+    db: Client = Depends(get_db),
+):
+    coordinator_id = str(user.id)
+    _get_assigned_event(event_id, coordinator_id, db)
+    return _change_rpc(db, "resolve_edit_impact", {
+        "p_event_id": str(event_id), "p_coordinator_id": coordinator_id,
+        "p_impact_id": impact_id, "p_expected_version": payload.expected_impact_version,
+        "p_action": payload.action, "p_evidence": payload.evidence,
+    })
+
+
+@app.get("/internal/events/{event_id}/unresolved-change-impacts")
+def get_unresolved_change_impacts(
+    event_id: UUID,
+    _service=Depends(require_assignment_service),
+    db: Client = Depends(get_db),
+):
+    _require_event(event_id, db)
+    return _unresolved_change_impacts(event_id, db)
 
 
 # S-61: shared by both edit routes below.
@@ -991,6 +1454,29 @@ def _validated_changes(existing: dict, changes: dict) -> dict:
     return changes
 
 
+def _reject_edit_over_pending_change(event_id: UUID, existing: dict, changes: dict, db: Client):
+    relevant = CHANGE_REQUEST_FIELDS & changes.keys()
+    if not relevant or existing["status"] not in CHANGE_REQUEST_STATUSES:
+        return
+    try:
+        before = _change_values(existing).model_dump(mode="json")
+        merged = _change_values({**existing, **changes}).model_dump(mode="json")
+    except ValidationError:
+        # Let the existing submitted-record validator return field-level 422.
+        return
+    if all(before[field] == merged[field] for field in relevant):
+        return
+    pending = _execute(
+        db.schema(SCHEMA).table(CHANGE_REQUEST_TABLE).select("id")
+        .eq("event_id", str(event_id)).in_("status", ["pending", "applying"]).limit(1)
+    ).data
+    if isinstance(pending, list) and pending:
+        raise HTTPException(
+            status_code=409,
+            detail="A change request is pending. Accepted event details cannot be edited until review.",
+        )
+
+
 @app.patch("/events/{event_id}", response_model=EventRead)
 def update_event(
     event_id: UUID,
@@ -1013,6 +1499,7 @@ def update_event(
     changes = payload.model_dump(exclude_unset=True, mode="json")
     if not changes:
         return existing
+    _reject_edit_over_pending_change(event_id, existing, changes, db)
     changes = _validated_changes(existing, changes)
 
     operation = (
@@ -1025,7 +1512,25 @@ def update_event(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
+    _record_organiser_edit(db, event_id, organiser_id, existing, changes)
     return result.data[0]
+
+
+def _record_organiser_edit(db: Client, event_id, organiser_id: str, existing: dict, written: dict) -> None:
+    """S-82: an Organiser's edit is history once the request has been
+    submitted. A draft is still theirs alone, so its edits are not."""
+    if existing["status"] == "draft":
+        return
+    changes = {
+        field: {"before": existing.get(field), "after": value}
+        for field, value in written.items()
+        if existing.get(field) != value
+    }
+    if changes:
+        _record(
+            db, event_id, organiser_id, "event_organiser", "edited",
+            {"changes": changes, "significant": bool(changes.keys() & SIGNIFICANT_EVENT_FIELDS)},
+        )
 
 
 # A draft is submitted for the first time, or a returned request is
@@ -1073,7 +1578,13 @@ def submit_draft(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
+    _record_submission(db, event_id, organiser_id, existing)
     return result.data[0]
+
+
+def _record_submission(db: Client, event_id, organiser_id: str, existing: dict) -> None:
+    details = {"resubmission": True} if existing["status"] == "returned" else {}
+    _record(db, event_id, organiser_id, "event_organiser", "submitted", details)
 
 
 # S-62: an Organiser may ask for a live event to be cancelled. Drafts can be
@@ -1126,6 +1637,7 @@ def request_cancellation(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_ALREADY_REQUESTED)
+    _record(db, event_id, organiser_id, "event_organiser", "cancellation_requested", {"reason": payload.reason})
     return result.data[0]
 
 
@@ -1175,7 +1687,187 @@ def decide_cancellation(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_ALREADY_DECIDED)
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", f"cancellation_{payload.decision}",
+        {"reason": payload.reason},
+    )
     return result.data[0]
+
+
+# S-89: an event whose venue bookings may still change -- the same set S-78
+# lets a Coordinator replace a venue for.
+_VENUE_CANCELLABLE_STATUSES = (
+    "planning", "pending_safety_check", "confirmed", "preparation",
+    "safety_changes_requested",
+)
+_REQUEST_WAITING = "The Organiser has asked to cancel this event. Approve their request instead."
+_EVENT_CHANGED = "This event changed since you opened it. Reload and try again."
+_ALREADY_CANCELLED = "This event is already cancelled."
+_NOT_VENUE_CANCELLED = "This event has not been cancelled for venue unavailability."
+
+
+def _request_waiting(event: dict) -> bool:
+    return bool(event.get("cancellation_requested_at")) and not event.get("cancellation_decision")
+
+
+def _venue_cancellation_refusal(event: dict, expected_version: int) -> str:
+    """Why the guarded write below would match nothing, read from `event`."""
+    if event.get("status") == "cancelled":
+        return _ALREADY_CANCELLED
+    if event.get("status") not in _VENUE_CANCELLABLE_STATUSES:
+        return _NOT_CANCELLABLE
+    if _request_waiting(event):
+        return _REQUEST_WAITING
+    if int(event.get("edit_version") or 0) != expected_version:
+        return _EVENT_CHANGED
+    return ""
+
+
+@app.post("/internal/events/{event_id}/venue-cancellation", response_model=CoordinatorEventRead)
+def cancel_for_venue_unavailability(
+    event_id: UUID,
+    payload: VenueCancellationCreate,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:cancel_for_venue_unavailability")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the assigned Coordinator cancels an event venue unavailability
+    left without an alternative. The event_requests composite has verified
+    the unavailability and passes the affected bookings; it then releases
+    them and notifies everyone. Only the event changes here.
+
+    Calling again once this event is cancelled this way is how the composite
+    resumes an unfinished cancellation: it returns the stored record
+    unchanged, whatever the new text says."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if existing.get("venue_cancelled_at"):
+        return existing
+    refusal = _venue_cancellation_refusal(existing, payload.expected_version)
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+
+    values = {
+        "status": "cancelled",
+        "venue_cancellation_previous_status": existing["status"],
+        "venue_cancellation_reason": payload.reason,
+        "venue_cancellation_alternatives": payload.alternatives_considered,
+        "venue_cancellation_booking_ids": [str(value) for value in payload.affected_booking_ids],
+        "venue_cancelled_by": coordinator_id,
+        "venue_cancelled_at": _submitted_now(),
+        "edit_version": payload.expected_version + 1,
+    }
+    # One conditional write: a concurrent edit, reassignment, S-62 request
+    # or S-61 approval landing first makes this match nothing.
+    operation = (
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .eq("edit_version", payload.expected_version)
+        .in_("status", _VENUE_CANCELLABLE_STATUSES)
+        .is_("venue_cancelled_at", "null")
+        .or_("cancellation_requested_at.is.null,cancellation_decision.not.is.null")
+    )
+    result = _execute(operation)
+    if not result.data:
+        current = _get_assigned_event(event_id, coordinator_id, db)
+        if current.get("venue_cancelled_at"):
+            return current
+        raise HTTPException(
+            status_code=409,
+            detail=_venue_cancellation_refusal(current, payload.expected_version) or _EVENT_CHANGED,
+        )
+    # The S-82 entry is the composite's next step (.../history), not best
+    # effort here: it must exist before the operation can complete.
+    return result.data[0]
+
+
+_HISTORY_ACTION = "cancelled_venue_unavailable"
+_HISTORY_MISSING = "The cancellation has not been recorded in the event history yet."
+
+
+def _venue_cancellation_history(event_id: UUID, db: Client) -> list[dict]:
+    return _execute(
+        db.schema(SCHEMA).table(HISTORY_TABLE).select("id")
+        .eq("event_id", str(event_id)).eq("action", _HISTORY_ACTION)
+    ).data
+
+
+@app.post("/internal/events/{event_id}/venue-cancellation/history")
+def record_venue_cancellation_history(
+    event_id: UUID,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:cancel_for_venue_unavailability")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the S-82 entry for a venue cancellation, built from the stored
+    record alone -- who, when, why, the alternatives, the previous status and
+    the affected bookings -- so a retry writes exactly the same entry. A
+    unique index allows one; a second attempt finds it and succeeds."""
+    coordinator_id = str(user.id)
+    event = _get_assigned_event(event_id, coordinator_id, db)
+    if not event.get("venue_cancelled_at"):
+        raise HTTPException(status_code=409, detail=_NOT_VENUE_CANCELLED)
+    if _venue_cancellation_history(event_id, db):
+        return {"recorded": True}
+    row = {
+        "event_id": str(event_id),
+        "actor_id": str(event["venue_cancelled_by"]),
+        "actor_role": "event_coordinator",
+        "category": EVENT_HISTORY_ACTIONS[_HISTORY_ACTION],
+        "action": _HISTORY_ACTION,
+        "details": {
+            "reason": event["venue_cancellation_reason"],
+            "alternatives_considered": event["venue_cancellation_alternatives"],
+            "previous_status": event["venue_cancellation_previous_status"],
+            "affected_booking_ids": [str(value) for value in event["venue_cancellation_booking_ids"]],
+        },
+        # When it happened, not when this attempt ran.
+        "occurred_at": str(event["venue_cancelled_at"]),
+    }
+    try:
+        db.schema(SCHEMA).table(HISTORY_TABLE).insert(row).execute()
+    except Exception as exc:
+        if getattr(exc, "code", None) == "23505":
+            return {"recorded": True}
+        logger.exception("Could not record the venue cancellation of event %s", event_id, exc_info=exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Event storage unavailable",
+        ) from exc
+    return {"recorded": True}
+
+
+@app.post(
+    "/internal/events/{event_id}/venue-cancellation/complete",
+    response_model=CoordinatorEventRead,
+)
+def complete_venue_cancellation(
+    event_id: UUID,
+    _service=Depends(require_assignment_service),
+    user=Depends(require_permission("events:cancel_for_venue_unavailability")),
+    db: Client = Depends(get_db),
+):
+    """S-89: the history entry exists, every booking is released and everyone
+    notified. Refused while the history entry is missing. Safe to repeat."""
+    coordinator_id = str(user.id)
+    existing = _get_assigned_event(event_id, coordinator_id, db)
+    if not existing.get("venue_cancelled_at"):
+        raise HTTPException(status_code=409, detail=_NOT_VENUE_CANCELLED)
+    if existing.get("venue_cancellation_completed_at"):
+        return existing
+    if not _venue_cancellation_history(event_id, db):
+        raise HTTPException(status_code=409, detail=_HISTORY_MISSING)
+    result = _execute(
+        db.schema(SCHEMA).table(TABLE)
+        .update({"venue_cancellation_completed_at": _submitted_now()})
+        .eq("id", str(event_id))
+        .eq("assigned_coordinator_id", coordinator_id)
+        .is_("venue_cancellation_completed_at", "null")
+    )
+    if result.data:
+        return result.data[0]
+    return _get_assigned_event(event_id, coordinator_id, db)
 
 
 # S-36: the decision and the status it leads to are separate things. An
@@ -1225,6 +1917,10 @@ def decide_event(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail="This request is not awaiting a decision")
+    _record(
+        db, event_id, coordinator_id, "event_coordinator", f"request_{payload.decision.value}",
+        {"reason": payload.reason, "comment": payload.comment},
+    )
     return result.data[0]
 
 
@@ -1364,6 +2060,8 @@ def technical_support_load(
     rows = _execute(operation).data
     by_staff: dict[str, list[dict]] = {staff_id: [] for staff_id in ids}
     for row in rows:
+        if payload.exclude_event_id is not None and str(row["id"]) == str(payload.exclude_event_id):
+            continue
         staff_id = row.get("assigned_technical_support_id")
         if staff_id in by_staff:
             by_staff[staff_id].append(row)
@@ -1457,6 +2155,11 @@ def record_technical_support_assignment(
             status_code=409,
             detail="The event changed before Technical Support could be saved",
         )
+    if selected_staff_id != existing_staff_id:
+        _record(
+            db, event_id, coordinator_id, "event_coordinator", "technical_support_assigned",
+            {"technical_support_id": selected_staff_id, "previous_technical_support_id": existing_staff_id},
+        )
     return result.data[0]
 
 
@@ -1480,7 +2183,9 @@ def create_submitted_event_internal(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not create event",
         )
-    return result.data[0]
+    event = result.data[0]
+    _record(db, event["id"], payload.organiser_id, "event_organiser", "submitted")
+    return event
 
 
 @app.post(
@@ -1513,6 +2218,10 @@ def assign_coordinator_internal(
     )
     result = _execute(operation)
     if result.data:
+        _record(
+            db, event_id, lead_id, "event_coordinator_lead", "coordinator_assigned",
+            {"coordinator_id": coordinator_id},
+        )
         return {**result.data[0], "assignment_created": True}
 
     current = _execute(
@@ -1579,6 +2288,10 @@ def create_reassignment_request_internal(
             raise HTTPException(status_code=409, detail="This event assignment has changed or has no responsible Lead") from exc
         logger.exception("Reassignment request storage failed", exc_info=exc)
         raise HTTPException(status_code=500, detail="Event storage unavailable") from exc
+    _record(
+        db, event_id, user.id, "event_coordinator", "reassignment_requested",
+        {"reason": result.data[0]["reason"]},
+    )
     return result.data[0]
 
 
@@ -1691,6 +2404,10 @@ def reassign_coordinator_internal(
     )
     result = _execute(operation)
     if result.data:
+        _record(
+            db, event_id, lead_id, "event_coordinator_lead", "coordinator_reassigned",
+            {"from_coordinator_id": expected_id, "to_coordinator_id": target_id},
+        )
         return {**result.data[0], "reassignment_created": True}
 
     latest = _execute(
@@ -1741,6 +2458,7 @@ def submit_draft_internal(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=409, detail=_NO_LONGER_AWAITING_CHANGES)
+    _record_submission(db, event_id, organiser_id, existing)
     return result.data[0]
 
 
@@ -1772,6 +2490,7 @@ def update_event_internal(
     changes = payload.model_dump(exclude_unset=True, mode="json", exclude={"organiser_id"})
     if not changes:
         return existing
+    _reject_edit_over_pending_change(event_id, existing, changes, db)
     changes = _validated_changes(existing, changes)
 
     operation = (
@@ -1784,4 +2503,5 @@ def update_event_internal(
     result = _execute(operation)
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
+    _record_organiser_edit(db, event_id, organiser_id, existing, changes)
     return result.data[0]

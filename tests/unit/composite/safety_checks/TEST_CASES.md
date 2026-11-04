@@ -402,3 +402,179 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
 - **Status:** Pass
 - **Evidence:** `test_s17.py::test_queue_and_approval_use_new_stage`
+
+---
+
+## S-82 — View Event Change History
+
+`test_s82.py`. `GET /safety-checks/{event_id}/history` returns the safety view
+of an event's history (`scope=safety` from Events, TC-EVENTS-201) to any
+Safety Officer, once the event has entered the Operational Safety Check
+(developer decision 7a). An event has entered it when its status is
+`pending_safety_check`, `safety_changes_requested`, `safety_rejected`,
+`confirmed` or `preparation`, or when it has any `safety_review_history`. The
+last case covers an event sent back to `planning` after a significant change.
+
+**Shared test data.** Event E `11111111-1111-4111-8111-111111111111`
+"Autumn Forum"; Safety Officer S `55555555-5555-4555-8555-555555555555`
+"Sam Safety"; Coordinator C `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` "Alex
+Coordinator".
+
+## TC-SAFETYCHECKS-027 — a Safety Officer reads the safety view
+
+- **Scenario:** The Safety Officer sees attendance, venue, access and equipment changes and the safety decisions, with names (S-82 AC3).
+- **Pre-conditions:** Signed in as S. E is `pending_safety_check`. Events `scope=safety` returns two entries: `edited` by C, changes `{"expected_attendance": {"before": 120, "after": 150}}`; `venue_confirmed` by Venue Staff `77777777-7777-4777-8777-777777777777` "Val Venue".
+- **Steps:** `GET /safety-checks/E/history`.
+- **Test data:** As above.
+- **Expected:** `200` with `event_id`, `event_name: "Autumn Forum"`, both entries in order with `actor` `{id, name, role}` filled in, and `people`, the same shape as TC-EVENTREQUESTS-117. Events was called with `scope=safety`, never without it.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_safety_officer_reads_the_safety_view; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-SAFETYCHECKS-028 — only events that entered the safety check are shown
+
+- **Scenario:** A Safety Officer cannot read the history of an event that has never reached them.
+- **Pre-conditions:** Signed in as S.
+- **Steps:** `GET /safety-checks/E/history` with E in each state below.
+- **Test data / Expected:**
+  | E | Response |
+  | --- | --- |
+  | `pending_safety_check`, `safety_changes_requested`, `safety_rejected`, `confirmed`, `preparation` | `200` |
+  | `planning` with one `safety_review_history` record | `200` |
+  | `planning` with none; `submitted`; `draft`; `rejected` | `404` "Event not found" |
+  | No such event | `404` "Event not found" |
+
+  The Events history read is never called on a `404`.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_only_events_that_entered_the_safety_check_are_shown; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-SAFETYCHECKS-029 — only Safety Officers use this route
+
+- **Scenario:** Other roles are turned away.
+- **Pre-conditions:** E is `pending_safety_check`.
+- **Steps / Test data / Expected:** No session → `401`. `event_coordinator`, `event_coordinator_lead`, `event_organiser`, `technical_support`, `venue_staff`, `attendee` → `403`. The Events history read is never called.
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_only_safety_officers_use_this_route; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## TC-SAFETYCHECKS-030 — a service that does not answer is a 502
+
+- **Scenario:** The safety view is never shown half-filled.
+- **Pre-conditions:** As S; E `pending_safety_check`.
+- **Steps / Test data / Expected:** Events history `500` or timeout → `502` "Events service unavailable"; Users profiles `500` → `502` "Users service unavailable".
+- **Actual:** As expected.
+- **Status:** Pass
+- **Evidence:** test_s82.py::test_a_service_that_does_not_answer_is_a_502; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+
+## S-63 — Notify Organiser — Event Decisions and Changes
+
+Drafted and confirmed by the developer on 2026-10-31 before implementation.
+
+## TC-SAFETYCHECKS-031 — approval sends one combined safety-and-confirmation notice
+
+- **Scenario:** Safety approval, which makes the event confirmed, is reported once rather than as two duplicate notices.
+- **Pre-conditions:** An authorised Safety Officer; Events saves `approved` and returns the confirmed event and its Organiser.
+- **Steps:** `POST /safety-checks/{id}/decision` with `approved`.
+- **Expected:** One `safety_check_outcome` row says the Operational Safety Check was approved and the event is confirmed.
+- **Actual:** Approval sent one combined outcome row stating that safety passed and the event is confirmed.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_decision_forwards_verified_officer_and_returns_transition`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-032 — rejected and returned safety outcomes carry actionable comments
+
+- **Scenario:** The Organiser can tell why the check failed and what needs attention.
+- **Pre-conditions:** As TC-SAFETYCHECKS-031.
+- **Steps:** Decide once as `rejected` and once as `changes_requested`, each with reason "Move emergency access equipment".
+- **Expected:** One row per successful decision names the event and outcome, repeats the reason, and gives the appropriate action; stable decision data forms the deduplication key.
+- **Actual:** Rejected and changes-requested outcomes included the saved reason, event, decision type and next action with a stable key.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_decision_forwards_verified_officer_and_returns_transition`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-033 — no saved safety outcome means no notification
+
+- **Scenario:** A refused or unavailable Events write cannot tell the Organiser that an outcome occurred.
+- **Pre-conditions:** Events answers `409` or is unavailable.
+- **Steps:** Attempt the decision.
+- **Expected:** Existing error handling is preserved and Notifications is not called.
+- **Actual:** Refused Events outcomes preserved their status and made no notification write; notification failures after a save returned controlled `502`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_identified_event_errors_are_preserved` and `test_a_notification_failure_is_controlled_after_the_safety_outcome_is_saved`; 2026-10-31 full Python unit suite: 1735 passed, 17 skipped.
+
+## S-68 — Notify Attendee — Event Rescheduled
+
+Acceptance criteria and the interpretations below were confirmed by the
+developer on 2026-11-01 before implementation. “Confirmed” means the revised
+event has completed its arrangements and passed the Operational Safety Check
+again. Only current registration rows receive the existing in-app notice;
+waiting-list and withdrawn Attendees do not. Initial confirmation is not a
+reschedule.
+
+## TC-SAFETYCHECKS-034 — reconfirmation tells every currently registered Attendee the new window
+
+- **Scenario:** Final safety approval publishes a revised date/time to all current registrations.
+- **Pre-conditions:** E was previously safety-approved for 18 Nov 2026 09:00–12:00, was edited to 20 Nov 2026 13:00–16:00, and is awaiting a fresh approval; 21 Attendees currently hold registrations.
+- **Steps:** Approve E through `POST /safety-checks/E/decision` and inspect Registration and Notification calls.
+- **Test data:** Event "Autumn Forum"; 21 distinct Attendee ids; notification batch limit 20.
+- **Expected:** Registrations is read only after approval; 21 `event_schedule_changed` rows are sent in batches of 20 and 1. Every row names E, states the complete new start/end window, and has a stable per-Attendee key.
+- **Actual:** All 21 current registration ids received a row in batches of 20 and 1. Every message named the event and full new window, and every recipient had a distinct key tied to the saved approval.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_reconfirmation_notifies_every_current_registration_in_bounded_batches`; 2026-11-01 full Python unit run: 1759 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-035 — internal work and non-schedule outcomes stay private
+
+- **Scenario:** Attendees hear only a confirmed attendee-facing schedule change.
+- **Pre-conditions:** Runs cover initial approval, rejected/changes-requested reviews, a fresh approval after attendance-only work, and a revised event whose schedule was changed back to its last confirmed window.
+- **Steps:** Record each outcome and inspect Registration and attendee Notification calls.
+- **Expected:** No Attendee lookup or reschedule notice occurs. The existing Organiser safety-outcome notice remains unchanged.
+- **Actual:** Initial approval, rejected and returned reviews, non-schedule work, and a schedule restored to its last confirmed window made no registration lookup or Attendee notification write.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_initial_confirmation_does_not_claim_the_event_was_rescheduled`, `test_non_schedule_work_and_a_change_back_to_the_confirmed_window_send_nothing`, and `test_rejected_or_returned_reviews_do_not_read_attendees`; 2026-11-01 full Python unit run: 1759 passed, 17 skipped.
+
+## TC-SAFETYCHECKS-036 — current registrations define the audience and retries cannot duplicate notices
+
+- **Scenario:** Waiting-list, withdrawn and unrelated people are excluded, and repeated processing is idempotent.
+- **Pre-conditions:** Registration storage returns only current holders; the event also has waiting-list, withdrawn and unrelated users outside that response.
+- **Steps:** Reconfirm E, inspect recipients and keys, then attempt the stale decision again.
+- **Expected:** Exactly the current holders are recipients; each key includes the event, saved confirmation and recipient, and the stale decision creates no additional notification.
+- **Actual:** Notification recipients came only from current registration rows, with one stable event/approval/recipient key per row. The real-boundary stale retry returned `409` and left the persisted count unchanged.
+- **Status:** Pass
+- **Evidence:** `test_s68.py::test_reconfirmation_notifies_every_current_registration_in_bounded_batches` plus integration `test_s68.py::test_real_reconfirmation_notifies_only_current_registrations`; 2026-11-01.
+---
+
+## S-60 — Review Impact of Significant Changes (approved)
+
+Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/review-impact-of-significant-changes` at `d5bab4c` (rebased onto `origin/sprint4` `ca5ff0d`) plus the follow-up S-18/S-63/S-82 route and registration-cleanup test updates committed on top. Python unit suite 1,783 passed, 17 skipped; frontend unit 219 passed; lint passes with 3 existing warnings; build passes; `git diff --check` clean. TEST Supabase and fresh `.env.test` stack for integration (119 passed, 5 skipped) and Chromium. See each case evidence.
+
+## TC-SAFETYCHECKS-300 — unresolved impacts block readiness and submission
+
+- **Scenario:** An existing booking/sign-off cannot make a changed event ready while its re-review flags remain outstanding.
+- **Pre-conditions:** E is planning after significant acceptance; ordinary venue/equipment/technical checks pass; Events returns unresolved B1 and P flags.
+- **Steps:** 1. GET readiness. 2. POST first submission and S-87 resubmission. 3. Resolve B1 only; repeat. 4. Resolve P; repeat.
+- **Test data:** B1 `capacity 130 < 150`, P `quantity 2→3`.
+- **Expected:** Readiness names both flags; submit/resubmit get 409 with the same items. Resolving only B1 leaves P blocking. Once all flags and ordinary readiness checks clear, normal S-17/S-87 submission works. An Events flag-service error fails closed, never reports ready.
+- **Actual:** Two outstanding impacts blocked readiness and submission; one remaining flag still blocked, and owner failure returned 502.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/safety_checks/test_s17.py::test_s60_unresolved_impact_blocks_both_readiness_and_submission; test_s60_impact_owner_failure_never_reports_ready; tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
+
+## TC-SAFETYCHECKS-301 — a stale Safety Officer decision cannot reconfirm
+
+- **Scenario:** Acceptance during `pending_safety_check` invalidates the Safety Officer's old review.
+- **Pre-conditions:** E pending at version 4; officer opened its old review; S-60 accepts a significant date change.
+- **Steps:** Submit old approval, inspect E and safety history.
+- **Test data:** 04 Dec→05 Dec; old expected review version 4.
+- **Expected:** Old approval gets 409; E stays planning with recheck required and preserved historical decision entries. A fresh submission is possible only after outstanding impacts resolve.
+- **Actual:** Pending review was superseded by acceptance; old event-version approval returned 409 and fresh safety required resolved impacts.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/event_requests/test_s60.py::test_significant_acceptance_requires_fresh_safety_for_each_lifecycle_state[pending_safety_check]; tests/unit/atomic/events/test_s86.py::test_old_safety_review_cannot_decide_new_event_version
+
+## TC-SAFETYCHECKS-302 — routine S-18 edits retain existing readiness
+
+- **Scenario:** Non-significant contact and note edits do not add S-60 items or reset safety state.
+- **Pre-conditions:** E planning/confirmed with ordinary readiness satisfied, no S-60 flags.
+- **Steps:** Apply S-18 phone/note edit; query readiness and decision state.
+- **Test data:** Phone `+65 6123 4567`, note `Use east entrance`.
+- **Expected:** No S-60 outstanding item and no new safety check; the existing S-17/S-86/S-87 rules remain unchanged.
+- **Actual:** Routine S-18 edit added no S-60 flag; significant S-18 edit left safety blocked until re-review.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s60.py::test_routine_s18_edit_stays_available_without_service_token; tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle[chromium]

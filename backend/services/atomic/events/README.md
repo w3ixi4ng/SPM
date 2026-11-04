@@ -1,7 +1,7 @@
 # Events service
 
 Atomic FastAPI service for event requests. It owns `events.events` and
-`events.reassignment_requests` and never
+`events.reassignment_requests` and `events.change_requests` and never
 queries another service's tables.
 
 ## Endpoints
@@ -13,6 +13,7 @@ queries another service's tables.
 | `GET` | `/events` | `events:view_own` | List the authenticated organiser's event requests, most recently updated first. |
 | `GET` | `/events/options` | `events:create` | The venue requirement option sets for the organiser's form: `room_layouts`, `facilities`, `accessibility`. |
 | `GET` | `/events/{event_id}` | `events:view_own` | Return one event owned by the authenticated caller. |
+| `GET` | `/events/{event_id}/change-requests` | Owning Organiser or current Coordinator | List the event's S-59 request history, newest first. Unrelated users receive `404`. |
 | `GET` | `/events/booking-status/{event_id}` | `events:view_booking_status` | Return only the event id and authoritative status so Venue Staff can release a terminal event's tentative hold. |
 | `PATCH` | `/events/{event_id}` | `events:update_own_draft` | Update supplied fields on an owned event — draft or already submitted. |
 | `PUT` | `/events/{event_id}/registration-closure` | `events:close_registration` | S-50: close registration early on an owned, `confirmed` event that takes registrations. See [Closing registration early (S-50)](#closing-registration-early-s-50). |
@@ -21,14 +22,23 @@ queries another service's tables.
 | `GET` | `/events/assigned` | `events:view_assigned` | List the authenticated coordinator's assigned event requests, most recently updated first. |
 | `GET` | `/events/assigned/{event_id}` | `events:view_assigned` | Return one event assigned to the authenticated coordinator. |
 | `POST` | `/events/{event_id}/reassignment-request` | `events:request_reassignment` | Create a reasoned request for the current Coordinator. |
+| `POST` | `/events/{event_id}/change-request/internal` | Owning Organiser and trusted `event_requests` service | Store a proposed S-59 comparison without updating accepted event fields. |
 | `GET` | `/events/reassignment-requests/mine` | `events:request_reassignment` | List the caller's request history, including actioned requests after transfer. |
 | `POST` | `/events/assigned/{event_id}/edit-impact` | `events:update_assigned` | Preview significant information changes without saving. |
 | `PATCH` | `/events/assigned/{event_id}` | `events:update_assigned` | Save assigned-event information with version checking and append-only edit history. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/prepare` | Current Coordinator and trusted service | Save acknowledged impacts and an operation ID before acceptance. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/complete` | Current Coordinator and trusted service | Atomically accept values, lifecycle, request outcome and history after Equipment applies. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/reject` | Current Coordinator and trusted service | Reject a pending proposal with a reason. |
+| `POST` | `/events/assigned/{event_id}/change-requests/{request_id}/impacts/{impact_id}/resolve` | Current Coordinator and trusted service | Record validated arrangement re-review evidence. |
+| `POST` | `/events/assigned/{event_id}/edit-impacts/{impact_id}/resolve` | Current Coordinator and trusted service | Resolve a significant S-18 edit impact. |
 | `GET` | `/events/support-assigned` | `events:view_support_assigned` | List the authenticated Technical Support staff member's assigned `planning`, `pending_safety_check`, `confirmed`, and `preparation` events. |
 | `GET` | `/events/support-assigned/{event_id}` | `events:view_support_assigned` | Return one active event assigned to the authenticated Technical Support staff member. |
 | `POST` | `/events/{event_id}/cancellation-request` | `events:request_cancellation` | S-62: the owning organiser asks for a live event to be cancelled. The status does not change. See [Cancellation requests](#cancellation-requests-s-62). |
 | `PUT` | `/events/support-assigned/{event_id}/equipment-preparation` | `events:update_equipment_preparation` | Set the assigned event's equipment preparation status and server-owned audit fields. |
 | `POST` | `/events/{event_id}/cancellation-decision` | `events:decide_cancellation` | S-61: the assigned coordinator approves (status becomes `cancelled`) or declines a pending cancellation request. See [Cancellation requests](#cancellation-requests-s-62). |
+| `POST` | `/internal/events/{event_id}/venue-cancellation` | `events:cancel_for_venue_unavailability` + service token | S-89: record the assigned coordinator's cancellation of an event venue unavailability left without an alternative. See [Cancelling without an alternative venue](#cancelling-without-an-alternative-venue-s-89). |
+| `POST` | `/internal/events/{event_id}/venue-cancellation/history` | `events:cancel_for_venue_unavailability` + service token | S-89: write the S-82 entry for the cancellation from the stored record; safe to repeat. |
+| `POST` | `/internal/events/{event_id}/venue-cancellation/complete` | `events:cancel_for_venue_unavailability` + service token | S-89: mark that the history entry exists, every booking was released and everyone notified. |
 | `POST` | `/events/{event_id}/decision` | `events:decide` | Record the assigned coordinator's approve/reject/return decision. See [Decisions](#decisions-s-14). |
 | `GET` | `/events/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
@@ -51,6 +61,7 @@ because service ports are published for direct testing. See
 | `GET` | `/internal/events/coordinator-overview` | Authenticated Lead's scoped S-85 active events, newest update first. |
 | `GET` | `/internal/events/coordinators/{coordinator_id}/active-summary` | Authenticated Lead's limited S-93 summaries across Lead scopes for one Coordinator; no event details. |
 | `GET` | `/internal/events/{event_id}/assignment-scope` | Return an event only to its recorded assigning Lead. |
+| `GET` | `/internal/events/{event_id}/notification-scope` | S-63: minimal event id, name, status, Organiser and Coordinator identity for trusted composite notification flows. |
 | `GET` | `/internal/reassignment-requests/lead` | Return only the authenticated Lead's request history. |
 | `GET` | `/internal/events/safety-review` | S-86 queue source: list `pending_safety_check` events with no current safety decision, oldest update first. |
 | `GET` | `/internal/events/safety-review/{event_id}` | Return one eligible safety-review event; missing is `404`, stale/ineligible is `409`. |
@@ -58,6 +69,7 @@ because service ports are published for direct testing. See
 | `GET` | `/internal/events/{event_id}/safety-return?coordinator_id=…` | S-87: return a planning event's preserved safety feedback only when the supplied Coordinator is its current assignee. |
 | `POST` | `/internal/events/{event_id}/safety-resubmit` | S-87: conditionally resubmit a safety-returned planning event for a fresh review (to `pending_safety_check`). |
 | `POST` | `/internal/events/{event_id}/safety-submission` | S-17: move the Coordinator's planning event to `pending_safety_check`. See [Safety-check submission](#safety-check-submission-and-sign-off-s-17). |
+| `GET` | `/internal/events/{event_id}/unresolved-change-impacts` | Return Events-owned unresolved S-59 and S-18 impacts for safety readiness. |
 | `PUT` | `/internal/events/{event_id}/technical-signoff` | S-17: record the assigned Technical Support's approval or decline. |
 | `POST` | `/internal/events/{event_id}/technical-signoff/clear` | S-17: clear the sign-off after a Coordinator equipment change. |
 | `POST` | `/internal/events/{event_id}/reassignment` | Authenticated responsible Lead's versioned compare-and-set transfer, with exact-retry support. |
@@ -66,6 +78,10 @@ because service ports are published for direct testing. See
 | `PATCH` | `/events/{event_id}/internal` | Update an owned event without changing Coordinator assignment. |
 | `GET` | `/internal/events/published` | S-51: every `confirmed` event's public details, by start. For the `event_registrations` composite. See [Registration (S-51)](#registration-s-51). |
 | `GET` | `/internal/events/published/{event_id}` | S-51: one `confirmed` event's public details; any other status is `404`. |
+| `GET` | `/internal/events/attendee-view/{event_id}` | S-56: one event's public details plus its `status`, for its registered Attendees' list. `confirmed`, or `planning` / `pending_safety_check` / `safety_changes_requested` after a significant change; any other status is `404`. |
+| `GET` | `/internal/events/{event_id}/history` | S-82: the event's change history, newest first. `?scope=safety` is the Safety Officer's view. See [Change history (S-82)](#change-history-s-82). |
+| `POST` | `/internal/events/{event_id}/history` | S-82: add a venue or equipment entry, from its composite. |
+| `GET` | `/internal/events/{event_id}/history-scope` | S-82: the event's name, status, Coordinator and whether it has been safety-reviewed, for the composites to decide who may read its history. |
 
 Public event endpoints and the S-83/S-84/S-85/S-88 Lead routes authenticate the `sb_access_token` and
 `sb_refresh_token` cookies issued by the users service, then authorize the
@@ -374,6 +390,13 @@ The rules apply to the record a `PATCH` produces, so moving the event's start
 before an existing closing date is refused too. Registration being off clears
 both dates, and the order of dates is not checked while it is off.
 
+S-56: `GET /internal/events/attendee-view/{id}` returns the same fields plus
+`"status"`, for an event that is `confirmed` or is being re-checked after a
+significant S-18 change (`planning`, `pending_safety_check`,
+`safety_changes_requested`). The `event_registrations` composite shows the
+details only while it is `confirmed`. Any other status is `404`
+"Event not found.".
+
 `GET /internal/events/published` and `GET /internal/events/published/{id}`
 return only `confirmed` events, and only their public fields:
 
@@ -584,6 +607,65 @@ After a decline the organiser may request again, which clears the decision.
 | `409` | `This cancellation request has already been decided.`: also returned when another decision lands between the read and the write. |
 | `422` | Unknown `decision`, a decline without a reason, an approval with one, or an extra field. |
 
+## Cancelling without an alternative venue (S-89)
+
+Composite-only: both routes need the `X-Assignment-Service-Token` header
+(`ASSIGNMENT_SERVICE_SECRET`) **and** the assigned coordinator's session.
+Kong does not route `/internal`. The `event_requests` composite checks the
+venue unavailability first; this service records the decision.
+
+**`POST /internal/events/{event_id}/venue-cancellation`**
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `reason` | string | yes | Trimmed, 1–1000 characters. |
+| `alternatives_considered` | string | yes | Trimmed, 1–1000 characters. |
+| `expected_version` | integer ≥ 0 | yes | Must equal the event's `edit_version`. |
+| `affected_booking_ids` | UUID[] | yes | At least one; the bookings the composite found affected. |
+
+One guarded update sets `status` `cancelled`, `venue_cancellation_reason`,
+`venue_cancellation_alternatives`, `venue_cancellation_booking_ids`,
+`venue_cancelled_by`, `venue_cancelled_at`, `venue_cancellation_previous_status`
+and `edit_version + 1`, only while
+the event is assigned to the caller, at `expected_version`, in `planning`,
+`pending_safety_check`, `confirmed`, `preparation` or
+`safety_changes_requested`, not already venue-cancelled, and with no
+Organiser cancellation request awaiting a decision. It writes no history
+itself: that is the next route, so it can be retried.
+
+Calling again on an event this route already cancelled returns it unchanged
+(`200`, no write, no history) -- how the composite resumes.
+
+| Status | Detail |
+| --- | --- |
+| `200` | The event (`CoordinatorEventRead`). |
+| `401` / `403` | No session; missing or wrong token; not a coordinator. |
+| `404` | `Event not found` -- not assigned to the caller. |
+| `409` | `This event is already cancelled.` / `This event can't be cancelled from its current status.` / `The Organiser has asked to cancel this event. Approve their request instead.` / `This event changed since you opened it. Reload and try again.` |
+| `422` | Invalid body. |
+| `500` | `Event storage unavailable`. |
+
+**`POST /internal/events/{event_id}/venue-cancellation/history`** -- no body.
+Writes one `cancelled_venue_unavailable` entry (category `review`) built from
+the stored record alone: actor `venue_cancelled_by`, `occurred_at` =
+`venue_cancelled_at`, details `reason`, `alternatives_considered`,
+`previous_status`, `affected_booking_ids`. A unique index allows one per
+event; a repeat (or a concurrent duplicate) is a `200` `{"recorded": true}`
+without a second entry. `409` if the event was not cancelled this way; `500`
+if the write failed.
+
+**`POST /internal/events/{event_id}/venue-cancellation/complete`** -- no
+body. Sets `venue_cancellation_completed_at` once; repeating is a `200`
+no-op. `409` `The cancellation has not been recorded in the event history
+yet.` while the entry is missing; `409` `This event has not been cancelled for
+venue unavailability.` otherwise.
+
+New `EventRead` fields, all null unless S-89 cancelled the event:
+`venue_cancellation_reason`, `venue_cancellation_alternatives`,
+`venue_cancellation_booking_ids`, `venue_cancelled_by`, `venue_cancelled_at`,
+`venue_cancellation_previous_status`, `venue_cancellation_completed_at`. Run the `BEGIN S-89` block of
+[`backend/sql/events.sql`](../../../sql/events.sql) in both dev and test.
+
 ## Internal routes (composite-only)
 
 These routes support the repository's composite services. There is no Kong
@@ -774,6 +856,67 @@ plus `organiser_id` (required, same reason as above) and
 are rejected with `409`). Same responses as the public route: `200` with the
 updated event, `404` for another organiser's event.
 
+## Change history (S-82)
+
+Every significant action on an event is one row in `events.event_history`:
+who (`actor_id`, `actor_role`), what (`category`, `action`, `details`) and
+when (`occurred_at`, set by the database). Rows can be added and read, never
+changed or deleted: `service_role` has no `UPDATE` or `DELETE` on the table,
+and a trigger refuses both for anyone else. Deleting the event removes its
+rows with it.
+
+The events service records its own actions after each one succeeds. Venue and
+equipment actions arrive from `venue_bookings` and `equipment_requirements`
+through `POST /internal/events/{event_id}/history`. Recording is best effort:
+if the row can't be written, the action still stands and the failure is
+logged at `ERROR`.
+
+| Category | Actions | Recorded by |
+| --- | --- | --- |
+| `submission` | `submitted` (`details.resubmission` after a return) | events |
+| `review` | `request_approved`, `request_rejected`, `request_returned`, `cancellation_requested`, `cancellation_approved`, `cancellation_declined` | events |
+| `assignment` | `coordinator_assigned`, `reassignment_requested`, `coordinator_reassigned`, `technical_support_assigned` | events |
+| `edit` | `edited`: `details.changes` maps each changed field to `{"before", "after"}`. Covers Coordinator edits and Organiser edits once submitted, never drafts. | events |
+| `equipment` | `technical_signoff_approved`, `technical_signoff_declined`, `equipment_preparation_changed` | events |
+| `equipment` | `equipment_requirement_set`, `equipment_requirement_removed` | equipment_requirements |
+| `venue` | `venue_requested`, `venue_request_changed`, `venue_request_withdrawn`, `venue_replacement_requested`, `venue_alternative_resolved`, `venue_held`, `venue_released`, `venue_confirmed`, `venue_rejected` | venue_bookings |
+| `safety` | `safety_submitted`, `safety_resubmitted`, `safety_approved`, `safety_changes_requested`, `safety_rejected` | events |
+
+**`POST /internal/events/{event_id}/history`**
+
+```json
+{"actor_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "actor_role": "venue_staff",
+ "action": "venue_confirmed", "details": {"booking_id": "…", "venue_name": "Hall One"}}
+```
+
+Only the venue and equipment actions above are accepted. `category`,
+`occurred_at` and any other field are refused. `201` with the stored row;
+`404` "Event not found"; `422` for anything else.
+
+**`GET /internal/events/{event_id}/history`**: `200` with the rows, newest
+first:
+
+```json
+[{"id": 12, "event_id": "…", "actor_id": "…", "actor_role": "event_coordinator",
+  "category": "edit", "action": "edited",
+  "details": {"changes": {"expected_attendance": {"before": 120, "after": 150}}, "significant": true},
+  "occurred_at": "2026-10-27T06:05:00Z"}]
+```
+
+`?scope=safety` keeps the `safety`, `venue` and `equipment` rows, plus edits cut
+down to `expected_attendance`, `venue`, `room_layout`, `required_facilities`
+and `required_accessibility`. An edit that touched none of those is left out.
+Any other scope is `422`; a missing event `404`.
+
+**`GET /internal/events/{event_id}/history-scope`**: `200` with
+`{"id", "name", "status", "assigned_coordinator_id", "safety_reviewed"}`, or
+`404`.
+
+Events created before S-82 were backfilled once by
+`events.backfill_event_history()` in the S-82 SQL block, from what their own
+columns record. Who decided a request was never stored, so those entries have
+no actor.
+
 ## Errors
 
 | Status | When |
@@ -870,3 +1013,72 @@ creates and deletes real event and Auth records.
 
 - Unit: [`tests/unit/atomic/events/TEST_CASES.md`](../../../../tests/unit/atomic/events/TEST_CASES.md)
 - Integration: [`tests/integration/atomic/events/TEST_CASES.md`](../../../../tests/integration/atomic/events/TEST_CASES.md)
+
+## Event change requests (S-59)
+
+`events.change_requests` stores each submitted comparison as history. A partial
+unique index permits only one `pending` or `applying` request per event. Its insert trigger
+locks the event, checks the owning Organiser, seven eligible lifecycle states,
+and the event's `updated_at` version, then records accepted fields and a server
+timestamp. Resolved rows remain; the later S-60 workflow will own resolution.
+Run the `BEGIN S-59 EVENT CHANGE REQUESTS` block of `backend/sql/events.sql`
+in both DEV and TEST and verify the `events` schema is exposed and granted.
+
+`POST /events/{event_id}/change-request/internal` requires the Organiser's
+session and `X-Assignment-Service-Token` matching
+`ASSIGNMENT_SERVICE_SECRET`. Its JSON body has
+`expected_event_updated_at` (ISO timestamp), `proposed_values` (complete
+start/end dates and times, positive attendance, nullable venue, special
+requirements and room layout, and facilities/accessibility arrays), plus
+`accepted_equipment` and `proposed_equipment` arrays of
+`{equipment_item_id: UUID, required_quantity: positive integer}`. It returns
+`201` with the stored request. `401` means no session, `403` means missing
+service credential or wrong role, `404` means an unrelated event, `409` means
+ineligible/stale event or an existing pending request, `422` means invalid or
+unchanged values, and `500` means storage failed. Equipment snapshots come
+only from the trusted composite; this service never queries Equipment.
+
+`GET /events/{event_id}/change-requests` returns `200` with an array of the
+event's request history (`[]` when none). The owning Organiser and current
+Coordinator can read it. Anonymous, other-role and unrelated callers receive
+`401`, `403` and `404` respectively. Creating a request never changes the
+accepted event, its lifecycle, safety fields or linked arrangements.
+
+## Significant change review (S-60)
+
+Apply only the marked `BEGIN/END S-60 SIGNIFICANT CHANGE REVIEW` block of
+`backend/sql/events.sql` in DEV and TEST after review. The Events owner stores
+the decision state, acknowledged impact list and audit history. All S-60 write
+routes require both the current Coordinator's session and a trusted
+`X-Assignment-Service-Token`. The Events service does not read another
+service's tables.
+
+`POST /events/assigned/{event_id}/change-requests/{request_id}/prepare`
+takes `{operation_id, expected_event_updated_at, impacts}`. It records an
+`applying` operation and freezes unrelated event writes; it does not yet
+change accepted fields. `POST .../complete` takes `{operation_id}` and
+atomically applies the proposed event values, marks the request `accepted`,
+records history and returns confirmed, preparation or pending safety review
+to planning. Older safety decisions remain in history. The composite calls
+complete only after Equipment confirms its own batch. Repeating either call
+with the same operation is safe.
+
+`POST .../reject` takes `{"reason":"Venue unavailable"}` and atomically
+marks a pending request rejected with a trusted reviewer and timestamp.
+`POST .../impacts/{impact_id}/resolve` takes
+`{expected_impact_version, action, evidence}`. The composite first checks
+owner-backed evidence, then Events records the individual resolution, actor
+and time. `POST /events/assigned/{event_id}/edit-impacts/{impact_id}/resolve`
+uses the same body for significant S-18 edits.
+`GET /internal/events/{event_id}/unresolved-change-impacts` requires the
+`X-Assignment-Service-Token` header and returns outstanding items for safety
+readiness. Direct safety submission and resubmission reject
+unresolved items with `409`; the SQL trigger enforces the same rule if a
+caller bypasses those routes.
+
+Successful writes return the current request or event row. Missing or wrong
+sessions return `401`/`403`, unrelated events or missing requests return
+scoped `404`, stale versions and conflicting operations return `409`, invalid
+bodies return `422`, and storage failure returns `500`. A Safety Officer
+decision now requires `expected_event_updated_at` from the detail read; a
+decision from a superseded event version returns `409`.

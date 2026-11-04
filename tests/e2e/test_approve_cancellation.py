@@ -73,7 +73,10 @@ def test_a_coordinator_approves_a_cancellation_and_both_sides_see_cancelled(
     expect(page.get_by_text("Keynote speaker withdrew")).to_be_visible(timeout=20000)
     page.get_by_role("button", name="Approve cancellation").click()
     panel = page.get_by_role("dialog")
-    expect(panel.get_by_text("1 venue booking will be removed and its time freed.")).to_be_visible(timeout=20000)
+    # The panel's booking count is one composite read that chains about six
+    # Supabase-backed calls, each retried on a dropped connection; on a slow
+    # CI runner that can outlast 20s although the page already shows them.
+    expect(panel.get_by_text("1 venue booking will be removed and its time freed.")).to_be_visible(timeout=45000)
     panel.get_by_role("button", name="Keep event").click()
     expect(panel).to_have_count(0)
     assert event_row()["status"] == "planning"

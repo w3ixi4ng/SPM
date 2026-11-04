@@ -250,3 +250,179 @@ class CancellationDecision(BaseModel):
 
     decision: Literal["approved", "declined"]
     reason: str | None = None
+
+
+class VenueCancellationSubmit(BaseModel):
+    """S-89: the Coordinator's record of cancelling an event no alternative
+    venue could be found for, and the event version their screen showed.
+    Checked here so a blank field never costs a downstream call; the events
+    service checks it again."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+    alternatives_considered: str = Field(max_length=1000)
+    expected_version: int = Field(ge=0)
+
+    @field_validator("reason", "alternatives_considered", mode="before")
+    @classmethod
+    def trimmed_and_required(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                raise ValueError("This field is required")
+        return value
+
+
+class EventDecision(BaseModel):
+    """S-63 browser decision forwarded to Events before notifying its owner."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected", "returned"]
+    reason: str | None = None
+    comment: str | None = None
+
+    @field_validator("reason", "comment", mode="before")
+    @classmethod
+    def normalise_decision_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def decision_details_match(self):
+        if self.decision in {"rejected", "returned"} and self.reason is None:
+            raise ValueError("reason is required to reject or return a request")
+        if self.decision == "approved" and self.reason is not None:
+            raise ValueError("reason is not accepted when approving a request")
+        if self.comment is not None and self.decision != "returned":
+            raise ValueError("comment is only accepted when returning a request")
+        return self
+
+
+class EventInformationUpdate(BaseModel):
+    """S-18 Coordinator fields mirrored for S-63 composite orchestration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    impact_accepted: bool = False
+    name: str | None = None
+    purpose: str | None = None
+    contact_name: str | None = Field(default=None, max_length=200)
+    contact_email: str | None = Field(default=None, max_length=320)
+    contact_phone: str | None = Field(default=None, max_length=50)
+    internal_notes: str | None = Field(default=None, max_length=4000)
+    start_date: date | None = None
+    start_time: time | None = None
+    end_date: date | None = None
+    end_time: time | None = None
+    expected_attendance: PositiveInt | None = None
+    venue: str | None = None
+    special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility] | None = None
+    required_accessibility: list[AccessibilityFeature] | None = None
+
+    @field_validator(
+        "name", "purpose", "contact_name", "contact_email", "contact_phone",
+        "internal_notes", "venue", "special_requirements", "room_layout", mode="before",
+    )
+    @classmethod
+    def normalise_information_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @field_validator("contact_email")
+    @classmethod
+    def plausible_email(cls, value):
+        if value is not None and ("@" not in value or value.startswith("@") or value.endswith("@")):
+            raise ValueError("contact_email must be a valid email address")
+        return value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def unique_information_options(cls, value):
+        return None if value is None else list(dict.fromkeys(value))
+
+
+class EventChangeValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    start_time: time
+    end_date: date
+    end_time: time
+    expected_attendance: PositiveInt
+    venue: str | None = None
+    special_requirements: str | None = None
+    room_layout: RoomLayout | None = None
+    required_facilities: list[Facility]
+    required_accessibility: list[AccessibilityFeature]
+
+    @field_validator("venue", "special_requirements", mode="before")
+    @classmethod
+    def trim_optional_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @field_validator("required_facilities", "required_accessibility")
+    @classmethod
+    def canonical_options(cls, value: list) -> list:
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def valid_window(self):
+        _check_end_after_start(self.start_date, self.start_time, self.end_date, self.end_time)
+        return self
+
+
+class EventChangeEquipment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    equipment_item_id: UUID
+    required_quantity: PositiveInt
+
+
+class EventChangeSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    values: EventChangeValues
+    equipment: list[EventChangeEquipment]
+
+    @model_validator(mode="after")
+    def unique_equipment(self):
+        ids = [item.equipment_item_id for item in self.equipment]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Equipment items must be unique")
+        return self
+
+
+class EventChangeAccept(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_event_updated_at: datetime
+    impact_ids: list[str]
+    operation_id: UUID | None = None
+
+
+class EventChangeReject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason is required")
+        return value
+
+
+class EventImpactResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_impact_version: int = Field(ge=0)
+    action: str = Field(min_length=1, max_length=200)
+    evidence: dict
+
+
+class CoordinatorSignificantEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    edit: dict
+    impact_ids: list[str]

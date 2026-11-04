@@ -2,15 +2,21 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  acceptOffer,
   attendeeCountLabel,
   canWithdraw,
   closeRegistration,
+  declineOffer,
+  declinePrompt,
   describeRegistration,
+  formatEventWhen,
   joinWaitingList,
   listEventAttendees,
   listMyRegistrations,
   registrationClosureControl,
+  registrationDetails,
   registrationStatusLabel,
+  registrationStatusTone,
   registrationCountdown,
   registrationWindow,
   reopenRegistration,
@@ -147,7 +153,15 @@ test('the registration lists are read from the composite', async (t) => {
 
 // --- TC-FRONTEND-255 -------------------------------------------------------
 test('the attendee count reads as a sentence', () => {
-  assert.equal(attendeeCountLabel(0), 'No one has registered yet.')
+  assert.equal(attendeeCountLabel(1), '1 attendee registered')
+  assert.equal(attendeeCountLabel(2), '2 attendees registered')
+})
+
+// --- TC-FRONTEND-281 -------------------------------------------------------
+test('the empty list says no one is currently registered', () => {
+  const empty = 'No one is currently registered for this event.'
+  assert.equal(attendeeCountLabel(0), empty)
+  assert.equal(attendeeCountLabel(undefined), empty)
   assert.equal(attendeeCountLabel(1), '1 attendee registered')
   assert.equal(attendeeCountLabel(2), '2 attendees registered')
 })
@@ -300,6 +314,126 @@ test('withdrawing goes to the composite', async (t) => {
 test('the withdraw confirmation says what happens', () => {
   assert.equal(
     withdrawPrompt({ name: 'Alumni networking evening' }),
-    'Withdraw from Alumni networking evening? Your place goes to the next person on the waiting list.',
+    'Withdraw from Alumni networking evening? Your place will be offered to the next person on the waiting list.',
   )
+})
+
+// --- S-56 -----------------------------------------------------------------
+
+const HELD = {
+  status: 'confirmed',
+  details_confirmed: true,
+  start_date: '2026-11-20',
+  start_time: '18:00:00',
+  end_date: '2026-11-20',
+  end_time: '21:00:00',
+  venue: 'Hall A',
+}
+
+// TC-FRONTEND-267
+test('a held place shows when and where', () => {
+  assert.deepEqual(registrationDetails(HELD), {
+    when: formatEventWhen(HELD), venue: 'Hall A', pending: null,
+  })
+  const unbooked = { ...HELD, venue: null }
+  assert.deepEqual(registrationDetails(unbooked), {
+    when: formatEventWhen(unbooked), venue: 'Venue to be confirmed', pending: null,
+  })
+})
+
+// TC-FRONTEND-268
+test('details being re-checked read to be confirmed', () => {
+  const row = {
+    status: 'confirmed', details_confirmed: false,
+    start_date: null, start_time: null, end_date: null, end_time: null, venue: null,
+  }
+  assert.deepEqual(registrationDetails(row), {
+    when: null,
+    venue: null,
+    pending:
+      'Details to be confirmed. The date, time and venue will show here once the event is confirmed again.',
+  })
+})
+
+// TC-FRONTEND-269
+test('a waiting-list entry shows no venue', () => {
+  const row = { ...HELD, status: 'waitlisted', position: 2, venue: null }
+  assert.deepEqual(registrationDetails(row), {
+    when: formatEventWhen(row), venue: null, pending: null,
+  })
+})
+
+// --- S-55 -----------------------------------------------------------------
+
+// --- TC-FRONTEND-278 -------------------------------------------------------
+test('an offered place reads "Place offered" on the dashboard', () => {
+  const offered = {
+    status: 'offered',
+    position: 1,
+    start_date: '2026-11-20',
+    start_time: '18:00:00',
+    end_date: '2026-11-20',
+    end_time: '21:00:00',
+    details_confirmed: true,
+  }
+  assert.equal(registrationStatusLabel(offered), 'Place offered')
+  assert.deepEqual(registrationDetails(offered), {
+    when: '20 Nov 2026, 6:00 pm to 9:00 pm', venue: null, pending: null,
+  })
+  assert.equal(registrationStatusLabel({ status: 'waitlisted', position: 2 }), 'Waiting list · 2nd in line')
+  assert.equal(registrationStatusLabel({ status: 'confirmed' }), 'Confirmed')
+})
+
+// --- TC-FRONTEND-280 -------------------------------------------------------
+test('accepting and declining go to the composite', async (t) => {
+  const calls = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Response(JSON.stringify({ registered: options.method === 'POST' }), { status: 200 })
+  }
+  t.after(() => { globalThis.fetch = realFetch })
+
+  assert.deepEqual(await acceptOffer('E'), { registered: true })
+  assert.deepEqual(await declineOffer('E'), { registered: false })
+  assert.deepEqual(
+    calls.map((call) => [call.options.method, call.url]),
+    [
+      ['POST', '/api/event-registrations/events/E/waiting-list/offer'],
+      ['DELETE', '/api/event-registrations/events/E/waiting-list/offer'],
+    ],
+  )
+  assert.equal(declinePrompt(), "Decline this place? You'll leave the waiting list.")
+})
+
+// --- TC-FRONTEND-282 -------------------------------------------------------
+test('a withdrawn row says so, and when', () => {
+  const withdrawn = {
+    status: 'withdrawn',
+    withdrawn_at: '2026-10-28T02:15:00+00:00',
+    start_date: '2026-11-20',
+    start_time: '18:00:00',
+    end_date: '2026-11-20',
+    end_time: '21:00:00',
+    details_confirmed: true,
+  }
+  assert.equal(registrationStatusLabel(withdrawn), 'Withdrawn on 28 Oct 2026')
+  assert.deepEqual(registrationDetails(withdrawn), {
+    when: '20 Nov 2026, 6:00 pm to 9:00 pm', venue: null, pending: null,
+  })
+  // 17:30 UTC is 01:30 the next day in Singapore.
+  assert.equal(
+    registrationStatusLabel({ status: 'withdrawn', withdrawn_at: '2026-10-28T17:30:00+00:00' }),
+    'Withdrawn on 29 Oct 2026',
+  )
+  assert.equal(registrationStatusLabel({ status: 'withdrawn', withdrawn_at: null }), 'Withdrawn')
+  assert.equal(registrationStatusLabel({ status: 'confirmed' }), 'Confirmed')
+})
+
+// --- TC-FRONTEND-283 -------------------------------------------------------
+test('each status has its own dot tone', () => {
+  assert.equal(registrationStatusTone({ status: 'confirmed' }), 'done')
+  assert.equal(registrationStatusTone({ status: 'waitlisted', position: 2 }), 'partial')
+  assert.equal(registrationStatusTone({ status: 'offered', position: 1 }), 'partial')
+  assert.equal(registrationStatusTone({ status: 'withdrawn' }), 'inactive')
 })

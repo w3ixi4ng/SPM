@@ -16,8 +16,9 @@ PROJECTOR = "11111111-0000-4000-8000-00000000000b"
 SPEAKER = "11111111-0000-4000-8000-00000000000c"
 
 
-def item(item_id, type_, total, operational="available", lifecycle="active"):
-    return {"id": item_id, "type": type_, "description": None, "total_quantity": total,
+def item(item_id, type_, total, operational="available", lifecycle="active", storage_location=None):
+    return {"id": item_id, "type": type_, "description": None,
+            "storage_location": storage_location, "total_quantity": total,
             "operational_status": operational, "lifecycle_status": lifecycle}
 
 
@@ -25,7 +26,7 @@ def item(item_id, type_, total, operational="available", lifecycle="active"):
 CATALOGUE = [
     item(SPEAKER, "Old Speaker", 6, lifecycle="retired"),
     item(PROJECTOR, "Projector", 4, operational="maintenance"),
-    item(MIC, "Wireless Microphone", 12),
+    item(MIC, "Wireless Microphone", 12, storage_location="Store B, Shelf 4"),
 ]
 
 
@@ -89,6 +90,7 @@ def test_availability_counts_reserved_and_unavailable_units_for_the_window(clien
         "total": 4, "reserved": 1, "unavailable": 4, "available": 0, "over_reserved": False, "sufficient": None}
     assert {k: mic[k] for k in ("total", "reserved", "unavailable", "available", "over_reserved", "sufficient")} == {
         "total": 12, "reserved": 10, "unavailable": 0, "available": 2, "over_reserved": False, "sufficient": None}
+    assert mic["storage_location"] == "Store B, Shelf 4"
     assert [(r["event_name"], r["required_quantity"]) for r in mic["reservations"]] == [
         ("Overnight setup", 2), ("Alumni talk", 5), ("Board lunch", 3)]
     assert set(mic["reservations"][0]) == {"event_id", "event_name", "status", "start_date", "start_time",
@@ -98,6 +100,29 @@ def test_availability_counts_reserved_and_unavailable_units_for_the_window(clien
     requirement_call = services.equipment.get.await_args_list[1]
     assert requirement_call.kwargs["params"] == [("event_ids", e["id"]) for e in OVERLAPPING]
     assert services.equipment.get.await_args_list[0].kwargs["cookies"] == {"sb_access_token": "token"}
+
+
+# --- TC-EQUIPMENTREQUIREMENTS-031 ---------------------------------------
+def test_storage_location_is_metadata_and_never_changes_availability(client, services):
+    without_location = [
+        {**row, "storage_location": None} for row in CATALOGUE
+    ]
+    arrange(services, catalogue=without_location)
+    before = by_type(check(client).json())["Wireless Microphone"]
+
+    with_location = [
+        {**row, "storage_location": "Remote Warehouse"} if row["id"] == MIC else row
+        for row in CATALOGUE
+    ]
+    arrange(services, catalogue=with_location)
+    after = by_type(check(client).json())["Wireless Microphone"]
+
+    counted_fields = ("total", "reserved", "unavailable", "available", "over_reserved", "sufficient")
+    assert {field: before[field] for field in counted_fields} == {
+        field: after[field] for field in counted_fields
+    }
+    assert before["storage_location"] is None
+    assert after["storage_location"] == "Remote Warehouse"
 
 
 # --- TC-EQUIPMENTREQUIREMENTS-013 ----------------------------------------

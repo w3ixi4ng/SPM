@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import EquipmentRequirementsPanel from '../components/EquipmentRequirementsPanel.jsx'
 import EventReadinessPanel from '../components/EventReadinessPanel.jsx'
+import RegisteredAttendeesPanel from '../components/RegisteredAttendeesPanel.jsx'
 import SafetySubmissionPanel from '../components/SafetySubmissionPanel.jsx'
 import {
   buildSubmissionReadiness,
@@ -12,6 +13,9 @@ import {
 import { equipmentPreparationLabel } from '../lib/technicalSupportAssignments.js'
 import Logo from '../components/Logo.jsx'
 import ReassignmentRequestPanel from '../components/ReassignmentRequestPanel.jsx'
+import CoordinatorEventChangePanel from '../components/CoordinatorEventChangePanel.jsx'
+import VenueCancellationPanel from '../components/VenueCancellationPanel.jsx'
+import CoordinatorEditImpacts from '../components/CoordinatorEditImpacts.jsx'
 import { hasPermission, PERMISSIONS } from '../lib/access.js'
 import { optionLabel } from '../lib/venues.js'
 import {
@@ -37,12 +41,17 @@ import {
   bookingStatusMeta,
   canRequestVenue,
   listVenueBookingsForEvent,
+  primaryVenueErrorMessage,
+  primaryVenuePrompt,
   replacementErrorMessages,
   replacementPath,
   replacementState,
+  requestRestore,
   resolveAlternativeArrangements,
+  restoreErrorMessage,
   RESOLUTION_NOTE_MAX,
   shortTime,
+  selectPrimaryVenueBooking,
   validateResolutionNote,
   venueRequestLinkLabel,
   cancelVenueBooking,
@@ -107,6 +116,7 @@ function EventInformationEditor({ event, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(() => eventResponseToForm(event))
   const [impact, setImpact] = useState(null)
+  const [impactAcknowledged, setImpactAcknowledged] = useState(false)
   const [state, setState] = useState({ status: 'idle', error: null, notice: null })
 
   useEffect(() => {
@@ -124,7 +134,7 @@ function EventInformationEditor({ event, onSaved }) {
   async function save(acceptImpact = false) {
     setState({ status: 'saving', error: null, notice: null })
     try {
-      const updated = await updateAssignedEventInformation(event.id, form, event, acceptImpact)
+      const updated = await updateAssignedEventInformation(event.id, form, event, acceptImpact, impact?.impacts?.map((item) => item.id) || [])
       setImpact(null)
       setState({ status: 'idle', error: null, notice: 'Event information saved.' })
       onSaved(updated)
@@ -142,6 +152,7 @@ function EventInformationEditor({ event, onSaved }) {
         setState({ status: 'idle', error: null, notice: 'There are no changes to save.' })
       } else if (result.requires_impact_acceptance) {
         setImpact(result)
+        setImpactAcknowledged(false)
         setState({ status: 'idle', error: null, notice: null })
       } else {
         await save(false)
@@ -202,10 +213,12 @@ function EventInformationEditor({ event, onSaved }) {
         <div role="alertdialog" aria-labelledby="impact-heading" className="mt-6 border rounded-sm p-5" style={{ borderColor: C.amber, backgroundColor: `${C.amber}0D` }}>
           <h3 id="impact-heading" className="font-display text-lg" style={{ color: C.ink }}>Review significant changes</h3>
           <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>These changes may affect existing arrangements: {impact.significant_fields.map((field) => FIELD_LABELS[field] || field).join(', ')}.</p>
+          <ul className="mt-2 list-disc pl-5">{impact.impacts?.map((item) => <li key={item.id}>{item.reason} Next action: {item.required_action}</li>)}</ul>
+          <label className="mt-3 flex gap-2"><input type="checkbox" checked={impactAcknowledged} onChange={(e) => setImpactAcknowledged(e.target.checked)} />I reviewed each impact and proposed next action.</label>
           {['confirmed', 'preparation'].includes(event.status) && <p className="font-ui text-sm mt-2" style={{ color: C.ink }}>Accepting returns the event to Planning and requires a fresh Operational Safety Check. Existing venue and equipment sign-offs remain in place.</p>}
           <div className="flex gap-3 mt-4">
             <button type="button" onClick={() => setImpact(null)} className="px-4 py-2 border rounded-sm font-ui text-sm" style={{ borderColor: C.line }}>Go back</button>
-            <button type="button" onClick={() => save(true)} className="px-4 py-2 rounded-sm font-ui text-sm text-white" style={{ backgroundColor: C.amber }}>Accept and save</button>
+            <button type="button" disabled={!impactAcknowledged || state.status !== 'idle'} onClick={() => save(true)} className="px-4 py-2 rounded-sm font-ui text-sm text-white disabled:opacity-50" style={{ backgroundColor: C.amber }}>Accept and save</button>
           </div>
         </div>
       )}
@@ -576,7 +589,7 @@ function CancelBookingPanel({ booking, onClose, onCancelled }) {
   )
 }
 
-function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
+function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
   const [state, setState] = useState({ status: 'loading', bookings: [] })
   const [resolving, setResolving] = useState(null)
   const [resolvedNotice, setResolvedNotice] = useState(null)
@@ -585,11 +598,18 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
   const [cancelling, setCancelling] = useState(null)
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
+  const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
+  // S-90: the original being restored, and what the last request did.
+  const [restoreState, setRestoreState] = useState({ bookingId: null, error: null, notice: null })
 
   const load = useCallback(() => listVenueBookingsForEvent(eventId).then(
-    (bookings) => setState({ status: 'ready', bookings }),
+    (bookings) => {
+      setState({ status: 'ready', bookings })
+      // S-89: the cancellation panel reads the same list rather than its own.
+      onLoaded?.({ eventId, bookings })
+    },
     () => setState({ status: 'error', bookings: [] }),
-  ), [eventId])
+  ), [eventId, onLoaded])
 
   useEffect(() => {
     load()
@@ -610,6 +630,31 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
     setCancelNotice(null)
     setResolving(null)
     await load()
+  }
+
+  async function restore(booking) {
+    setRestoreState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await requestRestore(booking.id)
+      await load()
+      setRestoreState({
+        bookingId: null, error: null,
+        notice: `Restore requested. Venue Staff will confirm ${booking.venue_name}.`,
+      })
+    } catch (error) {
+      setRestoreState({ bookingId: null, error: restoreErrorMessage(error), notice: null })
+    }
+  }
+
+  async function makePrimary(booking) {
+    setPrimaryState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await selectPrimaryVenueBooking(booking.id)
+      await load()
+      setPrimaryState({ bookingId: null, error: null, notice: `${booking.venue_name} is now the primary venue.` })
+    } catch (error) {
+      setPrimaryState({ bookingId: null, error: primaryVenueErrorMessage(error), notice: null })
+    }
   }
 
   return (
@@ -635,6 +680,12 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venue requests sent yet.</p>
       )}
       {state.status === 'ready' && state.bookings.length > 0 && (
+        <>
+        {primaryVenuePrompt(state.bookings) && (
+          <p role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>
+            {primaryVenuePrompt(state.bookings)}
+          </p>
+        )}
         <ul className="divide-y" aria-label="Venue requests sent">
           {state.bookings.map((booking) => {
             const { label, color } = bookingStatusMeta(booking.status)
@@ -657,6 +708,20 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
                     {label}
                   </span>
+                  {booking.is_primary && (
+                    <strong className="font-ui text-xs" style={{ color: C.teal }}>Primary venue</strong>
+                  )}
+                  {booking.status === 'confirmed' && !booking.is_primary && (
+                    <button
+                      type="button"
+                      onClick={() => makePrimary(booking)}
+                      disabled={primaryState.bookingId !== null}
+                      className="font-ui text-sm underline disabled:opacity-60"
+                      style={{ color: C.teal }}
+                    >
+                      {primaryState.bookingId === booking.id ? 'Saving…' : 'Make primary'}
+                    </button>
+                  )}
                   {canChangeVenueBooking(booking, eventStatus) && (
                     // S-80: this booking only; the others are untouched.
                     <>
@@ -722,6 +787,17 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
                             Find a replacement venue
                           </Link>
                         )}
+                        {replacing.actions.includes('restore') && (
+                          <button
+                            type="button"
+                            onClick={() => restore(booking)}
+                            disabled={restoreState.bookingId === booking.id}
+                            className="csp-focus px-4 py-2 rounded-sm border font-medium transition-colors duration-200"
+                            style={{ borderColor: C.ink, color: C.ink }}
+                          >
+                            {restoreState.bookingId === booking.id ? 'Requesting…' : 'Restore original venue'}
+                          </button>
+                        )}
                         {replacing.actions.includes('resolve') && (
                           <button
                             type="button"
@@ -740,7 +816,10 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
             )
           })}
         </ul>
+        </>
       )}
+      {primaryState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{primaryState.error}</p>}
+      {restoreState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{restoreState.error}</p>}
       <div className="flex flex-wrap items-center gap-4 mt-6">
         {canRequest && (
           <Link
@@ -753,7 +832,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice }) {
           </Link>
         )}
         <p role="status" className="font-ui text-sm" style={{ color: C.green }}>
-          {cancelNotice ?? resolvedNotice ?? notice}
+          {restoreState.notice ?? primaryState.notice ?? cancelNotice ?? resolvedNotice ?? notice}
         </p>
       </div>
       {resolving && <ResolvePanel booking={resolving} onClose={closeResolve} onResolved={handleResolved} />}
@@ -1179,6 +1258,7 @@ export default function EventCoordinatorEventDetail() {
   const [decisionPanel, setDecisionPanel] = useState(null)
   const [cancellationNotice, setCancellationNotice] = useState(null)
   const [bookingsVersion, setBookingsVersion] = useState(0)
+  const [venueBookings, setVenueBookings] = useState(null)
   const decisionTriggerRef = useRef(null)
 
   useEffect(() => {
@@ -1253,6 +1333,8 @@ export default function EventCoordinatorEventDetail() {
 
         {state.status === 'ready' && (
           <>
+            {isCoordinator && <CoordinatorEventChangePanel eventId={state.event.id} />}
+            {isCoordinator && <CoordinatorEditImpacts event={state.event} onSaved={(updated) => setState({ status: 'ready', event: updated, error: null })} />}
             <CancellationReview
               event={state.event}
               notice={cancellationNotice}
@@ -1261,6 +1343,18 @@ export default function EventCoordinatorEventDetail() {
                 setDecisionPanel(decision)
               }}
             />
+
+            {/* S-89: cancel when venue unavailability left no alternative. */}
+            {isCoordinator && (
+              <VenueCancellationPanel
+                event={state.event}
+                bookings={venueBookings?.eventId === state.event.id ? venueBookings.bookings : null}
+                onCancelled={(event) => {
+                  setState({ status: 'ready', event, error: null })
+                  setBookingsVersion((version) => version + 1)
+                }}
+              />
+            )}
 
             {state.event.status === 'submitted' ? (
               <DecisionForm
@@ -1272,9 +1366,17 @@ export default function EventCoordinatorEventDetail() {
             )}
 
             <section className="border rounded-sm p-7 sm:p-8" style={{ borderColor: C.line }}>
-              <h1 className="font-display text-3xl mb-8" style={{ color: C.ink }}>
+              <h1 className="font-display text-3xl mb-2" style={{ color: C.ink }}>
                 {form.name || 'Untitled event request'}
               </h1>
+              {/* S-82: who changed or decided what on this event, and when. */}
+              <Link
+                to={`/events/${state.event.id}/history`}
+                className="inline-block font-ui text-sm mb-8"
+                style={{ color: C.teal }}
+              >
+                View change history
+              </Link>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <Field label="Purpose" value={form.purpose} />
@@ -1335,6 +1437,13 @@ export default function EventCoordinatorEventDetail() {
             )}
             <EventReadinessPanel event={state.event} />
             {isCoordinator && REASSIGNABLE_STATUSES.has(state.event.status) && <ReassignmentRequestPanel eventId={state.event.id} />}
+            {/* S-57: the assigned Coordinator sees who is registered, read-only --
+                closing registration stays the Organiser's decision. */}
+            {isCoordinator && state.event.status === 'confirmed' && state.event.registration_required && (
+              <div className="border rounded-sm p-7 sm:p-8 mt-8" style={{ borderColor: C.line }}>
+                <RegisteredAttendeesPanel eventId={state.event.id} />
+              </div>
+            )}
 
             <div
               role="group"
@@ -1349,6 +1458,7 @@ export default function EventCoordinatorEventDetail() {
                   eventStatus={state.event.status}
                   canRequest={showVenueRequest}
                   notice={notice}
+                  onLoaded={setVenueBookings}
                 />
               )}
 

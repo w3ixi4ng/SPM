@@ -33,8 +33,13 @@ internal-service contract. Atomic services never call the users service.
 | `PATCH` | `/bookings/{id}` | S-80, Event Coordinator session only: change a `pending`/`held`/`confirmed` booking's `venue_id`, `venue_name`, `booking_date`, `start_time`, `end_time`, `notes` (setup/turnaround as query params, like `POST /bookings`). Refused with `409` if the new slot overlaps another hold, confirmed booking or block -- never itself. The booking becomes `pending` with every hold and decision field cleared. `404` missing, `409` rejected. |
 | `DELETE` | `/bookings/{id}` | S-80, Event Coordinator session only: delete one `pending`/`held`/`confirmed` booking (`204`). `404` missing, `409` rejected. |
 | `DELETE` | `/internal/events/{event_id}/bookings` | S-61, Event Coordinator session only: delete every booking for a cancelled event, whatever its status, so its times are available again. Returns `200` `{"deleted": <count>}`; safe to repeat (`{"deleted": 0}`). Called only by the `event_requests` composite after the event is cancelled. |
+| `POST` | `/internal/events/{event_id}/bookings/closure` | S-89, Event Coordinator session only: before the event is cancelled, close it to new active bookings. Body `{"reason": "event_cancelled", "operation_id": <uuid>}`. Returns the closure. |
+| `POST` | `/internal/events/{event_id}/bookings/closure/reopen` | S-89: withdraw a closure whose cancellation did not happen. Body `{"operation_id": <uuid>}`. Returns `{"reopened": true \| false}`. |
+| `POST` | `/internal/events/{event_id}/bookings/release` | S-89, Event Coordinator session only: release every `pending`, `held` and `confirmed` booking of a cancelled event, keeping the rows, and close the event for good. Body `{"reason": "event_cancelled", "operation_id": <uuid>}`. Returns `200` `{"released": [<id>, …], "count": <n>}`; safe to repeat. Called only by the `event_requests` composite. |
 | `GET` | `/bookings/{id}` | S-75: one request, for the composite (internal, like the other reads). `404` `{"detail": "Booking not found"}` if missing. |
 | `POST` | `/bookings/{id}/alternative-resolution` | S-78, Coordinators only: record what was arranged instead for a held or confirmed booking. See [S-78](#s-78-replacement-requests-and-resolutions). |
+| `POST` | `/bookings/{id}/restore-request` | S-90, Coordinators only: ask to keep a held or confirmed original, once its venue is free for its whole occupied window. See [S-90](#s-90-restoring-an-original-booking). |
+| `POST` | `/bookings/{id}/restore-decision` | S-90, Venue Staff only: confirm (withdraw its replacements, resolve it) or decline a restore. |
 | `GET` | `/health` | Liveness check. |
 
 ## Requests
@@ -483,6 +488,47 @@ off. The same detail comes back when the database constraint wins a race.
 `POST /bookings` (a Coordinator's request) keeps the S-75 wording and never
 names another event.
 
+## S-90 restoring an original booking
+
+The venue_bookings composite decides who may ask and when; this service
+checks the venue and writes. Both routes take the venue's current
+`setup_minutes` and `turnaround_minutes` as query parameters, as S-75's do,
+and check the window the booking occupies against every other held or
+confirmed booking there and every unavailable period. The booking never
+clashes with itself.
+
+**`POST /bookings/{id}/restore-request`** (Coordinator session, no body):
+`200` with the booking, `restore_requested_at` and `restore_requested_by` set.
+`409` "Only a held or confirmed booking can be restored", "A restore has
+already been requested for this booking", or the S-30/S-77 clash `detail`;
+`404` "Booking not found"; `403` for any other role.
+
+**`POST /bookings/{id}/restore-decision`** (Venue Staff session), body
+`{"decision": "approved" | "declined"}`: `200`
+`{"booking": <BookingRead>, "withdrawn": [<BookingRead>, ...]}`. Approving
+re-checks the venue (`409` with S-76's staff wording), sets every `pending` or
+`held` booking replacing it to `withdrawn` with `withdrawn_at`, clears the
+request and sets `alternative_resolved_at`, `alternative_resolved_by` (the
+Coordinator who asked) and `alternative_resolution_note` "Restored to the
+original venue". Declining only clears the request. `409` "There is no
+restore request to decide for this booking" or "Only a held or confirmed
+booking can be restored".
+
+**`GET /bookings?restore_requested=true`**: the bookings with an open request,
+oldest request first.
+
+Every `BookingRead` also has `restore_requested_at`, `restore_requested_by`
+and `withdrawn_at`, `null` until set, and `status` may be `withdrawn`.
+
+### S-90 database setup
+
+Copy the block between `BEGIN S-90 RESTORE ORIGINAL VENUE` and
+`END S-90 RESTORE ORIGINAL VENUE` in
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) into the SQL Editor of
+**both** projects, after the S-78 and S-91 blocks. It adds the three columns,
+allows `withdrawn`, and has S-78's trigger clear a restore request when the
+replacement is confirmed. Safe to run twice; no new schema or grant.
+
 ## S-25 venue preparation
 
 Every booking response includes `venue_preparation_status` (`not_started`,
@@ -497,3 +543,69 @@ updated booking with `200`. A non-confirmed booking or stale version returns
 Before integration tests, run the S-25 migration block in
 `backend/sql/bookings.sql` in both dev and test Supabase projects. The existing
 `bookings` schema remains exposed and granted.
+
+## S-91 primary venue
+
+Every booking response includes `is_primary`, `primary_selected_by`, and
+`primary_selected_at`. Only a confirmed booking can be primary and the
+database permits at most one primary booking per event. The first confirmed
+booking becomes primary; if it is cancelled, replaced, or changed, no other
+booking is silently selected.
+
+`PUT /bookings/{id}/primary` requires an authenticated `event_coordinator`.
+It returns the selected booking (`200`), `404` when it does not exist, `409`
+when it is not confirmed, `401` without a session, and `403` for another
+role. The venue_bookings composite verifies that the Coordinator owns the
+event before calling this atomic route.
+
+## S-89 released bookings
+
+A cancelled event's bookings can be **released** instead of deleted (S-61
+still deletes; see the follow-up note below). `released` is terminal and not
+live: it never conflicts with a new request, is not in `status=actionable`
+or `status=live`, and is still listed by `GET /bookings?event_id=`.
+
+### Closing an event's bookings
+
+`bookings.closed_events` holds one row per event being or already cancelled
+by S-89. While it exists, a trigger refuses any booking of the event
+**becoming** `pending`, `held` or `confirmed` -- a new request, an S-80
+change, a hold, or a Venue Staff confirmation -- whichever route the write
+comes from. Those routes answer `409`
+`This event is being cancelled, so its venue bookings can no longer change.`
+A hold lapsing or being released (`held` → `pending`) is still allowed: it
+gives time back. Every write and the closure take the same per-event lock,
+so a booking write either lands before the closure (and the release then
+catches it) or is refused.
+
+| Route | Body | Does |
+| --- | --- | --- |
+| `POST …/bookings/closure` | `reason` = `"event_cancelled"`, `operation_id` (UUID) | Records `state` `closing`, before the event is cancelled. Repeating returns the existing row with **its** `operation_id`. |
+| `POST …/bookings/closure/reopen` | `operation_id` | Removes a `closing` row only if it is this operation's, or older than two minutes (an abandoned attempt). Never removes a `closed` one. `{"reopened": true \| false}`. |
+| `POST …/bookings/release` | `reason`, `operation_id` | Sets `state` `closed` (permanent) and moves the event's `pending`, `held` and `confirmed` bookings to `released`, setting `released_at`, `released_by` (the Coordinator) and `release_reason`; a held booking also gets `hold_released_at` and `hold_release_reason` = `event_cancelled`. `rejected` and `replaced` bookings are left as they are. |
+
+```json
+{"released": ["44444444-…", "55555555-…"], "count": 2}
+```
+
+| Status | Meaning |
+| --- | --- |
+| `200` | Done (possibly nothing, on a repeat). |
+| `401` / `403` | No session / not an Event Coordinator. |
+| `422` | Missing or other `reason`, missing `operation_id`, or an unknown field. |
+| `500` | `Booking storage unavailable`. |
+
+New `BookingRead` fields: `released_at`, `released_by`, `release_reason`
+(all null unless `status` is `released`).
+
+### S-89 database setup
+
+Run the `BEGIN S-89 RELEASE A CANCELLED EVENT'S BOOKINGS` block of
+[`backend/sql/bookings.sql`](../../../sql/bookings.sql) in **both** dev and
+test. It adds the columns, the `released` status, `bookings.closed_events`
+(granted to `service_role`, RLS on), the trigger, and the three functions.
+No new schema to expose.
+
+**Follow-up.** S-61's `DELETE /internal/events/{event_id}/bookings` still
+hard-deletes; aligning it with S-89's release was left out of S-89 on
+purpose.

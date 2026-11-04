@@ -43,6 +43,9 @@ def _item(item: dict, reservations: list[dict], quantity: int | None) -> dict:
     return {
         "id": item["id"],
         "type": item["type"],
+        # S-92 metadata is returned for display only. It deliberately does not
+        # participate in any reservation or availability calculation.
+        "storage_location": item.get("storage_location"),
         "operational_status": item["operational_status"],
         "total": total,
         "reserved": reserved,

@@ -55,7 +55,16 @@ def test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot(a
     assert after['status'] == 'replaced'
     assert after['replaced_by_booking_id'] == replacement['id']
     assert after['replaced_at'] is not None
-    unchanged = {key for key in before if key not in ('status', 'replaced_by_booking_id', 'replaced_at')}
+    assert after['is_primary'] is False
+    assert after['primary_selected_by'] is None
+    assert after['primary_selected_at'] is None
+    replacement_after = read(admin, replacement['id'])
+    assert replacement_after['is_primary'] is False
+    changed = {
+        'status', 'replaced_by_booking_id', 'replaced_at', 'is_primary',
+        'primary_selected_by', 'primary_selected_at',
+    }
+    unchanged = {key for key in before if key not in changed}
     assert {key: after[key] for key in unchanged} == {key: before[key] for key in unchanged}
 
     # The original no longer holds V1.
