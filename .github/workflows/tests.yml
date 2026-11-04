@@ -3,10 +3,11 @@ name: Tests
 on:
   # main, and each sprint's release branch (sprint3, sprint4, ...): story
   # branches merge into the sprint branch, which merges into main at the end.
+  # fix is a release branch for fixes outside a sprint, checked the same way.
   pull_request:
-    branches: [main, 'sprint*']
+    branches: [main, 'sprint*', fix]
   push:
-    branches: [main, 'sprint*']
+    branches: [main, 'sprint*', fix]
   workflow_dispatch:
 
 concurrency:
