@@ -30,8 +30,9 @@ def test_the_coordinator_confirms_a_hold_and_venue_staff_then_approve_it(admin, 
     booking = seed(admin, event, venue, coordinator, staff, "pending", "10:00", "12:00")
 
     def sign_out():
-        page.get_by_role("button", name="Sign out").click()
-        page.wait_for_url(re.compile(r"/login$"), timeout=30000)
+        # The request and event pages have no Sign out button; drop the
+        # httpOnly session cookies instead, as signing out does.
+        page.context.clear_cookies()
 
     # 1. Venue Staff hold the request.
     sign_in(staff)

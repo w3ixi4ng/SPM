@@ -753,9 +753,9 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   and 224 decided or held requests from the inline forms. Their steps now
   open the request's page from the dashboard row first; what each proves is
   unchanged.
-- **Actual:** The list showed one compact row with no hold or decision controls; the request page loaded and survived a reload; hold then approval returned to the dashboard with "Booking for … confirmed." once, and the request left the list. TC-E2E-209, 217, 218, 221, 223 and 224, updated to open the request page, all passed in the same run.
+- **Actual:** Re-run with S-81: compact rows; the request page survived reload; after the hold and its confirmation (admin client) the page read "The Event Coordinator confirmed this hold.", the approval returned to the dashboard with "Booking for … confirmed." once, and P left the list.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 10 passed.
+- **Evidence:** tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry`, working tree after `27d1a2c`; after the developer applied the S-81 SQL; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); full e2e suite: 71 passed, 9 failed and 3 errors with connection resets and read timeouts from a slow test project, all 12 then passed on rerun
 
 ## TC-E2E-229 — Lead assigns an unassigned request and both recipients are notified
 
@@ -1843,7 +1843,7 @@ confirmed for its Coordinator with the admin client, by setting
 `hold_confirmed_by` and `hold_confirmed_at`. TC-E2E-480 covers that step in
 the browser. Nothing else changes.
 
-**Blocked** until the S-81 confirmation SQL is applied to the test project.
+Applied to dev and test by the developer on 2026-11-05; executed.
 
 ## TC-E2E-480 — the Coordinator confirms a hold, Venue Staff are told and then approve it
 
@@ -1880,6 +1880,6 @@ the browser. Nothing else changes.
     hold.", and Approve is enabled.
   - Step 6: back on the dashboard, "Booking for <event> at <venue>
     confirmed." is shown, and storage holds `confirmed`.
-- **Actual:**
-- **Status:** Blocked
-- **Evidence:** The S-81 confirmation SQL has not been applied to the test project yet.
+- **Actual:** 1 → Held, with the waiting note. 2 → Approve disabled; Reject and Release hold enabled. 3 → the row's hold text, then Confirm hold pressed: "Hold confirmed. Waiting for Venue Staff to approve it.", button gone. 4 → same after reload. 5 → Notifications listed "… confirmed the tentative hold for <venue> on <D+3>, 10:00–12:00 (<event>). You can now approve it before the hold expires."; the request page read "The Event Coordinator confirmed this hold." with Approve enabled. 6 → "Booking for … confirmed.", stored `confirmed`. First attempts failed in the test itself: it clicked Sign out on pages that have none; it now drops the session cookies instead.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_confirm_hold.py::test_the_coordinator_confirms_a_hold_and_venue_staff_then_approve_it[chromium]; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry`, working tree after `27d1a2c`; after the developer applied the S-81 SQL; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); full e2e suite: 71 passed, 9 failed and 3 errors with connection resets and read timeouts from a slow test project, all 12 then passed on rerun
