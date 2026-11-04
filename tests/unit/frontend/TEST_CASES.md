@@ -1130,6 +1130,109 @@ request**, like any other mismatch. Each venue's mark sits under its name.
 - **Status:** Not Executed
 - **Evidence:**
 
+### S-34 reopened — date and time skip occupied venues
+
+Session 3 (Q4) reopened S-34: the date and time filter must also leave out a
+venue that is occupied then. This replaces the "whether it is already booked is
+the Booking Conflict Detection story" decision above. Found in UAT as S2-34-03
+(manual UAT check A05).
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC2: Filtering by date and time excludes venues whose effective occupied interval (booking time plus setup and turnaround), tentative holds or unavailable periods overlap the requested slot | TC-FRONTEND-405 to 409, TC-VENUEBOOKINGS-450 to 453, TC-BOOKINGS-460 and 461, TC-VENUEBOOKINGS-137, TC-E2E-450 |
+
+`filterVenues(venues, filters, occupied)` takes a third argument: the
+occupied entries for the filter's date, as `GET /venue-bookings/occupied`
+returns them (TC-VENUEBOOKINGS-450). The overlap rule is the bookings
+service's own (`_live_overlap`), so a venue the filter lists is one a request
+can actually be sent for: the two windows need the venue's setup + turnaround
+minutes between them, and back-to-back is allowed.
+
+Shared test data for TC-FRONTEND-405 to 409. Every venue is open every day
+`08:00`–`20:00`, capacity `200`, layout `theatre`:
+
+```
+Buffer Hall   setup 30, turnaround 30
+Held Hall     setup 0,  turnaround 0
+Blocked Hall  setup 0,  turnaround 0
+Free Hall     setup 0,  turnaround 0
+
+occupied (date 2026-11-12, a Thursday):
+  Buffer Hall   confirmed  2026-11-12 10:00 – 2026-11-12 12:00
+  Held Hall     held       2026-11-12 12:00 – 2026-11-12 13:00
+  Blocked Hall  blocked    2026-11-11 18:00 – 2026-11-12 14:00
+```
+
+## TC-FRONTEND-405 — a confirmed booking's setup and turnaround keep its venue out
+
+- **Scenario:** AC2, effective occupied interval.
+- **Pre-conditions:** Shared.
+- **Steps:** `filterVenues(venues, {...emptyVenueFilters(), date: "2026-11-12", startTime, endTime}, occupied)` for each slot below.
+- **Test data:** `12:10`–`12:50`; `12:59`–`14:00`; `13:00`–`14:00`.
+- **Expected:** `12:10`–`12:50` → Buffer Hall left out (inside its 60 min
+  gap after 12:00). `12:59`–`14:00` → Buffer Hall left out (one minute short).
+  `13:00`–`14:00` → Buffer Hall listed (back-to-back: exactly 30 + 30 minutes
+  after 12:00).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-406 — a tentative hold keeps its venue out
+
+- **Scenario:** AC2, tentative holds.
+- **Pre-conditions:** Shared.
+- **Steps:** As TC-FRONTEND-405.
+- **Test data:** `12:30`–`12:45`; `11:00`–`12:00`; `13:00`–`14:00`.
+- **Expected:** `12:30`–`12:45` → Held Hall left out. `11:00`–`12:00` → Held
+  Hall listed (ends as the hold starts). `13:00`–`14:00` → Held Hall listed
+  (starts as the hold ends).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-407 — an unavailable period keeps its venue out, across midnight
+
+- **Scenario:** AC2, unavailable periods.
+- **Pre-conditions:** Shared.
+- **Steps:** As TC-FRONTEND-405.
+- **Test data:** `09:00`–`10:00`; `13:30`–`15:00`; `14:00`–`15:00`.
+- **Expected:** `09:00`–`10:00` → Blocked Hall left out (the period began the
+  evening before). `13:30`–`15:00` → left out. `14:00`–`15:00` → Blocked Hall
+  listed (the period's end is exclusive).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-408 — occupied entries only apply to a date with both times
+
+- **Scenario:** The slot has to be complete before anything is "occupied"
+  during it, as TC-FRONTEND-061 already treats times without a date.
+- **Pre-conditions:** Shared.
+- **Steps:** Filter with each value below.
+- **Test data:** date `2026-11-12`, no times; date `2026-11-12`, `12:10`–
+  no end time; no date, `12:10`–`12:50`; `occupied` passed as `[]`;
+  `occupied` omitted.
+- **Expected:** Every one → all four venues listed. With
+  `2026-11-12` `12:10`–`12:50` and `occupied` `[]` or omitted, all four are
+  listed too (nothing known to be occupied).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-FRONTEND-409 — the occupied rule combines with every other filter
+
+- **Scenario:** AC2 with AC3 ("only venues matching all applied filter
+  criteria").
+- **Pre-conditions:** Shared, plus `Free Hall` given capacity `80`.
+- **Steps:** Filter `2026-11-12` `12:10`–`12:50` with each extra criterion.
+- **Test data:** none; `query "hall"`; `attendance "100"`.
+- **Expected:** none → Free Hall only. `query "hall"` → Free Hall only.
+  `attendance "100"` → no venues (Free Hall holds 80; the other three are
+  occupied).
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.

@@ -1489,3 +1489,43 @@ query parameters `setup_minutes=30&turnaround_minutes=45`.
 - **Actual:** `200` `[O]` with the S-90 fields; filtered on `restore_requested_at` not null, ordered by it.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/bookings/test_s90.py::test_venue_staff_list_the_restore_requests_waiting_for_them; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## S-34 reopened — listing one date across every venue
+
+TC-BOOKINGS-460–469 reserved for the reopened S-34 AC2. Both lists already
+exist per venue (S-30, S-76); these let them be asked for one date across all
+venues, still always bounded by a date range.
+
+## TC-BOOKINGS-460 — live bookings can be bounded by `to` as well as `from`
+
+- **Scenario:** `GET /venue-bookings/occupied` needs one day's held and
+  confirmed bookings, not everything from that day on.
+- **Pre-conditions:** Storage fake.
+- **Steps:** `GET /bookings?status=live&from=2026-11-12&to=2026-11-12`; then
+  `GET /bookings?status=live&from=2026-11-12` (as S-76 calls it today).
+- **Test data:** As above.
+- **Expected:** First call: `200`; holds are expired first, as for every live
+  list; the query filters `status` in `held`/`confirmed`, `booking_date >=
+  2026-11-12` **and** `booking_date <= 2026-11-12`, with no `venue_id`
+  filter. Second call: unchanged from today, no upper bound. `to` before
+  `from` is `422`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-BOOKINGS-461 — unavailable periods can be listed for a date range across venues
+
+- **Pre-conditions:** Storage fake returns: P (V1, 2026-11-11 18:00 –
+  2026-11-12 14:00), Q (V2, 2026-11-12 09:00 – 2026-11-12 10:00), R (V3,
+  2026-11-11 08:00 – 2026-11-12 00:00).
+- **Steps:** `GET /blocks?from=2026-11-12&to=2026-11-12` with no
+  `venue_id`; then `GET /blocks?venue_id=V1&from=2026-11-12&to=2026-11-12`;
+  then `GET /blocks` with no range; then `GET /blocks?from=2026-11-12`.
+- **Test data:** As above.
+- **Expected:** First: `200` `[P, Q]` (R ends at 00:00 that morning and is
+  left out, as TC-BOOKINGS for S-77 already rules), with no `venue_id`
+  filter on the query. Second: unchanged from today. Third and fourth: `422`
+  — a range is still always required.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

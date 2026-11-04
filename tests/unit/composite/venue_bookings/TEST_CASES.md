@@ -2281,3 +2281,71 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Actual:** Approved `200` with gap 30/45, history `venue_restore_confirmed` naming Studio B and Hall C; declined `200`, `venue_restore_declined`; `409` passed through with no history; `maybe` `422`; Coordinator `403`.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_confirm_or_decline_the_restore; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## S-34 reopened — which venues are occupied on a date
+
+TC-VENUEBOOKINGS-450–459 reserved for the reopened S-34 AC2. The browser's
+venue filter needs every venue's holds, confirmed bookings and unavailable
+periods for one date in a single call; `GET /venue-bookings/occupied?date=`
+returns them, with nothing that identifies another event.
+
+## TC-VENUEBOOKINGS-450 — a Coordinator gets every venue's occupied times for a date
+
+- **Scenario:** S-34 AC2. Only what occupies a venue is returned, and no
+  other event's details.
+- **Pre-conditions:** Coordinator session. The bookings fake answers
+  `GET /bookings?status=live&from=2026-11-12&to=2026-11-12` with: A
+  (venue V1, `confirmed`, 10:00–12:00, `event_name` "Gala"), B (V2, `held`,
+  12:00–13:00, `hold_expires_at` 2099-01-01T04:00:00Z). `GET
+  /blocks?from=2026-11-12&to=2026-11-12` with C (V3, 2026-11-11 18:00 –
+  2026-11-12 14:00, reason `maintenance`, note "private").
+- **Steps:** `GET /venue-bookings/occupied?date=2026-11-12`.
+- **Test data:** As above.
+- **Expected:** `200` `{"date": "2026-11-12", "entries": [...]}` with three
+  entries, in this order: `{"venue_id": V1, "state": "confirmed",
+  "start_date": "2026-11-12", "end_date": "2026-11-12", "start_time":
+  "10:00:00", "end_time": "12:00:00"}`; the same shape for B with `"state":
+  "held"`; C with `"state": "blocked"`, `"start_date": "2026-11-11"`,
+  `"start_time": "18:00:00"`. No entry has `event_name`, `event_id`,
+  `coordinator_*`, `id`, `note` or `reason`. The bookings fake was called
+  with exactly those two queries.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-451 — only Coordinators and Venue Staff may ask
+
+- **Scenario:** The same audience as the S-30 calendar.
+- **Pre-conditions:** Bookings fake as TC-VENUEBOOKINGS-450.
+- **Steps:** `GET /venue-bookings/occupied?date=2026-11-12` as each role.
+- **Test data:** Venue Staff; Event Organiser; Attendee; no session.
+- **Expected:** Venue Staff `200` with the same three entries; Organiser
+  `403`; Attendee `403`; no session `401`. The bookings fake is not called
+  for the `401` or `403`s.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-452 — the date is required and must be a date
+
+- **Pre-conditions:** Coordinator session.
+- **Steps:** `GET /venue-bookings/occupied` with each query below.
+- **Test data:** no `date`; `date=12-11-2026`; `date=2026-02-30`.
+- **Expected:** `422` each time; the bookings fake is not called.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
+
+## TC-VENUEBOOKINGS-453 — a failure is never an empty list
+
+- **Scenario:** An empty list would read as "every venue is free".
+- **Pre-conditions:** Coordinator session.
+- **Steps:** `GET /venue-bookings/occupied?date=2026-11-12` with the bookings
+  fake failing each way below.
+- **Test data:** `/bookings` answers `500`; `/blocks` answers `500`;
+  `/bookings` times out.
+- **Expected:** `502` each time, with a `detail` naming the bookings service;
+  never `200` `[]`.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

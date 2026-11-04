@@ -1778,3 +1778,27 @@ TC-BOOKINGS-124..130 and TC-VENUEBOOKINGS-131..136.
 - **Actual:** Chromium: K's row read "…waiting for Venue Staff. {V} is free again.", then "Restore requested: waiting for Venue Staff to confirm {V}" with no button; S's Restore requests showed Keep {V} and Withdraw the request for {W}, Confirm restore showed "{V} restored for {E}." and removed the row; K's page then read "Resolved: Restored to the original venue" and "Withdrawn: {V} was restored". E was `planning` (the shared e2e helper), an open status like `confirmed`.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_restore_original_venue.py::test_a_coordinator_restores_the_original_venue_and_venue_staff_confirm_it[chromium]; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST
+
+TC-E2E-450–459 reserved for the reopened S-34 AC2. Spec file
+`test_filter_occupied_venues.py`.
+
+## TC-E2E-450 — a Coordinator's date and time filter leaves out occupied venues
+
+- **Scenario:** S-34 AC2 in the browser: the Venues tab asks for the date's
+  occupied times through Kong and the list follows them. Manual UAT A05.
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. A Coordinator
+  and Venue Staff. Four venues, open every day 08:00–20:00: `S34 Buffer`
+  (setup 30, turnaround 30) with a confirmed booking `D` 10:00–12:00;
+  `S34 Held` with a hold `D` 12:00–13:00; `S34 Blocked` unavailable `D`
+  11:00–14:00; `S34 Free`. `D` = today + 12 days.
+- **Steps:**
+  1. The Coordinator opens the Venues tab and Filters, searches `S34 `, and
+     sets Open on `D`, Open from `12:10`, Open until `12:50`.
+  2. Change the times to `13:00`–`14:00`.
+  3. Clear filters.
+- **Expected:** 1 → only `S34 Free` of the four. 2 → `S34 Buffer`, `S34 Held`
+  and `S34 Free`; `S34 Blocked` still left out. 3 → all four. No step shows
+  another event's name.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**

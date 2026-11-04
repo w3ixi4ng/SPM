@@ -493,3 +493,26 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
 - **Actual:** 1 `201`; 2 `409` "… is unavailable from …"; 3 `204`; 4 `200`; 5 the list held O with R as its replacement, decision `200`; 6 O `confirmed`, not flagged, note "Restored to the original venue", R `withdrawn`, history held both entries. E was `planning` (the shared world fixture), an open status like `confirmed`.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/venue_bookings/test_s90.py::test_a_restore_is_asked_for_confirmed_and_recorded_through_kong; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST
+
+## TC-VENUEBOOKINGS-137 — a date's occupied times come back through the stack
+
+- **Scenario:** S-34 AC2 against real storage: the new `to` bound on live
+  bookings, the cross-venue blocks query, and the route, all at once.
+- **Pre-conditions:** `.env.test` stack started immediately before; the
+  `bookings` and `venues` schemas applied, exposed and granted. A
+  Coordinator K and Venue Staff S (`spm-test-*`).
+- **Steps:**
+  1. Seed venues V1, V2, V3 (S's) and, on `D` = today + 9 days: a confirmed
+     booking at V1 10:00–12:00, a held booking at V2 12:00–13:00 (expiry
+     2099), a pending booking at V2 15:00–16:00, and a block at V3
+     `D-1` 18:00 – `D` 14:00. Add a confirmed booking at V1 on `D+1`.
+  2. As K, `GET /venue-bookings/occupied?date=D`.
+  3. Delete the rows and accounts.
+- **Test data:** Names `spm-test S34 …`.
+- **Expected:** 2 → `200`; among the entries for V1–V3 exactly three: V1
+  `confirmed` 10:00–12:00, V2 `held` 12:00–13:00, V3 `blocked` from `D-1`
+  18:00. The pending booking and the `D+1` booking are absent. 3 leaves no
+  rows.
+- **Actual:**
+- **Status:** Not Executed
+- **Evidence:**
