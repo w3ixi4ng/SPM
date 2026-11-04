@@ -111,8 +111,17 @@ def test_proposal_review_resolution_requires_fresh_safety_check(page, make_user,
         assert admin.schema("events").table("events").select("expected_attendance").eq(
             "id", event["id"]).single().execute().data["expected_attendance"] == 120
         page.unroute(accept_url)
-        review.get_by_role("button", name="Accept significant changes").click()
-        expect(review).to_contain_text("Change accepted", timeout=20000)
+        # The real accept re-runs the impact assessment across four services
+        # before writing; on CI that alone can take most of 20s. Wait on the
+        # response itself so a slow success is not read as a missing message.
+        with page.expect_response(
+            lambda response: response.url.endswith("/accept")
+            and response.request.method == "POST",
+            timeout=60000,
+        ) as accepted:
+            review.get_by_role("button", name="Accept significant changes").click()
+        assert accepted.value.ok, accepted.value.text()
+        expect(review).to_contain_text("Change accepted", timeout=30000)
         page.reload()
         review = page.get_by_role("region", name="Change impact review")
         expect(review).to_contain_text("Change accepted", timeout=20000)
