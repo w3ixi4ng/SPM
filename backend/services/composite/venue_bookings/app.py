@@ -892,6 +892,23 @@ async def venue_availability(
     }
 
 
+@app.get("/venue-bookings/occupied")
+async def occupied_venues(
+    request: Request,
+    on: date = Query(alias="date"),
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+):
+    """S-34: every venue's holds, confirmed bookings and blocks on one date,
+    so the venue filter can leave out venues occupied at the chosen time.
+    A failure is a 502, never an empty list that would read as "all free"."""
+    await _authenticate(request, users, COORDINATOR_ROLE, VENUE_STAFF_ROLE)
+    day = on.isoformat()
+    booked = await _list(bookings, "/bookings", {"status": "live", "from": day, "to": day})
+    blocked = await _list(bookings, "/blocks", {"from": day, "to": day})
+    return {"date": day, "entries": availability.occupied(booked, blocked)}
+
+
 BLOCK_MESSAGES = {401: "Not authenticated", 403: "Permission denied", 404: "Block not found"}
 
 

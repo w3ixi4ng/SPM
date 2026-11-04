@@ -2309,9 +2309,9 @@ returns them, with nothing that identifies another event.
   `"start_time": "18:00:00"`. No entry has `event_name`, `event_id`,
   `coordinator_*`, `id`, `note` or `reason`. The bookings fake was called
   with exactly those two queries.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** `200` with the three entries in order and none of the private fields; the bookings fake got exactly the two queries.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_a_coordinator_gets_every_venues_occupied_times_for_a_date; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-451 — only Coordinators and Venue Staff may ask
 
@@ -2322,9 +2322,9 @@ returns them, with nothing that identifies another event.
 - **Expected:** Venue Staff `200` with the same three entries; Organiser
   `403`; Attendee `403`; no session `401`. The bookings fake is not called
   for the `401` or `403`s.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Venue Staff `200`; Organiser and Attendee `403`; no session `401`; no bookings call for any refusal.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_venue_staff_may_ask_too, ::test_other_roles_are_refused, ::test_no_session_is_refused; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-452 — the date is required and must be a date
 
@@ -2332,9 +2332,9 @@ returns them, with nothing that identifies another event.
 - **Steps:** `GET /venue-bookings/occupied` with each query below.
 - **Test data:** no `date`; `date=12-11-2026`; `date=2026-02-30`.
 - **Expected:** `422` each time; the bookings fake is not called.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** `422` for all three; no bookings call.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_the_date_is_required_and_must_be_a_date; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
 
 ## TC-VENUEBOOKINGS-453 — a failure is never an empty list
 
@@ -2346,6 +2346,6 @@ returns them, with nothing that identifies another event.
   `/bookings` times out.
 - **Expected:** `502` each time, with a `detail` naming the bookings service;
   never `200` `[]`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** `502` "Bookings service unavailable" for each failure.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_a_failure_is_never_an_empty_list; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`

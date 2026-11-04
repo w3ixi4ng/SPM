@@ -513,6 +513,6 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
   `confirmed` 10:00–12:00, V2 `held` 12:00–13:00, V3 `blocked` from `D-1`
   18:00. The pending booking and the `D+1` booking are absent. 3 leaves no
   rows.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** `200`; exactly the confirmed, held and blocked entries for V1–V3; the pending and `D+1` bookings absent; rows deleted.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_occupied.py::test_a_dates_occupied_times_come_back_through_the_stack; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with the bookings and venue_bookings integration suites: 40 passed, 1 failed (`test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`, unrelated; passed on rerun)

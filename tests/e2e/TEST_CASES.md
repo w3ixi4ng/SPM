@@ -1797,8 +1797,8 @@ TC-E2E-450–459 reserved for the reopened S-34 AC2. Spec file
   2. Change the times to `13:00`–`14:00`.
   3. Clear filters.
 - **Expected:** 1 → only `S34 Free` of the four. 2 → `S34 Buffer`, `S34 Held`
-  and `S34 Free`; `S34 Blocked` still left out. 3 → all four. No step shows
-  another event's name.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+  and `S34 Free`; `S34 Blocked` still left out. 3 → all four. The Venues
+  list never shows the booked event's name.
+- **Actual:** 1 → only S34 Free; 2 → Buffer, Held and Free, Blocked still out; 3 → all four; the Venues list never showed the event's name.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_filter_occupied_venues.py::test_a_coordinators_date_and_time_filter_leaves_out_occupied_venues[chromium]; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with test_filter_venues, test_capacity_warning, test_request_venue, test_book_multiple_venues, test_tentative_hold and test_venue_availability: all passed

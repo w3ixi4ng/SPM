@@ -1173,9 +1173,9 @@ occupied (date 2026-11-12, a Thursday):
   gap after 12:00). `12:59`–`14:00` → Buffer Hall left out (one minute short).
   `13:00`–`14:00` → Buffer Hall listed (back-to-back: exactly 30 + 30 minutes
   after 12:00).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** 12:10–12:50 and 12:59–14:00 left Buffer Hall out; 13:00–14:00 listed it.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `a confirmed booking's setup and turnaround keep its venue out`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
 
 ## TC-FRONTEND-406 — a tentative hold keeps its venue out
 
@@ -1186,9 +1186,9 @@ occupied (date 2026-11-12, a Thursday):
 - **Expected:** `12:30`–`12:45` → Held Hall left out. `11:00`–`12:00` → Held
   Hall listed (ends as the hold starts). `13:00`–`14:00` → Held Hall listed
   (starts as the hold ends).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** 12:30–12:45 left Held Hall out; 11:00–12:00 and 13:00–14:00 listed it.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `a tentative hold keeps its venue out`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
 
 ## TC-FRONTEND-407 — an unavailable period keeps its venue out, across midnight
 
@@ -1199,9 +1199,9 @@ occupied (date 2026-11-12, a Thursday):
 - **Expected:** `09:00`–`10:00` → Blocked Hall left out (the period began the
   evening before). `13:30`–`15:00` → left out. `14:00`–`15:00` → Blocked Hall
   listed (the period's end is exclusive).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** 09:00–10:00 and 13:30–15:00 left Blocked Hall out; 14:00–15:00 listed it.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `an unavailable period keeps its venue out, across midnight`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
 
 ## TC-FRONTEND-408 — occupied entries only apply to a date with both times
 
@@ -1215,9 +1215,9 @@ occupied (date 2026-11-12, a Thursday):
 - **Expected:** Every one → all four venues listed. With
   `2026-11-12` `12:10`–`12:50` and `occupied` `[]` or omitted, all four are
   listed too (nothing known to be occupied).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** All four venues listed for every incomplete slot and for empty or omitted `occupied`.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `occupied entries only apply to a date with both times`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
 
 ## TC-FRONTEND-409 — the occupied rule combines with every other filter
 
@@ -1229,9 +1229,9 @@ occupied (date 2026-11-12, a Thursday):
 - **Expected:** none → Free Hall only. `query "hall"` → Free Hall only.
   `attendance "100"` → no venues (Free Hall holds 80; the other three are
   occupied).
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Free Hall only, Free Hall only, then none.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `the occupied rule combines with every other filter`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
 
 ## S-30 — view venue availability calendar
 

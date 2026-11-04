@@ -868,15 +868,20 @@ def list_bookings(
 
     if booking_status == "live":
         # S-76: every held and confirmed booking from a date on, for Venue
-        # Staff's clashes to review. Always bounded by a start date.
+        # Staff's clashes to review. Always bounded by a start date. S-34: an
+        # optional end date too, for one day's occupied venues.
         if from_date is None:
             raise HTTPException(status_code=422, detail="Filter live bookings by from")
+        if to_date is not None and to_date < from_date:
+            raise HTTPException(status_code=422, detail="The end date must be on or after the start date")
         _expire_holds(db)
         operation = (
             db.schema(SCHEMA).table(TABLE).select("*")
             .in_("status", LIVE_STATUSES)
             .gte("booking_date", from_date.isoformat())
         )
+        if to_date is not None:
+            operation = operation.lte("booking_date", to_date.isoformat())
         if venue_id is not None:
             operation = operation.eq("venue_id", str(venue_id))
         return _execute(
@@ -1027,14 +1032,22 @@ def list_blocks(
 ):
     # Every block touching the range, including one that only partly does.
     # S-77: a period's end is exclusive, so one ending at 00:00 on `from`
-    # stopped the day before and is left out.
-    _date_range(venue_id, from_date, to_date)
+    # stopped the day before and is left out. S-34: without a venue, every
+    # venue's blocks for the range -- still never without a range.
+    if venue_id is None:
+        if from_date is None or to_date is None:
+            raise HTTPException(status_code=422, detail="Filter by from and to")
+        if to_date < from_date:
+            raise HTTPException(status_code=422, detail="The end date must be on or after the start date")
+    else:
+        _date_range(venue_id, from_date, to_date)
     operation = (
         db.schema(SCHEMA).table(BLOCKS).select("*")
-        .eq("venue_id", str(venue_id))
         .lte("start_date", to_date.isoformat())
         .gte("end_date", from_date.isoformat())
     )
+    if venue_id is not None:
+        operation = operation.eq("venue_id", str(venue_id))
     range_start = datetime.combine(from_date, time())
     return [
         block for block in _execute(operation.order("start_date")).data

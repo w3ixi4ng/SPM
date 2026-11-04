@@ -247,6 +247,14 @@ export function monthGrids({ from, to }, today) {
 
 // Every call is a fresh request: opening the calendar, changing the range and
 // pressing Refresh all show what is saved now.
+// S-34: what occupies every venue on one date, for the venue filter.
+export function getOccupiedVenues(date) {
+  return requestJSON(`/venue-bookings/occupied?date=${encodeURIComponent(date)}`)
+}
+
+// A failed check must not read as "every venue is free".
+export const OCCUPIED_ERROR = "We couldn't check which venues are already booked then, so this list may include venues that are taken. Refresh to try again."
+
 export function getVenueAvailability(venueId, from, to) {
   const query = new URLSearchParams({ venue_id: venueId, from, to })
   return requestJSON(`/venue-bookings/availability?${query}`)

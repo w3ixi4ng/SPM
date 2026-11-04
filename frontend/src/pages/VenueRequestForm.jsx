@@ -19,6 +19,8 @@ import {
   venueFit,
 } from '../lib/venueBookings.js'
 import VenueFilters from '../components/VenueFilters.jsx'
+import useOccupiedVenues from '../components/useOccupiedVenues.js'
+import { OCCUPIED_ERROR } from '../lib/venueAvailability.js'
 import {
   DAY_LABELS,
   filterVenues,
@@ -171,10 +173,13 @@ function RequestForm({ event, booking = null, onSent }) {
   }, [])
 
   const when = { date: form.bookingDate, startTime: form.startTime, endTime: form.endTime }
+  // S-34: "open then" also leaves out venues already occupied at the
+  // booking's time; unticking it shows every venue again.
+  const occupied = useOccupiedVenues(openThen ? form.bookingDate : '')
   const shown = filterVenues(venues.list, {
     ...filters,
     ...(openThen ? when : { date: '', startTime: '', endTime: '' }),
-  })
+  }, occupied.entries)
 
   const selectedVenue = venues.list.find((venue) => venue.id === form.venueId) ?? null
   const warning = venueWarning(event, selectedVenue, when)
@@ -263,6 +268,9 @@ function RequestForm({ event, booking = null, onSent }) {
             openThen={openThen}
             onOpenThenChange={setOpenThen}
           />
+        )}
+        {occupied.failed && form.startTime && form.endTime && (
+          <p role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>{OCCUPIED_ERROR}</p>
         )}
         {venues.status === 'loading' && (
           <p className="font-ui text-sm" style={{ color: C.inkFaint }}>Loading venues…</p>

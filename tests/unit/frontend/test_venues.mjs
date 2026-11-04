@@ -246,3 +246,75 @@ test('the room layout filter keeps venues that offer it', () => {
   assert.deepEqual(names({ layout: 'banquet' }), ['Harbour Hall'])
   assert.deepEqual(names({ layout: '' }), ['Harbour Hall', 'Studio B', 'Anson Suite'])
 })
+
+// --- S-34 reopened: date and time skip occupied venues ---------------------
+
+const EVERY_DAY = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((day) => hours(day, '08:00', '20:00'))
+const hall = (id, name, setup = 0, turnaround = 0, capacity = 200) => ({
+  id, name, location: '10 Bayfront Avenue', capacity, room_layouts: ['theatre'],
+  facilities: [], accessibility: [], operating_hours: EVERY_DAY,
+  setup_minutes: setup, turnaround_minutes: turnaround,
+})
+const OCCUPIED_VENUES = [
+  hall('v-buffer', 'Buffer Hall', 30, 30),
+  hall('v-held', 'Held Hall'),
+  hall('v-blocked', 'Blocked Hall'),
+  hall('v-free', 'Free Hall'),
+]
+const entry = (venueId, state, startDate, startTime, endDate, endTime) => ({
+  venue_id: venueId, state, start_date: startDate, start_time: `${startTime}:00`,
+  end_date: endDate, end_time: `${endTime}:00`,
+})
+const OCCUPIED = [
+  entry('v-buffer', 'confirmed', '2026-11-12', '10:00', '2026-11-12', '12:00'),
+  entry('v-held', 'held', '2026-11-12', '12:00', '2026-11-12', '13:00'),
+  entry('v-blocked', 'blocked', '2026-11-11', '18:00', '2026-11-12', '14:00'),
+]
+
+function shownAt(startTime, endTime, { date = '2026-11-12', occupied = OCCUPIED, venues = OCCUPIED_VENUES, ...rest } = {}) {
+  return filterVenues(venues, { ...emptyVenueFilters(), date, startTime, endTime, ...rest }, occupied)
+    .map((venue) => venue.name)
+}
+
+// --- TC-FRONTEND-405 -------------------------------------------------------
+test("a confirmed booking's setup and turnaround keep its venue out", () => {
+  assert.ok(!shownAt('12:10', '12:50').includes('Buffer Hall'))
+  assert.ok(!shownAt('12:59', '14:00').includes('Buffer Hall'))
+  assert.ok(shownAt('13:00', '14:00').includes('Buffer Hall'))
+})
+
+// --- TC-FRONTEND-406 -------------------------------------------------------
+test('a tentative hold keeps its venue out', () => {
+  assert.ok(!shownAt('12:30', '12:45').includes('Held Hall'))
+  assert.ok(shownAt('11:00', '12:00').includes('Held Hall'))
+  assert.ok(shownAt('13:00', '14:00').includes('Held Hall'))
+})
+
+// --- TC-FRONTEND-407 -------------------------------------------------------
+test('an unavailable period keeps its venue out, across midnight', () => {
+  assert.ok(!shownAt('09:00', '10:00').includes('Blocked Hall'))
+  assert.ok(!shownAt('13:30', '15:00').includes('Blocked Hall'))
+  assert.ok(shownAt('14:00', '15:00').includes('Blocked Hall'))
+})
+
+// --- TC-FRONTEND-408 -------------------------------------------------------
+test('occupied entries only apply to a date with both times', () => {
+  const all = ['Buffer Hall', 'Held Hall', 'Blocked Hall', 'Free Hall']
+  assert.deepEqual(shownAt('', ''), all)
+  assert.deepEqual(shownAt('12:10', ''), all)
+  assert.deepEqual(shownAt('12:10', '12:50', { date: '' }), all)
+  assert.deepEqual(shownAt('12:10', '12:50', { occupied: [] }), all)
+  assert.deepEqual(
+    filterVenues(OCCUPIED_VENUES, { ...emptyVenueFilters(), date: '2026-11-12', startTime: '12:10', endTime: '12:50' })
+      .map((venue) => venue.name),
+    all,
+  )
+})
+
+// --- TC-FRONTEND-409 -------------------------------------------------------
+test('the occupied rule combines with every other filter', () => {
+  const venues = [...OCCUPIED_VENUES.slice(0, 3), hall('v-free', 'Free Hall', 0, 0, 80)]
+  assert.deepEqual(shownAt('12:10', '12:50', { venues }), ['Free Hall'])
+  assert.deepEqual(shownAt('12:10', '12:50', { venues, query: 'hall' }), ['Free Hall'])
+  assert.deepEqual(shownAt('12:10', '12:50', { venues, attendance: '100' }), [])
+})

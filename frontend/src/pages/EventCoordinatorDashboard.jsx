@@ -16,6 +16,8 @@ import {
   listAssignedEventRequests,
 } from '../lib/eventRequests.js'
 import { emptyVenueFilters, filterVenues, getVenueOptions } from '../lib/venues.js'
+import { OCCUPIED_ERROR } from '../lib/venueAvailability.js'
+import useOccupiedVenues from '../components/useOccupiedVenues.js'
 
 const C = {
   ink: '#10192B',
@@ -117,7 +119,9 @@ export default function EventCoordinatorDashboard({ role }) {
     return () => { active = false }
   }, [])
 
-  const filteredVenues = filterVenues(venues, venueFilters)
+  // S-34: a date and time also leave out venues already occupied then.
+  const occupied = useOccupiedVenues(venueFilters.date)
+  const filteredVenues = filterVenues(venues, venueFilters, occupied.entries)
   const [assigned, setAssigned] = useState({ status: 'loading', events: [], error: null })
   // Kept in the URL so a reload or a shared link opens the same tab.
   const [searchParams, setSearchParams] = useSearchParams()
@@ -221,6 +225,9 @@ export default function EventCoordinatorDashboard({ role }) {
                 onChange={setVenueFilters}
                 options={venueOptions}
               />
+            )}
+            {occupied.failed && venueFilters.startTime && venueFilters.endTime && (
+              <p role="alert" className="font-ui text-sm mb-4" style={{ color: C.rose }}>{OCCUPIED_ERROR}</p>
             )}
             <VenueList
               venues={filteredVenues}

@@ -310,7 +310,44 @@ function openThen(venue, { date, startTime, endTime }) {
     && shiftClock(endTime, turnaround) <= hours.close.slice(0, 5)
 }
 
-export function filterVenues(venues, filters) {
+function clockMinutes(clock) {
+  const [hours, mins] = clock.slice(0, 5).split(':').map(Number)
+  return hours * 60 + mins
+}
+
+function daysBetween(fromIso, toIso) {
+  const at = (iso) => Date.UTC(...iso.split('-').map((part, index) => Number(part) - (index === 1 ? 1 : 0)))
+  return Math.round((at(toIso) - at(fromIso)) / 86400000)
+}
+
+// S-34: whether something already occupies the venue during the slot, by the
+// bookings service's own rules, so a venue the filter lists is one a request
+// can be sent for. Against a hold or confirmed booking (_live_overlap) the two
+// windows need the venue's setup + turnaround minutes between them; against
+// an unavailable period (_block_over) the slot's own setup-to-turnaround
+// window must not touch it. Everything is half-open, so back-to-back is fine.
+// Minutes are counted from midnight on the slot's date, as a period can
+// start the day before.
+function occupiedThen(venue, { date, startTime, endTime }, occupied) {
+  if (!date || !startTime || !endTime || !occupied?.length) return false
+  const { setup, turnaround } = venueGap(venue)
+  const at = (day, clock) => daysBetween(date, day) * 24 * 60 + clockMinutes(clock)
+  return occupied.some((entry) => {
+    if (entry.venue_id !== venue.id) return false
+    const from = at(entry.start_date, entry.start_time)
+    const until = at(entry.end_date, entry.end_time)
+    if (entry.state === 'blocked') {
+      return from < clockMinutes(shiftClock(endTime, turnaround))
+        && until > clockMinutes(shiftClock(startTime, -setup))
+    }
+    const gap = setup + turnaround
+    return from < clockMinutes(shiftClock(endTime, gap)) && until > clockMinutes(shiftClock(startTime, -gap))
+  })
+}
+
+// `occupied` is GET /venue-bookings/occupied's entries for the filter's date;
+// without it nothing is known to be occupied.
+export function filterVenues(venues, filters, occupied = []) {
   const query = filters.query.trim().toLowerCase()
   const atLeast = Number(filters.attendance)
   return venues.filter((venue) => (
@@ -320,5 +357,6 @@ export function filterVenues(venues, filters) {
     && filters.facilities.every((code) => venue.facilities.includes(code))
     && filters.accessibility.every((code) => venue.accessibility.includes(code))
     && openThen(venue, filters)
+    && !occupiedThen(venue, filters, occupied)
   ))
 }

@@ -586,7 +586,8 @@ Studio C is `cccccccc-0000-4ccc-8ccc-cccccccccccc`. Venue Staff is
   Then `GET /blocks` with no filter.
 - **Expected:** `200` with the first two blocks in start-date order. A block
   that only partly overlaps the range is included. With no filter → `422`
-  `{"detail":"Filter by venue_id with from and to"}`.
+  `{"detail":"Filter by from and to"}` (S-34 reopened: blocks no longer
+  need a venue, only a range; was "Filter by venue_id with from and to").
 - **Actual:** `200` with overlapping blocks (start_date ≤ to, end_date ≥ from) by start date; no filter `422` with the stated detail.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_availability.py::test_blocks_are_listed_for_one_venue_and_range`; `tests/unit/atomic/bookings/test_availability.py::test_blocks_need_a_filter`
@@ -1509,9 +1510,9 @@ venues, still always bounded by a date range.
   2026-11-12` **and** `booking_date <= 2026-11-12`, with no `venue_id`
   filter. Second call: unchanged from today, no upper bound. `to` before
   `from` is `422`.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** Bounded by both dates with no venue filter; without `to` unchanged; `to` before `from` `422`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_occupied.py::test_live_bookings_can_be_bounded_by_to_as_well_as_from, ::test_a_live_list_without_to_is_unchanged, ::test_a_live_list_ending_before_it_starts_is_refused; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
 
 ## TC-BOOKINGS-461 — unavailable periods can be listed for a date range across venues
 
@@ -1526,6 +1527,6 @@ venues, still always bounded by a date range.
   left out, as TC-BOOKINGS for S-77 already rules), with no `venue_id`
   filter on the query. Second: unchanged from today. Third and fourth: `422`
   — a range is still always required.
-- **Actual:**
-- **Status:** Not Executed
-- **Evidence:**
+- **Actual:** `[P, Q]` with no venue filter; one venue's list unchanged; every missing or reversed range `422`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_occupied.py::test_blocks_can_be_listed_for_a_range_across_venues, ::test_one_venues_blocks_are_unchanged, ::test_blocks_always_need_a_range; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
