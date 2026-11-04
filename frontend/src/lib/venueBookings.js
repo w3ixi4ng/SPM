@@ -662,3 +662,14 @@ export function restoreErrorMessage(error) {
   if (error?.status === 403) return 'You do not have permission to do this.'
   return 'We could not reach the booking service. Try again in a moment.'
 }
+
+// S-28 reopened: why a held or confirmed booking no longer fits its venue's
+// opening hours, after Venue Staff changed them -- or null when it does. The
+// booking itself is kept; this only asks someone to review it.
+export function outsideHoursWarning(booking) {
+  const flag = booking?.outside_hours
+  if (!flag) return null
+  const day = `${DAY_LABELS[weekdayOf(String(booking.booking_date))]}s`
+  if (flag.reason === 'closed') return `The venue is now closed on ${day}. The booking is kept; review it.`
+  return `Outside the venue's opening hours: it is now open ${flag.open}–${flag.close} on ${day}. The booking is kept; review it.`
+}

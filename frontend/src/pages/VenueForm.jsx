@@ -307,13 +307,17 @@ function VenueFormFields({ id }) {
       // S-75: the times are saved first; then Staff see any bookings the new
       // times make clash. Nothing is changed or removed because of them.
       let clashes = []
+      let outsideHours = []
       let notice = 'Venue saved.'
       try {
-        clashes = (await getVenueClashes(id)).pairs
+        const found = await getVenueClashes(id)
+        clashes = found.pairs
+        // S-28 reopened: bookings the new opening hours no longer fit.
+        outsideHours = found.outside_hours ?? []
       } catch {
         notice = "Venue saved. We couldn't check for clashing bookings — open the venue's availability to review them."
       }
-      navigate(DASHBOARD, { state: { notice, clashes, clashVenue: venueName } })
+      navigate(DASHBOARD, { state: { notice, clashes, outsideHours, clashVenue: venueName } })
     } catch (error) {
       const fieldErrors = venueFieldErrorsToForm(error.fieldErrors, form)
       setErrors(fieldErrors)
@@ -430,9 +434,11 @@ function VenueFormFields({ id }) {
               />
             </Section>}
 
-            {!editing && <Section title="Opening hours" hint="Tick the days the venue is open. Unticked days count as closed. At least one day is required.">
+            {/* S-28 reopened: editable too. Bookings the new hours no longer
+                fit are kept and listed for review after saving. */}
+            <Section title="Opening hours" hint="Tick the days the venue is open. Unticked days count as closed. At least one day is required.">
               <HoursField days={options.days} hours={form.hours} onChange={update('hours')} errors={errors} />
-            </Section>}
+            </Section>
 
             <Section
               title="Setup & turnaround"

@@ -345,13 +345,15 @@ async def _with_clashes(rows: list[dict], venues, bookings, cookies) -> list[dic
     for row in rows:
         venue = venues_by_id.get(str(row.get("venue_id")))
         if row not in checked or venue is None:
-            result.append({**row, "clashes": [], **unavailability.flag(row, [], None)})
+            result.append({**row, "clashes": [], "outside_hours": None, **unavailability.flag(row, [], None)})
             continue
         same_day = days[(str(row["venue_id"]), str(row["booking_date"]))]
         result.append({
             **row,
             **occupancy.gap_params(venue),
             "clashes": occupancy.clashes_for(row, same_day, venue, today),
+            # S-28 reopened: the venue's hours were changed under it.
+            "outside_hours": occupancy.hours_flag(row, venue, today),
             **unavailability.flag(row, blocks_by_venue[str(row["venue_id"])], venue),
         })
     return result
@@ -1350,6 +1352,8 @@ async def list_venue_clashes(
         "venue_name": venue["name"],
         **occupancy.gap_params(venue),
         "pairs": occupancy.clash_pairs(rows, venue, _today()),
+        # S-28 reopened: bookings the venue's current opening hours no longer fit.
+        "outside_hours": occupancy.outside_hours(rows, venue, _today()),
     }
 
 
@@ -1370,13 +1374,16 @@ async def _clashes_to_review(venues, bookings, cookies) -> dict:
         by_venue.setdefault(str(row["venue_id"]), []).append(row)
     flagged = []
     for venue in sorted(listed.json(), key=lambda venue: venue["name"]):
-        pairs = occupancy.clash_pairs(by_venue.get(str(venue["id"]), []), venue, today)
-        if pairs:
+        rows_here = by_venue.get(str(venue["id"]), [])
+        pairs = occupancy.clash_pairs(rows_here, venue, today)
+        outside = occupancy.outside_hours(rows_here, venue, today)
+        if pairs or outside:
             flagged.append({
                 "venue_id": venue["id"],
                 "venue_name": venue["name"],
                 **occupancy.gap_params(venue),
                 "pairs": pairs,
+                "outside_hours": outside,
             })
     return {"venues": flagged}
 

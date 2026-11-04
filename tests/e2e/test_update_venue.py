@@ -32,8 +32,10 @@ def test_staff_edit_refreshes_catalogue_and_persists(page, make_user, sign_in, e
     expect(form).to_be_visible(timeout=20000)
     expect(form.locator("#location")).to_have_value("Block A")
     expect(form.locator("#capacity")).to_have_value("250")
-    for selector in ("#name", "#description", 'input[name="room_layouts"]', 'input[name="mon-open"]'):
+    for selector in ("#name", "#description", 'input[name="room_layouts"]'):
         expect(form.locator(selector)).to_have_count(0)
+    # S-28 reopened: opening hours are editable, loaded from the venue.
+    expect(form.get_by_label("Monday opening time")).to_have_value("09:00")
     form.locator("#location").fill("Block B")
     form.locator("#capacity").fill("0")
     form.get_by_role("button", name="Save venue").click()

@@ -40,7 +40,7 @@ all read attempts fail, the existing safe `502` response is returned.
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
 | `GET` | `/venue-bookings/occupied?date={date}` | `event_coordinator`, `venue_staff` | S-34: every venue's holds, confirmed bookings and blocks on one date, for the venue filter. |
-| `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround. |
+| `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround; S-28 reopened, plus those its opening hours no longer fit. |
 | `GET` | `/venue-bookings/clashes` | `venue_staff` | S-76: the same pairs for every venue that has any — Venue Staff's standing clashes to review. |
 | `GET` | `/venue-bookings/{id}` | `venue_staff` | S-75: one request, with its clash warning, for its own page. Decided requests are returned too. |
 | `POST` | `/venue-bookings/blocks` | `venue_staff` | S-30/S-77: mark a venue unavailable for a timed period; the response names the bookings it affects. See [S-77](#s-77-unavailable-periods). |
@@ -426,6 +426,22 @@ from the venues service each time). This service applies that everywhere:
   `{"venues": []}` when nothing clashes. A booking whose venue no longer
   exists is skipped; venues or bookings failing is `502`, never an empty
   list. Other roles `403`.
+- **Outside opening hours (S-28 reopened):** worked out live the same way,
+  for held and confirmed bookings today on, when a booking's occupied window
+  (start minus setup to end plus turnaround) no longer fits its weekday's
+  hours, or the venue is now closed that day. Nothing is changed.
+  - Every row from `GET /venue-bookings?event_id=` and `/pending` carries
+    `outside_hours`: `null`, or
+    `{"reason": "outside_hours", "open": "10:00", "close": "16:00"}`, or
+    `{"reason": "closed", "open": null, "close": null}`.
+  - `GET /venue-bookings/clashes?venue_id=` adds `outside_hours`, a list by
+    date then start time, each with event name (Venue Staff only):
+    ```json
+    {"booking_id": "…", "event_name": "Alumni talk", "booking_date": "2026-11-12", "start_time": "09:00:00", "end_time": "11:00:00", "status": "confirmed", "reason": "outside_hours", "open": "10:00", "close": "16:00"}
+    ```
+  - With no `venue_id`, a venue is listed when it has clashing pairs **or**
+    bookings outside its hours, each entry carrying both `pairs` and
+    `outside_hours`.
 
 `GET /venue-bookings/{id}` (Venue Staff) returns one request as the pending
 list does, with `clashes`; `404` `{"detail": "Booking not found"}`; other

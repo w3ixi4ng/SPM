@@ -346,7 +346,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; Chr
 - Pre-conditions: Approved test stack and Chromium; venue created by another staff member.
 - Steps: 1. Open Edit; change location to Block B, capacity to 100, facilities/accessibility; save; inspect list without reload then reload.
 - Test data: Values specified above; existing shared fixtures supply remaining required fields.
-- Expected: Only four edit fields shown; updated catalogue immediately and after reload; Cancel leaves saved values unchanged.
+- Expected: Location, capacity, facilities and accessibility shown, plus setup/turnaround (S-75) and opening hours loaded from the venue (S-28 reopened); no name, description or room layouts; updated catalogue immediately and after reload; Cancel leaves saved values unchanged.
 - Actual: Another staff member edited all four fields; catalogue refreshed without manual reload; reload/reopen preserved values; invalid capacity showed error; Cancel discarded unsaved edits.
 - Status: Pass
 - Evidence: `tests/e2e/test_update_venue.py::test_staff_edit_refreshes_catalogue_and_persists[chromium]`; local browser execution.
@@ -1802,3 +1802,33 @@ TC-E2E-450–459 reserved for the reopened S-34 AC2. Spec file
 - **Actual:** 1 → only S34 Free; 2 → Buffer, Held and Free, Blocked still out; 3 → all four; the Venues list never showed the event's name.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_filter_occupied_venues.py::test_a_coordinators_date_and_time_filter_leaves_out_occupied_venues[chromium]; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with test_filter_venues, test_capacity_warning, test_request_venue, test_book_multiple_venues, test_tentative_hold and test_venue_availability: all passed
+
+TC-E2E-460–469 reserved for S-28 reopened (opening hours). Spec file
+`test_edit_opening_hours.py`. TC-E2E-213's "only four edit fields shown"
+becomes: location, capacity, facilities, accessibility, setup and turnaround,
+and opening hours; still no name or room layouts.
+
+## TC-E2E-460 — Venue Staff shorten opening hours; the booking is kept and flagged
+
+- **Scenario:** S-28 AC1–AC3 in the browser.
+- **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff,
+  a Coordinator, an Organiser. Venue `S28 Hall` open every day
+  08:00–20:00, setup 0, turnaround 0, with a confirmed booking on `D` (the
+  next Thursday at least a week away) 09:00–11:00 for the Coordinator's
+  event.
+- **Steps:**
+  1. Venue Staff open Edit for `S28 Hall`, change Thursday to 10:00–16:00,
+     and save.
+  2. Reload the dashboard; reopen Edit.
+  3. The Coordinator opens the event.
+- **Expected:**
+  1. Back on the dashboard, "Bookings outside opening hours" lists the
+     event, `D`, 09:00–11:00, "Outside the venue's opening hours: it is now
+     open 10:00–16:00 on Thursdays."; the catalogue row shows the new
+     Thursday hours without a reload.
+  2. The list is still there after reload; Edit shows Thursday 10:00–16:00.
+     The booking is still `confirmed` in storage.
+  3. The booking's row shows the same warning; it is still Confirmed.
+- **Actual:** 1 → the outside-hours list named the event, date, 09:00–11:00 and the warning; the catalogue showed 10:00–16:00 without reload. 2 → still listed under Clashes to review after reload; Edit showed 10:00–16:00; booking still `confirmed`. 3 → the Coordinator's row showed the warning and Confirmed.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_edit_opening_hours.py::test_staff_shorten_opening_hours_and_the_booking_is_kept_and_flagged[chromium]; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with test_update_venue (TC-E2E-213, updated for editable hours), test_setup_turnaround, test_add_venue, test_review_booking_conflicts and test_filter_occupied_venues: 9 passed

@@ -14,6 +14,7 @@ pytestmark = requires_env
 S75_FIELDS = {
     "clashes", "setup_minutes", "turnaround_minutes",
     "requires_alternative_arrangements", "unavailable_periods",
+    "outside_hours",  # S-28 reopened
 }
 
 

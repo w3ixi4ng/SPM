@@ -119,8 +119,14 @@ export function validateVenueForm(form) {
     errors.room_layouts = 'Choose at least one room layout.'
   }
 
-  Object.assign(errors, minutesErrors(form))
+  Object.assign(errors, minutesErrors(form), hoursErrors(form))
 
+  return errors
+}
+
+// The opening-hours rules, shared by the add and edit forms (S-28 reopened).
+function hoursErrors(form) {
+  const errors = {}
   const days = openDays(form)
   if (!days.length) {
     errors.operating_hours = 'Set opening hours for at least one day.'
@@ -142,8 +148,11 @@ export function validateVenueForm(form) {
       errors.operating_hours = `Check the opening hours for ${names}.`
     }
   }
-
   return errors
+}
+
+function hoursPayload(form) {
+  return openDays(form).map((day) => ({ day, open: form.hours[day].open, close: form.hours[day].close }))
 }
 
 export function venueFormToPayload(form) {
@@ -155,11 +164,7 @@ export function venueFormToPayload(form) {
     facilities: [...form.facilities],
     accessibility: [...form.accessibility],
     room_layouts: [...form.roomLayouts],
-    operating_hours: openDays(form).map((day) => ({
-      day,
-      open: form.hours[day].open,
-      close: form.hours[day].close,
-    })),
+    operating_hours: hoursPayload(form),
     description: description || null,
     ...minutesPayload(form),
   }
@@ -220,6 +225,10 @@ export function venueToEditForm(venue) {
     accessibility: [...venue.accessibility],
     ...durationFields('setup', venue.setup_minutes),
     ...durationFields('turnaround', venue.turnaround_minutes),
+    // S-28 reopened: the same shape as the add form, a missing day closed.
+    hours: Object.fromEntries((venue.operating_hours ?? []).map((entry) => [
+      entry.day, { open: entry.open.slice(0, 5), close: entry.close.slice(0, 5) },
+    ])),
   }
 }
 
@@ -230,7 +239,7 @@ export function validateVenueEditForm(form) {
   if (!/^\d+$/.test(capacity) || Number(capacity) < 1 || Number(capacity) > 2147483647) {
     errors.capacity = 'Capacity must be a whole number between 1 and 2147483647.'
   }
-  return { ...errors, ...minutesErrors(form) }
+  return { ...errors, ...minutesErrors(form), ...hoursErrors(form) }
 }
 
 export function getVenue(id) {
@@ -247,6 +256,7 @@ export function updateVenue(id, form) {
       facilities: [...form.facilities],
       accessibility: [...form.accessibility],
       ...minutesPayload(form),
+      operating_hours: hoursPayload(form),
     }),
   })
 }

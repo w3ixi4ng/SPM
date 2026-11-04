@@ -108,3 +108,41 @@ def clash_pairs(bookings: list[dict], venue: dict, today: date) -> list[dict]:
             if _overlaps(first, second, venue):
                 pairs.append({"first": staff_view(first, venue), "second": staff_view(second, venue)})
     return pairs
+
+
+WEEK = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def hours_flag(booking: dict, venue: dict, today: date) -> dict | None:
+    """S-28 reopened: whether a held/confirmed booking from today on no longer
+    fits its venue's opening hours -- its occupied window, setup to
+    turnaround, starts before opening or ends after closing that weekday, or
+    the venue is now closed that day. A warning only, like a clash: the
+    booking is kept as it is."""
+    if not _is_current_live(booking, today):
+        return None
+    day = date.fromisoformat(str(booking["booking_date"]))
+    hours = next((entry for entry in venue.get("operating_hours") or []
+                  if entry["day"] == WEEK[day.weekday()]), None)
+    if hours is None:
+        return {"reason": "closed", "open": None, "close": None}
+    start, end = occupied(booking, venue)
+    if start < _moment(day, hours["open"]) or end > _moment(day, hours["close"]):
+        return {"reason": "outside_hours", "open": str(hours["open"])[:5], "close": str(hours["close"])[:5]}
+    return None
+
+
+def outside_hours(bookings: list[dict], venue: dict, today: date) -> list[dict]:
+    """Every held/confirmed booking at the venue, today on, that no longer
+    fits its opening hours, by date then start -- for Venue Staff, who may see
+    whose they are."""
+    found = []
+    for row in sorted(bookings, key=lambda row: (str(row["booking_date"]), str(row["start_time"]))):
+        flag = hours_flag(row, venue, today)
+        if flag:
+            found.append({
+                "booking_id": row["id"], "event_name": row.get("event_name"),
+                "booking_date": row["booking_date"], "start_time": row["start_time"],
+                "end_time": row["end_time"], "status": row["status"], **flag,
+            })
+    return found

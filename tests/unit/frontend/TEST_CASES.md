@@ -1233,6 +1233,67 @@ occupied (date 2026-11-12, a Thursday):
 - **Status:** Pass
 - **Evidence:** test_venues.mjs — `the occupied rule combines with every other filter`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
 
+### S-28 reopened — Venue Staff edit opening hours
+
+Decisions as in `tests/unit/atomic/venues/TEST_CASES.md` (S-28 reopened).
+The edit form gains the create form's opening-hours rows; room layouts and
+the name stay off it.
+
+## TC-FRONTEND-410 — the edit form loads the venue's opening hours
+
+- **Steps:** `venueToEditForm(venue)`.
+- **Test data:** A venue with `operating_hours` `[{"day": "mon", "open":
+  "09:00:00", "close": "18:00:00"}, {"day": "thu", "open": "08:00:00",
+  "close": "20:00:00"}]`.
+- **Expected:** The form's `hours` is `{mon: {open: "09:00", close:
+  "18:00"}, thu: {open: "08:00", close: "20:00"}}` -- the same shape the
+  create form uses, with the other days absent (closed). Changing the form
+  does not change `venue`.
+- **Actual:** `hours` mon 09:00–18:00 and thu 08:00–20:00; the venue unchanged by edits.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `the edit form loads the venue's opening hours`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
+## TC-FRONTEND-411 — edited opening hours are validated as on create
+
+- **Steps:** `validateVenueEditForm(form)` with each `hours` below and a
+  valid location, capacity and times.
+- **Test data:** `{}`; `{mon: {open: "18:00", close: "09:00"}}`;
+  `{mon: {open: "09:00", close: "18:00"}}`.
+- **Expected:** `{}` → an `operating_hours` error ("at least one day");
+  closing before opening → an `hours.mon` error; the valid one → no errors.
+  The messages match `validateVenueForm`'s.
+- **Actual:** No days → `operating_hours` error; backwards → `hours.mon`; valid → `{}`; same messages as create.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `edited opening hours are validated as on create`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
+## TC-FRONTEND-412 — saving sends the opening hours, never layouts or name
+
+- **Steps:** `updateVenue(id, form)` with a stubbed `fetch`.
+- **Test data:** The TC-FRONTEND-410 form with `thu` changed to 10:00–16:00.
+- **Expected:** One `PATCH /api/venues/{id}` with cookies; the body has
+  `operating_hours` `[{"day": "mon", "open": "09:00", "close": "18:00"},
+  {"day": "thu", "open": "10:00", "close": "16:00"}]` in week order, plus
+  the existing editable fields, and no `name` or `room_layouts`.
+  `venueFieldErrorsToForm` maps `operating_hours.1` to `hours.thu`.
+- **Actual:** PATCH body had both days in week order and no name or layouts; `operating_hours.1` mapped to `hours.thu`.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `saving sends the opening hours, never layouts or name`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
+## TC-FRONTEND-413 — a flagged booking says why, in words
+
+- **Steps:** `outsideHoursWarning(booking)` for each flag below.
+- **Test data:** booking on `2026-11-12` with `outside_hours`
+  `{"reason": "outside_hours", "open": "10:00", "close": "16:00"}`; booking
+  on `2026-11-13` with `{"reason": "closed", "open": null, "close": null}`;
+  `outside_hours: null`.
+- **Expected:** `"Outside the venue's opening hours: it is now open
+  10:00–16:00 on Thursdays. The booking is kept; review it."`;
+  `"The venue is now closed on Fridays. The booking is kept; review it."`;
+  `null`.
+- **Actual:** The two expected sentences, then `null`.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `a flagged booking says why, in words`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.
