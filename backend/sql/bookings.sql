@@ -1083,3 +1083,31 @@ $$;
 notify pgrst, 'reload schema';
 commit;
 -- END S-90 RESTORE ORIGINAL VENUE
+
+-- BEGIN S-81 COORDINATOR CONFIRMS A HOLD
+-- Existing installations: run this entire block in BOTH dev and test, after
+-- the S-90 block. Fresh installations need it too. Safe to run twice and
+-- data-preserving: every existing row starts unconfirmed.
+--
+-- S-81 reopened (UAT A08): the Event Coordinator confirms a tentative hold,
+-- and Venue Staff can approve a held booking only once it is confirmed. The
+-- bookings service enforces that; these columns record who confirmed and
+-- when. Releasing a hold or placing it again clears both.
+begin;
+
+alter table bookings.bookings
+  add column if not exists hold_confirmed_by uuid,
+  add column if not exists hold_confirmed_at timestamptz;
+
+-- Both or neither: a confirmation always says who and when.
+alter table bookings.bookings drop constraint if exists bookings_hold_confirmation_paired;
+alter table bookings.bookings add constraint bookings_hold_confirmation_paired
+  check ((hold_confirmed_by is null) = (hold_confirmed_at is null));
+
+-- New columns on an existing table inherit its grants; repeated so the block
+-- also stands alone.
+grant all on all tables in schema bookings to service_role;
+
+notify pgrst, 'reload schema';
+commit;
+-- END S-81 COORDINATOR CONFIRMS A HOLD

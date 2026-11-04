@@ -401,3 +401,37 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
 - **Actual:** First run: both S-90 cases passed, but the fixture's teardown failed with `23514` on `bookings_withdrawn_valid` -- deleting the original set the withdrawn replacement's `replaces_booking_id` null (S-78's `on delete set null`), which the rule forbade, so S-80 and S-61 deletions would have failed too. The rule now only ties `withdrawn` to `withdrawn_at`; re-applied to dev and test, leftover row removed. Then: 1 `200`; 2 `200`, R `withdrawn` with `withdrawn_at`, O `confirmed`, request cleared, note "Restored to the original venue"; 3 a new booking in R's slot confirmed; 4 R3 `confirmed`, O2 `replaced` with both restore columns null; no rows remained.
 - **Status:** Pass
 - **Evidence:** tests/integration/atomic/bookings/test_s90.py::test_a_confirmed_restore_leaves_the_replacement_withdrawn_and_its_slot_free; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89); `.env.test` stack recreated with `--build` immediately before (bookings container verified on the test project's `SUPABASE_URL`), after the S-90 block was re-applied to TEST
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria. **Blocked** until the S-81 confirmation
+block of `backend/sql/bookings.sql` is applied to the test project.
+
+## TC-BOOKINGS-131 — the confirmation is stored, gates approval, and is cleared on release
+
+- **Scenario:** The new columns and the approval guard against real storage.
+- **Pre-conditions:**
+  - `.env.test` stack started immediately before.
+  - The S-81 confirmation SQL applied, and the schema exposed and granted.
+  - Venue Staff S and Coordinator K (`spm-test-*`).
+  - Two pending bookings, H1 and H2, for K, at different times.
+- **Steps:**
+  1. As S, hold H1 (expiry 2099), then approve it.
+  2. As K, `POST /bookings/H1/hold-confirmation`. Read the row with the
+     admin client.
+  3. As S, approve H1.
+  4. As S, hold H2. As K, confirm it. As S, release H2 (`staff_released`).
+     Read the row.
+  5. Delete the rows and accounts.
+- **Expected:**
+  - Step 1: `409` with `"This hold can't be approved until the Event
+    Coordinator confirms it."`, and H1 stays `held`.
+  - Step 2: `200`. The row has `hold_confirmed_by` = K and
+    `hold_confirmed_at` set.
+  - Step 3: `200`, and H1 is `confirmed`, still carrying its confirmation.
+  - Step 4: H2 is `pending`, with both confirmation columns `null`.
+  - Step 5 leaves no rows.
+- **Actual:** 1 → `409` with the not-confirmed detail, H1 still `held`. 2 → `200`; row has `hold_confirmed_by` = K and `hold_confirmed_at`. 3 → `200`, `confirmed`, confirmation kept. 4 → H2 `pending` with both columns `null`. Rows deleted.
+- **Status:** Pass
+- **Evidence:** tests/integration/atomic/bookings/test_hold_confirmation.py::test_the_confirmation_is_stored_gates_approval_and_is_cleared_on_release; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; after the developer applied the S-81 SQL to dev and test; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); bookings, notifications and venue_bookings integration suites: 44 passed

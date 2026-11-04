@@ -415,3 +415,30 @@ def test_s63_organiser_notification_kinds_are_accepted_and_idempotent(
     assert upsert.execute.call_count == 2
     for call in db.schema.return_value.table.return_value.upsert.call_args_list[-2:]:
         assert call.kwargs == {"on_conflict": "deduplication_key"}
+
+
+# --- TC-NOTIFICATIONS-017 -------------------------------------------------
+STAFF = "abababab-abab-4bab-8bab-abababababab"
+
+
+def test_s81_hold_confirmed_kind_is_accepted_and_idempotent(client, db):
+    row = {
+        "recipient_id": STAFF,
+        "event_id": EVENT_ID,
+        "event_name": "Alumni Night",
+        "kind": "venue_hold_confirmed",
+        "message": "Grace Hopper confirmed the tentative hold for Studio B on 12 Nov 2026, 09:00–12:00 "
+                   "(Alumni Night). You can now approve it before the hold expires.",
+        "deduplication_key": "venue_hold_confirmed:H:2026-11-05T01:00:00+00:00",
+    }
+    stored = {**row, "id": 1, "created_at": "2026-11-05T02:00:00Z"}
+    upsert = db.schema.return_value.table.return_value.upsert.return_value
+    upsert.execute.side_effect = [SimpleNamespace(data=[stored]), SimpleNamespace(data=[stored])]
+
+    first = client.post("/internal/notifications", json={"notifications": [row]})
+    second = client.post("/internal/notifications", json={"notifications": [row]})
+
+    assert first.status_code == second.status_code == 201
+    assert first.json() == second.json()
+    unknown = client.post("/internal/notifications", json={"notifications": [{**row, "kind": "venue_hold_maybe"}]})
+    assert unknown.status_code == 422

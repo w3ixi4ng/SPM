@@ -1294,6 +1294,67 @@ the name stay off it.
 - **Status:** Pass
 - **Evidence:** test_venue_update.mjs — `a flagged booking says why, in words`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
 
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria and decisions. TC-FRONTEND-420–429
+reserved. Executed 2026-11-05.
+
+## TC-FRONTEND-420 — confirming a hold goes to venue_bookings
+
+- **Steps:** `confirmVenueHold("H")`.
+- **Expected:** One `POST /api/venue-bookings/H/hold-confirmation`, with
+  credentials and no body. It resolves to the returned booking.
+- **Actual:** One POST to `/api/venue-bookings/H/hold-confirmation`, credentials included, no body; resolved to the booking.
+- **Status:** Pass
+- **Evidence:** test_booking_decision.mjs — `confirming a hold goes to venue_bookings`; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Node 24, `node --test tests/unit/frontend/test_*.mjs`: 242 passed
+
+## TC-FRONTEND-421 — the Coordinator sees what a hold needs from them
+
+- **Steps:** `coordinatorHoldState(booking)` for each booking below.
+- **Test data:** held with `hold_confirmed_at: null`; held with
+  `hold_confirmed_at` set; a pending booking; a confirmed booking.
+- **Expected:**
+  - Held, unconfirmed: `{canConfirm: true, text: "Venue Staff are holding
+    this venue for you. Confirm the hold so they can approve it."}`
+  - Held, confirmed: `{canConfirm: false, text: "Hold confirmed. Waiting for
+    Venue Staff to approve it."}`
+  - Pending and confirmed bookings: `null`.
+- **Actual:** The two expected states, then `null` for pending and confirmed.
+- **Status:** Pass
+- **Evidence:** test_booking_decision.mjs — `the Coordinator sees what a hold needs from them`; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Node 24, `node --test tests/unit/frontend/test_*.mjs`: 242 passed
+
+## TC-FRONTEND-422 — Venue Staff see whether a hold can be approved yet
+
+- **Steps:** `staffHoldApproval(booking)` for the same four bookings as 421.
+- **Expected:**
+  - Held, unconfirmed: `{canApprove: false, text: "Waiting for the Event
+    Coordinator to confirm this hold. You can reject it or release the
+    hold, but not approve it yet."}`
+  - Held, confirmed: `{canApprove: true, text: "The Event Coordinator
+    confirmed this hold."}`
+  - Pending: `{canApprove: true, text: null}`.
+  - Confirmed: `{canApprove: false, text: null}`.
+- **Actual:** The four expected results.
+- **Status:** Pass
+- **Evidence:** test_booking_decision.mjs — `Venue Staff see whether a hold can be approved yet`; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Node 24, `node --test tests/unit/frontend/test_*.mjs`: 242 passed
+
+## TC-FRONTEND-423 — a failed confirmation says what happened
+
+- **Steps:** `confirmHoldErrorMessage(error)` for each error below.
+- **Test data:** `409` with detail `"Only a tentative hold can be
+  confirmed"`; `403`; `404`; `502`; a network error with no status.
+- **Expected:**
+  - `409`: `"Only a tentative hold can be confirmed. Reload the event to see
+    its current state."`
+  - `403` and `404`: `"Only the event's assigned Coordinator can confirm this
+    hold."`
+  - `502` and the network error: `"We couldn't confirm the hold. Try
+    again."`
+- **Actual:** The three expected messages for 409, 403/404, and 502/network.
+- **Status:** Pass
+- **Evidence:** test_booking_decision.mjs — `a failed confirmation says what happened`; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Node 24, `node --test tests/unit/frontend/test_*.mjs`: 242 passed
+
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.

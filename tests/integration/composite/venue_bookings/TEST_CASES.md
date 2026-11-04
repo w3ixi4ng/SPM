@@ -516,3 +516,31 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
 - **Actual:** `200`; exactly the confirmed, held and blocked entries for V1–V3; the pending and `D+1` bookings absent; rows deleted.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/venue_bookings/test_occupied.py::test_a_dates_occupied_times_come_back_through_the_stack; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with the bookings and venue_bookings integration suites: 40 passed, 1 failed (`test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`, unrelated; passed on rerun)
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria. Applied to dev and test by the developer on
+2026-11-05; executed.
+
+## TC-VENUEBOOKINGS-139 — through Kong, the Coordinator confirms and Venue Staff are told
+
+- **Pre-conditions:**
+  - `.env.test` stack started immediately before.
+  - The S-81 confirmation SQL applied in the test project.
+  - The `world` fixture (Coordinator K assigned to a planning event, Venue
+    Staff S, venue V).
+- **Steps:**
+  1. As K, request V on 2026-11-12 09:00–12:00. As S, hold it (expiry 2099).
+  2. As S, approve it.
+  3. As K, `POST /api/venue-bookings/{id}/hold-confirmation`.
+  4. As S, `GET /api/notifications`, then approve the booking.
+- **Expected:**
+  - Step 2: `409` with the not-yet-confirmed detail.
+  - Step 3: `200`, with `hold_confirmed_by` = K.
+  - Step 4: S's inbox holds one `venue_hold_confirmed` notification naming V,
+    12 Nov 2026 and 09:00–12:00. The approval is `200`, `confirmed`.
+  - Cleanup deletes the notification, booking, event and accounts.
+- **Actual:** 2 → `409` with the not-confirmed detail. 3 → `200`, `hold_confirmed_by` = K. 4 → S's inbox held one `venue_hold_confirmed` notice naming the venue and 12 Nov 2026, 09:00–12:00; approval `200` `confirmed`. Cleanup removed everything.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_hold_confirmation.py::test_through_kong_the_coordinator_confirms_and_venue_staff_are_told; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; after the developer applied the S-81 SQL to dev and test; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); bookings, notifications and venue_bookings integration suites: 44 passed

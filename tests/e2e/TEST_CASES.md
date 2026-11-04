@@ -1832,3 +1832,54 @@ and opening hours; still no name or room layouts.
 - **Actual:** 1 → the outside-hours list named the event, date, 09:00–11:00 and the warning; the catalogue showed 10:00–16:00 without reload. 2 → still listed under Clashes to review after reload; Edit showed 10:00–16:00; booking still `confirmed`. 3 → the Coordinator's row showed the warning and Confirmed.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_edit_opening_hours.py::test_staff_shorten_opening_hours_and_the_booking_is_kept_and_flagged[chromium]; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with test_update_venue (TC-E2E-213, updated for editable hours), test_setup_turnaround, test_add_venue, test_review_booking_conflicts and test_filter_occupied_venues: 9 passed
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria.
+
+**TC-E2E-227 updated:** between placing the hold and approving P, P's hold is
+confirmed for its Coordinator with the admin client, by setting
+`hold_confirmed_by` and `hold_confirmed_at`. TC-E2E-480 covers that step in
+the browser. Nothing else changes.
+
+**Blocked** until the S-81 confirmation SQL is applied to the test project.
+
+## TC-E2E-480 — the Coordinator confirms a hold, Venue Staff are told and then approve it
+
+- **Scenario:** Both A08 criteria, as the two roles meet them.
+- **Pre-conditions:**
+  - A fresh `.env.test` stack and Chromium, with the S-81 confirmation SQL
+    applied.
+  - Venue Staff S, a Coordinator K and an Organiser.
+  - A venue open every day 08:00–20:00.
+  - K's planning event with a pending request on `D+3` 10:00–12:00.
+- **Steps:**
+  1. S opens the request's page and places a hold (expiry 2099-01-01 12:00).
+  2. Still on that page, S chooses Approve.
+  3. S signs out. K signs in, opens the event, and presses Confirm hold on
+     the booking.
+  4. K reloads the event.
+  5. K signs out. S signs in and checks the dashboard's Notifications, then
+     opens the request's page.
+  6. S approves.
+- **Expected:**
+  - Step 1: the page shows "Held" and "Waiting for the Event Coordinator to
+    confirm this hold. You can reject it or release the hold, but not
+    approve it yet."
+  - Step 2: the Approve option is disabled. Reject and Release hold are still
+    enabled.
+  - Step 3: before pressing, the booking row reads "Venue Staff are holding
+    this venue for you. Confirm the hold so they can approve it." After, it
+    reads "Hold confirmed. Waiting for Venue Staff to approve it.", and the
+    button is gone.
+  - Step 4: the same confirmed text survives the reload.
+  - Step 5: Notifications lists "… confirmed the tentative hold for <venue>
+    on <D+3>, 10:00–12:00 (<event>). You can now approve it before the hold
+    expires." The request page reads "The Event Coordinator confirmed this
+    hold.", and Approve is enabled.
+  - Step 6: back on the dashboard, "Booking for <event> at <venue>
+    confirmed." is shown, and storage holds `confirmed`.
+- **Actual:**
+- **Status:** Blocked
+- **Evidence:** The S-81 confirmation SQL has not been applied to the test project yet.

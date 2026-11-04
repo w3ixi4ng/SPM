@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../auth/useAuth.js'
 import Logo from '../components/Logo.jsx'
+import NotificationPanel from '../components/NotificationPanel.jsx'
 import useVenueList from '../components/useVenueList.js'
 import VenueList from '../components/VenueList.jsx'
 import { getRoleAccess, hasPermission, PERMISSIONS } from '../lib/access.js'
@@ -531,6 +532,11 @@ export default function VenueStaffDashboard({ role }) {
           <p className="font-ui text-xs mt-3" style={{ color: C.inkFaint }}>
             {user.name} · {user.email}
           </p>
+        </div>
+
+        {/* S-81 reopened: e.g. a Coordinator confirmed a hold they placed. */}
+        <div className="max-w-3xl">
+          <NotificationPanel />
         </div>
 
         {canSeePending && (

@@ -164,6 +164,9 @@ class BookingRead(BaseModel):
     hold_expires_at: datetime | None = None
     hold_released_at: datetime | None = None
     hold_release_reason: HoldReleaseReason | None = None
+    # S-81 reopened: the Event Coordinator confirmed the hold.
+    hold_confirmed_by: UUID | None = None
+    hold_confirmed_at: datetime | None = None
     venue_preparation_status: VenuePreparationStatus = "not_started"
     venue_preparation_updated_by: UUID | None = None
     venue_preparation_updated_at: datetime | None = None

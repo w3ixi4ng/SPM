@@ -220,7 +220,7 @@ def test_confirming_a_booking_of_a_closed_event_is_refused(client, db, signed_in
     signed_in("venue_staff", STAFF)
     lookups(db, [booking_row(status="pending")], [], [])
     db.schema.return_value.table.return_value.update.return_value.eq.return_value.in_.return_value \
-        .execute.side_effect = ClosedEvent()
+        .or_.return_value.execute.side_effect = ClosedEvent()
 
     response = client.post(
         f"/bookings/{BOOKING_ID}/decision", json={"decision": "approved"}, cookies=COOKIE,

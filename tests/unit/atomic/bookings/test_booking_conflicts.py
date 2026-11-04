@@ -89,6 +89,7 @@ def test_a_race_lost_at_the_database_gives_the_same_message(client, db, auth):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = ExclusionViolation('private constraint detail')
 
     response = approve(client)
