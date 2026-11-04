@@ -773,9 +773,11 @@ Non-negotiable on every page:
 ## CI
 
 Three workflows in `.github/workflows/`. All run on pushes and pull requests to
-`main` and to any sprint branch (`sprint*`), and can be started by hand. A
-story's pull request into the sprint branch is checked by every suite, and so
-is the sprint branch itself after each merge.
+`main`, to any sprint branch (`sprint*`) and to `fix`, and can be started by
+hand. A story's pull request into the sprint branch is checked by every suite,
+and so is the sprint branch itself after each merge. `fix` is the release
+branch for fixes made outside a sprint; a story's pull request into it is
+checked the same way.
 
 Integration and e2e both write to the one test Supabase project, so those two
 jobs share a concurrency group (`supabase-test-project`) across every run: only
