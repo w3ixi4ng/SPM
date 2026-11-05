@@ -150,8 +150,8 @@ contract without a browser.
   coordinator are created with `make_user`. The admin client inserts one event
   for that organiser, assigned to the coordinator, with every submitted field
   filled in, `status=returned`, `decision=returned`, a reason, a comment and
-  `decided_at`. The coordinator has no other bookings, so resubmitting at
-  the same time keeps them (TC-EVENTREQUESTS-021) and no other coordinator
+  `decided_at`. Resubmitting keeps the request with that coordinator whatever
+  else they have booked (S-83; TC-EVENTREQUESTS-021), so no other coordinator
   needs blocking.
 - **Steps:** 1. Sign in as the organiser. 2. On the dashboard, open the
   request marked **Action required**. 3. Read the banner. 4. Change
@@ -1132,7 +1132,7 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
 - **Expected:** P shows "Equipment preparation opens once the Safety Officer approves the event." and no control. On C each save confirms the server response and Ready survives reload. The Coordinator sees Ready on C's readiness view and no preparation edit control. Direct storage shows C Ready with A's id and a non-null server timestamp, and P still `not_started`.
 - **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
+- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` before this session's runs (events container verified on the test project's `SUPABASE_URL`)
 
 ## S-24 — Track Event Readiness
 
@@ -1525,6 +1525,9 @@ Coordinator inactive through trusted Auth metadata.
 - **Pre-conditions:** The fresh `.env.test` stack has an assigned Coordinator, its Organiser and an Attendee. Their event has two confirmed venue bookings.
 - **Steps:** The Coordinator opens the event, marks the second venue primary, and the Organiser confirms both venues remain visible. The Attendee opens the published event. The primary booking is then cancelled/replaced and the Coordinator returns to the event.
 - **Expected:** The Coordinator and Organiser see both venues and the Primary label. The Attendee sees only the selected primary. After it is removed, the Coordinator is prompted to choose a new primary and the Attendee sees `Venue to be confirmed` until that choice is made.
+- **Actual:** The Coordinator moved the primary from North Hall to South Hall and the label followed; the Organiser saw both venues with the Primary label; the Attendee's card showed only South Hall. After South Hall's booking was removed the Coordinator was told to choose a new primary, and the Attendee saw the venue as to be confirmed.
+- **Status:** Pass
+- **Evidence:** `tests/e2e/test_view_confirmed_event_details.py::test_coordinator_designates_the_only_attendee_facing_primary_venue[chromium]`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` before this session's runs (events container verified on the test project's `SUPABASE_URL`)
 
 - **Scenario:** The full browser journey shows the same storage location in the catalogue and live availability results.
 - **Pre-conditions:** Fresh `.env.test` stack, S-92 SQL applied, Chromium, temporary Technical Support account.

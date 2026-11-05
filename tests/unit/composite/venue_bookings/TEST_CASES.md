@@ -2052,9 +2052,14 @@ submission can be cleared. Everything else about S-78 is unchanged.
 
 ### TC-VENUEBOOKINGS-124 — Coordinator and Organiser see every venue and the primary marker
 
-- **Pre-conditions:** E has two bookings and B1 is primary. C is assigned to E; O owns E.
-- **Steps:** Each calls `GET /venue-bookings?event_id=E`.
-- **Expected:** Both receive both bookings and the `is_primary` marker. C is checked through `/events/assigned/E`; O through `/events/E`.
+- **Scenario:** The Event Organiser and the Coordinator see every venue of a multi-venue event, with the primary one marked (S-91 AC2, Organiser and Coordinator half; the attendee half is TC-EVENTREGISTRATIONS-051).
+- **Pre-conditions:** E has two confirmed bookings: B1 "Studio B" with `is_primary: true` and B2 "Studio C" with `is_primary: false`. Coordinator C is assigned to E; Organiser O owns E.
+- **Steps:** 1. As O, `GET /venue-bookings?event_id=E`. 2. As C, the same.
+- **Test data:** As above.
+- **Expected:** Both → `200` with both bookings exactly as Bookings returned them, `is_primary` included. O's access is checked through `GET /events/E`, C's through `GET /events/assigned/E`.
+- **Actual:** O and C each got `200` with Studio B (`is_primary: true`) and Studio C (`false`); O checked through `/events/E`, C through `/events/assigned/E`.
+- **Status:** Pass
+- **Evidence:** `test_primary_venue.py::test_the_organiser_lists_every_venue_with_the_primary_marker`; `test_primary_venue.py::test_the_coordinator_lists_every_venue_with_the_primary_marker`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ### TC-VENUEBOOKINGS-125 — cancelling the primary leaves an explicit choice outstanding
 

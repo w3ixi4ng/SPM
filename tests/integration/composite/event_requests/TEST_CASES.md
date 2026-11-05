@@ -68,26 +68,22 @@ Verified runnable twice in a row.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_a_returned_request_is_amended_resubmitted_and_back_with_its_coordinator`
 
-## TC-EVENTREQUESTS-106 — a failed resubmission leaves the returned request exactly as it was
+## TC-EVENTREQUESTS-106 — a failed resubmission leaves the returned request's information exactly as it was
 
-- **Scenario:** Against the real database, this proves S-13 AC6: a refused
-  resubmission changes no stored field.
-- **Pre-conditions:** As TC-EVENTREQUESTS-105 up to the return. Then
-  coordinator A and every other coordinator get a covering booking at the
-  amended window, so nobody is free there.
-- **Steps:** 1. As the organiser, `GET /events/{id}` and keep the body. 2.
-  `POST /event-requests/{id}/submit` moving the window to the blocked one and
-  amending attendance. 3. `GET /events/{id}` again.
-- **Test data:** Original window `2026-11-12 09:00`–`11:00`, attendance `120`;
-  amended window `2026-11-12 13:00`–`15:00`, attendance `80`.
-- **Expected:** Step 2 returns `409` with
-  `"No event coordinator is available for the requested date and time"`.
-  Step 3 equals step 1 field for field, including `updated_at`: still
-  `returned`, `start_time=09:00:00`, attendance `120`, same coordinator, and
-  the same reason, comment and `decided_at`.
-- **Actual:** As expected.
+> **Revived 2026-11-06 for S-83's rule.** It staged its failure as "no
+> coordinator is free" (`409`), a refusal S-83 no longer makes, so its test was
+> skipped. Re-specified with the same ID around a failure that still happens:
+> a stale page resubmitting a request that is no longer awaiting changes. (The
+> unit file's TC-EVENTREQUESTS-106 is a different, older-numbered case.)
+
+- **Scenario:** Against the real database: when a resubmission fails, the stored event information stays exactly as it was and the Organiser is told why (S-13 AC6).
+- **Pre-conditions:** As TC-EVENTREQUESTS-105 up to the return: the Organiser's request, assigned to coordinator A, is `returned` with a reason, a comment and `decided_at`. Fresh `.env.test` stack; `events` and `users` schemas applied, granted and exposed.
+- **Steps:** 1. The Organiser resubmits from one page with attendance amended to `80`. 2. `GET /events/{id}` and keep the body. 3. From a second, stale page that still shows the request as returned, the Organiser submits again with attendance `60` and the window moved to `13:00`–`15:00`. 4. `GET /events/{id}` again.
+- **Test data:** Window `2026-11-12 09:00`–`11:00`, attendance `120`; first resubmission attendance `80`; stale attempt attendance `60` at `13:00`–`15:00`.
+- **Expected:** 1 → `200`, `submitted`. 3 → `409` with detail exactly "This request is no longer awaiting changes. Reload to see its current status." 4 equals 2 field for field, including `updated_at`: still `submitted`, attendance `80`, `start_time` `09:00:00`, coordinator A.
+- **Actual:** First resubmission `200` `submitted` at attendance 80; the stale attempt `409` "This request is no longer awaiting changes. Reload to see its current status."; the stored event was identical before and after, including `updated_at`.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was`
+- **Evidence:** `test_app.py::test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` before this session's runs (events container verified on the test project's `SUPABASE_URL`)
 
 ## TC-EVENTREQUESTS-107 — support is assigned, persisted, and visible through the gateway
 

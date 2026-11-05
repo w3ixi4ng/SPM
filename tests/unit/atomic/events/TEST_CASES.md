@@ -318,29 +318,34 @@ Supabase clients mocked. They use no network, database, or Docker.
 ## TC-EVENTS-027 — Event Organiser permissions
 
 > **S-62 (2026-10-11):** the expected set now also includes `events:request_cancellation`.
+> **Re-recorded 2026-11-06:** Expected listed only the Sprint 1 set while the
+> test checked the current one; it now names the current set.
 
-- **Scenario:** The public organiser role has exactly the supported Sprint 1 permissions.
+- **Scenario:** The Event Organiser can do exactly the Organiser's actions and nothing else (S-02 AC1).
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the `event_organiser` permission set.
 - **Test data:** `event_organiser`.
-- **Expected:** Dashboard access plus exactly create, save draft, view own,
-  update own draft, and submit own.
-- **Actual:** As expected.
+- **Expected:** Exactly `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` (S-62), `events:close_registration` (S-50) and `events:request_changes` (S-59).
+- **Actual:** The Organiser's set was exactly the nine listed.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_event_organiser_has_the_sprint_one_permissions`
+- **Evidence:** `test_app.py::test_event_organiser_has_the_sprint_one_permissions`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
-## TC-EVENTS-028 — other roles only receive dashboard access
+## TC-EVENTS-028 — every other role receives only its own permissions
 
-- **Scenario:** Roles with no defined workflow gain no unimplemented event
-  powers. `event_coordinator` moved to its own case (TC-EVENTS-057) once it
-  gained `events:view_assigned`.
+> **Re-specified 2026-11-06.** It said these roles get only `dashboard:view`;
+> S-24, S-26 and S-43 have since given Venue Staff and Technical Support their
+> own reads and writes, and its evidence named a renamed test. It now also
+> covers the Event Coordinator Lead, which no case checked, and that the role
+> list holds no role outside TC-EVENTS-027, -057 and this case.
+
+- **Scenario:** Every role other than the Event Organiser (TC-EVENTS-027) and the Event Coordinator (TC-EVENTS-057) can do exactly its own actions and nothing else, and no role exists that none of the three cases checks (S-02 AC1; for the Lead, S-02 AC5).
 - **Pre-conditions:** The centralized role policy is loaded.
-- **Steps:** Read the permission set for every other known role.
-- **Test data:** `venue_staff`, `technical_support`, `attendee`.
-- **Expected:** Each role has exactly `dashboard:view` and no `events:*` permission.
-- **Actual:** As expected.
+- **Steps:** 1. Read the set of known roles. 2. Read the permission set for each role in the test data.
+- **Test data:** `event_coordinator_lead`, `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** 1 → exactly `event_organiser`, `event_coordinator`, `event_coordinator_lead`, `venue_staff`, `technical_support`, `attendee`. 2 → `event_coordinator_lead`: exactly `dashboard:view`, `events:lead_assignments` — nothing to approve, reject or confirm. `venue_staff`: exactly `dashboard:view`, `events:view_booking_status`. `technical_support`: exactly `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation`. `attendee`: exactly `dashboard:view`.
+- **Actual:** Exactly the six roles; Lead, Venue Staff, Technical Support and Attendee each had exactly the listed set.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_other_known_roles_only_have_dashboard_permission`
+- **Evidence:** `test_app.py::test_every_other_role_receives_only_its_own_permissions`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-029 — unknown role is rejected
 
@@ -659,17 +664,17 @@ browser-facing routes.
 ## TC-EVENTS-057 — event_coordinator has the view and decide permissions
 
 > **S-61 (2026-10-11):** the expected set now also includes `events:decide_cancellation`.
+> **Re-recorded 2026-11-06:** Expected listed only the S-14 set while the test
+> checked the current one; it now names the current set.
 
-- **Scenario:** S-14 adds a second coordinator workflow: deciding a request,
-  on top of viewing it.
+- **Scenario:** The Event Coordinator can do exactly the Coordinator's actions and nothing else (S-02 AC1).
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the `event_coordinator` permission set.
 - **Test data:** `event_coordinator`.
-- **Expected:** Exactly `dashboard:view`, `events:view_assigned`, and
-  `events:decide`.
-- **Actual:** As expected.
+- **Expected:** Exactly `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation` (S-61), `events:request_reassignment`, `events:view_change_requests` and `events:cancel_for_venue_unavailability` (S-89).
+- **Actual:** The Coordinator's set was exactly the eight listed.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_event_coordinator_has_the_view_and_decide_permissions`
+- **Evidence:** `test_app.py::test_event_coordinator_has_the_view_and_decide_permissions`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-058 — coordinator lists only their assigned events
 
@@ -1250,50 +1255,61 @@ staff member.
 - **Status:** Pass
 - **Evidence:** `test_schemas.py::test_support_assignment_fields_are_server_managed`
 
-## TC-EVENTS-096 — only planning and confirmed assignments contribute to support load
+## TC-EVENTS-096 — only live assignments contribute to support load
 
-- **Scenario:** Availability ignores events that do not occupy Technical
-  Support Staff under the confirmed S-43 rule.
-- **Pre-conditions:** The fake returns assignments for all supported lifecycle
-  labels.
-- **Steps:** `POST /events/technical-support-load` with two staff ids and a
-  requested window.
-- **Test data:** Assigned events in `planning`, `confirmed`, `draft`,
-  `submitted`, `returned`, `rejected`, `completed`, and `cancelled`.
-- **Expected:** The storage query requests only `planning` and `confirmed`.
-  Only those rows contribute to `assigned_count` or an overlap conflict;
-  submitted/under-review does not block availability.
-- **Actual:** The query and response included only planning and confirmed assignments.
+> **Re-recorded 2026-11-06.** S-17 added `pending_safety_check`, which the
+> code and test count as live; the Expected still said only `planning` and
+> `confirmed`.
+
+- **Scenario:** Only work a Technical Support member is actually committed to makes them busy (S-43 AC1, "available pool").
+- **Pre-conditions:** The fake returns assignments for staff A and B.
+- **Steps:** `POST /events/technical-support-load` with A and B and a requested window.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`.
+- **Expected:** The storage query asks only for `planning`, `pending_safety_check` and `confirmed` events. Draft, submitted, returned, rejected, completed and cancelled work never counts toward load or conflict.
+- **Actual:** The storage query asked for exactly `planning`, `pending_safety_check` and `confirmed`.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_support_load_counts_only_planning_and_confirmed_events`
+- **Evidence:** `test_app.py::test_support_load_counts_only_planning_and_confirmed_events`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-097 — support overlap uses the complete date/time window
 
-- **Scenario:** Any real overlap makes a staff member unavailable, while
-  back-to-back events remain valid.
-- **Pre-conditions:** One staff member has stored planning assignments.
-- **Steps:** Check containment, partial overlap, cross-midnight overlap, and
-  both touching-boundary directions.
-- **Test data:** Requested window `2026-11-13 09:00`–`12:00`, plus the windows
-  described above.
-- **Expected:** Every positive-duration overlap reports `conflict=true`.
-  An assignment ending at `09:00` or starting at `12:00` does not conflict.
-- **Actual:** Every real overlap conflicted and both touching-boundary cases remained available.
+> **Re-specified 2026-11-06.** Its evidence named two tests that never
+> existed; the merged test checked only one overlap and one boundary. It now
+> has its own test over every window it lists.
+
+- **Scenario:** A Technical Support member is unavailable for any real overlap with the requested window, across midnight too, and available for work that only touches it (S-43 AC1: who is in "the available pool").
+- **Pre-conditions:** Staff A has exactly one live assignment, set per row below.
+- **Steps:** For each row, `POST /events/technical-support-load` for A with the requested window.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`. A's assignment:
+
+  | Row | A's assignment | `conflict` |
+  | --- | --- | --- |
+  | contained | `11-13 09:30`–`10:30` | `true` |
+  | covers it | `11-13 08:00`–`13:00` | `true` |
+  | overlaps the start | `11-13 08:00`–`09:30` | `true` |
+  | overlaps the end | `11-13 11:30`–`13:00` | `true` |
+  | across midnight | `11-12 22:00`–`11-13 09:30` | `true` |
+  | ends as it starts | `11-13 07:00`–`09:00` | `false` |
+  | starts as it ends | `11-13 12:00`–`14:00` | `false` |
+  | the day before | `11-12 09:00`–`12:00` | `false` |
+- **Expected:** `200` with one row for A whose `conflict` is as in the table, and `assigned_count` `1` every time.
+- **Actual:** All eight rows gave the `conflict` in the table with `assigned_count` 1. With the overlap rule changed to count touching windows, the two touching rows fail.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_support_load_detects_overlap`, `test_app.py::test_support_load_allows_back_to_back_events`
+- **Evidence:** `test_app.py::test_support_overlap_uses_the_complete_window` (8 params); 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-098 — support load reports each candidate's live workload
 
-- **Scenario:** The composite can implement least-busy selection without
-  reading event storage itself.
-- **Pre-conditions:** Candidates A, B, and C have respectively two, one, and
-  zero planning/confirmed assignments; none overlaps the requested window.
-- **Steps:** Request support load for A, B, and C.
-- **Expected:** The response keeps all requested ids and reports counts
-  `2`, `1`, and `0`, with `conflict=false` for each.
-- **Actual:** Every requested candidate was returned with the expected live count and conflict flag.
+> **Re-specified 2026-11-06.** Its evidence named a test that never existed;
+> the merged test had no candidate with zero work, which is the case that
+> shows every requested id comes back.
+
+- **Scenario:** For each candidate, the system learns how much live work they have, so it can choose the least busy — and a candidate with no work at all is still returned (S-43 AC1).
+- **Pre-conditions:** Candidates A, B and C have two, one and zero live assignments; none overlaps the requested window.
+- **Steps:** `POST /events/technical-support-load` for A, B and C, in that order.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`; A's assignments `11-14 09:00`–`10:00` and `11-15 09:00`–`10:00`; B's `11-16 09:00`–`10:00`.
+- **Expected:** `200` with exactly three rows, in request order: A `assigned_count` 2, B 1, C 0, each `conflict: false`.
+- **Actual:** Three rows in request order: A 2, B 1, C 0, none in conflict.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_support_load_reports_each_candidates_live_workload`
+- **Evidence:** `test_app.py::test_support_load_reports_each_candidates_live_workload`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-099 — the internal action records support need and assignment atomically
 
@@ -2048,8 +2064,8 @@ AC2.
 | AC1: Technical Support Staff can set Not Started, In Progress, and Ready | TC-EVENTS-453 |
 | AC2: Preparation status can only be updated once the event is in Preparation (after the Safety Officer's approval) | TC-EVENTS-453, TC-EVENTS-454 |
 | AC3: The current status is visible on the event's readiness view | TC-EVENTS-453, TC-EVENTS-455 (integration) |
-| AC4: Only Technical Support Staff (or an authorised role) can change it | TC-EVENTS-124 |
-| Safe races and failures | TC-EVENTS-125 |
+| AC4: Only Technical Support Staff (or an authorised role) can change it | TC-EVENTS-456 |
+| Safe races and failures | TC-EVENTS-457 |
 
 **AC2, as confirmed by the developer on 2026-11-05.** The Safety Officer's
 approval moves an event to `confirmed` (S-86 AC5), and nothing yet moves it on
@@ -2062,6 +2078,9 @@ requires it before submission (TC-SAFETYCHECKS-019 retired).
 **Renumbered.** This case was TC-EVENTS-123, which is also the S-62
 cancellation case above; the S-62 case keeps 123. The S-26 case is now
 TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
+TC-EVENTS-124 and -125 had the same clash with the S-62 cases above; on
+2026-11-06 the S-26 ones became TC-EVENTS-456 and -457. The S-62 cases keep
+124 and 125.
 
 ### TC-EVENTS-453 — after safety approval, assigned Technical Support records every preparation state
 
@@ -2072,7 +2091,7 @@ TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
 - **Expected:** The event reads as `not_started` before the first update. Every update returns `200`, including moving backwards; the response and the later read expose the current status, A's id as updater, and a server-generated update time. The conditional write filters on `status in ('confirmed', 'preparation')`.
 - **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
+- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards` (6 params); 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ### TC-EVENTS-454 — before safety approval, preparation status cannot be changed
 
@@ -2083,9 +2102,9 @@ TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
 - **Expected:** `409` with detail `"Equipment preparation can be updated once the Safety Officer has approved the event"`. No update is sent to storage and no history row is written; the event still reads `not_started`.
 - **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_preparation_cannot_change_before_safety_approval`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
+- **Evidence:** `test_equipment_preparation.py::test_preparation_cannot_change_before_safety_approval` (2 params); 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
-### TC-EVENTS-124 — preparation updates are restricted to the assigned Technical Support worker
+### TC-EVENTS-456 — preparation updates are restricted to the assigned Technical Support worker
 
 - **Scenario:** Event assignment and trusted role jointly control the write.
 - **Pre-conditions:** The eligible event is assigned to Technical Support A.
@@ -2094,9 +2113,9 @@ TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
 - **Expected:** A succeeds. B sees `404` so another worker's assignment is not disclosed. Other authenticated roles receive `403`; no session receives `401`; no denied request writes storage. The Coordinator can still read the resulting status through their existing assigned-event view.
 - **Actual:** Assigned Technical Support was authorised; unassigned support was hidden with `404`; every other tested role was denied before storage.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_only_assigned_support_can_update_preparation`
+- **Evidence:** `test_equipment_preparation.py::test_only_assigned_support_can_update_preparation` (5 roles → `403`); `::test_unassigned_support_cannot_update_preparation` (B → `404`); `::test_no_session_cannot_update_preparation` (`401`). A succeeding is TC-EVENTS-453.; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
-### TC-EVENTS-125 — invalid, stale, concurrent, and failed preparation updates never report success
+### TC-EVENTS-457 — invalid, stale, concurrent, and failed preparation updates never report success
 
 - **Scenario:** A response cannot claim a preparation change that storage did not make.
 - **Pre-conditions:** Invalid payloads; an event that is missing, reassigned, cancelled, or changed concurrently; and a storage exception.
@@ -2105,7 +2124,7 @@ TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
 - **Expected:** Invalid payloads return `422` before storage. Missing or hidden assignments return `404`; ineligible or concurrently changed events return `409`. The conditional write matches event id, assigned worker, and eligible lifecycle status. Storage failure returns safe `500`; no case fabricates a changed response.
 - **Actual:** Invalid bodies failed before storage, an empty conditional update returned `409`, and a simulated storage exception returned only the safe service error.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_invalid_and_stale_updates_never_report_success`
+- **Evidence:** `test_equipment_preparation.py::test_invalid_and_stale_updates_never_report_success` (`422`); `::test_concurrent_preparation_change_returns_conflict` (`409`); `::test_storage_failure_is_safe` (safe `500`); `::test_unassigned_support_cannot_update_preparation` (hidden assignment `404`). Ineligible status `409` is TC-EVENTS-454.; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## S-17 — submit an event for the Operational Safety Check
 

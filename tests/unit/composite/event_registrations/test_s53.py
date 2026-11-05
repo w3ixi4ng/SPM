@@ -1,7 +1,8 @@
 """S-53: a registered Attendee withdraws until the event starts.
 
 TC-EVENTREGISTRATIONS-036..041. S-55 retired 039 and 040: the freed place is
-now offered, not given, and test_s55.py covers telling the next in line.
+now offered, not given, and test_s55.py covers the offer's wording. 039 was
+revived on 2026-11-06 to prove S-53 AC3 under that rule.
 """
 
 from datetime import datetime, timezone
@@ -59,6 +60,41 @@ def test_a_registered_attendee_withdraws(client, withdrawing):
         for row in call.kwargs["json"]["notifications"]
     ]
     assert sent == ["registration_withdrawn"]
+
+
+# --- TC-EVENTREGISTRATIONS-039 --------------------------------------------
+# S-53 AC3: withdrawing frees the place and triggers the waiting-list
+# notification. Under S-55 the next Attendee is invited, never registered.
+ATTENDEE_B = "44444444-4444-4444-8444-444444444444"
+B_ENTRY = {"id": "77777777-7777-4777-8777-777777777777", "event_id": EVENT_E,
+           "attendee_id": ATTENDEE_B, "created_at": "2026-11-04T04:00:00Z",
+           "offered_at": "2026-11-06T04:00:00Z"}
+
+
+def test_withdrawing_frees_the_place_and_notifies_the_next_attendee_waiting(client, services):
+    services["registrations"].post.return_value = response(200, {"withdrawn": A_ROW, "offered": B_ENTRY})
+    services["users"].post.return_value = response(
+        200, [{"id": ATTENDEE_B, "name": "Ben Lee", "email": "ben@example.com", "role": "attendee"}]
+    )
+
+    result = client.delete(WITHDRAW_E)
+
+    assert result.status_code == 200
+    assert result.json() == WITHDRAWN
+    services["registrations"].post.assert_awaited_once_with(
+        "/registrations/withdrawals",
+        json={"event_id": EVENT_E, "attendee_id": ATTENDEE_A, "capacity": 2},
+    )
+    sent = sorted(
+        (row["kind"], row["recipient_id"], row["deduplication_key"])
+        for call in services["notifications"].post.call_args_list
+        for row in call.kwargs["json"]["notifications"]
+    )
+    assert [(kind, recipient) for kind, recipient, _ in sent] == [
+        ("registration_withdrawn", ATTENDEE_A),
+        ("waiting_list_offer", ATTENDEE_B),
+    ]
+    assert sent[1][2] == f"waiting_list_offer:{B_ENTRY['id']}"
 
 
 # --- TC-EVENTREGISTRATIONS-037 --------------------------------------------

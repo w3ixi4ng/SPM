@@ -171,7 +171,13 @@ against a real table is proven by TC-VENUEBOOKINGS-110.
 
 ## TC-NOTIFICATIONS-011 — a waiting-list promotion is accepted
 
-- **Scenario:** The inbox accepts the S-53 kind, so an Attendee promoted off the waiting list can be told they now hold a place (S-53 AC3).
+> **No longer proves S-53 AC3 (2026-11-06).** Since S-55 nothing sends
+> `waiting_list_promotion`: a freed place is offered, and the Attendee is told
+> with `waiting_list_offer` (TC-NOTIFICATIONS-012). This case only shows the
+> inbox still accepts the old kind, which the schema and SQL still list.
+> Dropping the kind would be an SQL change to apply to both projects.
+
+- **Scenario:** The inbox accepts the S-53 kind, so an Attendee promoted off the waiting list can be told they now hold a place (supporting; no current AC — see the note).
 - **Pre-conditions:** The fake batch upsert echoes its rows.
 - **Steps:** `POST /internal/notifications` with one row of kind `waiting_list_promotion`.
 - **Test data:** Recipient `44444444-4444-4444-8444-444444444444`; event
