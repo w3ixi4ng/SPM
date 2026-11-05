@@ -273,8 +273,8 @@ contract without a browser.
     all four venues show, the Weekend venue marked `"Closed on Thursdays"`
     under its name, and the checkbox is unticked. Ticking it hides the
     Weekend venue again; clearing once more shows all four.
-  - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
-    expects 100"` is shown, and **Send request** is disabled.
+  - Step 3: a warning naming the Small venue and `"Too small: holds 80, booking
+    allocates 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
     **Send request** is still disabled.
   - Step 5: the warning names the Weekend venue and `"Closed on
@@ -802,8 +802,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
   `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
-  C confirmed 15:00–16:00 and E confirmed 16:30–17:00, both confirmed when
-  the venue was 0/0.
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00. Confirmed rows are
+  directly seeded historical data after the timing is saved.
 - **Steps:**
   1. Staff open B from the request list and approve it.
   2. Staff open the dashboard, then reload it.

@@ -62,7 +62,7 @@ def test_hold_expiry_is_notified_and_released_through_kong(
         late_approval = api.post(f'/venue-bookings/{booking_id}/decision', headers=staff,
                                  json={'decision': 'approved'})
         assert late_confirm.status_code == 409
-        assert late_approval.status_code == 409
+        assert late_approval.status_code == 409, late_approval.text
 
     stored = admin.schema('bookings').table('bookings').select(
         'status,hold_release_reason,hold_released_at'

@@ -12,7 +12,7 @@ pytestmark = requires_env
 
 
 # --- TC-BOOKINGS-115 ------------------------------------------------------
-def test_confirmed_replacement_retires_rejected_original(admin, booking_ids, actors):
+def test_confirmed_replacement_retires_rejected_original(admin, booking_ids, actors, venue_for):
     _, staff = actors('venue_staff')
     original = create(booking_ids, booking_body(str(uuid.uuid4()), '10:00', '12:00'))
     rejected = httpx.post(f'{BASE_URL}/bookings/{original["id"]}/decision', headers=staff,
@@ -20,7 +20,7 @@ def test_confirmed_replacement_retires_rejected_original(admin, booking_ids, act
     assert rejected.status_code == 200, rejected.text
 
     replacement = create(booking_ids, {
-        **booking_body(str(uuid.uuid4()), '10:00', '12:00'),
+        **booking_body(venue_for(), '10:00', '12:00'),
         'event_id': original['event_id'], 'replaces_booking_id': original['id'],
     })
     assert approve(replacement['id'], staff)['status'] == 'confirmed'

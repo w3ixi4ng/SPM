@@ -50,10 +50,10 @@ def create_booking(booking_ids, *, event_id=None, venue_id=None, start_time='09:
     ({'decision': 'approved'}, 'confirmed'),
     ({'decision': 'rejected', 'alternative': 'Try Studio C at 14:00'}, 'rejected'),
 ])
-def test_decisions_persist_without_rewriting_requests(admin, booking_ids, actors, payload, status):
+def test_decisions_persist_without_rewriting_requests(admin, booking_ids, actors, venue_for, payload, status):
     staff_id, staff = actors('venue_staff')
     _, coordinator = actors('event_coordinator')
-    booking = create_booking(booking_ids)
+    booking = create_booking(booking_ids, venue_id=venue_for())
     path = f"{BASE_URL}/bookings/{booking['id']}/decision"
     before = admin.schema('bookings').table('bookings').select('*').eq('id', booking['id']).execute().data[0]
     assert httpx.post(path, json=payload, timeout=15).status_code == 401
@@ -74,7 +74,7 @@ def test_decisions_persist_without_rewriting_requests(admin, booking_ids, actors
         assert after['primary_selected_at'] is None
     audit = {
         'status', 'decision_reason', 'decision_alternative', 'decided_by',
-        'decided_at', *primary,
+        'decided_at', 'approval_setup_minutes', 'approval_turnaround_minutes', *primary,
     }
     assert {k: v for k, v in before.items() if k not in audit} == {k: v for k, v in after.items() if k not in audit}
     assert httpx.post(path, headers=staff, json=payload, timeout=15).status_code == 409
@@ -86,10 +86,10 @@ def test_decisions_persist_without_rewriting_requests(admin, booking_ids, actors
     assert len(rows) == 1 and rows[0]['status'] == status
 
 
-def test_concurrent_decisions_have_one_winner(admin, booking_ids, actors):
+def test_concurrent_decisions_have_one_winner(admin, booking_ids, actors, venue_for):
     first_id, first = actors('venue_staff')
     second_id, second = actors('venue_staff')
-    booking = create_booking(booking_ids)
+    booking = create_booking(booking_ids, venue_id=venue_for())
     barrier = Barrier(2)
     def decide(headers, payload):
         barrier.wait(timeout=10)
@@ -122,9 +122,9 @@ def _direct_row(booking, **changes):
 
 # TC-BOOKINGS-104 (rewritten for S-30): S-38's rule, that the database never
 # holds two overlapping confirmed bookings, checked at the database itself.
-def test_the_database_refuses_a_second_overlapping_confirmed_booking(admin, booking_ids, actors):
+def test_the_database_refuses_a_second_overlapping_confirmed_booking(admin, booking_ids, actors, venue_for):
     staff_id, staff = actors('venue_staff')
-    venue_id = str(uuid.uuid4())
+    venue_id = venue_for()
     first = create_booking(booking_ids, venue_id=venue_id, start_time='09:00', end_time='12:00')
     approved = httpx.post(f"{BASE_URL}/bookings/{first['id']}/decision", headers=staff,
                           json={'decision': 'approved'}, timeout=15)
@@ -148,13 +148,13 @@ def test_the_database_refuses_a_second_overlapping_confirmed_booking(admin, book
 
 # TC-BOOKINGS-116
 def test_primary_selection_moves_atomically_and_removal_leaves_a_choice(
-    admin, booking_ids, actors
+    admin, booking_ids, actors, venue_for
 ):
     _, staff = actors('venue_staff')
     coordinator_id, coordinator = actors('event_coordinator')
     event_id = str(uuid.uuid4())
-    first = create_booking(booking_ids, event_id=event_id, start_time='09:00', end_time='10:00')
-    second = create_booking(booking_ids, event_id=event_id, start_time='10:00', end_time='11:00')
+    first = create_booking(booking_ids, event_id=event_id, venue_id=venue_for(), start_time='09:00', end_time='10:00')
+    second = create_booking(booking_ids, event_id=event_id, venue_id=venue_for(), start_time='10:00', end_time='11:00')
     for row in (first, second):
         decided = httpx.post(
             f"{BASE_URL}/bookings/{row['id']}/decision", headers=staff,

@@ -78,7 +78,7 @@ and the gateway route.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: `422`, with `booking_date`, `operating_hours` and
-    `expected_attendance` in `errors`.
+    `allocated_attendance` in `errors` (the event's full attendance is the default allocation).
   - Step 3: `0`.
 - **Actual:** `422` with `booking_date`, `operating_hours` and `expected_attendance` in `errors`; no row saved.
 - **Status:** Pass
@@ -94,7 +94,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; fre
 - Pre-conditions: Approved test stack; event attendance 120 requiring projector and wheelchair_access; suitable venue capacity 150.
 - Steps: 1. Submit booking; PATCH venue capacity=100, facilities=[], accessibility=[]; submit again; read old booking.
 - Test data: Values specified above; existing shared fixtures supply remaining required fields.
-- Expected: Edit succeeds; new request 422 for all three mismatches; original booking identical and remains listed.
+- Expected: Edit succeeds; new request 422 for `allocated_attendance`, facilities and accessibility; original booking identical and remains listed.
 - Actual: Initial booking creation returned 502. Bookings logs report PGRST204: accessibility_requirements column missing from schema cache. History assertions could not execute.
 - Status: Blocked
 - Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_venue_edit_preserves_history_and_new_requests_use_saved_values`; local pytest and bookings container logs.
@@ -106,7 +106,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; fre
 - Pre-conditions: Approved test stack; world fixture event expects 120, projector and wheelchair_access.
 - Steps: 1. Staff PATCH capacity=100, facilities=[], accessibility=[]. 2. Coordinator submits for 2026-11-12 09:00-12:00.
 - Test data: World fixture venue starts with capacity 150 and both required features.
-- Expected: Update 200; submission 422 naming all three conflicts; no booking stored.
+- Expected: Update 200; submission 422 naming `allocated_attendance`, facilities and accessibility; no booking stored.
 - Actual: PATCH succeeded; new submission returned 422 for capacity, facilities and accessibility; no booking was stored.
 - Status: Pass
 - Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_new_request_uses_updated_venue_values`; local .env.test execution.
@@ -215,13 +215,13 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
 - **Scenario:** Real services and Kong agree on the refusal and the review
   list (S-76 AC3, AC5).
 - **Pre-conditions:** A fresh `.env.test` stack. Venue Staff, a Coordinator,
-  a test venue open `thu` 08:00–20:00 at setup and turnaround 0, three
+  a test venue open `thu` 08:00–20:00, three
   planning events. On 2026-11-12: A confirmed 10:00–12:00 ("Alumni talk"),
   C confirmed 13:00–14:00, B pending 12:00–12:45 (none overlapping
-  at 0/0, so the rows are valid before step 1).
+  by event times). A and C are directly seeded historical rows.
 - **Steps:**
   1. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`,
-     `turnaround_minutes: 45`.
+     `turnaround_minutes: 45` before the confirmed rows are seeded.
   2. Staff approve B through `/api/venue-bookings/{B}/decision`.
   3. Staff `GET /api/venue-bookings/clashes` (no `venue_id`).
 - **Expected:**

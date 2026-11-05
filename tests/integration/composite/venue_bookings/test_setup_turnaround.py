@@ -54,9 +54,9 @@ def test_confirmed_booking_blocks_timing_changes_but_allows_other_updates(admin,
         # 3. Unchanged timing values and unrelated venue details remain editable.
         saved = api.patch(f"/venues/{world['venue_id']}", headers=staff,
                           json={"setup_minutes": 0, "turnaround_minutes": 0,
-                                "description": "Accessible entrance"})
+                                "location": "New Wing"})
         assert saved.status_code == 200, saved.text
-        assert saved.json()["description"] == "Accessible entrance"
+        assert saved.json()["location"] == "New Wing"
         assert saved.json()["setup_minutes"] == 0
         assert clash_pairs() == []
         stored = admin.schema("bookings").table("bookings").select("id,status").in_("id", [a["id"], b["id"]]).execute().data

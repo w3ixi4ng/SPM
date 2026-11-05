@@ -5,6 +5,7 @@ project -- never against `.env`, since they create and delete real rows.
 """
 
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,7 @@ def admin():
 
 
 @pytest.fixture
-def booking_ids(admin):
+def booking_ids(admin, venue_for):
     """Ids a test created, deleted afterwards pass or fail."""
     created: list[str] = []
     try:
@@ -49,3 +50,30 @@ def booking_ids(admin):
     finally:
         for booking_id in created:
             admin.schema("bookings").table("bookings").delete().eq("id", booking_id).execute()
+
+
+@pytest.fixture
+def venue_for(admin):
+    """Persist a zero-gap venue for direct atomic approval tests.
+
+    The S-75 database guard verifies the venue's saved timing on approval.
+    A random venue UUID alone is no longer a valid approval fixture.
+    """
+    created: list[str] = []
+
+    def make(venue_id=None):
+        venue_id = venue_id or str(uuid.uuid4())
+        admin.schema("venues").table("venues").insert({
+            "id": venue_id,
+            "name": f"spm-test booking venue {uuid.uuid4().hex[:12]}",
+            "location": "Test building", "capacity": 100,
+            "room_layouts": ["theatre"],
+            "operating_hours": [{"day": "thu", "open": "08:00:00", "close": "20:00:00"}],
+            "created_by": str(uuid.uuid4()),
+        }).execute()
+        created.append(venue_id)
+        return venue_id
+
+    yield make
+    for venue_id in created:
+        admin.schema("venues").table("venues").delete().eq("id", venue_id).execute()
