@@ -42,7 +42,8 @@ def world(admin, make_user):
     venue = add_venue(admin, staff, uuid.uuid4().hex[:6])
     event_a = add_event(admin, organiser, coordinator, "A", d(3))
     event_b = add_event(admin, organiser, coordinator, "B", d(3))
-    seed(admin, event_a, venue, coordinator, staff, "confirmed", "10:00", "12:00")
+    # S-75 reopened: A is held. A confirmed A would lock the times TC-E2E-228 sets.
+    seed(admin, event_a, venue, coordinator, staff, "held", "10:00", "12:00")
     seed(admin, event_b, venue, coordinator, staff, "held", "12:30", "14:00")
     return coordinator, staff, organiser, venue, event_a, event_b
 
@@ -66,7 +67,7 @@ def test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_war
     stored = admin.schema("venues").table("venues").select("setup_minutes,turnaround_minutes").eq("id", venue["id"]).execute().data[0]
     assert stored == {"setup_minutes": 30, "turnaround_minutes": 45}
     statuses = admin.schema("bookings").table("bookings").select("status").eq("venue_id", venue["id"]).execute().data
-    assert sorted(row["status"] for row in statuses) == ["confirmed", "held"]  # neither removed
+    assert sorted(row["status"] for row in statuses) == ["held", "held"]  # neither removed
 
     # 2. The Coordinator sees the warning on B, and the calendar's times.
     page.get_by_role("button", name="Sign out").click()
@@ -75,14 +76,14 @@ def test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_war
     page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=30000)
     page.goto(f"/coordinator/events/{event_b['id']}")
     sent = page.get_by_role("list", name="Venue requests sent")
-    expect(sent.get_by_role("alert")).to_contain_text("Clashes with another confirmed booking", timeout=20000)
+    expect(sent.get_by_role("alert")).to_contain_text("Clashes with another held booking", timeout=20000)
     expect(sent.get_by_role("alert")).to_contain_text("venue in use 09:30–12:45")
 
     open_calendar(page, venue["name"], "/dashboard/event-coordinator")
     expect(page.get_by_text("Setup 30 min · Turnaround 45 min")).to_be_visible(timeout=20000)
     show_month(page, d(3))
     day_cell(page, d(3)).click()
-    expect(day_detail(page, d(3))).to_contain_text("Booked 10:00–12:00 · venue in use 09:30–12:45")
+    expect(day_detail(page, d(3))).to_contain_text("Tentatively held 10:00–12:00 · expires 1 Jan, 12:00 · venue in use 09:30–12:45")
 
 
 # --- TC-E2E-227 -----------------------------------------------------------

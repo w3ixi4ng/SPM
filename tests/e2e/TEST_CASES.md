@@ -717,8 +717,10 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
-  `D+3`: A confirmed 10:00–12:00 and B held 12:30–14:00 (B's event assigned
-  to the Coordinator).
+  `D+3`: A held 10:00–12:00 and B held 12:30–14:00 (B's event assigned
+  to the Coordinator). A is held, not confirmed: since S-75 was reopened, a
+  confirmed booking dated today or later locks the times this case sets
+  (TC-E2E-470).
 - **Steps:**
   1. Staff edit the venue: setup 0 h 30 min, turnaround 0 h 45 min; save.
      (Hours and minutes boxes since the developer's change of 2026-10-08.)
@@ -726,12 +728,12 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Expected:**
   - Step 1: the times are saved, and the page lists A and B as clashing.
   - Neither booking is removed.
-  - Step 2: B shows the clash warning.
-  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Booked
-    10:00–12:00 · venue in use 09:30–12:45".
-- **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept; the Coordinator saw the warning with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Booked 10:00–12:00 · venue in use 09:30–12:45".
+  - Step 2: B shows the clash warning, "Clashes with another held booking".
+  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Tentatively
+    held 10:00–12:00 · expires 1 Jan, 12:00 · venue in use 09:30–12:45".
+- **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept, both still held; the Coordinator saw "Clashes with another held booking" with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Tentatively held 10:00–12:00 · expires 1 Jan, 12:00 · venue in use 09:30–12:45".
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; rerun 2026-10-08 with the hours/minutes boxes on a stack rebuilt from `.env.test`; full e2e suite: 26 passed.
+- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; 2026-11-05, branch `update/tests` (on `0a74b20`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); test_setup_turnaround: 2 passed. Previously failed in CI shard 2/4 on all three attempts: the test project refused the save with `confirmed_venue_timing_locked` because A was seeded confirmed.
 
 ## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
 
