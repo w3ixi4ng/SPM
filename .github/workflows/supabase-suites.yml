@@ -121,6 +121,11 @@ jobs:
       # file on one worker, so its module fixtures and accounts are made once,
       # not once per worker.
       #
+      # --reruns 2, as for e2e below: four workers share the test project, and
+      # a route that makes many reads and fails on any one of them (S-78's
+      # replacement-venue search, for one) can hit a slow read and answer
+      # 502. A retried test shows as RERUN in the log, not as a silent pass.
+      #
       # event_requests/test_app.py runs on its own afterwards. Its assignment
       # tests block every coordinator in the project, then expect a specific
       # one to be picked -- a coordinator another worker creates mid-test is
@@ -128,7 +133,7 @@ jobs:
       # integration, below.
       - name: Run integration tests
         run: >-
-          pytest tests/integration -v --workers 4
+          pytest tests/integration -v --workers 4 --reruns 2
           --ignore=tests/integration/composite/event_requests/test_app.py
 
       - name: Run coordinator assignment tests (serial)
