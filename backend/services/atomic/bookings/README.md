@@ -23,11 +23,11 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
 | `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or an unavailable period is refused. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
-| `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). |
+| `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). S-34: an optional `to` (inclusive) bounds it; `to` before `from` is `422`. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
 | `GET` | `/bookings?venue_id={id}&from={date}&to={date}` | S-30: one venue's requests dated in the range, every status, by date then start time. |
 | `POST` | `/blocks` | S-30/S-77, Venue Staff only: mark a venue unavailable for a timed period. |
-| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's periods touching the range, by start date. |
+| `GET` | `/blocks?venue_id={id}&from={date}&to={date}` | S-30: one venue's periods touching the range, by start date. S-34: without `venue_id`, every venue's. |
 | `GET` | `/blocks/{id}` | S-77: one period, for the composite (internal). `404` `{"detail": "Block not found"}` if missing. |
 | `DELETE` | `/blocks/{id}` | S-30, Venue Staff only: remove a block. |
 | `PATCH` | `/bookings/{id}` | S-80, Event Coordinator session only: change a `pending`/`held`/`confirmed` booking's `venue_id`, `venue_name`, `booking_date`, `start_time`, `end_time`, `notes` (setup/turnaround as query params, like `POST /bookings`). Refused with `409` if the new slot overlaps another hold, confirmed booking or block -- never itself. The booking becomes `pending` with every hold and decision field cleared. `404` missing, `409` rejected. |
@@ -313,8 +313,11 @@ sending either, or any other unknown field, is `422`.
 
 ### `GET /blocks`
 
-`venue_id`, `from` and `to` are all required, with the same `422`s as the
-venue filter on `GET /bookings`. `200` with a list of blocks shaped as above,
+`from` and `to` are always required; `venue_id` is optional (S-34: without
+it, every venue's periods for the range). A missing range is `422`
+`{"detail": "Filter by from and to"}` without `venue_id`, or the venue
+filter's `422`s on `GET /bookings` with it; `to` before `from` is `422`
+either way. `200` with a list of blocks shaped as above,
 every block overlapping the range (one that only partly does included), by
 start date. A period ending at `00:00` on `from` stopped the day before, so it
 is left out.

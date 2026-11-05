@@ -1130,6 +1130,170 @@ request**, like any other mismatch. Each venue's mark sits under its name.
 - **Status:** Not Executed
 - **Evidence:**
 
+### S-34 reopened — date and time skip occupied venues
+
+Session 3 (Q4) reopened S-34: the date and time filter must also leave out a
+venue that is occupied then. This replaces the "whether it is already booked is
+the Booking Conflict Detection story" decision above. Found in UAT as S2-34-03
+(manual UAT check A05).
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC2: Filtering by date and time excludes venues whose effective occupied interval (booking time plus setup and turnaround), tentative holds or unavailable periods overlap the requested slot | TC-FRONTEND-405 to 409, TC-VENUEBOOKINGS-450 to 453, TC-BOOKINGS-460 and 461, TC-VENUEBOOKINGS-137, TC-E2E-450 |
+
+`filterVenues(venues, filters, occupied)` takes a third argument: the
+occupied entries for the filter's date, as `GET /venue-bookings/occupied`
+returns them (TC-VENUEBOOKINGS-450). The overlap rule is the bookings
+service's own (`_live_overlap`), so a venue the filter lists is one a request
+can actually be sent for: the two windows need the venue's setup + turnaround
+minutes between them, and back-to-back is allowed.
+
+Shared test data for TC-FRONTEND-405 to 409. Every venue is open every day
+`08:00`–`20:00`, capacity `200`, layout `theatre`:
+
+```
+Buffer Hall   setup 30, turnaround 30
+Held Hall     setup 0,  turnaround 0
+Blocked Hall  setup 0,  turnaround 0
+Free Hall     setup 0,  turnaround 0
+
+occupied (date 2026-11-12, a Thursday):
+  Buffer Hall   confirmed  2026-11-12 10:00 – 2026-11-12 12:00
+  Held Hall     held       2026-11-12 12:00 – 2026-11-12 13:00
+  Blocked Hall  blocked    2026-11-11 18:00 – 2026-11-12 14:00
+```
+
+## TC-FRONTEND-405 — a confirmed booking's setup and turnaround keep its venue out
+
+- **Scenario:** AC2, effective occupied interval.
+- **Pre-conditions:** Shared.
+- **Steps:** `filterVenues(venues, {...emptyVenueFilters(), date: "2026-11-12", startTime, endTime}, occupied)` for each slot below.
+- **Test data:** `12:10`–`12:50`; `12:59`–`14:00`; `13:00`–`14:00`.
+- **Expected:** `12:10`–`12:50` → Buffer Hall left out (inside its 60 min
+  gap after 12:00). `12:59`–`14:00` → Buffer Hall left out (one minute short).
+  `13:00`–`14:00` → Buffer Hall listed (back-to-back: exactly 30 + 30 minutes
+  after 12:00).
+- **Actual:** 12:10–12:50 and 12:59–14:00 left Buffer Hall out; 13:00–14:00 listed it.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `a confirmed booking's setup and turnaround keep its venue out`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
+
+## TC-FRONTEND-406 — a tentative hold keeps its venue out
+
+- **Scenario:** AC2, tentative holds.
+- **Pre-conditions:** Shared.
+- **Steps:** As TC-FRONTEND-405.
+- **Test data:** `12:30`–`12:45`; `11:00`–`12:00`; `13:00`–`14:00`.
+- **Expected:** `12:30`–`12:45` → Held Hall left out. `11:00`–`12:00` → Held
+  Hall listed (ends as the hold starts). `13:00`–`14:00` → Held Hall listed
+  (starts as the hold ends).
+- **Actual:** 12:30–12:45 left Held Hall out; 11:00–12:00 and 13:00–14:00 listed it.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `a tentative hold keeps its venue out`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
+
+## TC-FRONTEND-407 — an unavailable period keeps its venue out, across midnight
+
+- **Scenario:** AC2, unavailable periods.
+- **Pre-conditions:** Shared.
+- **Steps:** As TC-FRONTEND-405.
+- **Test data:** `09:00`–`10:00`; `13:30`–`15:00`; `14:00`–`15:00`.
+- **Expected:** `09:00`–`10:00` → Blocked Hall left out (the period began the
+  evening before). `13:30`–`15:00` → left out. `14:00`–`15:00` → Blocked Hall
+  listed (the period's end is exclusive).
+- **Actual:** 09:00–10:00 and 13:30–15:00 left Blocked Hall out; 14:00–15:00 listed it.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `an unavailable period keeps its venue out, across midnight`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
+
+## TC-FRONTEND-408 — occupied entries only apply to a date with both times
+
+- **Scenario:** The slot has to be complete before anything is "occupied"
+  during it, as TC-FRONTEND-061 already treats times without a date.
+- **Pre-conditions:** Shared.
+- **Steps:** Filter with each value below.
+- **Test data:** date `2026-11-12`, no times; date `2026-11-12`, `12:10`–
+  no end time; no date, `12:10`–`12:50`; `occupied` passed as `[]`;
+  `occupied` omitted.
+- **Expected:** Every one → all four venues listed. With
+  `2026-11-12` `12:10`–`12:50` and `occupied` `[]` or omitted, all four are
+  listed too (nothing known to be occupied).
+- **Actual:** All four venues listed for every incomplete slot and for empty or omitted `occupied`.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `occupied entries only apply to a date with both times`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
+
+## TC-FRONTEND-409 — the occupied rule combines with every other filter
+
+- **Scenario:** AC2 with AC3 ("only venues matching all applied filter
+  criteria").
+- **Pre-conditions:** Shared, plus `Free Hall` given capacity `80`.
+- **Steps:** Filter `2026-11-12` `12:10`–`12:50` with each extra criterion.
+- **Test data:** none; `query "hall"`; `attendance "100"`.
+- **Expected:** none → Free Hall only. `query "hall"` → Free Hall only.
+  `attendance "100"` → no venues (Free Hall holds 80; the other three are
+  occupied).
+- **Actual:** Free Hall only, Free Hall only, then none.
+- **Status:** Pass
+- **Evidence:** test_venues.mjs — `the occupied rule combines with every other filter`; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 234 passed
+
+### S-28 reopened — Venue Staff edit opening hours
+
+Decisions as in `tests/unit/atomic/venues/TEST_CASES.md` (S-28 reopened).
+The edit form gains the create form's opening-hours rows; room layouts and
+the name stay off it.
+
+## TC-FRONTEND-410 — the edit form loads the venue's opening hours
+
+- **Steps:** `venueToEditForm(venue)`.
+- **Test data:** A venue with `operating_hours` `[{"day": "mon", "open":
+  "09:00:00", "close": "18:00:00"}, {"day": "thu", "open": "08:00:00",
+  "close": "20:00:00"}]`.
+- **Expected:** The form's `hours` is `{mon: {open: "09:00", close:
+  "18:00"}, thu: {open: "08:00", close: "20:00"}}` -- the same shape the
+  create form uses, with the other days absent (closed). Changing the form
+  does not change `venue`.
+- **Actual:** `hours` mon 09:00–18:00 and thu 08:00–20:00; the venue unchanged by edits.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `the edit form loads the venue's opening hours`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
+## TC-FRONTEND-411 — edited opening hours are validated as on create
+
+- **Steps:** `validateVenueEditForm(form)` with each `hours` below and a
+  valid location, capacity and times.
+- **Test data:** `{}`; `{mon: {open: "18:00", close: "09:00"}}`;
+  `{mon: {open: "09:00", close: "18:00"}}`.
+- **Expected:** `{}` → an `operating_hours` error ("at least one day");
+  closing before opening → an `hours.mon` error; the valid one → no errors.
+  The messages match `validateVenueForm`'s.
+- **Actual:** No days → `operating_hours` error; backwards → `hours.mon`; valid → `{}`; same messages as create.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `edited opening hours are validated as on create`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
+## TC-FRONTEND-412 — saving sends the opening hours, never layouts or name
+
+- **Steps:** `updateVenue(id, form)` with a stubbed `fetch`.
+- **Test data:** The TC-FRONTEND-410 form with `thu` changed to 10:00–16:00.
+- **Expected:** One `PATCH /api/venues/{id}` with cookies; the body has
+  `operating_hours` `[{"day": "mon", "open": "09:00", "close": "18:00"},
+  {"day": "thu", "open": "10:00", "close": "16:00"}]` in week order, plus
+  the existing editable fields, and no `name` or `room_layouts`.
+  `venueFieldErrorsToForm` maps `operating_hours.1` to `hours.thu`.
+- **Actual:** PATCH body had both days in week order and no name or layouts; `operating_hours.1` mapped to `hours.thu`.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `saving sends the opening hours, never layouts or name`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
+## TC-FRONTEND-413 — a flagged booking says why, in words
+
+- **Steps:** `outsideHoursWarning(booking)` for each flag below.
+- **Test data:** booking on `2026-11-12` with `outside_hours`
+  `{"reason": "outside_hours", "open": "10:00", "close": "16:00"}`; booking
+  on `2026-11-13` with `{"reason": "closed", "open": null, "close": null}`;
+  `outside_hours: null`.
+- **Expected:** `"Outside the venue's opening hours: it is now open
+  10:00–16:00 on Thursdays. The booking is kept; review it."`;
+  `"The venue is now closed on Fridays. The booking is kept; review it."`;
+  `null`.
+- **Actual:** The two expected sentences, then `null`.
+- **Status:** Pass
+- **Evidence:** test_venue_update.mjs — `a flagged booking says why, in words`; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Node, `node --test tests/unit/frontend/test_*.mjs`: 238 passed
+
 ## S-30 — view venue availability calendar
 
 Story: S-30 View venue availability calendar.

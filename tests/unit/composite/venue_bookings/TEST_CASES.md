@@ -2281,3 +2281,137 @@ unavailable period was deleted. Replacement R: `pending` at W ("Hall C"),
 - **Actual:** Approved `200` with gap 30/45, history `venue_restore_confirmed` naming Studio B and Hall C; declined `200`, `venue_restore_declined`; `409` passed through with no history; `maybe` `422`; Coordinator `403`.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/venue_bookings/test_s90.py::test_venue_staff_confirm_or_decline_the_restore; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## S-34 reopened — which venues are occupied on a date
+
+TC-VENUEBOOKINGS-450–459 reserved for the reopened S-34 AC2. The browser's
+venue filter needs every venue's holds, confirmed bookings and unavailable
+periods for one date in a single call; `GET /venue-bookings/occupied?date=`
+returns them, with nothing that identifies another event.
+
+## TC-VENUEBOOKINGS-450 — a Coordinator gets every venue's occupied times for a date
+
+- **Scenario:** S-34 AC2. Only what occupies a venue is returned, and no
+  other event's details.
+- **Pre-conditions:** Coordinator session. The bookings fake answers
+  `GET /bookings?status=live&from=2026-11-12&to=2026-11-12` with: A
+  (venue V1, `confirmed`, 10:00–12:00, `event_name` "Gala"), B (V2, `held`,
+  12:00–13:00, `hold_expires_at` 2099-01-01T04:00:00Z). `GET
+  /blocks?from=2026-11-12&to=2026-11-12` with C (V3, 2026-11-11 18:00 –
+  2026-11-12 14:00, reason `maintenance`, note "private").
+- **Steps:** `GET /venue-bookings/occupied?date=2026-11-12`.
+- **Test data:** As above.
+- **Expected:** `200` `{"date": "2026-11-12", "entries": [...]}` with three
+  entries, in this order: `{"venue_id": V1, "state": "confirmed",
+  "start_date": "2026-11-12", "end_date": "2026-11-12", "start_time":
+  "10:00:00", "end_time": "12:00:00"}`; the same shape for B with `"state":
+  "held"`; C with `"state": "blocked"`, `"start_date": "2026-11-11"`,
+  `"start_time": "18:00:00"`. No entry has `event_name`, `event_id`,
+  `coordinator_*`, `id`, `note` or `reason`. The bookings fake was called
+  with exactly those two queries.
+- **Actual:** `200` with the three entries in order and none of the private fields; the bookings fake got exactly the two queries.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_a_coordinator_gets_every_venues_occupied_times_for_a_date; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-451 — only Coordinators and Venue Staff may ask
+
+- **Scenario:** The same audience as the S-30 calendar.
+- **Pre-conditions:** Bookings fake as TC-VENUEBOOKINGS-450.
+- **Steps:** `GET /venue-bookings/occupied?date=2026-11-12` as each role.
+- **Test data:** Venue Staff; Event Organiser; Attendee; no session.
+- **Expected:** Venue Staff `200` with the same three entries; Organiser
+  `403`; Attendee `403`; no session `401`. The bookings fake is not called
+  for the `401` or `403`s.
+- **Actual:** Venue Staff `200`; Organiser and Attendee `403`; no session `401`; no bookings call for any refusal.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_venue_staff_may_ask_too, ::test_other_roles_are_refused, ::test_no_session_is_refused; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-452 — the date is required and must be a date
+
+- **Pre-conditions:** Coordinator session.
+- **Steps:** `GET /venue-bookings/occupied` with each query below.
+- **Test data:** no `date`; `date=12-11-2026`; `date=2026-02-30`.
+- **Expected:** `422` each time; the bookings fake is not called.
+- **Actual:** `422` for all three; no bookings call.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_the_date_is_required_and_must_be_a_date; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-453 — a failure is never an empty list
+
+- **Scenario:** An empty list would read as "every venue is free".
+- **Pre-conditions:** Coordinator session.
+- **Steps:** `GET /venue-bookings/occupied?date=2026-11-12` with the bookings
+  fake failing each way below.
+- **Test data:** `/bookings` answers `500`; `/blocks` answers `500`;
+  `/bookings` times out.
+- **Expected:** `502` each time, with a `detail` naming the bookings service;
+  never `200` `[]`.
+- **Actual:** `502` "Bookings service unavailable" for each failure.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_occupied.py::test_a_failure_is_never_an_empty_list; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
+
+## S-28 reopened — bookings outside edited opening hours
+
+TC-VENUEBOOKINGS-460–469 reserved. When Venue Staff shorten a venue's hours,
+held and confirmed bookings (today on) whose occupied window -- start minus
+setup to end plus turnaround -- no longer fits that weekday's hours, or that
+fall on a day the venue is now closed, are flagged. Worked out live like
+S-75's clashes: nothing is stored, changed or removed.
+
+Shared test data for TC-VENUEBOOKINGS-460 to 463: venue V open `thu`
+10:00–16:00 only, setup 30, turnaround 0. Today is 2026-11-04. Bookings at V:
+
+```
+A  confirmed  2026-11-12 (Thu) 09:00–11:00   event "Alumni talk"
+B  held       2026-11-12 (Thu) 11:00–15:00   (occupied 10:30–15:00)
+C  confirmed  2026-11-12 (Thu) 15:00–16:30
+D  confirmed  2026-11-13 (Fri) 10:00–12:00
+E  pending    2026-11-12 (Thu) 08:00–09:00
+F  confirmed  2026-10-29 (Thu, past) 08:00–09:00
+```
+
+## TC-VENUEBOOKINGS-460 — Venue Staff see which bookings fall outside the hours
+
+- **Scenario:** AC3: kept and flagged.
+- **Pre-conditions:** Venue Staff session; fakes return V and the bookings.
+- **Steps:** `GET /venue-bookings/clashes?venue_id=V`.
+- **Expected:** `200`; alongside the existing `pairs`, an `outside_hours`
+  list of A, C and D, by date then start time, each
+  `{"booking_id", "event_name", "booking_date", "start_time", "end_time",
+  "status", "reason", "open", "close"}`: A and C `"reason":
+  "outside_hours"`, `"open": "10:00"`, `"close": "16:00"`; D `"reason":
+  "closed"`, `"open": null`, `"close": null`. B (fits), E (pending) and F
+  (past) are absent. No call writes to the bookings service.
+- **Actual:** A and C `outside_hours` 10:00–16:00, D `closed`; B, E, F absent; no writes.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_outside_hours.py::test_venue_staff_see_which_bookings_fall_outside_the_hours; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-461 — the standing review list includes them
+
+- **Pre-conditions:** As TC-VENUEBOOKINGS-460, with no clashing pairs at V.
+- **Steps:** `GET /venue-bookings/clashes` (no venue).
+- **Expected:** `venues` includes V with `pairs: []` and the same
+  `outside_hours` list. A venue with neither is left out, as today.
+- **Actual:** V listed with `pairs: []` and A, D outside hours; the venue with neither left out.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_outside_hours.py::test_the_standing_review_list_includes_them; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-462 — the Coordinator's booking rows carry the flag
+
+- **Scenario:** The requesting Coordinator is warned, as for S-75 clashes.
+- **Pre-conditions:** Coordinator session; the event holds A and B.
+- **Steps:** `GET /venue-bookings?event_id=E`.
+- **Expected:** A's row has `"outside_hours": {"reason": "outside_hours",
+  "open": "10:00", "close": "16:00"}`; B's has `"outside_hours": null`.
+  Every other field is unchanged.
+- **Actual:** A flagged `outside_hours` 10:00–16:00, B `null`, other fields unchanged.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_outside_hours.py::test_the_coordinators_booking_rows_carry_the_flag; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-463 — a venue that can't be read fails the list
+
+- **Steps:** As TC-VENUEBOOKINGS-460 and 462, with the venues fake failing.
+- **Expected:** `502`, never a list that reads as "nothing outside hours".
+- **Actual:** `502` for both reads.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_outside_hours.py::test_a_venue_that_cant_be_read_fails_the_list; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
