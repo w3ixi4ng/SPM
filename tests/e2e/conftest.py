@@ -55,6 +55,54 @@ requires_env = pytest.mark.skipif(
 )
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--shard",
+        default=None,
+        metavar="K/N",
+        help="run only the K-th of N slices of the e2e files (1-based), "
+        "e.g. --shard 2/4. CI runs one slice per runner.",
+    )
+
+
+def _parse_shard(value: str) -> tuple[int, int]:
+    match = re.fullmatch(r"(\d+)/(\d+)", value.strip())
+    if not match:
+        raise pytest.UsageError(f"--shard must look like K/N, got {value!r}")
+    index, total = int(match[1]), int(match[2])
+    if total < 1 or not 1 <= index <= total:
+        raise pytest.UsageError(f"--shard {value}: K must be between 1 and N")
+    return index, total
+
+
+def pytest_collection_modifyitems(config, items):
+    """Keep only this shard's files when --shard is given.
+
+    Split by file, not by test, so a module's fixtures and the accounts it
+    makes stay on one runner. Files are dealt round-robin in sorted order, so
+    every shard sees the same assignment and none is ever empty while there
+    are at least N files.
+    """
+    value = config.getoption("--shard")
+    if not value:
+        return
+    index, total = _parse_shard(value)
+
+    here = Path(__file__).parent
+    files = sorted({item.path for item in items if here in item.path.parents})
+    mine = {path for n, path in enumerate(files) if n % total == index - 1}
+
+    kept, dropped = [], []
+    for item in items:
+        if here in item.path.parents and item.path not in mine:
+            dropped.append(item)
+        else:
+            kept.append(item)
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = kept
+
+
 def unique_email() -> str:
     return f"spm-e2e-{uuid.uuid4().hex[:12]}@example.com"
 

@@ -62,6 +62,23 @@ pytest tests/e2e --headed --slowmo 300
 pytest tests/e2e/test_role_access.py -v
 ```
 
+`--shard K/N` runs only the K-th of N slices, split by file, which is how CI
+spreads the suite over four runners:
+
+```bash
+pytest tests/e2e --shard 2/4
+```
+
+`--workers N` runs N browsers at once, one file per worker at a time — the
+same flag as Playwright's. CI combines the two, `--shard K/4 --workers 2`:
+
+```bash
+pytest tests/e2e --workers 4
+```
+
+To rerun a shard that failed in CI, use the same K/N — the files are dealt
+round-robin in sorted order, so the same split always gives the same files.
+
 Everything is addressed through **Kong** on `KONG_PROXY_PORT`, never a service
 port and never the Vite dev server. The frontend container is not published on
 a host port for exactly this reason: the app calls a relative `/api`, so it is
