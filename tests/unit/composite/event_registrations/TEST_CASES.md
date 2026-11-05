@@ -737,22 +737,6 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_an_event_being_rechecked_shows_details_to_be_confirmed (3 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-045 — the primary venue is the confirmed booking made first
-
-- **Scenario:** A multi-venue event shows one venue (S-56 AC3).
-- **Pre-conditions:** As above, with the bookings in each row, in the order given.
-- **Steps:** As TC-EVENTREGISTRATIONS-042, once per row.
-- **Test data / Expected:**
-  | Bookings for E | `venue` |
-  | --- | --- |
-  | "Room B" confirmed, submitted `2026-10-03`; "Hall A" confirmed, submitted `2026-10-01` | "Hall A" |
-  | "Room P" pending, submitted `2026-09-01`; "Room Q" held, submitted `2026-09-02`; "Room R" rejected, submitted `2026-09-03`; "Hall A" confirmed, submitted `2026-10-01` | "Hall A" |
-  | "Room P" pending only | `null`, still `"details_confirmed": true` |
-  | None | `null`, still `"details_confirmed": true` |
-- **Actual:** "Hall A", "Hall A", `null`, `null`; `details_confirmed` true in every row.
-- **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_primary_venue_is_the_confirmed_booking_made_first (4 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
-
 ## TC-EVENTREGISTRATIONS-046 — a venue issue shows only once the change is confirmed
 
 - **Scenario:** An unresolved venue issue is not shown; a confirmed replacement is (S-56 AC4).
@@ -801,7 +785,19 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 
 ## TC-EVENTREGISTRATIONS-050 — the bookings service fails
 
+- **Scenario:** A venue that can't be read is reported, not shown as "to be confirmed".
+- **Pre-conditions:** As above, with bookings answering `500`, then unreachable.
+- **Steps:** As TC-EVENTREGISTRATIONS-042, for each.
+- **Expected:** Both → `502` "Bookings service unavailable".
+- **Actual:** Both → `502` "Bookings service unavailable".
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_bookings_service_fails (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
 ## S-91 — Designate Primary Venue
+
+Replaces S-56's "first confirmed booking is primary" rule with the
+Coordinator's explicit choice: TC-EVENTREGISTRATIONS-045 is retired in favour
+of -051 to -053.
 
 ### TC-EVENTREGISTRATIONS-051 — attendees receive only the explicitly primary venue
 
@@ -820,14 +816,6 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 - **Pre-conditions:** A defensive fixture marks a held, rejected, or replaced booking primary.
 - **Steps:** Build attendee-facing venue data.
 - **Expected:** Only a row that is both confirmed and primary is exposed.
-
-- **Scenario:** A venue that can't be read is reported, not shown as "to be confirmed".
-- **Pre-conditions:** As above, with bookings answering `500`, then unreachable.
-- **Steps:** As TC-EVENTREGISTRATIONS-042, for each.
-- **Expected:** Both → `502` "Bookings service unavailable".
-- **Actual:** Both → `502` "Bookings service unavailable".
-- **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_bookings_service_fails (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
 
 ## S-55 — Notify Waitlisted Attendee of Opening
 

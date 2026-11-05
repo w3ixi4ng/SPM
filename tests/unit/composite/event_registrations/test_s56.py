@@ -93,34 +93,6 @@ def test_an_event_being_rechecked_shows_details_to_be_confirmed(client, held, st
         assert row[field] is None
 
 
-# --- TC-EVENTREGISTRATIONS-045 --------------------------------------------
-@pytest.mark.parametrize(
-    "rows, venue",
-    [
-        ([_booking(H2, "Room B", "confirmed", "2026-10-03T02:00:00Z"), HALL_A], "Hall A"),
-        (
-            [
-                _booking("p", "Room P", "pending", "2026-09-01T02:00:00Z"),
-                _booking("q", "Room Q", "held", "2026-09-02T02:00:00Z"),
-                _booking("r", "Room R", "rejected", "2026-09-03T02:00:00Z"),
-                HALL_A,
-            ],
-            "Hall A",
-        ),
-        ([_booking("p", "Room P", "pending", "2026-09-01T02:00:00Z")], None),
-        ([], None),
-    ],
-    ids=["first-confirmed", "unconfirmed-ignored", "only-pending", "none"],
-)
-def test_only_the_explicit_confirmed_primary_venue_is_shown(client, held, rows, venue):
-    _bookings(held, rows)
-
-    row = _only_row(client)
-
-    assert row["venue"] == venue
-    assert row["details_confirmed"] is True
-
-
 # --- TC-EVENTREGISTRATIONS-051..053 ---------------------------------------
 def test_secondary_confirmed_venues_are_never_exposed_to_the_attendee(client, held):
     _bookings(held, [

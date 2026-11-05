@@ -591,65 +591,6 @@ an already-decided `assigned_coordinator_id` — a field an organiser's own
 request can never set. Both new routes are internal: no Kong entry, called
 only by `event_requests` over the Docker network, never by a browser.
 
-## TC-EVENTS-049 — coordinator load reports no conflict with an empty schedule
-
-- **Scenario:** A coordinator with nothing assigned is free for any window.
-- **Pre-conditions:** The assignment-filtered select for that coordinator
-  returns no rows.
-- **Steps:** `POST /events/coordinator-load` with one coordinator id and a
-  window.
-- **Test data:** Coordinator id above; window `2026-10-20 18:00`–`21:00`.
-- **Expected:** `200`; that coordinator's entry has `conflict: false,
-  assigned_count: 0`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_reports_no_conflict_with_empty_schedule`
-
-## TC-EVENTS-050 — coordinator load reports a conflict on any overlap
-
-- **Scenario:** The requested window intersects an assigned event's window at
-  all, not only when the two match exactly.
-- **Pre-conditions:** The coordinator has one assigned submitted event
-  `18:00`–`21:00` on `2026-10-20`.
-- **Steps:** `POST /events/coordinator-load` with a request window that
-  overlaps only partially: `20:00`–`22:00` the same day.
-- **Test data:** As above.
-- **Expected:** `200`; `conflict: true`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_reports_a_conflict_on_any_overlap`
-
-## TC-EVENTS-051 — back-to-back events do not conflict
-
-- **Scenario:** A request starting exactly when an existing assigned event
-  ends (or ending exactly when one starts) does not count as an overlap.
-- **Pre-conditions:** The coordinator has one assigned submitted event
-  `18:00`–`21:00` on `2026-10-20`.
-- **Steps:** `POST /events/coordinator-load` with a request window
-  `21:00`–`22:00` the same day.
-- **Test data:** As above.
-- **Expected:** `200`; `conflict: false`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_back_to_back_events_do_not_conflict`
-
-## TC-EVENTS-052 — only live commitments count toward load or conflict
-
-- **Scenario:** Only submitted (awaiting decision) and planning (accepted,
-  arrangements underway) events are committed time on a coordinator's
-  schedule. Drafts never counted. Returned and rejected don't either, since
-  neither is a live commitment. Revised for S-36: `planning` replaces
-  `approved`, which no longer exists.
-- **Pre-conditions:** None beyond the shared fakes.
-- **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
-- **Test data:** One coordinator id, any window.
-- **Expected:** The query filters on `status in ("submitted", "planning")`.
-  Every other status is excluded in the query itself, not filtered out
-  afterwards, so it can never reach the conflict check or the count.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
-
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and starts unassigned
 
 - **Scenario:** Unlike the public `POST /events`, this route does not derive
@@ -789,21 +730,6 @@ coordinator no longer had free. `event_requests` needs two things from this
 service to fix that: a way to exclude an event's own row when checking
 conflicts, and a trusted way to write a date/time change and a reassignment
 in one update.
-
-## TC-EVENTS-062 — coordinator load excludes the given event from conflict and count
-
-- **Scenario:** Rechecking an event that already carries this exact window
-  and assignment must not have it conflict with itself.
-- **Pre-conditions:** The coordinator has one assigned submitted event —
-  the same one being rechecked — covering the requested window exactly.
-- **Steps:** `POST /events/coordinator-load` with `exclude_event_id` set to
-  that event's id.
-- **Test data:** One event, `id` equal to `exclude_event_id`.
-- **Expected:** `200`; `conflict: false, assigned_count: 0` — without
-  `exclude_event_id` this would conflict with itself.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_excludes_the_given_event_from_conflict_and_count`
 
 ## TC-EVENTS-063 — internal update cannot reassign the coordinator
 
