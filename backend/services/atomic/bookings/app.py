@@ -53,6 +53,9 @@ CANNOT_RESTORE = "Only a held or confirmed booking can be restored"
 RESTORE_ALREADY_REQUESTED = "A restore has already been requested for this booking"
 NO_RESTORE_REQUEST = "There is no restore request to decide for this booking"
 RESTORED_NOTE = "Restored to the original venue"
+# S-81 reopened
+HOLD_NOT_LIVE = "Only a tentative hold can be confirmed"
+HOLD_NOT_CONFIRMED = "This hold can't be approved until the Event Coordinator confirms it."
 
 
 @app.exception_handler(RequestValidationError)
@@ -328,6 +331,10 @@ def decide_booking(
     if booking["status"] not in ("pending", "held"):
         raise HTTPException(status_code=409, detail="This booking request has already been decided")
 
+    # S-81 reopened: a held booking waits for its Coordinator's confirmation.
+    if payload.decision == "approved" and booking["status"] == "held" and not booking.get("hold_confirmed_at"):
+        raise HTTPException(status_code=409, detail=HOLD_NOT_CONFIRMED)
+
     if payload.decision == "approved":
         conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
         if conflict:
@@ -351,9 +358,14 @@ def decide_booking(
     # S-78: confirming a replacement also marks its original `replaced` -- a
     # trigger does that in the same transaction (backend/sql/bookings.sql).
     try:
-        result = db.schema(SCHEMA).table(TABLE).update(values).eq(
+        operation = db.schema(SCHEMA).table(TABLE).update(values).eq(
             "id", str(booking_id)
-    ).in_("status", ["pending", "held"]).execute()
+        ).in_("status", ["pending", "held"])
+        if payload.decision == "approved":
+            # Never approve a hold that was released and re-placed, unconfirmed,
+            # since the read above.
+            operation = operation.or_("status.eq.pending,hold_confirmed_at.not.is.null")
+        result = operation.execute()
     except Exception as exc:
         if _event_closed(exc):
             raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
@@ -406,6 +418,9 @@ def place_hold(
         "hold_expires_at": payload.expires_at.isoformat(),
         "hold_released_at": None,
         "hold_release_reason": None,
+        # S-81 reopened: every new hold needs a new confirmation.
+        "hold_confirmed_by": None,
+        "hold_confirmed_at": None,
     }
     try:
         result = db.schema(SCHEMA).table(TABLE).update(values).eq(
@@ -423,6 +438,36 @@ def place_hold(
     if result.data:
         return result.data[0]
     raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
+
+
+@app.post("/bookings/{booking_id}/hold-confirmation", response_model=BookingRead)
+def confirm_hold(
+    booking_id: UUID,
+    coordinator=Depends(require_coordinator),
+    db: Client = Depends(get_db),
+):
+    """S-81 reopened: the Event Coordinator confirms a tentative hold, which
+    lets Venue Staff approve it. Which events are theirs is the events
+    service's to say; the venue_bookings composite asks it first."""
+    _expire_holds(db)
+    booking = _booking(db, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["status"] != "held":
+        raise HTTPException(status_code=409, detail=HOLD_NOT_LIVE)
+    if booking.get("hold_confirmed_at"):
+        return booking
+    values = {
+        "hold_confirmed_by": str(coordinator.id),
+        "hold_confirmed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = _write(
+        db.schema(SCHEMA).table(TABLE).update(values)
+        .eq("id", str(booking_id)).eq("status", "held")
+    )
+    if result.data:
+        return result.data[0]
+    raise HTTPException(status_code=409, detail=HOLD_NOT_LIVE)
 
 
 @app.post("/bookings/{booking_id}/release", response_model=BookingRead)
@@ -452,6 +497,8 @@ def release_hold(
         "status": "pending",
         "hold_released_at": datetime.now(timezone.utc).isoformat(),
         "hold_release_reason": payload.reason,
+        "hold_confirmed_by": None,
+        "hold_confirmed_at": None,
     }
     result = _write(
         db.schema(SCHEMA).table(TABLE).update(values)

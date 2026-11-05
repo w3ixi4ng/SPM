@@ -113,6 +113,13 @@ def test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page(admi
     page.get_by_label("Hold expiry").fill("2099-01-01T12:00")
     page.get_by_role("button", name="Place hold").click()
     expect(page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
+    # S-81 reopened: a hold is approved only once its Coordinator confirmed
+    # it -- done directly here; TC-E2E-480 covers that step in the browser.
+    admin.schema("bookings").table("bookings").update({
+        "hold_confirmed_by": coordinator["id"], "hold_confirmed_at": "2026-11-05T02:00:00+00:00",
+    }).eq("id", p["id"]).execute()
+    page.reload()
+    expect(page.get_by_text("The Event Coordinator confirmed this hold.")).to_be_visible(timeout=20000)
     page.get_by_role("radio", name="Approve", exact=True).check()
     page.get_by_role("button", name="Save decision").click()
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)

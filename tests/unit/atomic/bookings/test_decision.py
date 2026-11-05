@@ -34,6 +34,7 @@ def prepare(db, *, booking=None, conflicts=None, blocks=None):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[booking_row(**table(db).update.call_args.args[0])])
     return update
 

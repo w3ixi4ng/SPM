@@ -38,6 +38,7 @@ all read attempts fail, the existing safe `502` response is returned.
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
 | `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold with required future, timezone-aware `expires_at`; the assigned Coordinator is told when it will expire. |
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
+| `POST` | `/venue-bookings/{id}/hold-confirmation` | `event_coordinator` | S-81 reopened: the event's Coordinator confirms a tentative hold, so Venue Staff can approve it; the staff member who placed it is notified. See [S-81](#s-81-the-coordinator-confirms-a-hold). |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
 | `GET` | `/venue-bookings/occupied?date={date}` | `event_coordinator`, `venue_staff` | S-34: every venue's holds, confirmed bookings and blocks on one date, for the venue filter. |
 | `GET` | `/venue-bookings/clashes?venue_id={id}` | `venue_staff` | S-75: pairs of held/confirmed bookings, today on, that clash under the venue's current setup and turnaround; S-28 reopened, plus those its opening hours no longer fit. |
@@ -748,3 +749,37 @@ including `is_primary`, `primary_selected_by`, and `primary_selected_at`.
 Attendee-facing services do not use this full projection: they expose only a
 booking that is both confirmed and primary, or “Venue to be confirmed” while
 the Coordinator still needs to choose one.
+
+## S-81 the Coordinator confirms a hold
+
+Venue Staff approve a held booking only once the event's Coordinator has
+confirmed the hold (UAT A08). The rule itself is the bookings service's; see
+its [README](../../atomic/bookings/README.md#s-81-the-coordinator-confirms-a-hold).
+
+`POST /venue-bookings/{id}/hold-confirmation` takes no body. It is
+authorized like an S-80 change: the event is read as
+`/events/assigned/{event_id}` with the caller's own session.
+
+| Status | When |
+| --- | --- |
+| `200` | The confirmed booking. The Venue Staff member who placed the hold (`held_by`) gets a `venue_hold_confirmed` notification, e.g. `"Grace Hopper confirmed the tentative hold for Studio B on 12 Nov 2026, 09:00–12:00 (Alumni Night). You can now approve it before the hold expires."` |
+| `404` | `{"detail": "Event not found"}` (not the caller's event) or `{"detail": "Booking not found"}` |
+| `409` | `{"detail": "A venue can only be requested for an event in planning"}`, or the bookings service's `"Only a tentative hold can be confirmed"` |
+| `401` / `403` | No session, or not an Event Coordinator. |
+| `502` | Bookings or events unavailable. |
+
+The notice is best effort, like the S-81 expiry notice. If it can't be sent,
+the confirmation still stands and a warning is logged. Venue Staff see the
+confirmation on the request page either way.
+
+`POST /venue-bookings/{id}/decision` passes the bookings service's `409`,
+`"This hold can't be approved until the Event Coordinator confirms it."`,
+through unchanged.
+
+**Before running it:** the S-81 blocks of
+[`bookings.sql`](../../../sql/bookings.sql) and
+[`notifications.sql`](../../../sql/notifications.sql) applied in both
+projects. Tests: `pytest tests/unit/composite/venue_bookings/test_hold_confirmation.py`;
+on a freshly recreated `.env.test` stack,
+`pytest tests/integration/composite/venue_bookings/test_hold_confirmation.py`
+and `pytest tests/e2e/test_confirm_hold.py`.

@@ -24,6 +24,8 @@ NotificationKind = Literal[
     "venue_booking_decision",
     "safety_check_outcome",
     "event_schedule_changed",
+    # S-81 reopened: Venue Staff told the Coordinator confirmed their hold.
+    "venue_hold_confirmed",
 ]
 
 
