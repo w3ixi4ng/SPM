@@ -63,6 +63,7 @@ create table if not exists bookings.bookings (
   event_name                 text not null,
   event_purpose              text not null,
   expected_attendance        integer not null,
+  allocated_attendance       integer,
   special_requirements       text,
   required_accessibility     text[] not null default '{}',
   required_facilities        text[] not null default '{}',
@@ -114,6 +115,9 @@ create table if not exists bookings.bookings (
 
   constraint bookings_attendance_positive
     check (expected_attendance > 0),
+  constraint bookings_allocation_valid
+    check (allocated_attendance is null or
+      (allocated_attendance > 0 and allocated_attendance <= expected_attendance)),
 
   constraint bookings_required_text_not_blank
     check (
@@ -1083,3 +1087,84 @@ $$;
 notify pgrst, 'reload schema';
 commit;
 -- END S-90 RESTORE ORIGINAL VENUE
+
+-- BEGIN REQUIREMENT ALIGNMENT MIGRATION (S-75, S-79, S-81)
+-- Apply in dev and test after venues.sql. Data preserving and repeatable.
+begin;
+
+-- Existing rows retain the event snapshot as their implicit allocation.
+alter table bookings.bookings add column if not exists allocated_attendance integer;
+update bookings.bookings set allocated_attendance = expected_attendance
+ where allocated_attendance is null;
+-- Keep NULL compatible with direct fixture inserts and old writers; the API
+-- always writes an explicit allocation, and reads treat legacy NULL as full.
+alter table bookings.bookings alter column allocated_attendance drop not null;
+alter table bookings.bookings drop constraint if exists bookings_allocation_valid;
+alter table bookings.bookings add constraint bookings_allocation_valid
+  check (allocated_attendance is null or
+    (allocated_attendance > 0 and allocated_attendance <= expected_attendance));
+
+alter table bookings.bookings add column if not exists hold_confirmed_by uuid;
+alter table bookings.bookings add column if not exists hold_confirmed_at timestamptz;
+alter table bookings.bookings add column if not exists hold_expiry_notified_at timestamptz;
+alter table bookings.bookings add column if not exists approval_setup_minutes integer;
+alter table bookings.bookings add column if not exists approval_turnaround_minutes integer;
+alter table bookings.bookings drop constraint if exists bookings_hold_confirmation_audit_valid;
+alter table bookings.bookings add constraint bookings_hold_confirmation_audit_valid
+  check ((hold_confirmed_by is null) = (hold_confirmed_at is null));
+
+-- One transaction lock protects a venue's timing change and any booking
+-- confirmation for that venue. The guard reads bookings only inside SQL;
+-- the venues service still accesses only venues.venues.
+create or replace function venues.guard_confirmed_timing()
+returns trigger language plpgsql security definer
+set search_path = venues, bookings, pg_temp as $$
+begin
+  if new.setup_minutes is distinct from old.setup_minutes
+     or new.turnaround_minutes is distinct from old.turnaround_minutes then
+    perform pg_advisory_xact_lock(hashtextextended('venue-gap:' || new.id::text, 0));
+    if exists (select 1 from bookings.bookings
+               where venue_id = new.id and status = 'confirmed') then
+      raise exception 'confirmed_venue_timing_locked' using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists venues_guard_confirmed_timing on venues.venues;
+create trigger venues_guard_confirmed_timing before update on venues.venues
+for each row execute function venues.guard_confirmed_timing();
+
+create or replace function bookings.guard_hold_approval_and_lock_venue()
+returns trigger language plpgsql as $$
+begin
+  if new.status = 'confirmed' then
+    perform pg_advisory_xact_lock(hashtextextended('venue-gap:' || new.venue_id::text, 0));
+    if new.approval_setup_minutes is not null and not exists (
+       select 1 from venues.venues v where v.id = new.venue_id
+         and v.setup_minutes = new.approval_setup_minutes
+         and v.turnaround_minutes = new.approval_turnaround_minutes
+    ) then
+      raise exception 'venue_timing_changed' using errcode = 'P0001';
+    end if;
+    if tg_op = 'UPDATE' then
+      if (
+       old.hold_release_reason = 'expired' or
+       (old.status = 'held' and
+         (old.hold_confirmed_at is null or old.hold_expires_at <= now()))
+      ) then
+        raise exception 'hold_confirmation_required' using errcode = 'P0001';
+      end if;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists bookings_guard_hold_approval_and_lock_venue on bookings.bookings;
+create trigger bookings_guard_hold_approval_and_lock_venue
+before insert or update on bookings.bookings for each row
+execute function bookings.guard_hold_approval_and_lock_venue();
+
+notify pgrst, 'reload schema';
+commit;
+-- END REQUIREMENT ALIGNMENT MIGRATION

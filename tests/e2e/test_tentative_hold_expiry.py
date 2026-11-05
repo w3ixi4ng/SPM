@@ -46,6 +46,9 @@ def test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot(
     inbox = page.get_by_role('region', name='Notifications')
     expect(inbox).to_contain_text('tentative hold', timeout=30000)
     expect(inbox).to_contain_text(venue['name'])
+    page.goto(f"/coordinator/events/{event['id']}")
+    page.get_by_role('button', name='Confirm hold').click()
+    expect(page.get_by_role('status').filter(has_text='Venue Staff can approve it')).to_be_visible(timeout=30000)
 
     admin.schema('bookings').table('bookings').update({
         'hold_expires_at': (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()

@@ -32,11 +32,14 @@ export default function BookingDecisionForm({ booking, onDecided }) {
           {['approved', 'rejected'].map((value) => (
             <label key={value} className="flex gap-2 items-center">
               <input type="radio" name={`decision-${booking.id}`} value={value}
+                disabled={value === 'approved' && booking.status === 'held' && !booking.hold_confirmed_at}
                 checked={decision === value} onChange={() => { setDecision(value); setError(null) }} />
               {value === 'approved' ? 'Approve' : 'Reject'}
             </label>
           ))}
         </div>
+        {booking.status === 'held' && !booking.hold_confirmed_at &&
+          <p>Waiting for the Coordinator to confirm this hold before approval.</p>}
         <label className="block">Reason (optional for approval)
           <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2}
             className="block w-full border rounded-sm p-2 mt-1" />

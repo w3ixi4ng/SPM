@@ -32,6 +32,15 @@ def test_hold_expiry_is_notified_and_released_through_kong(
         assert held.json()['status'] == 'held'
         assert held.json()['hold_expires_at'] is not None
 
+        premature = api.post(f'/venue-bookings/{booking_id}/decision', headers=staff,
+                             json={'decision': 'approved'})
+        assert premature.status_code == 409, premature.text
+        confirmed = api.post(f'/venue-bookings/{booking_id}/confirm-hold', headers=coordinator)
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()['hold_confirmed_by'] == world['coordinator']['id']
+        repeat = api.post(f'/venue-bookings/{booking_id}/confirm-hold', headers=coordinator)
+        assert repeat.status_code == 200, repeat.text
+
         inbox = api.get('/notifications', headers=coordinator)
         assert inbox.status_code == 200, inbox.text
         notices = [
@@ -49,6 +58,11 @@ def test_hold_expiry_is_notified_and_released_through_kong(
         })
         assert calendar.status_code == 200, calendar.text
         assert calendar.json()['entries'] == []
+        late_confirm = api.post(f'/venue-bookings/{booking_id}/confirm-hold', headers=coordinator)
+        late_approval = api.post(f'/venue-bookings/{booking_id}/decision', headers=staff,
+                                 json={'decision': 'approved'})
+        assert late_confirm.status_code == 409
+        assert late_approval.status_code == 409
 
     stored = admin.schema('bookings').table('bookings').select(
         'status,hold_release_reason,hold_released_at'
@@ -56,3 +70,5 @@ def test_hold_expiry_is_notified_and_released_through_kong(
     assert stored['status'] == 'pending'
     assert stored['hold_release_reason'] == 'expired'
     assert stored['hold_released_at'] is not None
+    event = admin.schema('events').table('events').select('status').eq('id', world['event_id']).execute().data[0]
+    assert event['status'] == 'planning'

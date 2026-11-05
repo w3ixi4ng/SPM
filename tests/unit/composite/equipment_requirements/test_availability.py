@@ -38,6 +38,8 @@ def event(event_id, status, start_date, start_time, end_date, end_time, name):
 E5 = event("e5000000-0000-4000-8000-000000000005", "planning", "2026-11-11", "18:00:00", "2026-11-12", "09:30:00", "Overnight setup")
 E1 = event("e1000000-0000-4000-8000-000000000001", "planning", "2026-11-12", "10:00:00", "2026-11-12", "11:00:00", "Alumni talk")
 E2 = event("e2000000-0000-4000-8000-000000000002", "confirmed", "2026-11-12", "11:30:00", "2026-11-12", "13:00:00", "Board lunch")
+E3 = event("e3000000-0000-4000-8000-000000000003", "pending_safety_check", "2026-11-12", "10:30:00", "2026-11-12", "11:30:00", "Safety review")
+E4 = event("e4000000-0000-4000-8000-000000000004", "preparation", "2026-11-12", "10:45:00", "2026-11-12", "11:45:00", "Preparation")
 OVERLAPPING = [E5, E1, E2]  # as the events service returns them: start order
 
 
@@ -100,6 +102,17 @@ def test_availability_counts_reserved_and_unavailable_units_for_the_window(clien
     requirement_call = services.equipment.get.await_args_list[1]
     assert requirement_call.kwargs["params"] == [("event_ids", e["id"]) for e in OVERLAPPING]
     assert services.equipment.get.await_args_list[0].kwargs["cookies"] == {"sb_access_token": "token"}
+
+    # S-44: the two later active stages reserve equipment too. The event
+    # service has already excluded terminal events before returning this list.
+    active = [E5, E1, E3, E4, E2]
+    reqs = requirements() + [requirement(E3, MIC, 1), requirement(E4, MIC, 1)]
+    arrange(services, overlapping=active, reqs=reqs)
+    later = by_type(check(client).json())["Wireless Microphone"]
+    assert (later["reserved"], later["available"]) == (12, 0)
+    assert {row["status"] for row in later["reservations"]} == {
+        "planning", "pending_safety_check", "confirmed", "preparation",
+    }
 
 
 # --- TC-EQUIPMENTREQUIREMENTS-031 ---------------------------------------

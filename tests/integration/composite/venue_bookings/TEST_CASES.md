@@ -183,9 +183,9 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 **Blocked** until the S-75 section of `backend/sql/venues.sql` has been run
 in the test project.
 
-### TC-VENUEBOOKINGS-107 — changing a venue's times flags the new clash and is used for the next request
+### TC-VENUEBOOKINGS-107 — confirmed booking prevents changing venue timing
 
-- **Scenario:** Real services and Kong agree (AC3, AC4).
+- **Scenario:** Real services and Kong enforce the confirmed-booking timing freeze.
 - **Pre-conditions:** A fresh `.env.test` stack. A Coordinator, Venue Staff,
   a test venue open `thu` 08:00–20:00 with setup and turnaround 0, and two
   planning events. Booking A confirmed 10:00–12:00 and B held 12:30–14:00 on
@@ -193,11 +193,13 @@ in the test project.
 - **Steps:**
   1. Staff `GET /api/venue-bookings/clashes` for the venue: none.
   2. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`, `turnaround_minutes: 45`.
-  3. Staff list clashes again; the Coordinator lists B's event requests.
-  4. The Coordinator requests 12:00–12:30 for another planning event.
-- **Expected:** Step 3: the A–B pair is listed, and B carries the clash
-  warning. A and B are unchanged in `bookings.bookings`. Step 4: `409` "…in
-  use until 12:45." Cleanup deletes every row created.
+  3. Staff PATCH unchanged timing values plus an unrelated description.
+  4. The Coordinator requests an available 14:30–15:00 slot.
+- **Expected (current):** Step 2 returns `409`; timing and both bookings stay
+  unchanged. Step 3 returns `200`; the description changes. Step 4 returns
+  `201` under the saved zero-minute timing.
+- **Historical note:** The Actual, Status and Evidence below belong to the
+  previous implementation, which allowed changing timing after confirmation.
 - **Actual:** Through Kong: no clashes at 0/0; after Staff saved 30/45 the A–B pair was listed and B carried the 10:00 clash; both bookings unchanged; 12:00–12:30 refused "…in use until 12:45."
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_setup_turnaround.py::test_new_times_flag_the_clash_and_govern_the_next_request`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
@@ -238,7 +240,9 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
 
 Story: S-79 Book Multiple Venues for One Event.
 Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
-No schema change: S-79 needs only the SQL already in `backend/sql/`.
+The requirement alignment adds `allocated_attendance` to `bookings.bookings`;
+apply the data-preserving block at the end of `backend/sql/bookings.sql` in
+both dev and test before running this revised case.
 For the criteria mapping and the agreed decisions, see the S-79 section of
 `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 
@@ -256,14 +260,15 @@ For the criteria mapping and the agreed decisions, see the S-79 section of
 - **Steps:** As the Coordinator, through `/api/venue-bookings`:
   1. Request Main Hall, 09:00–17:00; Venue Staff hold it.
   2. Request Studio, 13:00–15:00 (same time, different venue).
-  3. Request Seminar Room, 13:00–15:00.
+  3. Request Seminar Room, 13:00–15:00 first without an allocation, then with 35 attendees.
   4. Request Main Hall, 16:00–18:00.
   5. `GET /api/venue-bookings?event_id=E`.
 - **Expected:**
   1. `201`, then `200` for the hold.
   2. `201`. In `bookings.bookings`, booking 1 is still `held` with no
      `hold_release_reason`.
-  3. `422`, naming capacity (40 < 120).
+  3. First `422`, naming capacity (40 < 120); then `201` with
+     `allocated_attendance: 35`, while full event attendance remains 120.
   4. `409` "… is already tentatively held on …", because the event's own
      booking 1 holds Main Hall.
   5. `200` with exactly bookings 1 (`held`) and 2 (`pending`), both with
@@ -351,9 +356,17 @@ Status resets to Not Executed until re-run.
 
 - **Scenario:** The complete S-81 service path stores a required expiry, informs the Coordinator before it occurs, and removes the expired hold from availability.
 - **Pre-conditions:** `.env.test` stack; S-81 bookings and notifications migrations applied in the test project.
-- **Steps:** Request a venue through Kong; place a hold with an expiry as Venue Staff; read the Coordinator inbox; move the expiry into the past; load availability through Kong.
+- **Steps (current):** Request a venue through Kong; place a hold with an
+  expiry as Venue Staff; refuse premature approval; have the assigned
+  Coordinator confirm twice; read the Coordinator inbox; move expiry into the
+  past; load availability; refuse late confirmation and approval.
 - **Test data:** 12 Nov 2026, 09:00–12:00; expiry one hour ahead and then one second behind the current time.
-- **Expected:** The hold contains its expiry; exactly one `venue_hold_expiry` notification names the tentative hold; availability has no live booking after expiry; storage retains the row as pending with release reason `expired` and a release timestamp.
+- **Expected (current):** The hold contains its expiry; premature approval is
+  `409`, confirmation is idempotent, late confirmation and approval are `409`;
+  availability has no live booking after expiry; storage retains `pending`
+  with release reason `expired`, and the event remains Planning.
+- **Historical note:** The Actual, Status and Evidence below describe the
+  prior execution, before these new confirmation assertions were added.
 - **Actual:** Kong stored the expiry and one Coordinator notice; after expiry,
   the calendar had no live entry and storage retained `pending/expired` audit data.
 - **Status:** Pass

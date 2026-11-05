@@ -59,6 +59,7 @@ internal-service contract. Atomic services never call the users service.
 | `event_name` | string | yes | Trimmed; not blank. |
 | `event_purpose` | string | yes | Trimmed; not blank. |
 | `expected_attendance` | integer | yes | At least `1`. |
+| `allocated_attendance` | integer | no | Attendees assigned to this venue; 1 through the event's expected attendance. Defaults to the full event attendance. |
 | `venue_name` | string | yes | Trimmed; not blank. |
 | `special_requirements` | string or null | no | The event's other requirements, free text. Blank becomes null. |
 | `required_accessibility` | array of string | no | From the venue accessibility set. Defaults to `[]`. |

@@ -214,6 +214,7 @@ export default function VenueBookingRequest() {
 
             <dl className="grid gap-1 mb-4">
               <Detail label="Expected attendance" value={booking.expected_attendance} />
+              <Detail label="Allocated to this venue" value={booking.allocated_attendance ?? booking.expected_attendance} />
               <Detail label="Room layout" value={booking.room_layout && optionLabel(booking.room_layout)} />
               <Detail label="Purpose" value={booking.event_purpose} />
               <Detail label="Facilities" value={listLabel(booking.required_facilities)} />

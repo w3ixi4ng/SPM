@@ -240,19 +240,17 @@ RBAC, and validation remain authoritative.
 - **Status:** Pass
 - **Evidence:** `test_event_requests.mjs` — `eventStatusMeta falls back safely for an unrecognised status`
 
-## TC-FRONTEND-016 — a decision posts to the events service, not event-requests
+## TC-FRONTEND-016 — a decision posts to the event-requests composite
 
-- **Scenario:** Unlike submit/update, deciding never touches assignment, so
-  there is nothing for the composite to orchestrate — this goes straight to
-  the events service.
+- **Scenario:** Decisions go through the event-requests composite.
 - **Pre-conditions:** `fetch` records the request and returns a stub event.
 - **Steps:** Call `decideEventRequest('event-1', {decision: 'approved'})`.
 - **Test data:** As above.
-- **Expected:** `POST /api/events/event-1/decision`, `credentials: include`,
+- **Expected:** `POST /api/event-requests/event-1/decision`, `credentials: include`,
   body exactly `{"decision": "approved"}`.
-- **Actual:** As expected.
+- **Actual:** Posted to the event-requests composite with credentials and the decision body.
 - **Status:** Pass
-- **Evidence:** `test_event_requests.mjs` — `decideEventRequest posts to the events service, not event-requests`
+- **Evidence:** `test_event_requests.mjs` — `decideEventRequest posts through the S-63 notification composite`; `node --test tests/unit/frontend/test_*.mjs` (238 passed, 2026-11-05).
 
 ## TC-FRONTEND-017 — reason and comment are omitted when not given
 

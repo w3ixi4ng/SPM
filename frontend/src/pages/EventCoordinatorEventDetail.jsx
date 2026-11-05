@@ -41,6 +41,7 @@ import {
   bookingDateLabel,
   bookingStatusMeta,
   canRequestVenue,
+  confirmVenueHold,
   listVenueBookingsForEvent,
   primaryVenueErrorMessage,
   primaryVenuePrompt,
@@ -600,6 +601,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
   const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
+  const [holdState, setHoldState] = useState({ bookingId: null, error: null, notice: null })
   // S-90: the original being restored, and what the last request did.
   const [restoreState, setRestoreState] = useState({ bookingId: null, error: null, notice: null })
 
@@ -658,6 +660,17 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
     }
   }
 
+  async function confirmHold(booking) {
+    setHoldState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await confirmVenueHold(booking.id)
+      await load()
+      setHoldState({ bookingId: null, error: null, notice: `Hold for ${booking.venue_name} confirmed. Venue Staff can approve it.` })
+    } catch (error) {
+      setHoldState({ bookingId: null, error: error.message || 'Could not confirm this hold.', notice: null })
+    }
+  }
+
   return (
     <section aria-labelledby="venue-requests-heading">
       <div className="flex items-center gap-2 mb-2">
@@ -680,6 +693,8 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
       {state.status === 'ready' && state.bookings.length === 0 && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venue requests sent yet.</p>
       )}
+      {holdState.error && <p role="alert" className="font-ui text-sm mb-3" style={{ color: C.rose }}>{holdState.error}</p>}
+      {holdState.notice && <p role="status" className="font-ui text-sm mb-3" style={{ color: C.green }}>{holdState.notice}</p>}
       {state.status === 'ready' && state.bookings.length > 0 && (
         <>
         {primaryVenuePrompt(state.bookings) && (
@@ -711,6 +726,13 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
                   </span>
                   {booking.is_primary && (
                     <strong className="font-ui text-xs" style={{ color: C.teal }}>Primary venue</strong>
+                  )}
+                  {booking.status === 'held' && !booking.hold_confirmed_at && (
+                    <button type="button" onClick={() => confirmHold(booking)}
+                      disabled={holdState.bookingId !== null}
+                      className="font-ui text-sm underline disabled:opacity-60" style={{ color: C.teal }}>
+                      {holdState.bookingId === booking.id ? 'Confirming…' : 'Confirm hold'}
+                    </button>
                   )}
                   {booking.status === 'confirmed' && !booking.is_primary && (
                     <button

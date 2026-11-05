@@ -141,7 +141,7 @@ def test_without_the_venue_times_holds_and_confirmations_succeed(client, db, aut
 
 
 def test_confirming_a_held_booking_never_clashes_with_itself(client, db, auth):
-    held = {**B, 'status': 'held'}
+    held = {**B, 'status': 'held', 'hold_confirmed_at': '2026-11-10T00:00:00+00:00'}
     query = lookups(db, [held], [], [])
     update = table(db).update.return_value
     update.eq.return_value = update

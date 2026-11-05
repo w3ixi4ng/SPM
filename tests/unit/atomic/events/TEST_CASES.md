@@ -1428,7 +1428,7 @@ A new composite-only route, `POST /events/overlapping`, like
 number, as agreed with the developer on 2026-09-30 (this file's 001–099 range
 is full).
 
-## TC-EVENTS-105 — overlapping planning and confirmed events are returned
+## TC-EVENTS-105 — overlapping committed stages are returned
 
 - **Scenario:** The events that can reserve equipment for a window (S-44 AC2).
 - **Pre-conditions:** The fake returns, for statuses `planning` and
@@ -1440,16 +1440,17 @@ is full).
 - **Expected:** `200` with E5, E1, E2 in start order, each with `id`, `name`,
   `status`, `start_date`, `start_time`, `end_date`, `end_time`. E4 (starts as
   the window ends) and E6 (ends as it starts) are back-to-back and left out.
-  The query filters `status in (planning, confirmed)`.
+  The query filters `status in (planning, pending_safety_check, confirmed, preparation)`.
 - **Actual:** E5, E1, E2 returned in start order with the seven fields; back-to-back E4 and E6 left out; the query filtered status in (planning, confirmed) with a coarse date range.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_overlapping_planning_and_confirmed_events_are_returned_in_start_order`
 
-## TC-EVENTS-106 — other statuses never reserve
+## TC-EVENTS-106 — terminal and draft statuses never reserve
 
 - **Scenario:** Rejected, returned, draft and submitted events hold nothing.
 - **Steps:** Inspect the storage query from TC-EVENTS-105.
-- **Expected:** Only `planning` and `confirmed` are requested, so an
+- **Expected:** Only `planning`, `pending_safety_check`, `confirmed` and
+  `preparation` are requested, so an
   overlapping `rejected`, `returned`, `draft` or `submitted` event is never
   returned.
 - **Actual:** Only planning and confirmed were requested.

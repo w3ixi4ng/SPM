@@ -713,7 +713,7 @@ Story: S-75 Configure Venue Setup and Turnaround Time.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 **Blocked** until the S-75 SQL has been run in the test project.
 
-## TC-E2E-228 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
+## TC-E2E-228 — Venue Staff cannot change timing after a booking is confirmed
 
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
@@ -721,14 +721,10 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   to the Coordinator).
 - **Steps:**
   1. Staff edit the venue: setup 0 h 30 min, turnaround 0 h 45 min; save.
-     (Hours and minutes boxes since the developer's change of 2026-10-08.)
-  2. The Coordinator opens B's event, then the venue's calendar on `D+3`.
-- **Expected:**
-  - Step 1: the times are saved, and the page lists A and B as clashing.
-  - Neither booking is removed.
-  - Step 2: B shows the clash warning.
-  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Booked
-    10:00–12:00 · venue in use 09:30–12:45".
+- **Expected (current):** The form shows a confirmed-booking error. Timing
+  remains 0/0 and neither booking is removed.
+- **Historical note:** Actual, Status and Evidence below record the old
+  behavior and are not evidence that the revised case has passed.
 - **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept; the Coordinator saw the warning with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Booked 10:00–12:00 · venue in use 09:30–12:45".
 - **Status:** Pass
 - **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; rerun 2026-10-08 with the hours/minutes boxes on a stack rebuilt from `.env.test`; full e2e suite: 26 passed.
@@ -740,7 +736,7 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 - **Steps:**
   1. Staff open their dashboard.
   2. Click P's row; reload the page.
-  3. Place a hold, then approve P.
+  3. Approve P as an ordinary pending request.
 - **Expected:**
   - Step 1: each request is one row (event, venue, date and time, status);
     the list has no hold button or decision form.
@@ -1152,8 +1148,10 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
   venue/time becomes available again.
 - **Expected:** Blank expiry is refused; the request and calendar show the
   hold and expiry distinctly; the Coordinator receives an expiry notice; the
-  calendar removes the hold after expiry without manual release and storage
-  records `expired`.
+  Coordinator can confirm the active hold; the calendar removes it after
+  expiry without manual release and storage records `expired`.
+- **Historical note:** The Actual, Status and Evidence below predate the new
+  Coordinator confirmation step in this journey.
 - **Actual:** Chromium refused a blank expiry, displayed the active hold and
   expiry, showed the Coordinator notice, and showed the slot as available
   after automatic expiry; storage recorded `pending/expired`.

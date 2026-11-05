@@ -297,6 +297,9 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Inspect the update and response.
 - **Test data:** decision=approved; reason omitted; alternative omitted.
 - **Expected:** 200; status confirmed; decided_by=S; server decided_at; update matches both B.id and status=pending. Only decision fields/status change; every original request field and submitted_at remain identical.
+- **S-81 extension:** A held booking cannot be approved until its assigned
+  Coordinator confirms the hold. An expired hold cannot be approved after it
+  returns to pending. Ordinary pending approval remains available.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_decision_preserves_request`.
@@ -922,7 +925,7 @@ follows. Their tests were updated and re-run with S-77, and pass:
 S-33; all earlier release rules remain in force. The browser presents expiry
 times in Singapore time and the service stores a timezone-aware instant.
 
-### TC-BOOKINGS-057 — every hold needs a future expiry
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-057 — every hold needs a future expiry
 
 - **Scenario:** Venue Staff cannot create an indefinite or expired hold.
 - **Steps:** Place a hold with no expiry, a timezone-free expiry, a past expiry,
@@ -931,22 +934,27 @@ times in Singapore time and the service stores a timezone-aware instant.
   booking. The last stores `status=held`, server-owned audit fields, and the
   same expiry instant.
 
-### TC-BOOKINGS-058 — expiry releases the slot before it is used
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-058 — expiry releases the slot before it is used
 
 - **Scenario:** An expired hold cannot block or become a confirmed booking.
 - **Steps:** Read availability and claim the same slot after the hold expires.
 - **Expected:** The old row becomes `pending`, with `hold_released_at` and
   reason `expired`; it is absent from live availability and the claim succeeds.
 
-### TC-BOOKINGS-059 — released holds remain auditable
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-059 — released holds remain auditable
 
 - **Expected:** Manual, event-terminal, replacement and expiry releases retain
   the hold timestamps and expiry; only an active `held` row is live.
 
-### TC-BOOKINGS-060 — concurrent expiry processing is idempotent
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-060 — concurrent expiry processing is idempotent
 
 - **Expected:** At most one conditional update wins; all callers see the slot
   available and the first `expired` release audit is preserved.
+
+These planning entries were never executable cases. Their reused numbers
+belong to later implemented booking-change cases. The S-81 behavior is covered
+by TC-BOOKINGS-017's held/expired checks, existing hold tests, and the hold
+expiry integration and browser cases.
 
 ## S-78 — request replacement venue for affected booking
 

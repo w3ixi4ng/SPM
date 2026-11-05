@@ -44,10 +44,11 @@ def test_one_event_holds_bookings_at_several_venues(admin, auth_client, world, m
     studio = world["venue_id"]
     event_id = world["event_id"]
 
-    def request(venue_id, start, end):
+    def request(venue_id, start, end, allocated_attendance=None):
         return api.post("/venue-bookings", headers=coordinator, json={
             "event_id": event_id, "venue_id": venue_id, "booking_date": DAY,
             "start_time": start, "end_time": end,
+            **({"allocated_attendance": allocated_attendance} if allocated_attendance is not None else {}),
         })
 
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=20.0) as api:
@@ -66,10 +67,13 @@ def test_one_event_holds_bookings_at_several_venues(admin, auth_client, world, m
         ).eq("id", first.json()["id"]).execute().data[0]
         assert kept == {"status": "held", "hold_release_reason": None}
 
-        # 3. A venue too small for the event's total attendance is refused.
+        # 3. Full attendance is refused, but a valid smaller allocation fits.
         too_small = request(seminar, "13:00", "15:00")
         assert too_small.status_code == 422, too_small.text
-        assert "holds 40 people; this event expects 120" in too_small.json()["errors"]["expected_attendance"]
+        assert "holds 40 people; this booking allocates 120" in too_small.json()["errors"]["allocated_attendance"]
+        allocated = request(seminar, "13:00", "15:00", 35)
+        assert allocated.status_code == 201, allocated.text
+        assert allocated.json()["allocated_attendance"] == 35
 
         # 4. The event's own hold still blocks the same venue.
         clash = request(hall, "16:00", "18:00")
@@ -80,10 +84,10 @@ def test_one_event_holds_bookings_at_several_venues(admin, auth_client, world, m
         listed = api.get("/venue-bookings", headers=coordinator, params={"event_id": event_id})
         assert listed.status_code == 200, listed.text
         rows = {row["id"]: row for row in listed.json()}
-        assert set(rows) == {first.json()["id"], second.json()["id"]}
+        assert set(rows) == {first.json()["id"], second.json()["id"], allocated.json()["id"]}
         assert rows[first.json()["id"]]["status"] == "held"
         assert rows[second.json()["id"]]["status"] == "pending"
         assert {row["event_id"] for row in rows.values()} == {event_id}
 
     stored = admin.schema("bookings").table("bookings").select("id").eq("event_id", event_id).execute().data
-    assert len(stored) == 2
+    assert len(stored) == 3

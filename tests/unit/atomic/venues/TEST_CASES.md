@@ -514,12 +514,14 @@ Two new venue fields, `setup_minutes` and `turnaround_minutes`: whole minutes,
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_times_cannot_be_negative_fractional_text_or_null`; `tests/unit/atomic/venues/test_setup_turnaround.py::test_zero_and_large_times_are_accepted`
 
-## TC-VENUES-035 — Venue Staff update the times at any time, leaving other fields as they are
+## TC-VENUES-035 — Venue Staff update times before confirmation, leaving other fields as they are
 
 - **Steps:** `PATCH /venues/{id}` with only `{"setup_minutes": 15}`, then only
   `{"turnaround_minutes": 0}`.
 - **Expected:** `200` each time; only that field changes. Non-staff → `403`
   as for other venue edits (TC-VENUES-031 policy unchanged).
+- **Scope:** This unit case uses an isolated venue and proves partial updates;
+  TC-VENUEBOOKINGS-107 checks the confirmed-booking restriction.
 - **Actual:** Each single-field PATCH wrote only that field; other roles 403 with no write.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/venues/test_setup_turnaround.py::test_staff_update_one_time_leaving_the_rest`; `tests/unit/atomic/venues/test_setup_turnaround.py::test_only_venue_staff_update_the_times`

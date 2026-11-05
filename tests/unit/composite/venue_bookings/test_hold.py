@@ -1,6 +1,7 @@
 """S-33 hold routing and event-state release orchestration."""
 
-from unittest.mock import AsyncMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,7 +13,29 @@ from .conftest import (
     VENUE_ID,
     fake_response,
     me,
+    app_module,
 )
+
+
+def test_expiry_reconciler_notifies_then_marks_and_does_not_repeat():
+    """TC-VENUEBOOKINGS-136: one durable notice per expired hold."""
+    held = {
+        "id": BOOKING_ID, "coordinator_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "event_id": EVENT_ID, "event_name": "Alumni networking evening",
+        "venue_name": "Studio B", "booking_date": "2026-11-12",
+        "hold_expires_at": "2026-11-12T10:00:00+00:00",
+    }
+    bookings, notifications = MagicMock(), MagicMock()
+    bookings.get = AsyncMock(side_effect=[fake_response(200, [held]), fake_response(200, [])])
+    bookings.post = AsyncMock(return_value=fake_response(200, held))
+    notifications.post = AsyncMock(return_value=fake_response(201, {}))
+    asyncio.run(app_module._reconcile_expired_holds_once(bookings, notifications))
+    asyncio.run(app_module._reconcile_expired_holds_once(bookings, notifications))
+    notifications.post.assert_awaited_once()
+    body = notifications.post.await_args.kwargs["json"]["notifications"][0]
+    assert body["recipient_id"] == held["coordinator_id"]
+    assert body["deduplication_key"] == f'venue_hold_expired:{BOOKING_ID}:{held["hold_expires_at"]}'
+    bookings.post.assert_awaited_once_with(f'/internal/bookings/{BOOKING_ID}/expiry-notified')
 
 
 @pytest.mark.parametrize("action", ["hold", "release"])

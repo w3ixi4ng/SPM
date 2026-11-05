@@ -234,7 +234,8 @@ def test_a_hold_that_ends_as_the_period_starts_is_placed(client, db, auth):
 # --- TC-BOOKINGS-049 ------------------------------------------------------
 def test_a_confirmation_overlapping_the_period_is_refused(client, db, auth):
     held = booking_row(venue_id=STUDIO_B, booking_date='2026-11-13', start_time='14:00:00',
-                       end_time='16:00:00', status='held', held_by=STAFF, held_at='2026-11-10T00:00:00+00:00')
+                       end_time='16:00:00', status='held', held_by=STAFF, held_at='2026-11-10T00:00:00+00:00',
+                       hold_confirmed_at='2026-11-10T00:10:00+00:00')
     lookups(db, [held], [], [P])
 
     response = client.post(f'/bookings/{held["id"]}/decision', json={'decision': 'approved'}, cookies=COOKIE)
