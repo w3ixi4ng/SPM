@@ -172,10 +172,17 @@ jobs:
     # with each other, which is safe: every journey makes its own accounts and
     # finds its rows by a unique name. What they must not share it with is the
     # integration suite, and `needs` above already keeps them apart.
-    # Inside each shard, two workers each drive their own Chromium against
-    # that runner's stack -- two, not four, because the runner is also
-    # running every container. Playwright's --shard and --workers, in pytest:
-    # see tests/conftest.py and tests/e2e/conftest.py.
+    # One worker per shard, so four browsers at once in all. Every runner has
+    # its own stack, but all four share the one test Supabase project, and
+    # that is the bottleneck: at two workers per shard, pages that look up
+    # every row in the project one call at a time (the Venue Staff pending
+    # list, for one) hit a slow call, answer "unavailable", and render an
+    # empty list. Playwright's --shard and --workers, in pytest: see
+    # tests/conftest.py and tests/e2e/conftest.py.
+    #
+    # --reruns 2 is Playwright's `retries`: a failed journey runs again, up
+    # to twice, and is reported as RERUN, so a flaky one stays visible in the
+    # log instead of passing silently.
     # fail-fast is off so one broken journey does not cancel the other shards'
     # results.
     strategy:
@@ -247,7 +254,7 @@ jobs:
         run: docker compose --env-file .env.test up -d --build --wait
 
       - name: Run end-to-end tests
-        run: pytest tests/e2e -v --shard ${{ matrix.shard }}/4 --workers 2
+        run: pytest tests/e2e -v --shard ${{ matrix.shard }}/4 --workers 1 --reruns 2
 
       - name: Show service logs on failure
         if: failure()

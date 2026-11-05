@@ -70,10 +70,14 @@ pytest tests/e2e --shard 2/4
 ```
 
 `--workers N` runs N browsers at once, one file per worker at a time — the
-same flag as Playwright's. CI combines the two, `--shard K/4 --workers 2`:
+same flag as Playwright's. CI runs `--shard K/4 --workers 1 --reruns 2`: four
+shards share one test Supabase project, and more browsers than that slow it
+down enough to blank pages that look up every row. `--reruns N` is
+Playwright's `retries`, from `pytest-rerunfailures`:
 
 ```bash
-pytest tests/e2e --workers 4
+pytest tests/e2e --shard 2/4 --workers 1 --reruns 2   # what CI runs
+pytest tests/e2e --workers 2                          # locally, on its own
 ```
 
 To rerun a shard that failed in CI, use the same K/N — the files are dealt

@@ -6,6 +6,7 @@ fastapi
 pydantic[email]
 supabase
 pytest-xdist     # behind --workers N, see tests/conftest.py
+pytest-rerunfailures  # --reruns N, Playwright's `retries`, used by CI for e2e
 
 # e2e only. The browser itself is a separate download that pip cannot do:
 #   playwright install chromium
