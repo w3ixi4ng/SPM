@@ -804,7 +804,7 @@ apart at a glance:
 | --- | --- | --- |
 | **Unit (pytest)** | `pytest tests/unit --workers auto` | Nothing |
 | **Unit (node)** | `node --test tests/unit/frontend/test_*.mjs` | Nothing — no `npm ci`, these import `frontend/src/lib/` directly |
-| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration --workers 4 --reruns 2`, with `composite/event_requests/test_app.py` run on its own afterwards — its coordinator-assignment tests cannot share the project with another worker | The repo secrets below |
+| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration --workers 2` — two, because every worker shares the runner's IP and Supabase Auth rate-limits sign-ins per IP (more than two gets `429 Too Many Requests`) — with `composite/event_requests/test_app.py` run on its own afterwards — its coordinator-assignment tests cannot share the project with another worker | The repo secrets below |
 | **End-to-end (playwright K/4)** | four runners, each with the same stack, plus `playwright install --with-deps chromium`, then `pytest tests/e2e --shard K/4 --workers 1 --reruns 2` — one browser per runner, because the four shards share one Supabase project and more than that overloads it | The repo secrets below |
 
 Both Docker jobs bring up the **whole** stack, Kong and the frontend included:

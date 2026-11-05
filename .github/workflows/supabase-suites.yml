@@ -116,15 +116,18 @@ jobs:
       - name: Start the stack
         run: docker compose --env-file .env.test up -d --build --wait
 
-      # Most of the run is waiting on the remote test project, so four workers
-      # cut it to roughly a quarter. --workers (tests/conftest.py) keeps each
-      # file on one worker, so its module fixtures and accounts are made once,
-      # not once per worker.
+      # Most of the run is waiting on the remote test project, so workers cut
+      # it down. --workers (tests/conftest.py) keeps each file on one worker,
+      # so its module fixtures and accounts are made once, not once per worker.
       #
-      # --reruns 2, as for e2e below: four workers share the test project, and
-      # a route that makes many reads and fails on any one of them (S-78's
-      # replacement-venue search, for one) can hit a slow read and answer
-      # 502. A retried test shows as RERUN in the log, not as a silent pass.
+      # Two workers, not four, and no --reruns: nearly every test signs an
+      # account in, and Supabase Auth rate-limits sign-ins per IP. All the
+      # workers share this runner's IP, so at four the suite hits
+      # "429 Too Many Requests" on /auth/v1/token, and a service that gets the
+      # 429 reports "... service unavailable" (502). Retrying straight away
+      # only signs in again and makes it worse. Raise the test project's Auth
+      # rate limit before raising this. (The e2e shards each have their own
+      # runner, and so their own IP.)
       #
       # event_requests/test_app.py runs on its own afterwards. Its assignment
       # tests block every coordinator in the project, then expect a specific
@@ -133,7 +136,7 @@ jobs:
       # integration, below.
       - name: Run integration tests
         run: >-
-          pytest tests/integration -v --workers 4 --reruns 2
+          pytest tests/integration -v --workers 2
           --ignore=tests/integration/composite/event_requests/test_app.py
 
       - name: Run coordinator assignment tests (serial)
