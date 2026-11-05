@@ -1106,7 +1106,21 @@ alter table bookings.bookings add constraint bookings_allocation_valid
 
 alter table bookings.bookings add column if not exists hold_confirmed_by uuid;
 alter table bookings.bookings add column if not exists hold_confirmed_at timestamptz;
-alter table bookings.bookings add column if not exists hold_expiry_notified_at timestamptz;
+-- Do not send fresh expiry notices for holds that expired before deployment.
+-- On a rerun, leave newly expired, unnotified holds alone for the reconciler.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'bookings' and table_name = 'bookings'
+       and column_name = 'hold_expiry_notified_at'
+  ) then
+    alter table bookings.bookings add column hold_expiry_notified_at timestamptz;
+    update bookings.bookings set hold_expiry_notified_at = coalesce(hold_released_at, now())
+     where hold_release_reason = 'expired';
+  end if;
+end;
+$$;
 alter table bookings.bookings add column if not exists approval_setup_minutes integer;
 alter table bookings.bookings add column if not exists approval_turnaround_minutes integer;
 alter table bookings.bookings drop constraint if exists bookings_hold_confirmation_audit_valid;

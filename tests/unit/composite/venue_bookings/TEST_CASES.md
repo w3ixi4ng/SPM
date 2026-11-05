@@ -1544,8 +1544,9 @@ and browser cases, and TC-VENUEBOOKINGS-136 below.
 - **Pre-conditions:** Bookings returns one expired unnotified hold, then none.
 - **Steps:** Run two reconciliation passes.
 - **Expected:** One `venue_hold_expiry` notification to the Coordinator with
-  a stable key, followed by one mark-notified call.
-- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py::test_expiry_reconciler_notifies_then_marks_and_does_not_repeat`
+  a stable key, followed by one mark-notified call. A failed notice remains
+  unmarked for retry and does not delay notices for other holds.
+- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py::test_expiry_reconciler_notifies_then_marks_and_does_not_repeat`; `test_one_failed_expiry_notice_does_not_delay_other_holds`.
 
 ### TC-VENUEBOOKINGS-137 — only the currently assigned Coordinator confirms
 

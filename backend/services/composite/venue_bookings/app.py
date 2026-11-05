@@ -52,18 +52,21 @@ async def _reconcile_expired_holds_once(bookings, notifications):
     response = await bookings.get("/internal/bookings/expired-holds", headers=headers)
     response.raise_for_status()
     for held in response.json():
-        notice = {
-            "recipient_id": held["coordinator_id"],
-            "event_id": held["event_id"],
-            "event_name": held["event_name"],
-            "kind": "venue_hold_expiry",
-            "message": f'The tentative hold for {held["venue_name"]} on {held["booking_date"]} has expired. The venue is available again.',
-            "deduplication_key": f'venue_hold_expired:{held["id"]}:{held["hold_expires_at"]}',
-        }
-        delivered = await notifications.post("/internal/notifications", json={"notifications": [notice]})
-        delivered.raise_for_status()
-        marked = await bookings.post(f'/internal/bookings/{held["id"]}/expiry-notified', headers=headers)
-        marked.raise_for_status()
+        try:
+            notice = {
+                "recipient_id": held["coordinator_id"],
+                "event_id": held["event_id"],
+                "event_name": held["event_name"],
+                "kind": "venue_hold_expiry",
+                "message": f'The tentative hold for {held["venue_name"]} on {held["booking_date"]} has expired. The venue is available again.',
+                "deduplication_key": f'venue_hold_expired:{held["id"]}:{held["hold_expires_at"]}',
+            }
+            delivered = await notifications.post("/internal/notifications", json={"notifications": [notice]})
+            delivered.raise_for_status()
+            marked = await bookings.post(f'/internal/bookings/{held["id"]}/expiry-notified', headers=headers)
+            marked.raise_for_status()
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            logger.exception("Could not notify expiry for hold %s; retrying", held.get("id"))
 
 
 async def _reconcile_expired_holds():
