@@ -808,8 +808,9 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
   `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
-  C confirmed 15:00–16:00 and E confirmed 16:30–17:00, both confirmed when
-  the venue was 0/0.
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00 (none overlapping by
+  their own times). The times are set before the bookings are seeded: once a
+  confirmed booking exists they are locked (S-75 reopened).
 - **Steps:**
   1. Staff open B from the request list and approve it.
   2. Staff open the dashboard, then reload it.
@@ -819,11 +820,9 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
     (event 10:00–12:00, 30 min setup, 45 min turnaround)." B stays pending.
   - Step 2: "Clashes to review" lists the venue with the C–E pair, before
     and after the reload, with no Dismiss button. Nothing is removed.
-- **Actual:** Approving B showed the specified alert naming Event A with 09:30–12:45; B stayed pending; "Clashes to review" listed the venue with C and E before and after reload, with no Dismiss; no booking removed.
-- **Status:** Pass
-- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
-  local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
-  1 passed.
+- **Actual:** 
+- **Status:** Not Executed — seeding amended 2026-11-06 for the test project's lock on a venue's times while an upcoming confirmed booking stands (`confirmed_venue_timing_locked`); awaiting the PR #98 CI run
+- **Evidence:** `tests/e2e/test_review_booking_conflicts.py::test_staff_are_told_which_booking_blocks_an_approval_and_the_clash_stays_listed[chromium]`
 
 ## TC-E2E-238 — Lead oversees every Coordinator and sees reassignment move work
 

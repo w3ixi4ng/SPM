@@ -15,16 +15,17 @@ def test_an_overlapping_approval_is_refused_by_name_and_the_clash_stays_listed(
 ):
     staff = cookie_for(auth_client, world["staff"])
     event_b, event_c = more_events
-    # Valid at 0/0: none of these overlap by their own times.
-    a = seed(admin, world, world["event_id"], "confirmed", "10:00", "12:00")
-    c = seed(admin, world, event_c, "confirmed", "13:00", "14:00")
-    b = seed(admin, world, event_b, "pending", "12:00", "12:45")
-
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=20.0) as api:
-        # 1. Staff set the venue's times.
+        # 1. Staff set the venue's times -- before the confirmed bookings
+        #    exist, which would lock them (S-75 reopened).
         saved = api.patch(f"/venues/{world['venue_id']}", headers=staff,
                           json={"setup_minutes": 30, "turnaround_minutes": 45})
         assert saved.status_code == 200, saved.text
+
+        # Valid at 0/0: none of these overlap by their own times.
+        a = seed(admin, world, world["event_id"], "confirmed", "10:00", "12:00")
+        c = seed(admin, world, event_c, "confirmed", "13:00", "14:00")
+        b = seed(admin, world, event_b, "pending", "12:00", "12:45")
 
         # 2. Approving B is refused, naming A and its occupied period. The
         #    venue name is the one saved on the booking, as in every refusal.

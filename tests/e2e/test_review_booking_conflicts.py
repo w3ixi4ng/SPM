@@ -23,13 +23,15 @@ def test_staff_are_told_which_booking_blocks_an_approval_and_the_clash_stays_lis
     organiser = make_user("event_organiser")
     venue = add_venue(admin, staff, uuid.uuid4().hex[:6])
     events = {label: add_event(admin, organiser, coordinator, label, d(3)) for label in "ABCE"}
-    # All valid at 0/0; the times below make A block B, and C clash with E.
+    # The times go on first: once a confirmed booking exists they are locked
+    # (S-75 reopened). They make A block B, and C clash with E; all four are
+    # valid at 0/0, i.e. by their own times.
+    admin.schema("venues").table("venues").update(
+        {"setup_minutes": 30, "turnaround_minutes": 45}).eq("id", venue["id"]).execute()
     seed(admin, events["A"], venue, coordinator, staff, "confirmed", "10:00", "12:00")
     b = seed(admin, events["B"], venue, coordinator, staff, "pending", "12:30", "14:00")
     seed(admin, events["C"], venue, coordinator, staff, "confirmed", "15:00", "16:00")
     seed(admin, events["E"], venue, coordinator, staff, "confirmed", "16:30", "17:00")
-    admin.schema("venues").table("venues").update(
-        {"setup_minutes": 30, "turnaround_minutes": 45}).eq("id", venue["id"]).execute()
     day = d(3)
 
     # 1. Approving B is refused, naming A and when it occupies the venue.

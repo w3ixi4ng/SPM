@@ -188,19 +188,20 @@ in the test project.
 - **Scenario:** Real services and Kong agree (AC3, AC4).
 - **Pre-conditions:** A fresh `.env.test` stack. A Coordinator, Venue Staff,
   a test venue open `thu` 08:00–20:00 with setup and turnaround 0, and two
-  planning events. Booking A confirmed 10:00–12:00 and B held 12:30–14:00 on
-  2026-11-12.
+  planning events. Booking A held 10:00–12:00 and B held 12:30–14:00 on
+  2026-11-12. A is held, not confirmed: a confirmed booking dated today or
+  later locks the venue's times (S-75 reopened).
 - **Steps:**
   1. Staff `GET /api/venue-bookings/clashes` for the venue: none.
   2. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`, `turnaround_minutes: 45`.
   3. Staff list clashes again; the Coordinator lists B's event requests.
   4. The Coordinator requests 12:00–12:30 for another planning event.
 - **Expected:** Step 3: the A–B pair is listed, and B carries the clash
-  warning. A and B are unchanged in `bookings.bookings`. Step 4: `409` "…in
+  warning. A and B are unchanged (both held) in `bookings.bookings`. Step 4: `409` "…in
   use until 12:45." Cleanup deletes every row created.
-- **Actual:** Through Kong: no clashes at 0/0; after Staff saved 30/45 the A–B pair was listed and B carried the 10:00 clash; both bookings unchanged; 12:00–12:30 refused "…in use until 12:45."
-- **Status:** Pass
-- **Evidence:** `tests/integration/composite/venue_bookings/test_setup_turnaround.py::test_new_times_flag_the_clash_and_govern_the_next_request`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
+- **Actual:** 
+- **Status:** Not Executed — seeding amended 2026-11-06 for the test project's lock on a venue's times while an upcoming confirmed booking stands (`confirmed_venue_timing_locked`); awaiting the PR #98 CI run
+- **Evidence:** `tests/integration/composite/venue_bookings/test_setup_turnaround.py::test_new_times_flag_the_clash_and_govern_the_next_request`
 
 ## S-76 — detect booking conflicts incl. setup and turnaround
 
@@ -214,12 +215,13 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
   list (S-76 AC3, AC5).
 - **Pre-conditions:** A fresh `.env.test` stack. Venue Staff, a Coordinator,
   a test venue open `thu` 08:00–20:00 at setup and turnaround 0, three
-  planning events. On 2026-11-12: A confirmed 10:00–12:00 ("Alumni talk"),
-  C confirmed 13:00–14:00, B pending 12:00–12:45 (none overlapping
-  at 0/0, so the rows are valid before step 1).
+  planning events.
 - **Steps:**
   1. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`,
-     `turnaround_minutes: 45`.
+     `turnaround_minutes: 45`. Then, on 2026-11-12, A confirmed 10:00–12:00
+     ("Alumni talk"), C confirmed 13:00–14:00 and B pending 12:00–12:45 are
+     seeded (none overlapping by their own times). The times go first: once
+     a confirmed booking exists they are locked (S-75 reopened).
   2. Staff approve B through `/api/venue-bookings/{B}/decision`.
   3. Staff `GET /api/venue-bookings/clashes` (no `venue_id`).
 - **Expected:**
@@ -230,9 +232,9 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
   - Step 3: the test venue is listed with the A–C pair (both confirmed).
   - A and C are unchanged in `bookings.bookings`. Cleanup deletes every row
     created.
-- **Actual:** Through Kong: after Staff saved 30/45, approving B was refused naming A with 09:30–12:45 (venue name as saved on the booking); the A–C confirmed pair was listed with no `venue_id`; A, C confirmed and B pending in `bookings.bookings`.
-- **Status:** Pass
-- **Evidence:** `tests/integration/composite/venue_bookings/test_booking_conflicts.py::test_an_overlapping_approval_is_refused_by_name_and_the_clash_stays_listed`; `.env.test` stack rebuilt from branch `S-76/detect-booking-conflicts-incl-setup-and-turnaround` at `8e7c69d` immediately before (bookings container on the test project's `SUPABASE_URL`), 2026-10-09. Full suite: 42 passed, 1 failed (this test expected the venue's current name rather than the one saved on the booking; test fixed and rerun: pass), 5 skipped (S-83).
+- **Actual:** 
+- **Status:** Not Executed — seeding amended 2026-11-06 for the test project's lock on a venue's times while an upcoming confirmed booking stands (`confirmed_venue_timing_locked`); awaiting the PR #98 CI run
+- **Evidence:** `tests/integration/composite/venue_bookings/test_booking_conflicts.py::test_an_overlapping_approval_is_refused_by_name_and_the_clash_stays_listed`
 
 ## S-79 — book multiple venues for one event
 

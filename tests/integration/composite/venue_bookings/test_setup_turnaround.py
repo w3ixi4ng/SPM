@@ -34,7 +34,9 @@ def test_new_times_flag_the_clash_and_govern_the_next_request(admin, auth_client
     staff = cookie_for(auth_client, world["staff"])
     coordinator = cookie_for(auth_client, world["coordinator"])
     event_b, event_c = more_events
-    a = seed(admin, world, world["event_id"], "confirmed", "10:00", "12:00")
+    # A is held: a confirmed A dated today or later locks the times this
+    # case sets (S-75 reopened; the test project enforces it).
+    a = seed(admin, world, world["event_id"], "held", "10:00", "12:00")
     b = seed(admin, world, event_b, "held", "12:30", "14:00")
 
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=20.0) as api:
@@ -59,7 +61,7 @@ def test_new_times_flag_the_clash_and_govern_the_next_request(admin, auth_client
         [b_row] = listed.json()
         assert [c["start_time"][:5] for c in b_row["clashes"]] == ["10:00"]
         stored = admin.schema("bookings").table("bookings").select("id,status").in_("id", [a["id"], b["id"]]).execute().data
-        assert sorted(row["status"] for row in stored) == ["confirmed", "held"]
+        assert sorted(row["status"] for row in stored) == ["held", "held"]
 
         # 4. The next request is checked by the new times.
         refused = api.post("/venue-bookings", headers=coordinator, json={
