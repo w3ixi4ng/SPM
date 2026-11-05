@@ -362,3 +362,46 @@ def test_new_staff_approved_booking_resolves_old_booking_impact_with_trusted_evi
         "booking_id": replacement_id, "venue_id": V2,
         "venue_decided_by": staff_id, "venue_decided_at": "2026-10-28T00:00:00Z",
     }
+
+
+# --- TC-EVENTREQUESTS-452 --------------------------------------------------
+# S-26 AC2: the accepted change sent E back to Planning, where preparation
+# can't be updated, so resolving the equipment impact mustn't wait for it.
+def test_equipment_impact_resolves_on_fresh_signoff_without_preparation(
+    client, users, events, equipment, bookings, venues,
+):
+    support = EVENT["assigned_technical_support_id"]
+    replanned = {**EVENT, "status": "planning",
+                 "technical_signoff_decision": "approved", "technical_signoff_by": support,
+                 "technical_signoff_at": "2026-10-28T00:00:00Z",
+                 "equipment_preparation_status": "not_started",
+                 "equipment_preparation_updated_by": None, "equipment_preparation_updated_at": None}
+    impact_path = (f"/event-requests/{EVENT_ID}/change-requests/{REQUEST_ID}"
+                   f"/impacts/equipment:{P}:requirement/resolve")
+    body = {"expected_impact_version": 1, "action": "Reviewed revised projector count", "evidence": {}}
+
+    def accepted(change):
+        change.update({"status": "accepted", "resolved_at": "2026-10-27T10:00:00Z", "impact_version": 1,
+                       "proposed_equipment": [{"equipment_item_id": P, "required_quantity": 2}],
+                       "impacts": [{"id": f"equipment:{P}:requirement", "kind": "equipment",
+                                    "arrangement_id": P, "status": "outstanding",
+                                    "reason": "The required quantity or item changed; revalidate its reservation."}]})
+
+    accepted(configure(users, events, equipment, bookings, venues, event_override=replanned))
+    result = client.post(impact_path, json=body)
+
+    assert result.status_code == 200, result.json()
+    sent = next(call.kwargs["json"] for call in events.post.await_args_list if call.args[0].endswith("/resolve"))
+    assert sent["evidence"] == {
+        "equipment_item_id": P, "required_quantity": 2,
+        "technical_signoff_by": support, "technical_signoff_at": "2026-10-28T00:00:00Z",
+    }
+
+    events.post.reset_mock()
+    stale = {**replanned, "technical_signoff_at": "2026-10-26T00:00:00Z"}
+    accepted(configure(users, events, equipment, bookings, venues, event_override=stale))
+    refused = client.post(impact_path, json=body)
+
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "Fresh Technical Support sign-off is required"
+    assert not any(call.args[0].endswith("/resolve") for call in events.post.await_args_list)

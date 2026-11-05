@@ -89,6 +89,27 @@ alter table notifications.notifications add constraint notifications_kind_allowe
 notify pgrst, 'reload schema';
 -- END S-63 ORGANISER DECISIONS AND CHANGES
 
+-- BEGIN S-81 HOLD CONFIRMED
+-- Existing installations: run this block in BOTH dev and test, after the
+-- S-63 block. It keeps every kind above and adds venue_hold_confirmed: Venue
+-- Staff are told when the Event Coordinator confirms their tentative hold.
+alter table notifications.notifications
+  drop constraint if exists notifications_kind_allowed;
+alter table notifications.notifications add constraint notifications_kind_allowed
+  check (kind in (
+    'event_assignment', 'event_reassignment', 'venue_unavailable',
+    'equipment_unavailable',
+    'venue_hold_expiry', 'registration_confirmation', 'waiting_list_promotion',
+    'waiting_list_offer', 'event_cancelled', 'waiting_list_joined',
+    'registration_withdrawn', 'waiting_list_offer_declined',
+    'event_request_decision', 'venue_booking_decision',
+    'safety_check_outcome', 'event_schedule_changed',
+    'venue_hold_confirmed'
+  ));
+
+notify pgrst, 'reload schema';
+-- END S-81 HOLD CONFIRMED
+
 -- Every inbox query filters by recipient and shows newest first.
 create index if not exists notifications_recipient_created_idx
   on notifications.notifications (recipient_id, created_at desc);

@@ -327,6 +327,9 @@ def test_signoff_and_preparation_are_recorded(client, auth, tables):
     approved = {"technical_support_id": T, "decision": "approved"}
     assert client.put(f"/internal/events/{E}/technical-signoff", json=approved).status_code == 200
 
+    # S-26 AC2: preparation changes only after the Safety Officer's approval.
+    approved_event = {**supported, "status": "confirmed", "safety_decision": "approved"}
+    events(tables, select=[[approved_event]], update=[[approved_event]])
     as_role(client, auth, T, "technical_support")
     path = f"/events/support-assigned/{E}/equipment-preparation"
     assert client.put(path, json={"status": "in_progress"}).status_code == 200

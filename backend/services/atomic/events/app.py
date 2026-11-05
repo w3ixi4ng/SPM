@@ -99,6 +99,12 @@ OVERSIGHT_ACTIVE_STATUSES = ACTIVE_ASSIGNMENT_STATUSES
 EQUIPMENT_PREPARATION_EVENT_STATUSES = [
     "planning", "pending_safety_check", "confirmed", "preparation",
 ]
+# S-26 AC2: preparation can change only once the Safety Officer has approved
+# the event. Approval moves it to `confirmed` (S-86 AC5) and nothing yet moves
+# it on, so "in Preparation (after approval)" is `confirmed` or `preparation`.
+# Support still sees its planning work above; it just can't prepare it yet.
+PREPARATION_UPDATABLE_STATUSES = ["confirmed", "preparation"]
+PREPARATION_NOT_YET = "Equipment preparation can be updated once the Safety Officer has approved the event"
 COORDINATOR_EDITABLE_STATUSES = ["planning", "confirmed", "preparation"]
 SIGNIFICANT_EVENT_FIELDS = frozenset({
     "start_date", "start_time", "end_date", "end_time",
@@ -543,6 +549,8 @@ def update_equipment_preparation(
 ):
     staff_id = str(user.id)
     existing = _get_support_assigned_event(event_id, staff_id, db)
+    if existing.get("status") not in PREPARATION_UPDATABLE_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PREPARATION_NOT_YET)
     values = {
         "equipment_preparation_status": payload.status.value,
         "equipment_preparation_updated_by": staff_id,
@@ -554,7 +562,7 @@ def update_equipment_preparation(
         .update(values)
         .eq("id", str(event_id))
         .eq("assigned_technical_support_id", staff_id)
-        .in_("status", EQUIPMENT_PREPARATION_EVENT_STATUSES)
+        .in_("status", PREPARATION_UPDATABLE_STATUSES)
     )
     result = _execute(operation)
     if not result.data:

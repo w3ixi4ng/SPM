@@ -14,7 +14,20 @@ export function buildEventReadiness(event, bookings, requirements) {
   const readyVenues = confirmedVenues.filter((booking) => booking.venue_preparation_status === 'ready')
   const venueComplete = confirmedVenues.length > 0 && readyVenues.length === confirmedVenues.length
   const equipmentComplete = requirements.length > 0
-  const supportComplete = event.equipment_preparation_status === 'ready'
+  // S-26 AC2: preparation only opens after the Safety Officer's approval, so
+  // before it Technical support is complete once the arrangements are signed
+  // off; after it, preparation must also be Ready.
+  const signedOff = event.technical_signoff_decision === 'approved'
+  const approved = ['confirmed', 'preparation'].includes(event.status)
+  const preparationLabel = event.equipment_preparation_status === 'ready'
+    ? 'Ready'
+    : event.equipment_preparation_status === 'in_progress' ? 'In Progress' : 'Not Started'
+  const supportComplete = signedOff && (!approved || event.equipment_preparation_status === 'ready')
+  const supportDetail = !signedOff
+    ? 'Technical Support has not approved the equipment arrangements'
+    : !approved
+      ? 'Equipment preparation starts after the safety check'
+      : `Equipment preparation is ${preparationLabel}`
 
   const areas = [
     {
@@ -40,9 +53,7 @@ export function buildEventReadiness(event, bookings, requirements) {
       id: 'technical_support',
       label: 'Technical support',
       state: supportComplete ? 'complete' : 'outstanding',
-      detail: supportComplete
-        ? 'Equipment preparation is Ready'
-        : `Equipment preparation is ${event.equipment_preparation_status === 'in_progress' ? 'In Progress' : 'Not Started'}`,
+      detail: supportDetail,
     },
     unavailable('programme', 'Programme'),
     unavailable('registration', 'Registration'),

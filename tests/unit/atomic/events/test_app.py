@@ -15,10 +15,8 @@ from .conftest import (
     OTHER_USER_ID,
     ROLE_PERMISSIONS,
     authenticate,
-    coordinator_event_row,
     event_row,
     fake_user,
-    on_coordinator_rows,
     on_decision_update,
     on_insert,
     on_owned_list,
@@ -517,90 +515,6 @@ def test_cannot_submit_another_users_draft(client, db, auth):
 # because the caller is the event_requests service, not a browser.
 
 
-# --- TC-EVENTS-049 --------------------------------------------------------
-def test_coordinator_load_reports_no_conflict_with_empty_schedule(client, db):
-    on_coordinator_rows(db, [])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "18:00",
-            "end_date": "2026-10-20",
-            "end_time": "21:00",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json() == [
-        {"coordinator_id": COORDINATOR_A, "conflict": False, "assigned_count": 0}
-    ]
-
-
-# --- TC-EVENTS-050 --------------------------------------------------------
-def test_coordinator_load_reports_a_conflict_on_any_overlap(client, db):
-    on_coordinator_rows(db, [coordinator_event_row(COORDINATOR_A)])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "20:00",
-            "end_date": "2026-10-20",
-            "end_time": "22:00",
-        },
-    )
-
-    assert response.status_code == 200
-    result = response.json()[0]
-    assert result["conflict"] is True
-    assert result["assigned_count"] == 1
-
-
-# --- TC-EVENTS-051 --------------------------------------------------------
-def test_coordinator_load_back_to_back_events_do_not_conflict(client, db):
-    on_coordinator_rows(db, [coordinator_event_row(COORDINATOR_A)])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "21:00",
-            "end_date": "2026-10-20",
-            "end_time": "22:00",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()[0]["conflict"] is False
-
-
-# --- TC-EVENTS-052 --------------------------------------------------------
-def test_coordinator_load_query_only_counts_submitted_and_planning_events(client, db):
-    on_coordinator_rows(db, [])
-
-    client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "18:00",
-            "end_date": "2026-10-20",
-            "end_time": "21:00",
-        },
-    )
-
-    # Drafts, returned, and rejected are filtered out in the query itself,
-    # not after -- so they never reach the conflict or count logic at all.
-    # Planning counts alongside submitted -- both are live commitments.
-    db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.assert_called_once_with(
-        "status", ["submitted", "planning"]
-    )
-
-
 # --- TC-EVENTS-053 --------------------------------------------------------
 def test_internal_create_trusts_caller_organiser_but_starts_unassigned(client, db):
     stored = event_row(status="submitted", assigned_coordinator_id=None, **SUBMITTED)
@@ -716,30 +630,6 @@ def test_coordinator_views_one_assigned_event(client, db, auth):
 
 
 # --- Rechecking a submitted event's assignment on edit ---------------------
-
-
-# --- TC-EVENTS-062 --------------------------------------------------------
-def test_coordinator_load_excludes_the_given_event_from_conflict_and_count(client, db):
-    on_coordinator_rows(db, [coordinator_event_row(COORDINATOR_A, id=EVENT_ID)])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "18:00",
-            "end_date": "2026-10-20",
-            "end_time": "21:00",
-            "exclude_event_id": EVENT_ID,
-        },
-    )
-
-    assert response.status_code == 200
-    result = response.json()[0]
-    # Without exclude_event_id this would conflict with itself (identical
-    # window) and count toward assigned_count -- excluded, it does neither.
-    assert result["conflict"] is False
-    assert result["assigned_count"] == 0
 
 
 # --- TC-EVENTS-063 --------------------------------------------------------

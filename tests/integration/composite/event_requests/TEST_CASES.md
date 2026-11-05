@@ -19,7 +19,7 @@ feature itself:
 1. **The pool of coordinators is whatever currently exists in the project**,
    not only the accounts a given test creates — a coordinator left over from
    manual testing or an earlier run was still "free" and won the assignment
-   instead of the request being rejected (first hit on TC-EVENTREQUESTS-102).
+   instead of the request being rejected (first hit on TC-EVENTREQUESTS-102, since removed).
    Fixed by having every case account for the *whole* pool — blocking or
    exempting every coordinator that exists, not only its own fixtures — via
    `conftest.py`'s `all_coordinator_ids`/`block_other_coordinators`.
@@ -28,7 +28,7 @@ feature itself:
    spread `**window` last — and a real caller's `window` (`SUBMITTED`) has
    its own `name` key too, so the spread silently clobbered the explicit
    ones. Every "blocking" event ended up named after the request itself
-   instead of "Blocking booking for ...", which TC-EVENTREQUESTS-102's own
+   instead of "Blocking booking for ...", which TC-EVENTREQUESTS-102's (since removed)
    final assertion caught. Fixed by pulling only the four date/time keys out
    of `window` instead of spreading the whole dict.
 
@@ -39,96 +39,15 @@ through Kong) got `ConnectionRefused` until that was added.
 
 Verified runnable twice in a row.
 
-## TC-EVENTREQUESTS-101 — a free coordinator is assigned and visible on the event
-
-- **Scenario:** End-to-end: one seeded coordinator with no assigned events,
-  one organiser submitting a request, against real Supabase rows.
-- **Pre-conditions:** `.env.test` targets the throwaway project; `events` and
-  `users` schemas applied, granted and exposed; a temporary Auth user with
-  role `event_coordinator` and one with role `event_organiser` are created for
-  the test and removed afterwards; the event_requests, events, and users
-  services are running; every *other* coordinator that already exists in the
-  project is given a covering booking so only the seeded one is free.
-- **Steps:** 1. Sign in as the organiser. 2. `POST /event-requests` with a
-  complete submitted payload for a window with no existing events. 3.
-  `GET /events/{id}` on the events service directly, authenticated as the
-  organiser.
-- **Test data:** Window `2026-11-05 09:00`–`11:00`.
-- **Expected:** Step 2 returns `201` with `assigned_coordinator_id` set to the
-  seeded coordinator's id; step 3's row carries the same
-  `assigned_coordinator_id`.
-- **Actual:** `201`, assigned to the seeded coordinator; step 3 matched.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_free_coordinator_is_assigned_and_visible_on_the_event`
-
-## TC-EVENTREQUESTS-102 — a fully booked coordinator pool rejects the submission
-
-- **Scenario:** Every coordinator that exists in the project — not only the
-  one this test seeds — already has a submitted event covering the requested
-  window, so the request is refused and nothing is written.
-- **Pre-conditions:** As TC-EVENTREQUESTS-101, except every coordinator
-  currently in the project (found via the Auth admin listing, the same set
-  `GET /users/coordinators` would return) is given a covering booking,
-  including the seeded one.
-- **Steps:** 1. Sign in as the organiser. 2. `POST /event-requests` with a
-  payload whose window overlaps every coordinator's existing event. 3.
-  `GET /events` on the events service, authenticated as the organiser.
-- **Test data:** Window `2026-11-05 09:00`–`11:00`.
-- **Expected:** Step 2 returns `409`; step 3's list contains no event for
-  this attempt — the request was never created.
-- **Actual:** `409` with the exact expected detail; the organiser's event list
-  contained no event for the refused request. The blocking helper rechecked
-  the shared coordinator pool until no newly created CI account remained
-  unblocked.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_fully_booked_coordinator_pool_rejects_the_submission`
-
-## TC-EVENTREQUESTS-103 — every event-requests operation routes through Kong
-
-- **Scenario:** The browser-facing path works the same as calling the service
-  directly.
-- **Pre-conditions:** As TC-EVENTREQUESTS-101; Kong running with the
-  `/api/event-requests` route configured.
-- **Steps:** Repeat TC-EVENTREQUESTS-101's step 2 against
-  `http://localhost:8000/api/event-requests` instead of the service's own
-  port.
-- **Test data:** As TC-EVENTREQUESTS-101.
-- **Expected:** Same `201` and `assigned_coordinator_id` as calling the
-  service directly.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_every_event_requests_operation_routes_through_kong`
-
-## TC-EVENTREQUESTS-104 — editing the date/time reassigns to a free coordinator
-
-- **Scenario:** End-to-end proof that editing a submitted event's date/time
-  moves the assignment when the current coordinator no longer fits.
-- **Pre-conditions:** As TC-EVENTREQUESTS-101, plus a second seeded
-  coordinator; coordinator B has an existing submitted event covering the
-  window the request will initially be submitted for; coordinator A has one
-  covering the window the request will later be edited into; every other
-  coordinator already in the project is given a covering booking at *both*
-  windows, so a third, unrelated account can never be the one picked.
-- **Steps:** 1. Sign in as the organiser. 2. `POST /event-requests` for the
-  initial window. 3. `PATCH /event-requests/{id}` moving the window to the
-  one A is blocked at.
-- **Test data:** Initial window `2026-11-05 09:00`–`11:00` (B blocked here);
-  edited window `13:00`–`15:00` (A blocked here).
-- **Expected:** Step 2 returns `201` assigned to A. Step 3 returns `200`,
-  `start_time` updated to `13:00:00`, and `assigned_coordinator_id` changed
-  from conflicted A to an existing eligible coordinator. In an isolated pool
-  that is B; another free coordinator added to the shared project after the
-  fixture's blocking snapshot is also a valid assignment.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_editing_the_datetime_reassigns_when_the_current_coordinator_now_conflicts`
-
 ## TC-EVENTREQUESTS-105 — a returned request is amended, resubmitted, and back with its coordinator
 
 - **Scenario:** Against the real database, this proves S-13 AC2 to AC5 in one
   round trip: the amendment is saved, the same record is resubmitted, and it
   is back in the coordinator's queue.
-- **Pre-conditions:** As TC-EVENTREQUESTS-101. The organiser has a submitted
+- **Pre-conditions:** `.env.test` targets the throwaway project; `events` and
+  `users` schemas applied, granted and exposed; temporary organiser and
+  coordinator Auth users created for the test and removed afterwards; the
+  event_requests, events, and users services running. The organiser has a submitted
   request assigned to coordinator A. The admin client then sets it to
   `status=returned`, `decision=returned`, with a reason, a comment and
   `decided_at`. Every other coordinator is blocked at the window, so A is the
@@ -201,9 +120,9 @@ Verified runnable twice in a row.
 Story: S-83 Assign Event Requests from Unassigned Queue. Acceptance criteria
 and notification recipients confirmed by the developer on 2026-10-08.
 
-TC-EVENTREQUESTS-101 through TC-EVENTREQUESTS-104 specify the superseded
-automatic-assignment rule from S-12. They are retained as historical IDs but
-must no longer execute after S-83 replaces that workflow.
+TC-EVENTREQUESTS-101 through TC-EVENTREQUESTS-104 specified the superseded
+automatic-assignment rule from S-12 and have been removed. Their IDs stay
+retired and are not reused.
 
 ## TC-EVENTREQUESTS-108 — submission, Lead assignment, and both notifications cross real boundaries
 

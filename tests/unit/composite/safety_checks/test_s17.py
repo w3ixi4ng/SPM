@@ -338,9 +338,7 @@ def test_signoff_needed_without_support_assigned(client, services, requirements,
     assert codes(result) == [
         ("technical_support_unassigned", None),
         ("technical_signoff_awaiting", None),
-        ("equipment_preparation", None),
     ]
-    assert result.json()["outstanding"][2]["label"] == "Equipment preparation is Not Started"
     services["events"].post.assert_not_awaited()
 
 
@@ -368,20 +366,26 @@ def test_signoff_awaiting_or_declined_is_outstanding(client, services):
     assert client.post(SUBMIT).status_code == 200
 
 
-# --- TC-SAFETYCHECKS-019 --------------------------------------------------
-@pytest.mark.parametrize(
-    "preparation, label",
-    [("not_started", "Not Started"), ("in_progress", "In Progress")],
-)
-def test_equipment_preparation_must_be_ready(client, services, preparation, label):
+# --- TC-SAFETYCHECKS-037 (replaces retired -019) --------------------------
+# S-26 AC2 opens equipment preparation only after the Safety Officer's
+# approval, so it can't be a condition of submitting for that approval.
+@pytest.mark.parametrize("preparation", ["not_started", "in_progress", "ready"])
+def test_equipment_preparation_does_not_block_submission(client, services, preparation):
     arrange(services, the_event=event(equipment_preparation_status=preparation))
 
+    read = client.get(READINESS)
+    assert read.status_code == 200
+    assert read.json() == {"ready": True, "outstanding": []}
+
+    services["events"].post.return_value = response(200, event(status="pending_safety_check"))
     result = client.post(SUBMIT)
 
-    refused(result)
-    assert result.json()["outstanding"] == [
-        {"code": "equipment_preparation", "label": f"Equipment preparation is {label}"},
-    ]
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "pending_safety_check"
+    services["events"].post.assert_awaited_once_with(
+        f"/internal/events/{EVENT_ID}/safety-submission",
+        json={"coordinator_id": C1},
+    )
 
 
 # --- TC-SAFETYCHECKS-020 --------------------------------------------------
@@ -401,7 +405,6 @@ def test_every_outstanding_item_listed(client, services):
         ("venue_rejected", B3),
         ("technical_support_unassigned", None),
         ("technical_signoff_awaiting", None),
-        ("equipment_preparation", None),
     ]
 
     submitted = client.post(SUBMIT)

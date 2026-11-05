@@ -40,7 +40,9 @@ deduplication key. Supported kinds are `event_assignment`,
 `event_reassignment`, `venue_unavailable` (a Coordinator's or Organiser's
 booking needs alternative arrangements), `equipment_unavailable` (a confirmed
 or preparation event needs replacement equipment), `venue_hold_expiry` (the
-time a tentative hold will be released), `registration_confirmation` (an
+time a tentative hold will be released), `venue_hold_confirmed` (S-81
+reopened: the Event Coordinator confirmed a hold this Venue Staff member
+placed; needs the S-81 block of `notifications.sql`), `registration_confirmation` (an
 Attendee's place at an event was recorded), `waiting_list_promotion` (S-53: a
 withdrawal freed a place and this Attendee, first on the waiting list, now
 holds it; no longer sent since S-55, kept for rows already stored), and

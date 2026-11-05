@@ -324,16 +324,16 @@ def test_pending_safety_check_is_open_everywhere_confirmed_is(client, db, auth):
     statuses = table(db).select.return_value.eq.return_value.in_.call_args.args[1]
     assert "pending_safety_check" in statuses and "confirmed" in statuses
 
-    # 3. S-26 equipment preparation update
+    # 3. S-26 equipment preparation update -- the one exception: AC2 opens it
+    # only after the Safety Officer's approval, so pending_safety_check is 409.
     pending = planning_event(status="pending_safety_check")
     support_select(db, [pending])
-    preparation = table(db).update.return_value.eq.return_value.eq.return_value.in_.return_value
-    preparation.execute.return_value = SimpleNamespace(data=[pending])
     response = client.put(
         f"/events/support-assigned/{EVENT_ID}/equipment-preparation",
         json={"status": "ready"},
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
+    table(db).update.assert_not_called()
 
     # 4. S-62 cancellation request -- parametrised over every eligible status,
     # pending_safety_check included, in test_s62.py.
