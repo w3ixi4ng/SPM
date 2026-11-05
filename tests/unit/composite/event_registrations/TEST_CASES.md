@@ -657,8 +657,8 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
 - **Test data:** As above. E's one confirmed venue is "Seminar Room 2-1".
 - **Expected:** `200`, the same body as TC-EVENTREGISTRATIONS-036. Exactly one `POST /internal/notifications` with one row: `recipient_id` B, `event_id` E, `event_name` "Alumni networking evening", `kind` `waiting_list_promotion`, `deduplication_key` `waiting_list_promotion:99999999-9999-4999-8999-999999999999`, `message` "A place opened up: you're now registered for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ben Lee. Email: ben@example.com.". No row is addressed to A. With no confirmed venue, the message reads "…9:00 pm, venue to be confirmed. Name: …". It also works when promotion happens after registration has closed (clock `2026-11-16 12:00`).
 - **Actual:** `200`; one profile lookup for B; exactly one row to B with kind `waiting_list_promotion`, the expected message and key; none to A; no-venue wording "venue to be confirmed"; also sent after registration closed.
-- **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_the_promoted_attendee_is_notified, ::test_a_promotion_without_a_confirmed_venue, ::test_a_promotion_after_registration_has_closed; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Status:** Not Executed — retired by S-55 (2026-10-30); S-53 AC3 is now proven by TC-EVENTREGISTRATIONS-054
+- **Evidence:** None current: the test was removed when the case was retired. Last run (S-53): tests/unit/composite/event_registrations/test_s53.py::test_the_promoted_attendee_is_notified, ::test_a_promotion_without_a_confirmed_venue, ::test_a_promotion_after_registration_has_closed; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
 
 ## TC-EVENTREGISTRATIONS-040 — a failed notification doesn't undo the withdrawal
 
@@ -737,22 +737,6 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_an_event_being_rechecked_shows_details_to_be_confirmed (3 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-045 — the primary venue is the confirmed booking made first
-
-- **Scenario:** A multi-venue event shows one venue (S-56 AC3).
-- **Pre-conditions:** As above, with the bookings in each row, in the order given.
-- **Steps:** As TC-EVENTREGISTRATIONS-042, once per row.
-- **Test data / Expected:**
-  | Bookings for E | `venue` |
-  | --- | --- |
-  | "Room B" confirmed, submitted `2026-10-03`; "Hall A" confirmed, submitted `2026-10-01` | "Hall A" |
-  | "Room P" pending, submitted `2026-09-01`; "Room Q" held, submitted `2026-09-02`; "Room R" rejected, submitted `2026-09-03`; "Hall A" confirmed, submitted `2026-10-01` | "Hall A" |
-  | "Room P" pending only | `null`, still `"details_confirmed": true` |
-  | None | `null`, still `"details_confirmed": true` |
-- **Actual:** "Hall A", "Hall A", `null`, `null`; `details_confirmed` true in every row.
-- **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_primary_venue_is_the_confirmed_booking_made_first (4 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
-
 ## TC-EVENTREGISTRATIONS-046 — a venue issue shows only once the change is confirmed
 
 - **Scenario:** An unresolved venue issue is not shown; a confirmed replacement is (S-56 AC4).
@@ -801,7 +785,19 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 
 ## TC-EVENTREGISTRATIONS-050 — the bookings service fails
 
+- **Scenario:** A venue that can't be read is reported, not shown as "to be confirmed".
+- **Pre-conditions:** As above, with bookings answering `500`, then unreachable.
+- **Steps:** As TC-EVENTREGISTRATIONS-042, for each.
+- **Expected:** Both → `502` "Bookings service unavailable".
+- **Actual:** Both → `502` "Bookings service unavailable".
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_bookings_service_fails (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
+
 ## S-91 — Designate Primary Venue
+
+Replaces S-56's "first confirmed booking is primary" rule with the
+Coordinator's explicit choice: TC-EVENTREGISTRATIONS-045 is retired in favour
+of -051 to -053.
 
 ### TC-EVENTREGISTRATIONS-051 — attendees receive only the explicitly primary venue
 
@@ -820,14 +816,6 @@ answers `GET /bookings?event_id=E` with booking H1: `confirmed`, venue
 - **Pre-conditions:** A defensive fixture marks a held, rejected, or replaced booking primary.
 - **Steps:** Build attendee-facing venue data.
 - **Expected:** Only a row that is both confirmed and primary is exposed.
-
-- **Scenario:** A venue that can't be read is reported, not shown as "to be confirmed".
-- **Pre-conditions:** As above, with bookings answering `500`, then unreachable.
-- **Steps:** As TC-EVENTREGISTRATIONS-042, for each.
-- **Expected:** Both → `502` "Bookings service unavailable".
-- **Actual:** Both → `502` "Bookings service unavailable".
-- **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s56.py::test_the_bookings_service_fails (2 params); 2026-10-27, branch `S-56/view-confirmed-event-details` (on sprint4 `0d143d7`), pre-commit working tree
 
 ## S-55 — Notify Waitlisted Attendee of Opening
 
@@ -866,14 +854,14 @@ waiting-list row id is `77777777-7777-4777-8777-777777777777` and C's is
 
 ## TC-EVENTREGISTRATIONS-054 — a withdrawal invites the next in line instead of registering them
 
-- **Scenario:** When A withdraws and a place frees up, B is invited and told so. B is not registered (S-55 AC1, AC2).
+- **Scenario:** When A withdraws and a place frees up, B is invited and told so. B is not registered (S-55 AC1, AC2; S-53 AC3).
 - **Pre-conditions:** Registrations answers `POST /registrations/withdrawals` with `200` `{"withdrawn": <A's row>, "offered": <B's waiting-list row, offered_at set>}`. Users `POST /internal/users/profiles` `{"ids": [B]}` answers B's profile. E's one confirmed primary venue is "Seminar Room 2-1".
 - **Steps:** As A, `DELETE /event-registrations/events/E/registration`.
 - **Test data:** As above. Variants: no confirmed venue; clock `2026-11-16 12:00` (after registration closed).
 - **Expected:** `200` `{"event_id": E, "registered": false, "registered_at": null, "waitlisted": false, "joined_at": null, "position": null, "offered": false}`. Exactly one `POST /internal/notifications` with one row: `recipient_id` B, `event_id` E, `event_name` "Alumni networking evening", `kind` `waiting_list_offer`, `deduplication_key` `waiting_list_offer:77777777-7777-4777-8777-777777777777`, `message` "A place opened up at Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. It's held for you: accept it on the event page to register.". No row is addressed to A. No `waiting_list_promotion` or `registration_confirmation` is sent, and the composite never calls `POST /registrations` for B. With no venue: "…9:00 pm, venue to be confirmed. It's held for you: …". After registration closed, the invitation is still sent.
 - **Actual:** `200` not-holding body; one profile lookup for B; exactly one `waiting_list_offer` row to B with the expected message and key; none to A; only `POST /registrations/withdrawals` called; no-venue wording "venue to be confirmed. It's held for you: …"; also sent after registration closed.
 - **Status:** Pass
-- **Evidence:** test_s55.py::test_a_withdrawal_invites_the_next_in_line, ::test_an_invitation_without_a_confirmed_venue, ::test_an_invitation_after_registration_has_closed; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+- **Evidence:** test_s55.py::test_a_withdrawal_invites_the_next_in_line, ::test_an_invitation_without_a_confirmed_venue, ::test_an_invitation_after_registration_has_closed; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTREGISTRATIONS-055 — a failed invitation doesn't undo the withdrawal
 

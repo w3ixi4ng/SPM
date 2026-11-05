@@ -28,12 +28,12 @@ def test_submission_through_to_confirmed(admin, auth_client, planning_world):
         "venue_missing",
         "venue_awaiting",
         "technical_signoff_awaiting",
-        "equipment_preparation",
     ]
     assert stored_status() == "planning"
 
-    # 2. Venue Staff confirm the booking; Technical Support signs off and
-    # marks preparation ready.
+    # 2. Venue Staff confirm the booking; Technical Support signs off.
+    # Preparation stays not_started: S-26 AC2 opens it only after the Safety
+    # Officer's approval, so it is not a condition of this submission.
     admin.schema("bookings").table("bookings").update({
         "status": "confirmed",
         "decided_by": planning_world["venue_staff"]["id"],
@@ -44,11 +44,6 @@ def test_submission_through_to_confirmed(admin, auth_client, planning_world):
         headers=support, json={"decision": "approved"}, timeout=20.0,
     )
     assert signed.status_code == 200, signed.text
-    ready = httpx.put(
-        f"{GATEWAY_BASE_URL}/events/support-assigned/{event_id}/equipment-preparation",
-        headers=support, json={"status": "ready"}, timeout=20.0,
-    )
-    assert ready.status_code == 200, ready.text
 
     # 3. Submitted.
     submitted = httpx.post(submit_url, headers=coordinator, timeout=20.0)

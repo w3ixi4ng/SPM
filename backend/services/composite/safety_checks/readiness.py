@@ -9,8 +9,9 @@ booking an unavailable period affects (S-77) that has not been resolved
 
 Equipment and technical support arranged -- only when the event has an
 equipment requirement or asked for technical support: Technical Support is
-assigned, has approved the arrangements, and has marked preparation ready
-(S-26).
+assigned and has approved the arrangements. Equipment preparation is not a
+condition: S-26 AC2 opens it only after the Safety Officer's approval, so it
+can't be required before submitting for that approval.
 
 There is no override. The Coordinator sees every outstanding item at once.
 
@@ -19,9 +20,6 @@ are testable without HTTP.
 """
 
 from datetime import date, datetime, time, timedelta
-
-PREPARATION_LABELS = {"not_started": "Not Started", "in_progress": "In Progress"}
-
 
 def _date_label(value) -> str:
     day = date.fromisoformat(str(value))
@@ -138,12 +136,6 @@ def technical_items(event: dict, requirements: list[dict]) -> list[dict]:
         items.append(_item(
             "technical_signoff_awaiting",
             "Technical Support has not approved the equipment arrangements",
-        ))
-    preparation = event.get("equipment_preparation_status") or "not_started"
-    if preparation != "ready":
-        items.append(_item(
-            "equipment_preparation",
-            f"Equipment preparation is {PREPARATION_LABELS.get(preparation, preparation)}",
         ))
     return items
 

@@ -122,6 +122,9 @@ CONFLICT_PHRASES = (
     "Can't confirm this booking: it overlaps ", "Can't hold this booking: it overlaps ",
     # S-89: the event is being (or was) cancelled; its bookings are closed.
     "This event is being cancelled, so its venue bookings can no longer change.",
+    # S-81 reopened: a hold waits for its Coordinator's confirmation.
+    "This hold can't be approved until the Event Coordinator confirms it.",
+    "Only a tentative hold can be confirmed",
 )
 INTERNAL_GET_ATTEMPTS = 3
 INTERNAL_GET_BACKOFF = (0.5, 1.0)
@@ -806,31 +809,69 @@ async def release_venue_booking(
     raise _unavailable("Bookings")
 
 
+def _day_label(value) -> str:
+    # "1 Nov 2026", never "01 Nov 2026", as in every other message.
+    day = date.fromisoformat(str(value)[:10])
+    return f"{day.day} {day:%b %Y}"
+
+
 @app.post("/venue-bookings/{booking_id}/confirm-hold")
+@app.post("/venue-bookings/{booking_id}/hold-confirmation")
 async def confirm_venue_hold(
     booking_id: UUID,
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
     events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
-    coordinator = await _authenticate(request, users, COORDINATOR_ROLE)
+    """S-81 reopened: the event's Coordinator confirms a tentative hold, so
+    Venue Staff can approve it, and the staff member who placed it is told.
+    Authorized like S-80: the event is read with the caller's own session."""
+    user = await _authenticate(request, users, COORDINATOR_ROLE)
     booking = await _booking_by_id(bookings, booking_id)
-    await _fetch("Events", events, f'/events/assigned/{booking["event_id"]}',
-                 request.cookies, "Event not found")
+    event = await _fetch(
+        "Events", events, f'/events/assigned/{booking["event_id"]}', request.cookies, "Event not found"
+    )
+    if event.get("status") != "planning":
+        raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
     try:
         headers = assignment_service_headers()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     response = await _call("Bookings", bookings.post(
         f"/internal/bookings/{booking_id}/confirm-hold",
-        json={"coordinator_id": coordinator["id"]}, headers=headers,
+        json={"coordinator_id": user["id"]}, headers=headers,
     ))
-    if response.status_code == 200:
-        return response.json()
-    if response.status_code in (401, 403, 404, 409):
-        raise HTTPException(status_code=response.status_code, detail=(response.json() or {}).get("detail"))
-    raise _unavailable("Bookings")
+    conflict = _identified_conflict(response)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    held = response.json()
+    notice = {
+        "recipient_id": held["held_by"],
+        "event_id": held["event_id"],
+        "event_name": held["event_name"],
+        "kind": "venue_hold_confirmed",
+        "message": (
+            f'{user["name"]} confirmed the tentative hold for {held["venue_name"]} on '
+            f'{_day_label(held["booking_date"])}, {str(held["start_time"])[:5]}–{str(held["end_time"])[:5]} '
+            f'({held["event_name"]}). You can now approve it before the hold expires.'
+        ),
+        "deduplication_key": f'venue_hold_confirmed:{held["id"]}:{held["held_at"]}',
+    }
+    # Best effort, like the S-81 expiry notice: the confirmation is saved, and
+    # Venue Staff see it on the request page either way.
+    try:
+        notified = await notifications.post("/internal/notifications", json={"notifications": [notice]})
+        if notified.status_code != status.HTTP_201_CREATED:
+            raise RuntimeError(f"Notifications answered {notified.status_code}")
+    except Exception as exc:
+        logger.warning("Hold %s confirmed but Venue Staff could not be notified", held["id"], exc_info=exc)
+    return held
 
 
 @app.post("/venue-bookings/{booking_id}/decision")

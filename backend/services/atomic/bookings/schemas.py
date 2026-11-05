@@ -167,6 +167,7 @@ class BookingRead(BaseModel):
     hold_expires_at: datetime | None = None
     hold_released_at: datetime | None = None
     hold_release_reason: HoldReleaseReason | None = None
+    # S-81: the assigned Event Coordinator confirmed the tentative hold.
     hold_confirmed_by: UUID | None = None
     hold_confirmed_at: datetime | None = None
     hold_expiry_notified_at: datetime | None = None

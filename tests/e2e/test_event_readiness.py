@@ -1,4 +1,7 @@
-"""TC-E2E-241: Coordinator sees readiness derived from current service data."""
+"""TC-E2E-241: Coordinator sees readiness derived from current service data.
+
+The event is confirmed: equipment preparation counts toward readiness only
+after the Safety Officer's approval (S-26 AC2, TC-FRONTEND-425)."""
 
 import re
 import uuid
@@ -38,7 +41,13 @@ def test_coordinator_readiness_tracks_current_underlying_data(
     event = admin.schema("events").table("events").insert({
         "organiser_id": organiser["id"],
         "assigned_coordinator_id": coordinator["id"],
-        "status": "planning",
+        "status": "confirmed",
+        "safety_decision": "approved",
+        "safety_officer_id": str(uuid.uuid4()),
+        "safety_decided_at": "2026-10-03T00:00:00Z",
+        "technical_signoff_decision": "approved",
+        "technical_signoff_by": support["id"],
+        "technical_signoff_at": "2026-10-02T00:00:00Z",
         "name": event_name,
         "purpose": "Prove the S-24 readiness view",
         "start_date": "2026-11-20",

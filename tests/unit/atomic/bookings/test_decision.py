@@ -34,6 +34,7 @@ def prepare(db, *, booking=None, conflicts=None, blocks=None):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[booking_row(**table(db).update.call_args.args[0])])
     return update
 
@@ -76,7 +77,7 @@ def test_held_booking_needs_coordinator_confirmation_before_staff_approval(clien
     prepare(db, booking=booking_row(status='held', hold_confirmed_at=None))
     response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
     assert response.status_code == 409
-    assert 'Coordinator must confirm' in response.json()['detail']
+    assert 'Event Coordinator confirms it' in response.json()['detail']
     table(db).update.assert_not_called()
 
 

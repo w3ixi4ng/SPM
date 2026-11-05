@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { bookingDecisionErrorMessage, decideVenueBooking, validateBookingDecision } from '../lib/venueBookings.js'
+import { bookingDecisionErrorMessage, decideVenueBooking, staffHoldApproval, validateBookingDecision } from '../lib/venueBookings.js'
 
 export default function BookingDecisionForm({ booking, onDecided }) {
   const [decision, setDecision] = useState('')
@@ -7,6 +7,9 @@ export default function BookingDecisionForm({ booking, onDecided }) {
   const [alternative, setAlternative] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  // S-81 reopened: a hold is approved only once its Coordinator confirmed it.
+  const approval = staffHoldApproval(booking)
+  const holdNoteId = `hold-confirmation-${booking.id}`
 
   async function save(event) {
     event.preventDefault()
@@ -28,18 +31,18 @@ export default function BookingDecisionForm({ booking, onDecided }) {
     <form onSubmit={save} aria-label={`Decide booking for ${booking.event_name}`} className="font-ui text-sm mt-4 space-y-3">
       <fieldset disabled={saving} className="space-y-3">
         <legend className="font-medium">Record booking decision</legend>
+        {approval.text && <p id={holdNoteId}>{approval.text}</p>}
         <div className="flex gap-4">
           {['approved', 'rejected'].map((value) => (
             <label key={value} className="flex gap-2 items-center">
               <input type="radio" name={`decision-${booking.id}`} value={value}
-                disabled={value === 'approved' && booking.status === 'held' && !booking.hold_confirmed_at}
+                disabled={value === 'approved' && !approval.canApprove}
+                aria-describedby={value === 'approved' && approval.text ? holdNoteId : undefined}
                 checked={decision === value} onChange={() => { setDecision(value); setError(null) }} />
               {value === 'approved' ? 'Approve' : 'Reject'}
             </label>
           ))}
         </div>
-        {booking.status === 'held' && !booking.hold_confirmed_at &&
-          <p>Waiting for the Coordinator to confirm this hold before approval.</p>}
         <label className="block">Reason (optional for approval)
           <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2}
             className="block w-full border rounded-sm p-2 mt-1" />

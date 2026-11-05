@@ -80,7 +80,12 @@ def test_only_the_current_assigned_coordinator_can_confirm_hold(client, services
 
     services.user = me('event_coordinator', id='cccccccc-cccc-4ccc-8ccc-cccccccccccc')
     services.events.get = AsyncMock(return_value=fake_response(200, {'status': 'planning'}))
-    held = {**services.booking.json(), 'status': 'held'}
+    held = {
+        **services.booking.json(), 'status': 'held', 'held_by': STAFF_ID,
+        'held_at': '2026-11-05T01:00:00+00:00', 'booking_date': '2026-11-12',
+        'start_time': '09:00:00', 'end_time': '12:00:00',
+        'venue_name': 'Studio B', 'event_name': 'Alumni networking evening',
+    }
     services.bookings.post = AsyncMock(return_value=fake_response(200, held))
     allowed = client.post(f'/venue-bookings/{BOOKING_ID}/confirm-hold')
     assert allowed.status_code == 200, allowed.text

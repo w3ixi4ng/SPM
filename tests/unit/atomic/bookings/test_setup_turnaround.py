@@ -131,6 +131,7 @@ def test_without_the_venue_times_holds_and_confirmations_succeed(client, db, aut
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.return_value = SimpleNamespace(data=[{**B, 'status': status}])
 
     request_body = {'expires_at': '2099-11-12T10:00:00+08:00'} if action == 'hold' else body
@@ -141,11 +142,14 @@ def test_without_the_venue_times_holds_and_confirmations_succeed(client, db, aut
 
 
 def test_confirming_a_held_booking_never_clashes_with_itself(client, db, auth):
-    held = {**B, 'status': 'held', 'hold_confirmed_at': '2026-11-10T00:00:00+00:00'}
+    # S-81 reopened: confirmed by its Coordinator, so it can be approved.
+    held = {**B, 'status': 'held', 'hold_confirmed_by': 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            'hold_confirmed_at': '2026-11-10T01:00:00+00:00'}
     query = lookups(db, [held], [], [])
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.return_value = SimpleNamespace(data=[{**held, 'status': 'confirmed'}])
 
     response = client.post(f'/bookings/{BOOKING_ID}/decision', params=GAP,

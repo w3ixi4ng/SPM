@@ -254,3 +254,23 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Every S-63 kind returned `201` on its first request and exact retry; the stable key remained unchanged. Existing kinds, including `equipment_unavailable`, remained valid.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_s63_organiser_notification_kinds_are_accepted_and_idempotent`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; Python 3.12, pytest: 1755 passed and 17 skipped across `tests/unit`.
+
+## S-81 reopened — Venue Staff are told when a Coordinator confirms a hold
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria. This case needs the
+`notifications_kind_allowed` change in `backend/sql/notifications.sql`.
+Executed 2026-11-05.
+
+## TC-NOTIFICATIONS-017 — the hold-confirmed kind is accepted and deduplicated
+
+- **Pre-conditions:** Fake notification storage returns the upserted row.
+- **Steps:** Twice `POST /internal/notifications` with the same row, kind
+  `venue_hold_confirmed`.
+- **Test data:** Recipient Venue Staff `abababab-abab-4bab-8bab-abababababab`;
+  key `venue_hold_confirmed:H:2026-11-05T01:00:00+00:00`.
+- **Expected:** `201` both times, resolving to one stored row. An unknown
+  kind is still `422`.
+- **Actual:** `201` twice with the same stored row; an unknown kind `422`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s81_hold_confirmed_kind_is_accepted_and_idempotent`; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`

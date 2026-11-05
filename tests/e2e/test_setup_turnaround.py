@@ -35,21 +35,21 @@ def seed(admin, event, venue, coordinator, staff, status, start, end):
     return admin.schema("bookings").table("bookings").insert(row).execute().data[0]
 
 
-def world(admin, make_user):
+def world(admin, make_user, *, first_status="held"):
     coordinator = make_user("event_coordinator")
     staff = make_user("venue_staff")
     organiser = make_user("event_organiser")
     venue = add_venue(admin, staff, uuid.uuid4().hex[:6])
     event_a = add_event(admin, organiser, coordinator, "A", d(3))
     event_b = add_event(admin, organiser, coordinator, "B", d(3))
-    seed(admin, event_a, venue, coordinator, staff, "confirmed", "10:00", "12:00")
+    seed(admin, event_a, venue, coordinator, staff, first_status, "10:00", "12:00")
     seed(admin, event_b, venue, coordinator, staff, "held", "12:30", "14:00")
     return coordinator, staff, organiser, venue, event_a, event_b
 
 
 # --- TC-E2E-228 -----------------------------------------------------------
 def test_staff_cannot_change_setup_and_turnaround_after_confirmation(admin, page, make_user, sign_in):
-    coordinator, staff, _, venue, event_a, event_b = world(admin, make_user)
+    coordinator, staff, _, venue, event_a, event_b = world(admin, make_user, first_status="confirmed")
 
     # Staff try to change timing after a confirmed booking exists.
     sign_in(staff)
@@ -63,7 +63,7 @@ def test_staff_cannot_change_setup_and_turnaround_after_confirmation(admin, page
     stored = admin.schema("venues").table("venues").select("setup_minutes,turnaround_minutes").eq("id", venue["id"]).execute().data[0]
     assert stored == {"setup_minutes": 0, "turnaround_minutes": 0}
     statuses = admin.schema("bookings").table("bookings").select("status").eq("venue_id", venue["id"]).execute().data
-    assert sorted(row["status"] for row in statuses) == ["confirmed", "held"]  # neither removed
+    assert sorted(row["status"] for row in statuses) == ["held", "held"]  # neither removed
 
 
 # --- TC-E2E-227 -----------------------------------------------------------

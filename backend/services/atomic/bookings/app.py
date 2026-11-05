@@ -54,6 +54,9 @@ CANNOT_RESTORE = "Only a held or confirmed booking can be restored"
 RESTORE_ALREADY_REQUESTED = "A restore has already been requested for this booking"
 NO_RESTORE_REQUEST = "There is no restore request to decide for this booking"
 RESTORED_NOTE = "Restored to the original venue"
+# S-81 reopened
+HOLD_NOT_LIVE = "Only a tentative hold can be confirmed"
+HOLD_NOT_CONFIRMED = "This hold can't be approved until the Event Coordinator confirms it."
 
 
 @app.exception_handler(RequestValidationError)
@@ -111,7 +114,7 @@ def _write(operation):
         if _event_closed(exc):
             raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if getattr(exc, "code", None) == "P0001" and "hold_confirmation_required" in str(exc):
-            raise HTTPException(status_code=409, detail="The Coordinator must confirm this tentative hold before approval") from exc
+            raise HTTPException(status_code=409, detail=HOLD_NOT_CONFIRMED) from exc
         logger.exception("Booking storage operation failed", exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -359,8 +362,9 @@ def decide_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking["status"] not in ("pending", "held") or booking.get("hold_release_reason") == "expired":
         raise HTTPException(status_code=409, detail="This booking request has already been decided")
+    # S-81 reopened: a held booking waits for its Coordinator's confirmation.
     if payload.decision == "approved" and booking["status"] == "held" and not booking.get("hold_confirmed_at"):
-        raise HTTPException(status_code=409, detail="The Coordinator must confirm this tentative hold first")
+        raise HTTPException(status_code=409, detail=HOLD_NOT_CONFIRMED)
 
     if payload.decision == "approved":
         conflict = _live_overlap(db, {**booking, "id": str(booking_id)}, gap)
@@ -388,14 +392,19 @@ def decide_booking(
     # S-78: confirming a replacement also marks its original `replaced` -- a
     # trigger does that in the same transaction (backend/sql/bookings.sql).
     try:
-        result = db.schema(SCHEMA).table(TABLE).update(values).eq(
+        operation = db.schema(SCHEMA).table(TABLE).update(values).eq(
             "id", str(booking_id)
-    ).in_("status", ["pending", "held"]).execute()
+        ).in_("status", ["pending", "held"])
+        if payload.decision == "approved":
+            # Never approve a hold that was released and re-placed, unconfirmed,
+            # since the read above.
+            operation = operation.or_("status.eq.pending,hold_confirmed_at.not.is.null")
+        result = operation.execute()
     except Exception as exc:
         if _event_closed(exc):
             raise HTTPException(status_code=409, detail=EVENT_CLOSED) from exc
         if getattr(exc, "code", None) == "P0001" and "hold_confirmation_required" in str(exc):
-            raise HTTPException(status_code=409, detail="The Coordinator must confirm this tentative hold before approval") from exc
+            raise HTTPException(status_code=409, detail=HOLD_NOT_CONFIRMED) from exc
         if getattr(exc, "code", None) == "P0001" and "venue_timing_changed" in str(exc):
             raise HTTPException(status_code=409, detail="Venue timing changed; reload and try approval again") from exc
         if payload.decision == "approved" and getattr(exc, "code", None) == "23P01":
@@ -447,6 +456,7 @@ def place_hold(
         "hold_expires_at": payload.expires_at.isoformat(),
         "hold_released_at": None,
         "hold_release_reason": None,
+        # S-81 reopened: every new hold needs a new confirmation.
         "hold_confirmed_by": None,
         "hold_confirmed_at": None,
         "hold_expiry_notified_at": None,
@@ -476,12 +486,13 @@ def confirm_hold(
     _service=Depends(require_assignment_service),
     db: Client = Depends(get_db),
 ):
+    """Record confirmation after the composite verifies current assignment."""
     _expire_holds(db)
     booking = _booking(db, booking_id)
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking["status"] != "held":
-        raise HTTPException(status_code=409, detail="This tentative hold has expired or is no longer available")
+        raise HTTPException(status_code=409, detail=HOLD_NOT_LIVE)
     if booking.get("hold_confirmed_at"):
         return booking
     result = _execute(db.schema(SCHEMA).table(TABLE).update({
@@ -491,7 +502,7 @@ def confirm_hold(
       .gt("hold_expires_at", datetime.now(timezone.utc).isoformat()))
     if result.data:
         return result.data[0]
-    raise HTTPException(status_code=409, detail="This tentative hold has expired or was already confirmed")
+    raise HTTPException(status_code=409, detail=HOLD_NOT_LIVE)
 
 
 @app.post("/bookings/{booking_id}/release", response_model=BookingRead)
@@ -521,6 +532,8 @@ def release_hold(
         "status": "pending",
         "hold_released_at": datetime.now(timezone.utc).isoformat(),
         "hold_release_reason": payload.reason,
+        "hold_confirmed_by": None,
+        "hold_confirmed_at": None,
     }
     result = _write(
         db.schema(SCHEMA).table(TABLE).update(values)

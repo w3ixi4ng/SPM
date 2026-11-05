@@ -2442,3 +2442,87 @@ F  confirmed  2026-10-29 (Thu, past) 08:00–09:00
 - **Actual:** `502` for both reads.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/venue_bookings/test_outside_hours.py::test_a_venue_that_cant_be_read_fails_the_list; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. The criteria, decisions and case
+map are in the bookings unit `TEST_CASES.md`, under the same heading.
+
+The composite authorizes the Coordinator the same way S-80 does. It reads the
+event with the caller's own session (`/events/assigned/{event_id}`), so only
+the event's assigned Coordinator gets it, and the event must be in planning.
+
+TC-VENUEBOOKINGS-480–489 reserved. Executed 2026-11-05.
+
+## TC-VENUEBOOKINGS-480 — confirming a hold informs the Venue Staff who placed it
+
+- **Pre-conditions:**
+  - Coordinator session "Grace Hopper".
+  - The events fake returns the assigned event in planning.
+  - The bookings fake returns H, held by S (`abababab-…`) on 2026-11-12,
+    09:00–12:00, at Studio B, for "Alumni Night".
+  - `POST /bookings/H/hold-confirmation` answers `200` with H confirmed.
+- **Steps:** `POST /venue-bookings/H/hold-confirmation`.
+- **Expected:**
+  - `200` with the confirmed booking. The bookings call forwards the
+    Coordinator's cookies.
+  - One notification is posted:
+    - `recipient_id` S
+    - `kind` `venue_hold_confirmed`
+    - `event_id` and `event_name` as on the booking
+    - `message` `"Grace Hopper confirmed the tentative hold for Studio B on
+      12 Nov 2026, 09:00–12:00 (Alumni Night). You can now approve it before
+      the hold expires."`
+    - `deduplication_key` `venue_hold_confirmed:H:<held_at>`
+- **Actual:** `200` with the confirmed booking; cookies forwarded; one notification to S with exactly the expected kind, message and key.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_hold_confirmation.py::test_confirming_a_hold_informs_the_venue_staff_who_placed_it; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-481 — only the event's own Coordinator, while it is in planning
+
+- **Steps:**
+  1. Repeat 480 with the events fake answering `404`.
+  2. Repeat with the event in `confirmed`.
+  3. Repeat as Venue Staff and as an Event Organiser, then with no session.
+- **Expected:**
+  - Step 1: `404` with `"Event not found"`.
+  - Step 2: `409` with `"A venue can only be requested for an event in
+    planning"`.
+  - Step 3: `403`, then `401`.
+  - No confirmation is sent to bookings in any step, and no notification is
+    posted.
+- **Actual:** `404` "Event not found"; `409` not in planning; `403` for Venue Staff and Organiser; `401` with no session; no confirmation sent and no notification in any.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_hold_confirmation.py::test_not_their_event_is_not_found, ::test_an_event_out_of_planning_is_refused, ::test_only_a_coordinator_confirms, ::test_confirming_needs_a_session; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-482 — a refusal from bookings is passed on
+
+- **Pre-conditions:** As 480, but bookings answers `409` with `"Only a
+  tentative hold can be confirmed"`.
+- **Expected:** `409` with that detail. No notification is posted.
+- **Actual:** `409` with the bookings detail; no notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_hold_confirmation.py::test_a_refusal_from_bookings_is_passed_on; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-483 — a failed notice doesn't undo the confirmation
+
+- **Pre-conditions:** As 480, but the notifications fake answers `500`.
+- **Expected:** Still `200` with the confirmed booking, and a warning is
+  logged. This is the same best-effort rule as the S-81 expiry notice. Venue
+  Staff still see the confirmation on the request page (TC-FRONTEND-422).
+- **Actual:** `200` with the confirmed booking; warning "… could not be notified" logged.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_hold_confirmation.py::test_a_failed_notice_doesnt_undo_the_confirmation; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-484 — approving an unconfirmed hold is refused with the reason
+
+- **Pre-conditions:** Venue Staff session. The bookings decision answers
+  `409` with `"This hold can't be approved until the Event Coordinator
+  confirms it."`
+- **Steps:** `POST /venue-bookings/H/decision` with
+  `{"decision": "approved"}`.
+- **Expected:** `409` with that exact detail, never a generic message. No
+  decision notification is sent.
+- **Actual:** `409` with the exact not-confirmed detail; no notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_hold_confirmation.py::test_approving_an_unconfirmed_hold_is_refused_with_the_reason; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`

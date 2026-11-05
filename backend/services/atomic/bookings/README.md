@@ -616,3 +616,34 @@ No new schema to expose.
 **Follow-up.** S-61's `DELETE /internal/events/{event_id}/bookings` still
 hard-deletes; aligning it with S-89's release was left out of S-89 on
 purpose.
+
+## S-81 the Coordinator confirms a hold
+
+A held booking is approved only once the Event Coordinator has confirmed the
+hold (UAT A08). A request that was never held is approved directly, as before.
+Rejecting or releasing a hold never needs the confirmation.
+
+`POST /internal/bookings/{id}/confirm-hold` takes `coordinator_id` in JSON
+and the trusted assignment service header. The `venue_bookings` composite
+checks that the caller is the event's currently assigned Coordinator first.
+
+| Status | When |
+| --- | --- |
+| `200` | The booking, with `hold_confirmed_by` (the Coordinator) and `hold_confirmed_at`. Confirming an already confirmed hold returns it unchanged. |
+| `409` | `{"detail": "Only a tentative hold can be confirmed"}`: the booking is pending, decided, or its hold has expired. Due holds are released first, as on every read. |
+| `401` / `404` | Missing trusted service header; `{"detail": "Booking not found"}`. |
+
+Approving an unconfirmed hold through `POST /bookings/{id}/decision` is
+`409` with `{"detail": "This hold can't be approved until the Event
+Coordinator confirms it."}`. The update itself is guarded too, so a hold
+that was released and placed again between the read and the write is never
+approved unconfirmed.
+
+Releasing a hold, or placing a new one, sets both `hold_confirmed_*` fields
+back to `null`. Every booking read includes the two fields.
+
+**Before running it:** apply the `BEGIN REQUIREMENT ALIGNMENT MIGRATION`
+block of [`bookings.sql`](../../../sql/bookings.sql) in **both** dev and
+test. Tests: `pytest tests/unit/atomic/bookings/test_hold_confirmation.py`;
+on a freshly recreated `.env.test` stack,
+`pytest tests/integration/atomic/bookings/test_hold_confirmation.py`.

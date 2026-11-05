@@ -255,8 +255,8 @@ promotion run in `registrations.withdraw` under the same per-event lock as
 - **Test data:** As TC-REGISTRATIONS-016.
 - **Expected:** `200` with `withdrawn` A's row and `promoted` `{"id", "event_id": E, "attendee_id": B, "created_at": "2026-11-06T04:00:00Z"}`.
 - **Actual:** `200`; `withdrawn` A's row, `promoted` B's row with `created_at` `2026-11-06T04:00:00Z`.
-- **Status:** Pass
-- **Evidence:** tests/unit/atomic/registrations/test_app.py::test_the_freed_place_goes_to_the_next_attendee_waiting; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Status:** Not Executed — retired by S-55 (2026-10-30); S-53 AC3 is now proven by TC-REGISTRATIONS-020
+- **Evidence:** None current: the test was removed when the case was retired. Last run (S-53): tests/unit/atomic/registrations/test_app.py::test_the_freed_place_goes_to_the_next_attendee_waiting; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
 
 ## TC-REGISTRATIONS-018 — withdrawing a place that isn't held
 
@@ -313,14 +313,14 @@ Attendee B is `44444444-4444-4444-8444-444444444444` (first in line), C is
 
 ## TC-REGISTRATIONS-020 — a withdrawal offers the freed place to the next in line
 
-- **Scenario:** The withdrawal answers with the waiting-list entry that was offered the place. Nobody is registered on their behalf (S-55 AC1, AC2).
+- **Scenario:** The withdrawal answers with the waiting-list entry that was offered the place. Nobody is registered on their behalf (S-55 AC1, AC2; S-53 AC3).
 - **Pre-conditions:** `rpc("withdraw", ...)` returns `{"withdrawn": <A's row for E>, "offered": <B's waiting-list row, offered_at 2026-11-06T04:00:00+00:00>}`.
 - **Steps:** `POST /registrations/withdrawals`.
 - **Test data:** `{"event_id": E, "attendee_id": A, "capacity": 2}`.
 - **Expected:** `200` with `withdrawn` A's row and `offered` `{"id": "7777…7777", "event_id": E, "attendee_id": B, "created_at": "2026-11-04T04:00:00Z", "offered_at": "2026-11-06T04:00:00Z"}`. The body has no `promoted` key.
 - **Actual:** `200`; `withdrawn` A's row, `offered` B's entry with `created_at` `2026-11-04T04:00:00Z` and `offered_at` `2026-11-06T04:00:00Z`; no `promoted` key.
 - **Status:** Pass
-- **Evidence:** test_app.py::test_a_withdrawal_offers_the_freed_place_to_the_next_in_line; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+- **Evidence:** test_app.py::test_a_withdrawal_offers_the_freed_place_to_the_next_in_line; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-REGISTRATIONS-021 — the invited Attendee accepts the place
 

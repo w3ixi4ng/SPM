@@ -169,6 +169,7 @@ def test_a_pending_request_on_a_blocked_day_can_still_be_rejected(client, db, au
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(
         data=[booking_row(booking_date='2026-11-13', **table(db).update.call_args.args[0])]
     )

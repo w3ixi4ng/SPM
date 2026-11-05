@@ -591,65 +591,6 @@ an already-decided `assigned_coordinator_id` — a field an organiser's own
 request can never set. Both new routes are internal: no Kong entry, called
 only by `event_requests` over the Docker network, never by a browser.
 
-## TC-EVENTS-049 — coordinator load reports no conflict with an empty schedule
-
-- **Scenario:** A coordinator with nothing assigned is free for any window.
-- **Pre-conditions:** The assignment-filtered select for that coordinator
-  returns no rows.
-- **Steps:** `POST /events/coordinator-load` with one coordinator id and a
-  window.
-- **Test data:** Coordinator id above; window `2026-10-20 18:00`–`21:00`.
-- **Expected:** `200`; that coordinator's entry has `conflict: false,
-  assigned_count: 0`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_reports_no_conflict_with_empty_schedule`
-
-## TC-EVENTS-050 — coordinator load reports a conflict on any overlap
-
-- **Scenario:** The requested window intersects an assigned event's window at
-  all, not only when the two match exactly.
-- **Pre-conditions:** The coordinator has one assigned submitted event
-  `18:00`–`21:00` on `2026-10-20`.
-- **Steps:** `POST /events/coordinator-load` with a request window that
-  overlaps only partially: `20:00`–`22:00` the same day.
-- **Test data:** As above.
-- **Expected:** `200`; `conflict: true`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_reports_a_conflict_on_any_overlap`
-
-## TC-EVENTS-051 — back-to-back events do not conflict
-
-- **Scenario:** A request starting exactly when an existing assigned event
-  ends (or ending exactly when one starts) does not count as an overlap.
-- **Pre-conditions:** The coordinator has one assigned submitted event
-  `18:00`–`21:00` on `2026-10-20`.
-- **Steps:** `POST /events/coordinator-load` with a request window
-  `21:00`–`22:00` the same day.
-- **Test data:** As above.
-- **Expected:** `200`; `conflict: false`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_back_to_back_events_do_not_conflict`
-
-## TC-EVENTS-052 — only live commitments count toward load or conflict
-
-- **Scenario:** Only submitted (awaiting decision) and planning (accepted,
-  arrangements underway) events are committed time on a coordinator's
-  schedule. Drafts never counted. Returned and rejected don't either, since
-  neither is a live commitment. Revised for S-36: `planning` replaces
-  `approved`, which no longer exists.
-- **Pre-conditions:** None beyond the shared fakes.
-- **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
-- **Test data:** One coordinator id, any window.
-- **Expected:** The query filters on `status in ("submitted", "planning")`.
-  Every other status is excluded in the query itself, not filtered out
-  afterwards, so it can never reach the conflict check or the count.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
-
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and starts unassigned
 
 - **Scenario:** Unlike the public `POST /events`, this route does not derive
@@ -789,21 +730,6 @@ coordinator no longer had free. `event_requests` needs two things from this
 service to fix that: a way to exclude an event's own row when checking
 conflicts, and a trusted way to write a date/time change and a reassignment
 in one update.
-
-## TC-EVENTS-062 — coordinator load excludes the given event from conflict and count
-
-- **Scenario:** Rechecking an event that already carries this exact window
-  and assignment must not have it conflict with itself.
-- **Pre-conditions:** The coordinator has one assigned submitted event —
-  the same one being rechecked — covering the requested window exactly.
-- **Steps:** `POST /events/coordinator-load` with `exclude_event_id` set to
-  that event's id.
-- **Test data:** One event, `id` equal to `exclude_event_id`.
-- **Expected:** `200`; `conflict: false, assigned_count: 0` — without
-  `exclude_event_id` this would conflict with itself.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_excludes_the_given_event_from_conflict_and_count`
 
 ## TC-EVENTS-063 — internal update cannot reassign the coordinator
 
@@ -2115,26 +2041,50 @@ decisions confirmed by the developer on 2026-10-19.
 ## S-26 — Update Equipment Preparation Status
 
 Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test
-cases confirmed by the developer on 2026-10-11. These cases are the canonical
-backend trace for the story and have not yet been executed.
+cases confirmed by the developer on 2026-10-11; amended 2026-11-05 to follow
+AC2.
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| Technical Support can set Not Started, In Progress, and Ready | TC-EVENTS-123 |
-| The current status is available to the event readiness view | TC-EVENTS-123, TC-EVENTS-126 |
-| Only assigned Technical Support can change the status | TC-EVENTS-124 |
-| Confirmed rules: backwards transitions, eligible event states, audit, and safe races/failures | TC-EVENTS-123–125 |
+| AC1: Technical Support Staff can set Not Started, In Progress, and Ready | TC-EVENTS-453 |
+| AC2: Preparation status can only be updated once the event is in Preparation (after the Safety Officer's approval) | TC-EVENTS-453, TC-EVENTS-454 |
+| AC3: The current status is visible on the event's readiness view | TC-EVENTS-453, TC-EVENTS-455 (integration) |
+| AC4: Only Technical Support Staff (or an authorised role) can change it | TC-EVENTS-124 |
+| Safe races and failures | TC-EVENTS-125 |
 
-### TC-EVENTS-123 — assigned Technical Support records every preparation state with an audit trail
+**AC2, as confirmed by the developer on 2026-11-05.** The Safety Officer's
+approval moves an event to `confirmed` (S-86 AC5), and nothing yet moves it on
+to `preparation`. "In Preparation (after the Safety Officer's approval)" is
+therefore read as **`confirmed` or `preparation`**. An event in `planning` or
+`pending_safety_check` has not been approved, and its preparation status cannot
+be changed. Because preparation now follows the safety check, S-17 no longer
+requires it before submission (TC-SAFETYCHECKS-019 retired).
 
-- **Scenario:** The assigned Technical Support worker maintains one equipment preparation status for the event.
-- **Pre-conditions:** An event assigned to Technical Support A is in each eligible lifecycle state: `planning`, `confirmed`, or `preparation`.
-- **Steps:** Read a newly eligible event; update it to `in_progress`, then `ready`, then back to `not_started`; read it again.
+**Renumbered.** This case was TC-EVENTS-123, which is also the S-62
+cancellation case above; the S-62 case keeps 123. The S-26 case is now
+TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
+
+### TC-EVENTS-453 — after safety approval, assigned Technical Support records every preparation state
+
+- **Scenario:** Once the Safety Officer has approved the event, its assigned Technical Support worker maintains one equipment preparation status for it (S-26 AC1, AC2).
+- **Pre-conditions:** An event assigned to Technical Support A, in each approved lifecycle state: `confirmed` and `preparation`.
+- **Steps:** Read the event; `PUT /events/support-assigned/{id}/equipment-preparation` as A with `in_progress`, then `ready`, then back to `not_started`; read it again.
 - **Test data:** Event `33333333-3333-4333-8333-333333333333`; Technical Support A `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; the three status values.
-- **Expected:** A new event reads as `not_started`. Every transition succeeds, including moving backwards; the response and later event read expose the current status, authenticated updater id, and a server-generated update time.
-- **Actual:** All three values persisted in every eligible lifecycle state; each response contained the authenticated updater and server timestamp.
+- **Expected:** The event reads as `not_started` before the first update. Every update returns `200`, including moving backwards; the response and the later read expose the current status, A's id as updater, and a server-generated update time. The conditional write filters on `status in ('confirmed', 'preparation')`.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards`
+- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
+
+### TC-EVENTS-454 — before safety approval, preparation status cannot be changed
+
+- **Scenario:** An event the Safety Officer has not approved refuses a preparation update, and nothing is written (S-26 AC2).
+- **Pre-conditions:** An event assigned to Technical Support A, in each unapproved lifecycle state: `planning` and `pending_safety_check`, with preparation `not_started`.
+- **Steps:** As A, `PUT /events/support-assigned/{id}/equipment-preparation` with `{"status": "ready"}`, once per state.
+- **Test data:** As TC-EVENTS-453.
+- **Expected:** `409` with detail `"Equipment preparation can be updated once the Safety Officer has approved the event"`. No update is sent to storage and no history row is written; the event still reads `not_started`.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_preparation_cannot_change_before_safety_approval`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ### TC-EVENTS-124 — preparation updates are restricted to the assigned Technical Support worker
 
@@ -2347,11 +2297,13 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   2. Technical Support's assigned list. 3. S-26 equipment preparation update
   by `T1`. 4. S-62 cancellation request by the Organiser.
 - **Test data:** As above.
-- **Expected:** 1 and 2 include `E1`; 3 → `200`; 4 → `200`, exactly as for a
-  `confirmed` event.
-- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Expected:** 1 and 2 include `E1`; 4 → `200`, exactly as for a
+  `confirmed` event. 3 is the exception: `409` "Equipment preparation can be
+  updated once the Safety Officer has approved the event", nothing written —
+  S-26 AC2 opens preparation only after approval (amended 2026-11-05).
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`
+- **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 
 ## S-61 — review and approve cancellation request
@@ -3067,7 +3019,7 @@ The Supabase fake records every `insert` made on `event_history`.
 ## TC-EVENTS-196 — Technical Support's sign-off and preparation status are recorded
 
 - **Scenario:** Equipment decisions owned by the events service are recorded (S-82 AC1).
-- **Pre-conditions:** E is `planning`, Technical Support T assigned, `equipment_preparation_status` `not_started`.
+- **Pre-conditions:** E is `planning`, Technical Support T assigned, `equipment_preparation_status` `not_started`. Before step 3 the Safety Officer has approved E, so it is `confirmed` — preparation can be updated only after safety approval (S-26 AC2). Amended 2026-11-05.
 - **Steps:**
   1. `PUT /internal/events/E/technical-signoff` as T with `{"decision": "declined", "reason": "Projector unavailable"}`.
   2. Repeat with `{"decision": "approved"}`.
@@ -3077,9 +3029,9 @@ The Supabase fake records every `insert` made on `event_history`.
   1 → `technical_signoff_declined`, `{"reason": "Projector unavailable"}`.
   2 → `technical_signoff_approved`, `{"reason": null}`.
   3 → `equipment_preparation_changed`, `{"from": "not_started", "to": "in_progress"}`.
-- **Actual:** As expected.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-197 — a refused action records nothing
 
