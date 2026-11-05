@@ -98,7 +98,6 @@ def test_submit_for_safety_check_to_confirmed(admin, page, make_user, sign_in):
     for label in (
         f"{hall} on 20 Nov 2026 is waiting for Venue Staff",
         "Technical Support has not approved the equipment arrangements",
-        "Equipment preparation is Not Started",
     ):
         expect(outstanding.get_by_text(label, exact=True)).to_be_visible(timeout=20000)
     expect(panel.get_by_role("alert")).to_contain_text("outstanding arrangements")
@@ -121,8 +120,8 @@ def test_submit_for_safety_check_to_confirmed(admin, page, make_user, sign_in):
     card = page.get_by_role("list", name="Assigned events").get_by_role("listitem").filter(has_text=event_name)
     card.get_by_role("button", name="Approve equipment").click()
     page.get_by_text("Approved by Technical Support.").wait_for(timeout=20000)
-    card.get_by_label("Equipment preparation").select_option("ready")
-    page.get_by_text("Equipment preparation is now Ready.").wait_for(timeout=20000)
+    # S-26 AC2: preparation opens only after the Safety Officer's approval, so
+    # it is neither set here nor a condition of the submission below.
     sign_out(page)
 
     # 3. Submitted.

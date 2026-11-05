@@ -1127,25 +1127,25 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
 ### TC-E2E-239 — assigned Technical Support updates preparation and the Coordinator sees it
 
 - **Scenario:** A browser proves the protected S-26 write, persistence, and read-only Coordinator visibility.
-- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; planning event assigned to a Coordinator and Technical Support A.
-- **Steps:** Sign in as A; observe Not Started; change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open the event.
-- **Test data:** One event requiring equipment and assigned support.
-- **Expected:** Each save confirms the server response. Ready survives reload. The Coordinator sees Ready on the event readiness view and no preparation edit control. Direct storage inspection shows Ready, A's id, and a non-null server timestamp.
-- **Actual:** Not run.
-- **Status:** Approved
-- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`
+- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; a `confirmed` event C and a `planning` event P, both requiring equipment and assigned to a Coordinator and Technical Support A. Amended 2026-11-05 for S-26 AC2: preparation can change only after the Safety Officer's approval.
+- **Steps:** Sign in as A; on P, observe Not Started with no edit control; on C, observe Not Started, change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open C.
+- **Test data:** As above.
+- **Expected:** P shows "Equipment preparation opens once the Safety Officer approves the event." and no control. On C each save confirms the server response and Ready survives reload. The Coordinator sees Ready on C's readiness view and no preparation edit control. Direct storage shows C Ready with A's id and a non-null server timestamp, and P still `not_started`.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 ## S-24 — Track Event Readiness
 
 ### TC-E2E-241 — Coordinator readiness follows current venue, equipment, and preparation data
 
 - **Scenario:** The assigned Coordinator sees all five readiness areas on the event view.
-- **Pre-conditions:** Fresh `.env.test` stack; an assigned planning event with a confirmed venue, recorded equipment requirement, and preparation Ready.
+- **Pre-conditions:** Fresh `.env.test` stack; an assigned `confirmed` event with a confirmed venue, recorded equipment requirement, Technical Support sign-off approved, and preparation Ready. (Amended 2026-11-05: was a planning event; preparation counts toward readiness only after safety approval — TC-FRONTEND-425.)
 - **Steps:** Sign in as the Coordinator; open the event; inspect readiness; change the server-owned preparation status to In Progress; reload.
 - **Expected:** Initially Venue, Equipment, and Technical support are Complete and the total is 3 of 3. Programme and Registration are visible as Not available yet. After the underlying change and reload, Technical support becomes Outstanding and the total becomes 2 of 3 without a duplicate readiness record being edited.
-- **Actual:** The Coordinator saw all five indicators, three implemented areas complete, and two future areas unavailable. After preparation changed to In Progress and the page reloaded, the total changed to 2 of 3 and Technical support became Outstanding.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
+- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 ## TC-E2E-240 — a tentative hold expires and releases its slot
 
@@ -1211,18 +1211,20 @@ yet present.
   requirement, Technical Support assigned.
 - **Steps:** 1. As the Coordinator, open the event; click "Submit for safety
   check". 2. As Venue Staff, confirm the booking; as Technical Support,
-  approve and set preparation Ready. 3. As the Coordinator, reload and submit.
+  approve. 3. As the Coordinator, reload and submit.
   4. As the Organiser, open the event. 5. As the Safety Officer, approve it.
-  6. As the Organiser, reload.
+  6. As the Organiser, reload. Amended 2026-11-05: Technical Support no longer
+  sets preparation in step 2, and step 1 no longer lists it — preparation
+  follows the safety approval (S-26 AC2).
 - **Test data:** As above.
 - **Expected:** 1 lists "Hall A on 20 Nov 2026 is waiting for Venue Staff",
-  "Technical Support has not approved the equipment arrangements",
-  "Equipment preparation is Not Started"; no override control is on the
+  "Technical Support has not approved the equipment arrangements", and
+  nothing about equipment preparation; no override control is on the
   page; status still "Planning". 3 shows "Pending Safety Check". 4 shows
   "Pending Safety Check". 6 shows "Confirmed".
-- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`
+- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 
 ## S-61 — review and approve cancellation request

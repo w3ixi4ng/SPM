@@ -123,16 +123,21 @@ S-62 section of `tests/unit/atomic/events/TEST_CASES.md`.
 - **Evidence:** `tests/integration/atomic/events/test_cancellation_request.py::test_a_cancellation_request_is_stored_with_the_event_through_kong`; `.env.test` stack recreated immediately before (events container verified on the test project's `SUPABASE_URL`), 2026-10-11, branch `S-62/request-event-cancellation` at `cb446d3`; S-62 SQL applied to dev and test. `pytest tests/integration/atomic/events`: 6 passed.
 ## S-26 — Update Equipment Preparation Status
 
-### TC-EVENTS-126 — equipment preparation persists through the real Events boundary
+Renumbered 2026-11-05: this case was TC-EVENTS-126, which is also an S-62
+unit case; S-62 keeps 126. Amended the same day to follow S-26 AC2 —
+preparation can be updated only after the Safety Officer's approval
+(`confirmed` or `preparation`), see the unit file's S-26 section.
 
-- **Scenario:** The committed Events schema and authenticated HTTP route store and return S-26 state together.
-- **Pre-conditions:** Fresh `.env.test` Docker stack; `backend/sql/events.sql` applied, exposed, and granted in the test project; assigned Technical Support and Coordinator accounts; one eligible event.
-- **Steps:** Verify the database default; update through Kong as assigned Technical Support; load through both the support and Coordinator event views; attempt the same write as an unassigned worker.
-- **Test data:** `not_started` → `in_progress` → `ready` on one planning event.
-- **Expected:** The default, current value, updater, and timestamp persist in `events.events`; both authorised reads agree; the unassigned write is denied and leaves the row unchanged. The test deletes every row and account it creates.
-- **Actual:** Not run.
-- **Status:** Approved
-- **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`
+### TC-EVENTS-455 — equipment preparation persists through the real Events boundary, after safety approval only
+
+- **Scenario:** The committed Events schema and authenticated HTTP route store and return S-26 state together, and refuse it before approval (S-26 AC1, AC2, AC3).
+- **Pre-conditions:** Fresh `.env.test` Docker stack; `backend/sql/events.sql` applied, exposed, and granted in the test project; assigned Technical Support and Coordinator accounts; event C in `confirmed` and event P in `planning`, both assigned to the same Technical Support worker.
+- **Steps:** 1. Verify C's database default. 2. Through Kong as assigned Technical Support, update C `not_started` → `in_progress` → `ready`. 3. Load C through the support and Coordinator event views. 4. Attempt the same write on C as an unassigned worker. 5. As assigned Technical Support, attempt `ready` on P. 6. Read P from `events.events`.
+- **Test data:** As above.
+- **Expected:** 1 → `not_started`. 2 → `200` each; value, updater and timestamp persist in `events.events`. 3 → both reads show `ready`. 4 → denied, row unchanged. 5 → `409` "Equipment preparation can be updated once the Safety Officer has approved the event". 6 → still `not_started`, no updater or timestamp. The test deletes every row and account it creates.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 ---
 

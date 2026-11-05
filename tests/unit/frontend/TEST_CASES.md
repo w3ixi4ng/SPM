@@ -2273,13 +2273,14 @@ Acceptance criteria and tests confirmed on 2026-10-10. Executed locally on
 - **Evidence:** `test_safety_checks.mjs::error copy covers authorization, stale decisions and upstream failures`
 ## S-26 — Update Equipment Preparation Status
 
-Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test cases confirmed by the developer on 2026-10-11. Not yet executed.
+Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test cases confirmed by the developer on 2026-10-11; amended 2026-11-05 to follow AC2 — preparation can change only after the Safety Officer's approval (`confirmed` or `preparation`).
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
-| Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-239 |
-| Only Technical Support can change it | TC-FRONTEND-117–118 |
+| AC1: Technical Support can set all three preparation statuses | TC-FRONTEND-117 |
+| AC2: Only once the event is past the Safety Officer's approval | TC-FRONTEND-424, TC-E2E-239 |
+| AC3: Current preparation status is visible on the readiness view | TC-FRONTEND-118, TC-E2E-239 |
+| AC4: Only Technical Support can change it | TC-FRONTEND-117–118 |
 
 ### TC-FRONTEND-117 — preparation permissions, labels, and update request match the Events contract
 
@@ -2297,11 +2298,22 @@ Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test ca
 - **Pre-conditions:** Assigned Technical Support and Coordinator event views; mocked successful and failed update calls.
 - **Steps:** Inspect Not Started; save In Progress then Ready; inspect the Coordinator view; fail a later update.
 - **Test data:** One assigned event and all three statuses.
-- **Expected:** Technical Support gets the three-value control on eligible assigned events. The Coordinator sees the current labelled value without an edit control. Other roles get no edit permission. UI state changes only from the successful server response; a failure keeps the prior value and shows actionable feedback.
-- **Actual:** The shared status mapping preserved the server value for the editable support view and read-only Coordinator display; failure messages did not fabricate success.
+- **Expected:** Technical Support gets the three-value control on assigned `confirmed` and `preparation` events (TC-FRONTEND-424 covers the rest). The Coordinator sees the current labelled value without an edit control. Other roles get no edit permission. UI state changes only from the successful server response; a failure keeps the prior value and shows actionable feedback.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.mjs::dashboard contracts expose editable support and read-only coordinator states`
+- **Evidence:** `test_equipment_preparation.mjs::dashboard contracts expose editable support and read-only coordinator states`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
+
+### TC-FRONTEND-424 — preparation is read-only until the Safety Officer approves the event
+
+- **Scenario:** Technical Support can't try a change the Events service would refuse (S-26 AC2).
+- **Pre-conditions:** The equipment-preparation helpers are loaded.
+- **Steps:** Ask whether preparation can be updated for an assigned event in each status; render the message for an event that can't.
+- **Test data:** Statuses `planning`, `pending_safety_check`, `confirmed`, `preparation`; a `409` from the update with detail "Equipment preparation can be updated once the Safety Officer has approved the event".
+- **Expected:** `canUpdateEquipmentPreparation` is `false` for `planning` and `pending_safety_check`, `true` for `confirmed` and `preparation`. When it is `false` the Technical Support dashboard shows the current value as text with "Equipment preparation opens once the Safety Officer approves the event." and no select. The `409` is shown with the service's own detail.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.mjs::preparation is read-only until safety approval`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 ## S-24 — Track Event Readiness
 
 Story: S-24 Track Event Readiness. Acceptance criteria and test cases confirmed
@@ -2318,20 +2330,20 @@ from the implemented-area total rather than presented as complete.
 ### TC-FRONTEND-119 — readiness presents all five areas without inventing unfinished data
 
 - **Pre-conditions:** The readiness helper is loaded.
-- **Steps:** Build readiness for an event with a confirmed venue, an equipment requirement, and preparation Ready.
+- **Steps:** Build readiness for a `confirmed` event with a confirmed venue, an equipment requirement, Technical Support sign-off approved, and preparation Ready. (Amended 2026-11-05: the event is now `confirmed`, see TC-FRONTEND-425.)
 - **Expected:** Venue, Equipment, and Technical support are Complete. Programme and Registration are Not available yet. Overall reads 3 of 3 implemented areas complete.
-- **Actual:** The helper returned three complete implemented areas and two explicitly unavailable future areas.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`
+- **Evidence:** `test_event_readiness.mjs::readiness derives every implemented area from its owning data`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ### TC-FRONTEND-120 — incomplete source data remains outstanding
 
-- **Pre-conditions:** A held venue, no equipment requirements, and preparation In Progress.
+- **Pre-conditions:** A `confirmed` event with a held venue, no equipment requirements, Technical Support sign-off approved, and preparation In Progress. (Amended 2026-11-05: the event is now `confirmed`, see TC-FRONTEND-425.)
 - **Steps:** Build readiness.
 - **Expected:** All three implemented areas are Outstanding; unfinished Programme and Registration remain unavailable.
-- **Actual:** All three implemented areas remained outstanding and the two future areas remained unavailable.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`
+- **Evidence:** `test_event_readiness.mjs::readiness stays outstanding until its underlying data is complete`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ### TC-FRONTEND-121 — readiness reloads its owning services instead of storing a duplicate answer
 
@@ -2342,6 +2354,17 @@ from the implemented-area total rather than presented as complete.
 - **Status:** Pass
 - **Evidence:** `test_event_readiness.mjs::readiness loads fresh venue and equipment data through Kong`
 
+
+### TC-FRONTEND-425 — before safety approval, Technical support readiness doesn't wait for preparation
+
+- **Scenario:** A planning event can't have its preparation updated (S-26 AC2), so readiness mustn't hold it Outstanding for that (S-24 AC3, AC4).
+- **Pre-conditions:** The readiness helper is loaded; one equipment requirement; a confirmed venue.
+- **Steps:** Build readiness for: (a) `planning`, sign-off approved, preparation Not Started; (b) `planning`, sign-off not yet given; (c) `confirmed`, sign-off approved, preparation In Progress; (d) as (c) with preparation Ready.
+- **Test data:** As above.
+- **Expected:** (a) Technical support Complete, detail "Equipment preparation starts after the safety check". (b) Outstanding, detail "Technical Support has not approved the equipment arrangements". (c) Outstanding, detail "Equipment preparation is In Progress". (d) Complete, detail "Equipment preparation is Ready".
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_event_readiness.mjs::technical support readiness counts preparation only after safety approval`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 ## S-81 — tentative hold expiry
 
 ### TC-FRONTEND-122 — the hold form requires a future Singapore expiry

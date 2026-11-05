@@ -1,4 +1,6 @@
-"""TC-EVENTS-126: real S-26 Events persistence and authorization."""
+"""TC-EVENTS-455 (was TC-EVENTS-126): real S-26 Events persistence and
+authorization, and S-26 AC2 -- preparation only after the Safety Officer's
+approval."""
 
 import uuid
 
@@ -34,18 +36,20 @@ def test_equipment_preparation_round_trip(admin, auth_client):
     coordinator = make_user(admin, "event_coordinator")
     support = make_user(admin, "technical_support")
     other_support = make_user(admin, "technical_support")
-    event_id = None
-    try:
-        event = admin.schema("events").table("events").insert({
+    safety_officer = make_user(admin, "safety_officer")
+    event_id = planning_id = None
+
+    def insert_event(status, name, start, end, **extra):
+        return admin.schema("events").table("events").insert({
             "organiser_id": organiser["id"],
             "assigned_coordinator_id": coordinator["id"],
-            "status": "planning",
-            "name": "S-26 integration event",
+            "status": status,
+            "name": name,
             "purpose": "Verify preparation persistence",
             "start_date": "2026-11-20",
-            "start_time": "09:00",
+            "start_time": start,
             "end_date": "2026-11-20",
-            "end_time": "12:00",
+            "end_time": end,
             "expected_attendance": 40,
             "decision": "approved",
             "decided_at": "2026-10-01T00:00:00Z",
@@ -53,8 +57,18 @@ def test_equipment_preparation_round_trip(admin, auth_client):
             "technical_support_required": True,
             "assigned_technical_support_id": support["id"],
             "technical_support_assigned_at": "2026-10-01T01:00:00Z",
+            **extra,
         }).execute().data[0]
+
+    try:
+        event = insert_event(
+            "confirmed", "S-26 integration event", "09:00", "12:00",
+            safety_decision="approved",
+            safety_officer_id=safety_officer["id"],
+            safety_decided_at="2026-10-05T00:00:00Z",
+        )
         event_id = event["id"]
+        planning_id = insert_event("planning", "S-26 integration event, not yet approved", "13:00", "16:00")["id"]
         initial = admin.schema("events").table("events").select(
             "equipment_preparation_status,equipment_preparation_updated_by,equipment_preparation_updated_at"
         ).eq("id", event_id).execute().data[0]
@@ -102,8 +116,29 @@ def test_equipment_preparation_round_trip(admin, auth_client):
         assert stored["equipment_preparation_status"] == "ready"
         assert stored["equipment_preparation_updated_by"] == support["id"]
         assert stored["equipment_preparation_updated_at"] is not None
+
+        # S-26 AC2: an event the Safety Officer hasn't approved can't be prepared.
+        refused = httpx.put(
+            f"{GATEWAY_BASE_URL}/events/support-assigned/{planning_id}/equipment-preparation",
+            headers=support_headers,
+            json={"status": "ready"},
+            timeout=15.0,
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json() == {
+            "detail": "Equipment preparation can be updated once the Safety Officer has approved the event"
+        }
+        untouched = admin.schema("events").table("events").select(
+            "equipment_preparation_status,equipment_preparation_updated_by,equipment_preparation_updated_at"
+        ).eq("id", planning_id).execute().data[0]
+        assert untouched == {
+            "equipment_preparation_status": "not_started",
+            "equipment_preparation_updated_by": None,
+            "equipment_preparation_updated_at": None,
+        }
     finally:
-        if event_id:
-            admin.schema("events").table("events").delete().eq("id", event_id).execute()
-        for user in (organiser, coordinator, support, other_support):
+        for created in (event_id, planning_id):
+            if created:
+                admin.schema("events").table("events").delete().eq("id", created).execute()
+        for user in (organiser, coordinator, support, other_support, safety_officer):
             admin.auth.admin.delete_user(user["id"])

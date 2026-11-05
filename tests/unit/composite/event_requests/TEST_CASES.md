@@ -1821,10 +1821,10 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Pre-conditions:** P quantity 2 prepared; T approved P=2.
 - **Steps:** Preview P 2→3, then unchanged P; read impacts and sign-off.
 - **Test data:** P 2→3; T signed 2026-12-01T09:00Z.
-- **Expected:** P has requirement/availability/preparation reason; T has its own old-sign-off review reason. Unchanged P is not flagged solely for existing. T's old approval remains visible and is never presented as approval for P=3.
-- **Actual:** Equipment requirement and old Technical Support sign-off produced separate impacts; unchanged equipment did not gain a flag.
+- **Expected:** P has a requirement/availability reason (amended 2026-11-05: it no longer asks to revalidate preparation, which S-26 AC2 opens only after the new safety approval); T has its own old-sign-off review reason. Unchanged P is not flagged solely for existing. T's old approval remains visible and is never presented as approval for P=3.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_time_change_revalidates_live_equipment_and_technical_schedule; test_unchanged_equipment_is_not_flagged_for_attendance_only
+- **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_time_change_revalidates_live_equipment_and_technical_schedule; test_unchanged_equipment_is_not_flagged_for_attendance_only; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-306 — acceptance uses the owning services
 
@@ -1854,11 +1854,22 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Pre-conditions:** Accepted R has B1 and P flags, with old staff approvals preserved.
 - **Steps:** 1. C sends a new booking request for the revised event and attempts clearance before approval. 2. Venue Staff approves B3 through the existing decision workflow. 3. C resolves B1 with B3 as evidence; T re-signs P before C resolves P.
 - **Test data:** B1→B3, P=3, C note `Reviewed replacement`.
-- **Expected:** Request/note alone cannot clear unmet flag; validated evidence references B3 or new T sign-off. Separate C reviewer/action/time are stored. B1 and P resolve independently; D cannot resolve.
+- **Expected:** Request/note alone cannot clear unmet flag; validated evidence references B3 or new T sign-off. A fresh preparation status is not required: the event is back in Planning, where S-26 AC2 doesn't allow preparation (amended 2026-11-05, see TC-EVENTREQUESTS-452). Separate C reviewer/action/time are stored. B1 and P resolve independently; D cannot resolve.
 - **Actual:** Coordinator could not forge staff approval; fresh Venue Staff and Technical Support actions supported independent durable resolution.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_requests/test_s60.py::test_impact_resolution_cannot_impersonate_technical_support; test_new_staff_approved_booking_resolves_old_booking_impact_with_trusted_evidence; tests/e2e/test_review_significant_event_changes.py::test_proposal_review_resolution_requires_fresh_safety_check[chromium]
 
+
+## TC-EVENTREQUESTS-452 — an equipment impact resolves on a fresh sign-off, without fresh preparation
+
+- **Scenario:** After an accepted significant change the event is back in Planning, where S-26 AC2 doesn't allow preparation. A fresh Technical Support sign-off and live availability are enough to resolve the equipment impact (S-60 AC3, AC5; S-26 AC2). Applies to both the S-60 change-request and S-18 Coordinator-edit resolve routes, which share the rule.
+- **Pre-conditions:** Accepted R at `2026-10-27T10:00:00Z` with an outstanding `equipment:P:requirement` impact; E is `planning`; assigned Technical Support T approved at `2026-10-28T00:00:00Z`; preparation `not_started` with no update time; P quantity 2 of 10 available.
+- **Steps:** C resolves the impact with action `Reviewed revised projector count`.
+- **Test data:** As above.
+- **Expected:** `200`; one Events `/resolve` call whose evidence is exactly `{"equipment_item_id": P, "required_quantity": 2, "technical_signoff_by": T, "technical_signoff_at": "2026-10-28T00:00:00Z"}` — no preparation fields. With T's sign-off before the acceptance instead, `409` "Fresh Technical Support sign-off is required" and no `/resolve` call.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s60.py::test_equipment_impact_resolves_on_fresh_signoff_without_preparation`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 ## TC-EVENTREQUESTS-309 — rejection releases S-59's pending slot
 
 - **Scenario:** C's reasoned rejection preserves history and allows O to revise.
