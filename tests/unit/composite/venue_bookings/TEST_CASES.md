@@ -1547,6 +1547,15 @@ and browser cases, and TC-VENUEBOOKINGS-136 below.
   a stable key, followed by one mark-notified call.
 - **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py::test_expiry_reconciler_notifies_then_marks_and_does_not_repeat`
 
+### TC-VENUEBOOKINGS-137 — only the currently assigned Coordinator confirms
+
+- **Scenario:** The composite checks the event's live assignment before
+  forwarding the hold confirmation with a server-only token.
+- **Expected:** Another Coordinator receives `404` and causes no booking
+  write; the assigned Coordinator's request reaches the internal bookings
+  confirmation route with their ID and the trusted token.
+- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py::test_only_the_current_assigned_coordinator_can_confirm_hold`
+
 ## S-78 — request replacement venue for affected booking
 
 **Story:** S-78 Request Replacement Venue for Affected Booking. Confirmed by the developer on 2026-10-14. Unit cases executed 2026-10-14 on branch `S-78/request-replacement-venue-for-affected-booking` (working tree on `9d81a15`), Python 3.14.4, pytest 9.1.1, Node 24.21.0: `pytest tests/unit` 1057 passed, 17 skipped; `node --test tests/unit/frontend/test_*.mjs` 143 passed.

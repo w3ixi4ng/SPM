@@ -68,10 +68,10 @@ expiry notification. Booking and notification writes are retried safely after
 temporary failures. The SQL migration in `backend/sql/bookings.sql` must be
 applied in both dev and test before this workflow is deployed.
 
-The composite checks the event's current assignment. The atomic bookings
-service also checks the Coordinator recorded on the booking. If an event is
-reassigned after the booking was created, the new Coordinator's confirmation
-is currently refused until that booking's Coordinator record is reconciled.
+The composite checks the event's current assignment, then uses the existing
+server-only assignment token for the atomic confirmation write. This allows
+the current Coordinator to confirm even if the booking was made before a
+reassignment. Configure `ASSIGNMENT_SERVICE_SECRET` for both services.
 
 ## Requests
 

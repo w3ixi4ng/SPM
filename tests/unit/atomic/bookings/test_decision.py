@@ -96,17 +96,17 @@ def test_confirmed_hold_can_be_approved_by_staff(client, db, auth):
     assert response.json()['status'] == 'confirmed'
 
 
-def test_only_the_assigned_coordinator_confirms_an_active_hold(client, db, auth):
+def test_only_the_trusted_composite_can_record_a_confirmed_hold(client, db, monkeypatch):
     assigned = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
-    auth.auth.get_user.return_value.user.app_metadata = {'role': 'event_coordinator'}
+    monkeypatch.setenv('ASSIGNMENT_SERVICE_SECRET', 'test-service-token')
     held = booking_row(status='held', hold_expires_at='2099-01-01T00:00:00+00:00')
     prepare(db, booking=held)
-    path = f'/bookings/{BOOKING_ID}/confirm-hold'
-    forbidden = client.post(path, cookies={'sb_access_token': 'token'})
+    path = f'/internal/bookings/{BOOKING_ID}/confirm-hold'
+    body = {'coordinator_id': assigned}
+    forbidden = client.post(path, json=body)
     assert forbidden.status_code == 403
     table(db).update.assert_not_called()
 
-    auth.auth.get_user.return_value.user.id = assigned
     prepare(db, booking=held)
     update = table(db).update.return_value
     update.is_.return_value = update
@@ -115,7 +115,7 @@ def test_only_the_assigned_coordinator_confirms_an_active_hold(client, db, auth)
         **held, 'hold_confirmed_by': assigned,
         'hold_confirmed_at': '2026-11-10T00:00:00+00:00',
     }])
-    allowed = client.post(path, cookies={'sb_access_token': 'token'})
+    allowed = client.post(path, json=body, headers={'X-Assignment-Service-Token': 'test-service-token'})
     assert allowed.status_code == 200, allowed.text
     assert allowed.json()['hold_confirmed_by'] == assigned
 

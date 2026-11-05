@@ -23,6 +23,7 @@ import suitability
 import unavailability
 from clients import (
     INTERNAL_READ_TIMEOUT,
+    assignment_service_headers,
     get_bookings_client,
     get_events_client,
     get_notifications_client,
@@ -47,7 +48,8 @@ _expiry_reconciler_task = None
 
 
 async def _reconcile_expired_holds_once(bookings, notifications):
-    response = await bookings.get("/internal/bookings/expired-holds")
+    headers = assignment_service_headers()
+    response = await bookings.get("/internal/bookings/expired-holds", headers=headers)
     response.raise_for_status()
     for held in response.json():
         notice = {
@@ -60,7 +62,7 @@ async def _reconcile_expired_holds_once(bookings, notifications):
         }
         delivered = await notifications.post("/internal/notifications", json={"notifications": [notice]})
         delivered.raise_for_status()
-        marked = await bookings.post(f'/internal/bookings/{held["id"]}/expiry-notified')
+        marked = await bookings.post(f'/internal/bookings/{held["id"]}/expiry-notified', headers=headers)
         marked.raise_for_status()
 
 
@@ -70,7 +72,7 @@ async def _reconcile_expired_holds():
         while True:
             try:
                 await _reconcile_expired_holds_once(bookings, notifications)
-            except (httpx.HTTPError, KeyError, ValueError):
+            except (httpx.HTTPError, KeyError, ValueError, RuntimeError):
                 logger.exception("Could not reconcile expired venue holds; retrying")
             await asyncio.sleep(60)
 
@@ -813,13 +815,16 @@ async def confirm_venue_hold(
     booking = await _booking_by_id(bookings, booking_id)
     await _fetch("Events", events, f'/events/assigned/{booking["event_id"]}',
                  request.cookies, "Event not found")
+    try:
+        headers = assignment_service_headers()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     response = await _call("Bookings", bookings.post(
-        f"/bookings/{booking_id}/confirm-hold", cookies=request.cookies,
+        f"/internal/bookings/{booking_id}/confirm-hold",
+        json={"coordinator_id": coordinator["id"]}, headers=headers,
     ))
     if response.status_code == 200:
-        confirmed = response.json()
-        await _record(events, confirmed, coordinator, "venue_hold_confirmed", _venue_details(confirmed))
-        return confirmed
+        return response.json()
     if response.status_code in (401, 403, 404, 409):
         raise HTTPException(status_code=response.status_code, detail=(response.json() or {}).get("detail"))
     raise _unavailable("Bookings")

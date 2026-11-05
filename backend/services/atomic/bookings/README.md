@@ -21,7 +21,10 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
 | `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold until the required future `expires_at`. The service records the staff member and timestamps; an overlapping live slot returns `409`. |
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or an unavailable period is refused. |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: confirm an ordinary pending request or a held request after Coordinator confirmation; reject either. Expired holds cannot be approved. |
+| `POST` | `/internal/bookings/{id}/confirm-hold` | Trusted composite only: record current Coordinator confirmation of an active hold. Requires `X-Assignment-Service-Token` and `coordinator_id` in JSON. |
+| `GET` | `/internal/bookings/expired-holds` | Internal reconciler: release due holds and list unnotified expiries. |
+| `POST` | `/internal/bookings/{id}/expiry-notified` | Internal reconciler: mark a delivered expiry notice; safe to repeat. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
 | `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). S-34: an optional `to` (inclusive) bounds it; `to` before `from` is `422`. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |

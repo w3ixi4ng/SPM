@@ -26,6 +26,7 @@ from schemas import (
     BookingCreate,
     BookingDecision,
     BookingRead,
+    CoordinatorHoldConfirmation,
     EventBookingsClosure,
     EventBookingsRelease,
     EventBookingsReopen,
@@ -35,7 +36,7 @@ from schemas import (
     RestoreOutcome,
     VenuePreparationUpdate,
 )
-from security import require_coordinator, require_user, require_venue_staff
+from security import require_assignment_service, require_coordinator, require_user, require_venue_staff
 
 app = FastAPI(title="Bookings Service")
 logger = logging.getLogger(__name__)
@@ -137,7 +138,9 @@ def _expire_holds(db: Client) -> list[dict]:
 
 
 @app.get("/internal/bookings/expired-holds", response_model=list[BookingRead])
-def expired_holds_to_notify(db: Client = Depends(get_db)):
+def expired_holds_to_notify(
+    _service=Depends(require_assignment_service), db: Client = Depends(get_db),
+):
     """The composite's periodic reconciler retries notices until marked sent."""
     _expire_holds(db)
     result = _execute(db.schema(SCHEMA).table(TABLE).select("*")
@@ -148,7 +151,9 @@ def expired_holds_to_notify(db: Client = Depends(get_db)):
 
 
 @app.post("/internal/bookings/{booking_id}/expiry-notified", response_model=BookingRead)
-def mark_hold_expiry_notified(booking_id: UUID, db: Client = Depends(get_db)):
+def mark_hold_expiry_notified(
+    booking_id: UUID, _service=Depends(require_assignment_service), db: Client = Depends(get_db),
+):
     result = _execute(db.schema(SCHEMA).table(TABLE).update({
         "hold_expiry_notified_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", str(booking_id)).eq("hold_release_reason", "expired")
@@ -464,24 +469,23 @@ def place_hold(
     raise HTTPException(status_code=409, detail="Only a pending booking request can be held")
 
 
-@app.post("/bookings/{booking_id}/confirm-hold", response_model=BookingRead)
+@app.post("/internal/bookings/{booking_id}/confirm-hold", response_model=BookingRead)
 def confirm_hold(
     booking_id: UUID,
-    coordinator=Depends(require_coordinator),
+    payload: CoordinatorHoldConfirmation,
+    _service=Depends(require_assignment_service),
     db: Client = Depends(get_db),
 ):
     _expire_holds(db)
     booking = _booking(db, booking_id)
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if str(booking["coordinator_id"]) != str(coordinator.id):
-        raise HTTPException(status_code=403, detail="This hold belongs to another Coordinator")
     if booking["status"] != "held":
         raise HTTPException(status_code=409, detail="This tentative hold has expired or is no longer available")
     if booking.get("hold_confirmed_at"):
         return booking
     result = _execute(db.schema(SCHEMA).table(TABLE).update({
-        "hold_confirmed_by": str(coordinator.id),
+        "hold_confirmed_by": str(payload.coordinator_id),
         "hold_confirmed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", str(booking_id)).eq("status", "held").is_("hold_confirmed_at", "null")
       .gt("hold_expires_at", datetime.now(timezone.utc).isoformat()))

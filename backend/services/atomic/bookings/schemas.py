@@ -345,6 +345,11 @@ class HoldRelease(BaseModel):
     reason: HoldReleaseReason
 
 
+class CoordinatorHoldConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    coordinator_id: UUID
+
+
 class HoldCreate(BaseModel):
     """A hold always ends at an explicit, timezone-aware instant."""
 
