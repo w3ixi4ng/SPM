@@ -1,0 +1,282 @@
+name: Supabase suites
+
+# The integration and end-to-end jobs, called from tests.yml. They live in
+# their own workflow so that one concurrency lock can cover all of them: the
+# caller holds `supabase-test-project` for as long as this whole workflow
+# runs. A lock on each job instead cannot work once e2e is sharded -- the
+# shards would queue behind one another, and GitHub keeps only one job
+# waiting per group, so it would cancel the rest.
+#
+# Do not add a `concurrency` block to any job in here. The caller already
+# holds the group, and a job waiting on it would wait on itself.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # The real services in Docker against the real TEST Supabase project.
+  # These create and delete real rows, which is why they run against the
+  # same .env.test the DAST scan uses.
+  # ---------------------------------------------------------------------
+  integration:
+    name: Integration (pytest + docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # A blank secret is not a missing-key error: the client raises
+      # "supabase_key is required" at import, uvicorn never starts, and compose
+      # reports only "container is unhealthy" -- which points nowhere. Fail
+      # here instead, naming the variable. Same check as wapiti-dast.yml.
+      - name: Check the required secrets are set
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_SERVICE_KEY SUPABASE_ANON_KEY; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            {
+              echo "### Missing secrets"
+              echo ""
+              echo "Set\`$missing\` under **Settings → Secrets and variables →"
+              echo "Actions**, using the **test** Supabase project's values --"
+              echo "these tests create and delete real rows."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          case "$SUPABASE_URL" in
+            */rest/v1*)
+              echo "::error::SUPABASE_URL is the RESTful endpoint, not the project URL"
+              {
+                echo "### SUPABASE_URL is wrong"
+                echo ""
+                echo "It must be \`https://<ref>.supabase.co\` -- host only. The"
+                echo "client appends \`/rest/v1\` itself, and the doubled path"
+                echo "comes back as PGRST125."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
+
+      # Two readers: docker compose passes these into the containers, and the
+      # conftests load the same file on the host so cleanup can reach Supabase
+      # directly. Point these secrets at a TEST project, never production.
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<ENV
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
+          USERS_SERVICE_PORT=8001
+          EVENTS_SERVICE_PORT=8002
+          VENUES_SERVICE_PORT=8003
+          EQUIPMENT_SERVICE_PORT=8005
+          EVENT_REQUESTS_SERVICE_PORT=8100
+          BOOKINGS_SERVICE_PORT=8004
+          VENUE_BOOKINGS_SERVICE_PORT=8101
+          EQUIPMENT_REQUIREMENTS_SERVICE_PORT=8102
+          KONG_PROXY_PORT=8000
+          USERS_SERVICE_URL=http://users:8001
+          EVENTS_SERVICE_URL=http://events:8002
+          VENUES_SERVICE_URL=http://venues:8003
+          BOOKINGS_SERVICE_URL=http://bookings:8004
+          EQUIPMENT_SERVICE_URL=http://equipment:8005
+          ENV
+          echo "ASSIGNMENT_SERVICE_SECRET=$(openssl rand -hex 32)" >> .env.test
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      # The whole stack, not one service: the events tests call the gateway as
+      # well as the service directly. --wait holds until every healthcheck in
+      # docker-compose.yml passes, so the tests never race a booting container.
+      - name: Start the stack
+        run: docker compose --env-file .env.test up -d --build --wait
+
+      # Most of the run is waiting on the remote test project, so workers cut
+      # it down. --workers (tests/conftest.py) keeps each file on one worker,
+      # so its module fixtures and accounts are made once, not once per worker.
+      #
+      # Two workers, not four, and no --reruns: nearly every test signs an
+      # account in, and Supabase Auth rate-limits sign-ins per IP. All the
+      # workers share this runner's IP, so at four the suite hits
+      # "429 Too Many Requests" on /auth/v1/token, and a service that gets the
+      # 429 reports "... service unavailable" (502). Retrying straight away
+      # only signs in again and makes it worse. Raise the test project's Auth
+      # rate limit before raising this. (The e2e shards each have their own
+      # runner, and so their own IP.)
+      #
+      # event_requests/test_app.py runs on its own afterwards. Its assignment
+      # tests block every coordinator in the project, then expect a specific
+      # one to be picked -- a coordinator another worker creates mid-test is
+      # free, wins the pick, and fails the test. Same race as e2e vs
+      # integration, below.
+      - name: Run integration tests
+        run: >-
+          pytest tests/integration -v --workers 2
+          --ignore=tests/integration/composite/event_requests/test_app.py
+
+      - name: Run coordinator assignment tests (serial)
+        if: ${{ !cancelled() }}
+        run: pytest tests/integration/composite/event_requests/test_app.py -v
+
+      # Almost every failure here is database setup, not code -- a schema that
+      # was never exposed, grants that never ran. The container logs are where
+      # that actually shows up.
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.test down -v
+
+  # ---------------------------------------------------------------------
+  # A real browser, driven through Kong against the whole stack -- the built
+  # frontend included. These are the only tests that prove the pieces fit
+  # together: the gateway's routing, the SPA fallback, and a session cookie
+  # surviving a page load.
+  #
+  # Kept to four journeys on purpose. They are the slowest thing here and
+  # every one of them can only fail for a reason the other suites cannot see.
+  # ---------------------------------------------------------------------
+  e2e:
+    name: End-to-end (playwright ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    # Runs after integration, never alongside it: both write to the same test
+    # Supabase project, and the e2e journeys create event_coordinator
+    # accounts. One created mid-way through an integration test is a fresh,
+    # zero-load coordinator the assignment tests never blocked, so it wins
+    # the pick and the test fails naming an account nobody recognises.
+    # `!cancelled()` keeps e2e running when integration fails -- the two stay
+    # separate signals, they just no longer overlap.
+    needs: integration
+    if: ${{ !cancelled() }}
+    # One stack per runner, a quarter of the files on each -- split by file,
+    # see --shard in tests/e2e/conftest.py. The shards share the test project
+    # with each other, which is safe: every journey makes its own accounts and
+    # finds its rows by a unique name. What they must not share it with is the
+    # integration suite, and `needs` above already keeps them apart.
+    # One worker per shard, so four browsers at once in all. Every runner has
+    # its own stack, but all four share the one test Supabase project, and
+    # that is the bottleneck: at two workers per shard, pages that look up
+    # every row in the project one call at a time (the Venue Staff pending
+    # list, for one) hit a slow call, answer "unavailable", and render an
+    # empty list. Playwright's --shard and --workers, in pytest: see
+    # tests/conftest.py and tests/e2e/conftest.py.
+    #
+    # --reruns 2 is Playwright's `retries`: a failed journey runs again, up
+    # to twice, and is reported as RERUN, so a flaky one stays visible in the
+    # log instead of passing silently.
+    # fail-fast is off so one broken journey does not cancel the other shards'
+    # results.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check the required secrets are set
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          for name in SUPABASE_URL SUPABASE_SERVICE_KEY SUPABASE_ANON_KEY; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            exit 1
+          fi
+
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<ENV
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          AUTH_COOKIE_SECURE=true
+          USERS_SERVICE_PORT=8001
+          EVENTS_SERVICE_PORT=8002
+          VENUES_SERVICE_PORT=8003
+          EQUIPMENT_SERVICE_PORT=8005
+          EVENT_REQUESTS_SERVICE_PORT=8100
+          BOOKINGS_SERVICE_PORT=8004
+          VENUE_BOOKINGS_SERVICE_PORT=8101
+          EQUIPMENT_REQUIREMENTS_SERVICE_PORT=8102
+          KONG_PROXY_PORT=8000
+          USERS_SERVICE_URL=http://users:8001
+          EVENTS_SERVICE_URL=http://events:8002
+          VENUES_SERVICE_URL=http://venues:8003
+          BOOKINGS_SERVICE_URL=http://bookings:8004
+          EQUIPMENT_SERVICE_URL=http://equipment:8005
+          ENV
+          echo "ASSIGNMENT_SERVICE_SECRET=$(openssl rand -hex 32)" >> .env.test
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      # pip installs the bindings; the browser is a separate download.
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Start the stack
+        run: docker compose --env-file .env.test up -d --build --wait
+
+      - name: Run end-to-end tests
+        run: pytest tests/e2e -v --shard ${{ matrix.shard }}/4 --workers 1 --reruns 2
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs
+
+      # A failed browser test is close to unreadable without these.
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: ignore
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.test down -v

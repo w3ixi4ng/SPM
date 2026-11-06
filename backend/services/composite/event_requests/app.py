@@ -737,10 +737,9 @@ async def resolve_event_change_impact(
             or event.get("technical_signoff_by") != event.get("assigned_technical_support_id")):
             raise HTTPException(status_code=409, detail="Fresh Technical Support sign-off is required")
         if kind == "equipment":
-            prepared_at = event.get("equipment_preparation_updated_at")
-            if (event.get("equipment_preparation_status") != "ready" or not prepared_at
-                or datetime.fromisoformat(prepared_at.replace("Z", "+00:00")) <= datetime.fromisoformat(accepted_at.replace("Z", "+00:00"))):
-                raise HTTPException(status_code=409, detail="Fresh Technical Support preparation is required")
+            # No fresh preparation: the accepted change sent the event back to
+            # Planning, and S-26 AC2 opens preparation only after the new
+            # safety approval. Sign-off and live availability are the check.
             requirements = _equipment_snapshot(await _change_equipment(event_id, equipment))
             if requirements != change["proposed_equipment"]:
                 raise HTTPException(status_code=409, detail="Equipment requirements changed again")
@@ -750,8 +749,6 @@ async def resolve_event_change_impact(
                 raise HTTPException(status_code=409, detail="Equipment is unavailable for the accepted window")
             evidence.update({
                 "equipment_item_id": item["arrangement_id"], "required_quantity": quantity,
-                "equipment_preparation_updated_by": event.get("equipment_preparation_updated_by"),
-                "equipment_preparation_updated_at": event.get("equipment_preparation_updated_at"),
             })
         evidence.update({"technical_signoff_by": event.get("technical_signoff_by"),
                          "technical_signoff_at": signed_at})
@@ -878,10 +875,7 @@ async def resolve_coordinator_edit_impact(
             or event.get("technical_signoff_by") != event.get("assigned_technical_support_id")):
             raise HTTPException(status_code=409, detail="Fresh Technical Support sign-off is required")
         if item["kind"] == "equipment":
-            prepared_at = event.get("equipment_preparation_updated_at")
-            if (event.get("equipment_preparation_status") != "ready" or not prepared_at
-                or datetime.fromisoformat(prepared_at.replace("Z", "+00:00")) <= datetime.fromisoformat(item["flagged_at"].replace("Z", "+00:00"))):
-                raise HTTPException(status_code=409, detail="Fresh Technical Support preparation is required")
+            # As above: preparation follows the new safety approval (S-26 AC2).
             current = await _change_equipment(event_id, equipment)
             quantity = next((row["required_quantity"] for row in current
                              if str(row["equipment_item_id"]) == item["arrangement_id"]), 0)
@@ -891,8 +885,6 @@ async def resolve_coordinator_edit_impact(
                 raise HTTPException(status_code=409, detail="Equipment is unavailable for the accepted window")
             evidence.update({
                 "equipment_item_id": item["arrangement_id"], "required_quantity": quantity,
-                "equipment_preparation_updated_by": event.get("equipment_preparation_updated_by"),
-                "equipment_preparation_updated_at": event.get("equipment_preparation_updated_at"),
             })
         evidence.update({"technical_signoff_by": event.get("technical_signoff_by"),
                          "technical_signoff_at": event.get("technical_signoff_at")})

@@ -240,6 +240,7 @@ def no_retry_delay(monkeypatch):
 
 @pytest.fixture
 def client(services):
+    app.state.expiry_reconciler_enabled = False
     app.dependency_overrides[get_users_client] = lambda: services.users
     app.dependency_overrides[get_events_client] = lambda: services.events
     app.dependency_overrides[get_venues_client] = lambda: services.venues
@@ -248,3 +249,4 @@ def client(services):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    app.state.expiry_reconciler_enabled = True

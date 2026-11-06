@@ -48,6 +48,7 @@ def test_a_coordinators_request_reaches_venue_staff_and_stays_visible_to_the_coo
     venue = admin.schema("venues").table("venues").select("*").eq("id", world["venue_id"]).execute().data[0]
     assert rows[0]["event_name"] == event["name"]
     assert rows[0]["expected_attendance"] == 120
+    assert rows[0]["allocated_attendance"] == 120
     assert rows[0]["venue_name"] == venue["name"]
     assert rows[0]["coordinator_email"] == world["coordinator"]["email"]
     assert rows[0]["room_layout"] == "theatre"
@@ -92,7 +93,7 @@ def test_an_unsuitable_venue_is_refused_against_real_venue_data(admin, auth_clie
     )
 
     assert refused.status_code == 422, refused.text
-    assert {"booking_date", "operating_hours", "expected_attendance"} <= set(refused.json()["errors"])
+    assert {"booking_date", "operating_hours", "allocated_attendance"} <= set(refused.json()["errors"])
     saved = admin.schema("bookings").table("bookings").select("id").eq("event_id", world["event_id"]).execute()
     assert saved.data == []
 
@@ -113,7 +114,7 @@ def test_venue_edit_preserves_history_and_new_requests_use_saved_values(admin, a
         assert updated.status_code == 200, updated.text
         refused = api.post("/venue-bookings", headers=coordinator, json=payload)
         assert refused.status_code == 422, refused.text
-        assert {"expected_attendance", "required_facilities", "required_accessibility"} <= set(refused.json()["errors"])
+        assert {"allocated_attendance", "required_facilities", "required_accessibility"} <= set(refused.json()["errors"])
         after = admin.schema("bookings").table("bookings").select("*").eq("event_id", world["event_id"]).execute().data
         assert after == before
         pending = api.get("/venue-bookings/pending", headers=staff)
@@ -137,5 +138,5 @@ def test_new_request_uses_updated_venue_values(admin, auth_client, world):
             "booking_date": "2026-11-12", "start_time": "09:00", "end_time": "12:00",
         })
         assert refused.status_code == 422, refused.text
-        assert {"expected_attendance", "required_facilities", "required_accessibility"} <= set(refused.json()["errors"])
+        assert {"allocated_attendance", "required_facilities", "required_accessibility"} <= set(refused.json()["errors"])
         assert admin.schema("bookings").table("bookings").select("id").eq("event_id", world["event_id"]).execute().data == []

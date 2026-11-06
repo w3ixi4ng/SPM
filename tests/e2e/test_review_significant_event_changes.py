@@ -152,9 +152,8 @@ def test_proposal_review_resolution_requires_fresh_safety_check(page, make_user,
         page.wait_for_url(re.compile(r"/dashboard/technical-support$"), timeout=20000)
         signoff = page.request.post(f"/api/equipment-requirements/{event['id']}/sign-off", data={"decision": "approved"})
         assert signoff.status == 200, signoff.text()
-        prepared = page.request.put(f"/api/events/support-assigned/{event['id']}/equipment-preparation",
-                                    data={"status": "ready"})
-        assert prepared.status == 200, prepared.text()
+        # Preparation isn't redone here: S-26 AC2 opens it only after the
+        # Safety Officer's fresh approval, and S-17 no longer requires it.
         sign_out(page)
 
         sign_in(coordinator)

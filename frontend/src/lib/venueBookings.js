@@ -26,6 +26,7 @@ export function emptyVenueBookingForm(eventId) {
     startTime: '',
     endTime: '',
     notes: '',
+    allocatedAttendance: '',
   }
 }
 
@@ -39,6 +40,9 @@ export function venueBookingFormToPayload(form) {
   }
   const notes = form.notes.trim()
   if (notes) payload.notes = notes
+  if (form.allocatedAttendance !== '' && form.allocatedAttendance != null) {
+    payload.allocated_attendance = Number(form.allocatedAttendance)
+  }
   return payload
 }
 
@@ -71,10 +75,14 @@ function hoursProblem(venue, when) {
 // Why `venue` would not suit `event`, before anything is sent -- an empty list
 // when it fits. Opening hours are checked only when `when`, the booking's date
 // and time, is given (S-34); the service checks them again on send.
-export function venueFit(event, venue, when) {
+export function venueFit(event, venue, when, allocatedAttendance = '') {
   const problems = []
-  if (event.expected_attendance > venue.capacity) {
-    problems.push(`Too small: holds ${venue.capacity}, event expects ${event.expected_attendance}`)
+  const attendance = allocatedAttendance === '' ? event.expected_attendance : Number(allocatedAttendance)
+  if (!Number.isInteger(attendance) || attendance < 1 || attendance > event.expected_attendance) {
+    problems.push(`Allocate 1 to ${event.expected_attendance} attendees`)
+  }
+  if (attendance > venue.capacity) {
+    problems.push(`Too small: holds ${venue.capacity}, booking allocates ${attendance}`)
   }
   if (event.room_layout && !venue.room_layouts.includes(event.room_layout)) {
     problems.push(`No ${optionLabel(event.room_layout)} layout`)
@@ -93,9 +101,9 @@ export function venueFit(event, venue, when) {
 // null when it does, or when nothing is selected yet. While it is showing,
 // Send request is disabled: the service would refuse the request anyway, so
 // the Coordinator is steered to a venue that fits instead.
-export function venueWarning(event, venue, when) {
+export function venueWarning(event, venue, when, allocatedAttendance = '') {
   if (!venue) return null
-  const problems = venueFit(event, venue, when)
+  const problems = venueFit(event, venue, when, allocatedAttendance)
   if (problems.length === 0) return null
   return `${venue.name} doesn't suit this event: ${problems.join('; ')}. Choose a venue that fits.`
 }
@@ -259,7 +267,9 @@ export function bookingDecisionErrorMessage(error) {
   // An overlap (S-76's refusal, which replaced S-38's wording, naming the
   // booking in the way and its occupied period) or an S-30 block that day.
   if (error.status === 409 && (error.message?.startsWith("Can't confirm this booking:")
-    || error.message?.includes('is unavailable from'))) return error.message
+    || error.message?.includes('is unavailable from')
+    // S-81 reopened: the hold isn't confirmed by its Coordinator yet.
+    || error.message?.startsWith("This hold can't be approved"))) return error.message
   if (error.status === 409) return 'This request has already been decided. Reload the list to see the latest requests.'
   if (error.status === 422) return 'Check your decision. Rejection needs a reason or alternative.'
   return 'We could not confirm whether your decision was saved. Reload the list before trying again.'
@@ -338,6 +348,42 @@ export function bookingClashMessage(booking) {
   ))
   return `Clashes with ${parts.join(' and ')} under ${booking.venue_name}'s setup and turnaround times. `
     + 'Contact Venue Staff to rearrange.'
+}
+
+// --- S-81 reopened: the Coordinator confirms a hold -----------------------------
+//
+// Venue Staff can approve a held booking only once the event's Coordinator
+// has confirmed the hold. A request that was never held is unaffected.
+
+export function confirmVenueHold(bookingId) {
+  return requestJSON(`/venue-bookings/${encodeURIComponent(bookingId)}/hold-confirmation`, { method: 'POST' })
+}
+
+// What the Coordinator's booking row says about a hold; null when the
+// booking isn't held.
+export function coordinatorHoldState(booking) {
+  if (booking?.status !== 'held') return null
+  return booking.hold_confirmed_at
+    ? { canConfirm: false, text: 'Hold confirmed. Waiting for Venue Staff to approve it.' }
+    : { canConfirm: true, text: 'Venue Staff are holding this venue for you. Confirm the hold so they can approve it.' }
+}
+
+// Whether Venue Staff can approve this request yet, and what to tell them.
+export function staffHoldApproval(booking) {
+  if (booking?.status === 'pending') return { canApprove: true, text: null }
+  if (booking?.status !== 'held') return { canApprove: false, text: null }
+  return booking.hold_confirmed_at
+    ? { canApprove: true, text: 'The Event Coordinator confirmed this hold.' }
+    : {
+      canApprove: false,
+      text: 'Waiting for the Event Coordinator to confirm this hold. You can reject it or release the hold, but not approve it yet.',
+    }
+}
+
+export function confirmHoldErrorMessage(error) {
+  if (error.status === 409) return `${error.message}. Reload the event to see its current state.`
+  if (error.status === 403 || error.status === 404) return "Only the event's assigned Coordinator can confirm this hold."
+  return "We couldn't confirm the hold. Try again."
 }
 
 export function getVenueClashes(venueId) {
@@ -567,6 +613,7 @@ export function bookingToChangeForm(booking) {
   return {
     eventId: booking.event_id,
     venueId: booking.venue_id,
+    allocatedAttendance: booking.allocated_attendance ?? booking.expected_attendance,
     bookingDate: booking.booking_date,
     startTime: shortTime(booking.start_time),
     endTime: shortTime(booking.end_time),

@@ -17,8 +17,11 @@ import {
 } from '../lib/equipment.js'
 import {
   EQUIPMENT_PREPARATION_OPTIONS,
+  PREPARATION_NOT_YET_MESSAGE,
   assignedEventWork,
+  canUpdateEquipmentPreparation,
   equipmentPreparationErrorMessage,
+  equipmentPreparationLabel,
   listTechnicalSupportEvents,
   technicalSupportWorkErrorMessage,
   updateEquipmentPreparation,
@@ -466,6 +469,17 @@ export default function TechnicalSupportDashboard({ role }) {
                         {event.technical_support_details}
                       </p>
                     )}
+                    {!canUpdateEquipmentPreparation(event.status) ? (
+                      <div className="mt-4">
+                        <p className="font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>
+                          Equipment preparation
+                        </p>
+                        <p className="font-ui text-sm" style={{ color: C.ink }}>
+                          {equipmentPreparationLabel(event.equipment_preparation_status ?? 'not_started')}
+                        </p>
+                        <p className="font-ui text-sm mt-1" style={{ color: C.inkFaint }}>{PREPARATION_NOT_YET_MESSAGE}</p>
+                      </div>
+                    ) : (
                     <div className="mt-4">
                       <label htmlFor={`equipment-preparation-${event.id}`} className="block font-ui text-xs uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>
                         Equipment preparation
@@ -483,6 +497,7 @@ export default function TechnicalSupportDashboard({ role }) {
                         ))}
                       </select>
                     </div>
+                    )}
                     {preparation.eventId === event.id && preparation.error && (
                       <p role="alert" className="font-ui text-sm mt-3" style={{ color: '#B25547' }}>{preparation.error}</p>
                     )}

@@ -66,18 +66,21 @@ S-77/S-87 targeted integration regression run passed all 8 cases.
   accounts; `E1` in `planning` with one equipment requirement and one
   `pending` booking.
 - **Steps:** 1. Submit as the Coordinator. 2. Venue Staff confirm the
-  booking; Technical Support approves and sets preparation `ready`.
+  booking; Technical Support approves (preparation stays `not_started` — it
+  follows the safety approval, S-26 AC2).
   3. Submit again. 4. Read the S-86 queue as the Safety Officer. 5. Approve.
   6. Read `E1` as the Organiser. 7. Delete everything created.
 - **Test data:** As above.
-- **Expected:** 1 → `409` listing `venue_missing`, `venue_awaiting`,
-  `technical_signoff_awaiting`, `equipment_preparation` (the booking is only
+- **Expected:** 1 → `409` listing exactly `venue_missing`, `venue_awaiting`,
+  `technical_signoff_awaiting` (the booking is only
   pending, so no venue is confirmed yet -- TC-SAFETYCHECKS-012); storage still
   `planning`. 3 → `200`, stored `pending_safety_check`. 4 lists `E1`.
-  5 → stored `confirmed`. 6 → `status: "confirmed"`.
-- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+  5 → stored `confirmed`. 6 → `status: "confirmed"`. Amended 2026-11-05: no
+  `equipment_preparation` item, and step 3 succeeds with preparation
+  `not_started`.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_s17.py::test_submission_through_to_confirmed`
+- **Evidence:** `test_s17.py::test_submission_through_to_confirmed`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 ---
 

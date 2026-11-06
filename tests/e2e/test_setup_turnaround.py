@@ -35,23 +35,23 @@ def seed(admin, event, venue, coordinator, staff, status, start, end):
     return admin.schema("bookings").table("bookings").insert(row).execute().data[0]
 
 
-def world(admin, make_user):
+def world(admin, make_user, *, first_status="held"):
     coordinator = make_user("event_coordinator")
     staff = make_user("venue_staff")
     organiser = make_user("event_organiser")
     venue = add_venue(admin, staff, uuid.uuid4().hex[:6])
     event_a = add_event(admin, organiser, coordinator, "A", d(3))
     event_b = add_event(admin, organiser, coordinator, "B", d(3))
-    seed(admin, event_a, venue, coordinator, staff, "confirmed", "10:00", "12:00")
+    seed(admin, event_a, venue, coordinator, staff, first_status, "10:00", "12:00")
     seed(admin, event_b, venue, coordinator, staff, "held", "12:30", "14:00")
     return coordinator, staff, organiser, venue, event_a, event_b
 
 
 # --- TC-E2E-228 -----------------------------------------------------------
-def test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned(admin, page, make_user, sign_in):
-    coordinator, staff, _, venue, event_a, event_b = world(admin, make_user)
+def test_staff_cannot_change_setup_and_turnaround_after_confirmation(admin, page, make_user, sign_in):
+    coordinator, staff, _, venue, event_a, event_b = world(admin, make_user, first_status="confirmed")
 
-    # 1. Staff edit the venue's times and save.
+    # Staff try to change timing after a confirmed booking exists.
     sign_in(staff)
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
     page.get_by_role("link", name=f"Edit {venue['name']}", exact=True).click()
@@ -59,30 +59,11 @@ def test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_war
     page.get_by_label("Setup minutes").fill("30")
     page.get_by_label("Turnaround minutes").fill("45")
     page.get_by_role("button", name="Save venue").click()
-    page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)
-    clashing = page.get_by_role("list", name="Clashing bookings")
-    expect(clashing).to_contain_text(event_a["name"], timeout=20000)
-    expect(clashing).to_contain_text(event_b["name"])
+    expect(page.get_by_role("alert").filter(has_text="confirmed booking")).to_be_visible(timeout=20000)
     stored = admin.schema("venues").table("venues").select("setup_minutes,turnaround_minutes").eq("id", venue["id"]).execute().data[0]
-    assert stored == {"setup_minutes": 30, "turnaround_minutes": 45}
+    assert stored == {"setup_minutes": 0, "turnaround_minutes": 0}
     statuses = admin.schema("bookings").table("bookings").select("status").eq("venue_id", venue["id"]).execute().data
-    assert sorted(row["status"] for row in statuses) == ["confirmed", "held"]  # neither removed
-
-    # 2. The Coordinator sees the warning on B, and the calendar's times.
-    page.get_by_role("button", name="Sign out").click()
-    page.wait_for_url(re.compile(r"/login$"), timeout=30000)
-    sign_in(coordinator)
-    page.wait_for_url(re.compile(r"/dashboard/event-coordinator$"), timeout=30000)
-    page.goto(f"/coordinator/events/{event_b['id']}")
-    sent = page.get_by_role("list", name="Venue requests sent")
-    expect(sent.get_by_role("alert")).to_contain_text("Clashes with another confirmed booking", timeout=20000)
-    expect(sent.get_by_role("alert")).to_contain_text("venue in use 09:30–12:45")
-
-    open_calendar(page, venue["name"], "/dashboard/event-coordinator")
-    expect(page.get_by_text("Setup 30 min · Turnaround 45 min")).to_be_visible(timeout=20000)
-    show_month(page, d(3))
-    day_cell(page, d(3)).click()
-    expect(day_detail(page, d(3))).to_contain_text("Booked 10:00–12:00 · venue in use 09:30–12:45")
+    assert sorted(row["status"] for row in statuses) == ["held", "held"]  # neither removed
 
 
 # --- TC-E2E-227 -----------------------------------------------------------
@@ -109,10 +90,7 @@ def test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page(admi
     expect(page.get_by_role("heading", name=event_p["name"])).to_be_visible(timeout=20000)
     expect(page.get_by_role("link", name="Back to dashboard")).to_be_visible()
 
-    # 3. Hold, then approve; back on the dashboard once, and P has left the list.
-    page.get_by_label("Hold expiry").fill("2099-01-01T12:00")
-    page.get_by_role("button", name="Place hold").click()
-    expect(page.get_by_role("button", name="Release hold")).to_be_visible(timeout=20000)
+    # 3. Ordinary pending booking can be approved without placing a hold.
     page.get_by_role("radio", name="Approve", exact=True).check()
     page.get_by_role("button", name="Save decision").click()
     page.wait_for_url(re.compile(r"/dashboard/venue-staff$"), timeout=20000)

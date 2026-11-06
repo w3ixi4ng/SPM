@@ -113,12 +113,12 @@ project. Blocked until they are.
 - **Test data:** Random uuids for E, A, B and C.
 - **Expected:** 1 → `201`. 2 → two `201`s. 3 → `200`, `withdrawn.attendee_id` A, `promoted.attendee_id` B. 4 → the places list holds only B; the waiting list holds only C. 5 → `404` "You're not registered for this event.". 6 → `200`, `promoted` `null`. 7 → still only C. 8 leaves no rows.
 - **Actual:** `201`; two `201`s; withdrawal `200` with A withdrawn and B promoted; places held only B, waiting list only C; second withdrawal `404` "You're not registered for this event."; B with capacity 0 → `200`, `promoted` null, C still waiting; no rows remained.
-- **Status:** Pass
-- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_withdrawing_promotes_the_first_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Status:** Not Executed — retired by S-55 (2026-10-30); S-53 AC3 is now proven by TC-REGISTRATIONS-107
+- **Evidence:** None current: the test was removed when the case was retired. Last run (S-53): tests/integration/atomic/registrations/test_app.py::test_withdrawing_promotes_the_first_in_line; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-53 SQL applied to dev and test; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
 
 ## TC-REGISTRATIONS-107 — a freed place is held for the first in line until they answer, for real (S-55)
 
-- **Scenario:** Against the real table and functions: a withdrawal offers the place to the first Attendee waiting without registering them. The held place stops anyone else registering. Only the invited Attendee can accept it, and declining passes it to the next in line (S-55 AC1, AC2).
+- **Scenario:** Against the real table and functions: a withdrawal offers the place to the first Attendee waiting without registering them. The held place stops anyone else registering. Only the invited Attendee can accept it, and declining passes it to the next in line (S-55 AC1, AC2; S-53 AC3).
 - **Pre-conditions:** Fresh `.env.test` stack; the S-55 block of `registrations.sql` applied to the test project. Event id E and Attendee ids A, B, C, D are random uuids.
 - **Steps:**
   1. `POST /registrations` `{E, A, capacity 1}`.
@@ -135,7 +135,7 @@ project. Blocked until they are.
 - **Expected:** 1 → `201`. 2 → two `201`s. 3 → `200`, `withdrawn.attendee_id` A, `offered.attendee_id` B with `offered_at` set. 4 → no places. The waiting list is still `[B, C]`, B with `offered_at` set and C with `null`. 5 → `409` "This event is full." (B's offer holds the place). 6 → `404` "You don't have a place on offer for this event.". 7 → `200`, `declined.attendee_id` B, `offered.attendee_id` C. 8 → `201` with C's place. 9 → the places list holds only C, and the waiting list is empty. 10 leaves no rows.
 - **Actual:** `201`; two `201`s; withdrawal `200` with A withdrawn and B offered (`offered_at` set); no places, waiting list B (offered) then C (not); D `409` "This event is full."; C's accept `404`; B's decline `200` offering C; C's accept `201`; places only C, waiting list empty; no rows remained.
 - **Status:** Pass
-- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_a_freed_place_is_held_for_the_first_in_line_until_they_answer; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; full `tests/integration`: 104 passed, 5 skipped; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+- **Evidence:** tests/integration/atomic/registrations/test_app.py::test_a_freed_place_is_held_for_the_first_in_line_until_they_answer; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` before this session's runs (events container verified on the test project's `SUPABASE_URL`)
 
 ## S-58 — View My Registration Status
 

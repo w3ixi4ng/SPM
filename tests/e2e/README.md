@@ -62,6 +62,27 @@ pytest tests/e2e --headed --slowmo 300
 pytest tests/e2e/test_role_access.py -v
 ```
 
+`--shard K/N` runs only the K-th of N slices, split by file, which is how CI
+spreads the suite over four runners:
+
+```bash
+pytest tests/e2e --shard 2/4
+```
+
+`--workers N` runs N browsers at once, one file per worker at a time — the
+same flag as Playwright's. CI runs `--shard K/4 --workers 1 --reruns 2`: four
+shards share one test Supabase project, and more browsers than that slow it
+down enough to blank pages that look up every row. `--reruns N` is
+Playwright's `retries`, from `pytest-rerunfailures`:
+
+```bash
+pytest tests/e2e --shard 2/4 --workers 1 --reruns 2   # what CI runs
+pytest tests/e2e --workers 2                          # locally, on its own
+```
+
+To rerun a shard that failed in CI, use the same K/N — the files are dealt
+round-robin in sorted order, so the same split always gives the same files.
+
 Everything is addressed through **Kong** on `KONG_PROXY_PORT`, never a service
 port and never the Vite dev server. The frontend container is not published on
 a host port for exactly this reason: the app calls a relative `/api`, so it is

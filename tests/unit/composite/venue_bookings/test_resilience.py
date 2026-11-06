@@ -20,7 +20,7 @@ def test_transient_event_timeout_retries_then_returns_validation(client, service
     response = client.post("/venue-bookings", json=REQUEST)
 
     assert response.status_code == 422
-    assert "expected_attendance" in response.json()["errors"]
+    assert "allocated_attendance" in response.json()["errors"]
     assert services.events.get.await_count == 2
     for call in services.events.get.await_args_list:
         timeout = call.kwargs["timeout"]

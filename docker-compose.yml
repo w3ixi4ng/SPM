@@ -207,6 +207,7 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      ASSIGNMENT_SERVICE_SECRET: ${ASSIGNMENT_SERVICE_SECRET:-}
     healthcheck:
       test:
         [
@@ -276,9 +277,9 @@ services:
       EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
       VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
-      NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
-      # S-78 revision: approving a replacement returns the event to planning.
+      # Used by S-78 event replanning and trusted S-81 hold confirmation.
       ASSIGNMENT_SERVICE_SECRET: ${ASSIGNMENT_SERVICE_SECRET:-}
+      NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
     depends_on:
       users:
         condition: service_healthy

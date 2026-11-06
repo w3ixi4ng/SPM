@@ -206,3 +206,21 @@ def test_a_refused_approval_leaves_the_event_replanned_and_tells_nobody(client, 
     assert response.json()["detail"] == "This booking request has already been decided"
     assert len(services.replans()) == 1
     services.notifications.post.assert_not_called()
+
+
+@pytest.mark.parametrize("changes,detail", [
+    ({"status": "held", "hold_confirmed_at": None},
+     "This hold can't be approved until the Event Coordinator confirms it."),
+    ({"status": "pending", "hold_release_reason": "expired"},
+     "This booking request has already been decided"),
+])
+def test_an_unapprovable_replacement_does_not_replan_the_event(client, services, changes, detail):
+    services.replacement = {**R, **changes}
+
+    response = _decide(client)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == detail
+    assert services.replans() == []
+    assert DECISION not in services.calls
+    services.notifications.post.assert_not_called()

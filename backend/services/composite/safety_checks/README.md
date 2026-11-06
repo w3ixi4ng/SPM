@@ -120,7 +120,8 @@ An event is ready when:
 - **Equipment and technical support arranged** -- only when the event has an
   equipment requirement or `technical_support_required`: Technical Support
   is assigned, its sign-off is `approved` (an approval over a shortage, with
-  its comment, counts), and `equipment_preparation_status` is `ready`.
+  its comment, counts). Equipment preparation is not checked: S-26 opens it
+  only after the Safety Officer's approval, so it follows this check.
 
 `GET .../readiness` answers `200`:
 
@@ -148,7 +149,6 @@ nothing written:
 | `technical_support_unassigned` | Technical Support has not been assigned |
 | `technical_signoff_awaiting` | Technical Support has not approved the equipment arrangements |
 | `technical_signoff_declined` | Technical Support declined: {reason} |
-| `equipment_preparation` | Equipment preparation is {Not Started / In Progress} |
 
 Venue items carry the `booking_id` they are about. The rules are in
 [`readiness.py`](readiness.py); the S-77 flag rule there is repeated from

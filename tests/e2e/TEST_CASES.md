@@ -273,8 +273,8 @@ contract without a browser.
     all four venues show, the Weekend venue marked `"Closed on Thursdays"`
     under its name, and the checkbox is unticked. Ticking it hides the
     Weekend venue again; clearing once more shows all four.
-  - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
-    expects 100"` is shown, and **Send request** is disabled.
+  - Step 3: a warning naming the Small venue and `"Too small: holds 80, booking
+    allocates 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
     **Send request** is still disabled.
   - Step 5: the warning names the Weekend venue and `"Closed on
@@ -713,34 +713,30 @@ Story: S-75 Configure Venue Setup and Turnaround Time.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 **Blocked** until the S-75 SQL has been run in the test project.
 
-## TC-E2E-228 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
+## TC-E2E-228 — Venue Staff cannot change timing after a booking is confirmed
 
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
   `D+3`: A confirmed 10:00–12:00 and B held 12:30–14:00 (B's event assigned
-  to the Coordinator).
+  to the Coordinator). The confirmed booking locks timing changes.
 - **Steps:**
   1. Staff edit the venue: setup 0 h 30 min, turnaround 0 h 45 min; save.
-     (Hours and minutes boxes since the developer's change of 2026-10-08.)
-  2. The Coordinator opens B's event, then the venue's calendar on `D+3`.
-- **Expected:**
-  - Step 1: the times are saved, and the page lists A and B as clashing.
-  - Neither booking is removed.
-  - Step 2: B shows the clash warning.
-  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Booked
-    10:00–12:00 · venue in use 09:30–12:45".
+- **Expected (current):** The form shows a confirmed-booking error. Timing
+  remains 0/0 and neither booking is removed.
+- **Historical note:** Actual, Status and Evidence below record the old
+  behavior and are not evidence that the revised case has passed.
 - **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept; the Coordinator saw the warning with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Booked 10:00–12:00 · venue in use 09:30–12:45".
-- **Status:** Pass
-- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; rerun 2026-10-08 with the hours/minutes boxes on a stack rebuilt from `.env.test`; full e2e suite: 26 passed.
+- **Status:** Not Executed after the revised requirement.
+- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_cannot_change_setup_and_turnaround_after_confirmation[chromium]`.
 
 ## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
 
 - **Scenario:** The list stays short; the work happens on the request's page.
-- **Pre-conditions:** As TC-E2E-228, plus a pending request P.
+- **Pre-conditions:** As TC-E2E-228 except A is held, plus a pending request P.
 - **Steps:**
   1. Staff open their dashboard.
   2. Click P's row; reload the page.
-  3. Place a hold, then approve P.
+  3. Approve P as an ordinary pending request.
 - **Expected:**
   - Step 1: each request is one row (event, venue, date and time, status);
     the list has no hold button or decision form.
@@ -753,9 +749,9 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
   and 224 decided or held requests from the inline forms. Their steps now
   open the request's page from the dashboard row first; what each proves is
   unchanged.
-- **Actual:** The list showed one compact row with no hold or decision controls; the request page loaded and survived a reload; hold then approval returned to the dashboard with "Booking for … confirmed." once, and the request left the list. TC-E2E-209, 217, 218, 221, 223 and 224, updated to open the request page, all passed in the same run.
+- **Actual:** Re-run with S-81: compact rows; the request page survived reload; after the hold and its confirmation (admin client) the page read "The Event Coordinator confirmed this hold.", the approval returned to the dashboard with "Booking for … confirmed." once, and P left the list.
 - **Status:** Pass
-- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 10 passed.
+- **Evidence:** tests/e2e/test_setup_turnaround.py::test_staff_open_a_request_from_a_compact_list_and_decide_it_on_its_page[chromium]; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry`, working tree after `27d1a2c`; after the developer applied the S-81 SQL; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); full e2e suite: 71 passed, 9 failed and 3 errors with connection resets and read timeouts from a slow test project, all 12 then passed on rerun
 
 ## TC-E2E-229 — Lead assigns an unassigned request and both recipients are notified
 
@@ -806,8 +802,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
   `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
-  C confirmed 15:00–16:00 and E confirmed 16:30–17:00, both confirmed when
-  the venue was 0/0.
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00. Confirmed rows are
+  directly seeded historical data after the timing is saved.
 - **Steps:**
   1. Staff open B from the request list and approve it.
   2. Staff open the dashboard, then reload it.
@@ -1125,25 +1121,25 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
 ### TC-E2E-239 — assigned Technical Support updates preparation and the Coordinator sees it
 
 - **Scenario:** A browser proves the protected S-26 write, persistence, and read-only Coordinator visibility.
-- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; planning event assigned to a Coordinator and Technical Support A.
-- **Steps:** Sign in as A; observe Not Started; change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open the event.
-- **Test data:** One event requiring equipment and assigned support.
-- **Expected:** Each save confirms the server response. Ready survives reload. The Coordinator sees Ready on the event readiness view and no preparation edit control. Direct storage inspection shows Ready, A's id, and a non-null server timestamp.
-- **Actual:** Not run.
-- **Status:** Approved
-- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`
+- **Pre-conditions:** Fresh `.env.test` stack with S-26 Events SQL; a `confirmed` event C and a `planning` event P, both requiring equipment and assigned to a Coordinator and Technical Support A. Amended 2026-11-05 for S-26 AC2: preparation can change only after the Safety Officer's approval.
+- **Steps:** Sign in as A; on P, observe Not Started with no edit control; on C, observe Not Started, change to In Progress and then Ready; reload; sign in as the assigned Coordinator and open C.
+- **Test data:** As above.
+- **Expected:** P shows "Equipment preparation opens once the Safety Officer approves the event." and no control. On C each save confirms the server response and Ready survives reload. The Coordinator sees Ready on C's readiness view and no preparation edit control. Direct storage shows C Ready with A's id and a non-null server timestamp, and P still `not_started`.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_support_updates_preparation_and_coordinator_sees_it`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 ## S-24 — Track Event Readiness
 
 ### TC-E2E-241 — Coordinator readiness follows current venue, equipment, and preparation data
 
 - **Scenario:** The assigned Coordinator sees all five readiness areas on the event view.
-- **Pre-conditions:** Fresh `.env.test` stack; an assigned planning event with a confirmed venue, recorded equipment requirement, and preparation Ready.
+- **Pre-conditions:** Fresh `.env.test` stack; an assigned `confirmed` event with a confirmed venue, recorded equipment requirement, Technical Support sign-off approved, and preparation Ready. (Amended 2026-11-05: was a planning event; preparation counts toward readiness only after safety approval — TC-FRONTEND-425.)
 - **Steps:** Sign in as the Coordinator; open the event; inspect readiness; change the server-owned preparation status to In Progress; reload.
 - **Expected:** Initially Venue, Equipment, and Technical support are Complete and the total is 3 of 3. Programme and Registration are visible as Not available yet. After the underlying change and reload, Technical support becomes Outstanding and the total becomes 2 of 3 without a duplicate readiness record being edited.
-- **Actual:** The Coordinator saw all five indicators, three implemented areas complete, and two future areas unavailable. After preparation changed to In Progress and the page reloaded, the total changed to 2 of 3 and Technical support became Outstanding.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`
+- **Evidence:** `test_event_readiness.py::test_coordinator_readiness_tracks_current_underlying_data`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 ## TC-E2E-240 — a tentative hold expires and releases its slot
 
@@ -1152,8 +1148,10 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
   venue/time becomes available again.
 - **Expected:** Blank expiry is refused; the request and calendar show the
   hold and expiry distinctly; the Coordinator receives an expiry notice; the
-  calendar removes the hold after expiry without manual release and storage
-  records `expired`.
+  Coordinator can confirm the active hold; the calendar removes it after
+  expiry without manual release and storage records `expired`.
+- **Historical note:** The Actual, Status and Evidence below predate the new
+  Coordinator confirmation step in this journey.
 - **Actual:** Chromium refused a blank expiry, displayed the active hold and
   expiry, showed the Coordinator notice, and showed the slot as available
   after automatic expiry; storage recorded `pending/expired`.
@@ -1209,18 +1207,20 @@ yet present.
   requirement, Technical Support assigned.
 - **Steps:** 1. As the Coordinator, open the event; click "Submit for safety
   check". 2. As Venue Staff, confirm the booking; as Technical Support,
-  approve and set preparation Ready. 3. As the Coordinator, reload and submit.
+  approve. 3. As the Coordinator, reload and submit.
   4. As the Organiser, open the event. 5. As the Safety Officer, approve it.
-  6. As the Organiser, reload.
+  6. As the Organiser, reload. Amended 2026-11-05: Technical Support no longer
+  sets preparation in step 2, and step 1 no longer lists it — preparation
+  follows the safety approval (S-26 AC2).
 - **Test data:** As above.
 - **Expected:** 1 lists "Hall A on 20 Nov 2026 is waiting for Venue Staff",
-  "Technical Support has not approved the equipment arrangements",
-  "Equipment preparation is Not Started"; no override control is on the
+  "Technical Support has not approved the equipment arrangements", and
+  nothing about equipment preparation; no override control is on the
   page; status still "Planning". 3 shows "Pending Safety Check". 4 shows
   "Pending Safety Check". 6 shows "Confirmed".
-- **Actual:** Passed on 2026-10-19 against a fresh `.env.test` stack with the S-17 SQL applied: every point under Expected held.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`
+- **Evidence:** `test_confirm_event.py::test_submit_for_safety_check_to_confirmed`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
 
 
 ## S-61 — review and approve cancellation request
@@ -1597,7 +1597,7 @@ Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `orig
 
 ## TC-E2E-264 — a freed place is offered to the first in line, who must accept it
 
-- **Scenario:** In a real browser: when a place frees up, the Attendee first on the waiting list is invited and finds the offer from their notification and dashboard. Declining passes it to the next in line, who is registered only once they accept (S-55 AC1, AC2).
+- **Scenario:** In a real browser: when a place frees up, the Attendee first on the waiting list is invited and finds the offer from their notification and dashboard. Declining passes it to the next in line, who is registered only once they accept (S-55 AC1, AC2; S-53 AC3).
 - **Pre-conditions:** Fresh `.env.test` stack, Chromium, the S-55 SQL applied to the test project. Through the admin client: Organiser O; confirmed event P owned by O, `expected_attendance` 1, registration open from yesterday to a week out (SGT), starting 14 days out; Attendees A, B and C; A holds P's one place; B, then C, are on P's waiting list.
 - **Steps:**
   1. As A, open `/public/events/P`, click **Withdraw registration**, then **Withdraw**.
@@ -1612,7 +1612,7 @@ Latest S-59 execution: 2026-10-30, rebased `S-59/request-event-changes` on `orig
 - **Expected:** 1 → "You've withdrawn from this event." 2 → P's row reads "Place offered", not "Confirmed". Notifications shows "A place opened up at {P's name}, …It's held for you: accept it on the event page to register." with a **View event** link. 3 → `/public/events/P` shows "A place is being held for you. Accept it to register, or decline to pass it to the next person." with **Accept place** and **Decline**, and no "You're registered for this event.". 4 → "Decline this place? You'll leave the waiting list." with **Decline** and **Keep my offer**. Keep my offer closes it, and the held message is still shown. 5 → "You've declined the place and left the waiting list.", and **Join the waiting list** is shown (the place is now held for C). 6 → C's row reads "Place offered" and C's Notifications shows the same invitation. The event page shows the held message and **Accept place**. 7 → "You're registered for this event." 8 → P's row reads "Confirmed", and Notifications shows "Registration confirmed: {P's name}, …".
 - **Actual:** Chromium: A withdrew; B's row read "Place offered" (not Confirmed) with the invitation and View event link; the link opened P's page with the held message and Accept place, no registered line; Keep my offer kept the offer; Decline showed the declined message and Join the waiting list; C's row read "Place offered" with the invitation; Accept place showed "You're registered for this event."; C's dashboard read Confirmed with "Registration confirmed: {P}, …".
 - **Status:** Pass
-- **Evidence:** tests/e2e/test_waiting_list_offer.py::test_a_freed_place_is_offered_to_the_first_in_line_who_must_accept_it[chromium]; full `tests/e2e`: 67 passed; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); S-55 SQL applied to dev and test; 2026-10-30, branch `S-55/notify-waitlisted-attendee-of-opening` (on sprint4 `44701d3`), pre-commit working tree
+- **Evidence:** tests/e2e/test_waiting_list_offer.py::test_a_freed_place_is_offered_to_the_first_in_line_who_must_accept_it[chromium]; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` before this session's runs (events container verified on the test project's `SUPABASE_URL`)
 
 ## S-57 — View Event Registration List (specification)
 
@@ -1832,3 +1832,54 @@ and opening hours; still no name or room layouts.
 - **Actual:** 1 → the outside-hours list named the event, date, 09:00–11:00 and the warning; the catalogue showed 10:00–16:00 without reload. 2 → still listed under Clashes to review after reload; Edit showed 10:00–16:00; booking still `confirmed`. 3 → the Coordinator's row showed the warning and Confirmed.
 - **Status:** Pass
 - **Evidence:** tests/e2e/test_edit_opening_hours.py::test_staff_shorten_opening_hours_and_the_booking_is_kept_and_flagged[chromium]; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with test_update_venue (TC-E2E-213, updated for editable hours), test_setup_turnaround, test_add_venue, test_review_booking_conflicts and test_filter_occupied_venues: 9 passed
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria.
+
+**TC-E2E-227 updated:** between placing the hold and approving P, P's hold is
+confirmed for its Coordinator with the admin client, by setting
+`hold_confirmed_by` and `hold_confirmed_at`. TC-E2E-480 covers that step in
+the browser. Nothing else changes.
+
+Applied to dev and test by the developer on 2026-11-05; executed.
+
+## TC-E2E-480 — the Coordinator confirms a hold, Venue Staff are told and then approve it
+
+- **Scenario:** Both A08 criteria, as the two roles meet them.
+- **Pre-conditions:**
+  - A fresh `.env.test` stack and Chromium, with the S-81 confirmation SQL
+    applied.
+  - Venue Staff S, a Coordinator K and an Organiser.
+  - A venue open every day 08:00–20:00.
+  - K's planning event with a pending request on `D+3` 10:00–12:00.
+- **Steps:**
+  1. S opens the request's page and places a hold (expiry 2099-01-01 12:00).
+  2. Still on that page, S chooses Approve.
+  3. S signs out. K signs in, opens the event, and presses Confirm hold on
+     the booking.
+  4. K reloads the event.
+  5. K signs out. S signs in and checks the dashboard's Notifications, then
+     opens the request's page.
+  6. S approves.
+- **Expected:**
+  - Step 1: the page shows "Held" and "Waiting for the Event Coordinator to
+    confirm this hold. You can reject it or release the hold, but not
+    approve it yet."
+  - Step 2: the Approve option is disabled. Reject and Release hold are still
+    enabled.
+  - Step 3: before pressing, the booking row reads "Venue Staff are holding
+    this venue for you. Confirm the hold so they can approve it." After, it
+    reads "Hold confirmed. Waiting for Venue Staff to approve it.", and the
+    button is gone.
+  - Step 4: the same confirmed text survives the reload.
+  - Step 5: Notifications lists "… confirmed the tentative hold for <venue>
+    on <D+3>, 10:00–12:00 (<event>). You can now approve it before the hold
+    expires." The request page reads "The Event Coordinator confirmed this
+    hold.", and Approve is enabled.
+  - Step 6: back on the dashboard, "Booking for <event> at <venue>
+    confirmed." is shown, and storage holds `confirmed`.
+- **Actual:** 1 → Held, with the waiting note. 2 → Approve disabled; Reject and Release hold enabled. 3 → the row's hold text, then Confirm hold pressed: "Hold confirmed. Waiting for Venue Staff to approve it.", button gone. 4 → same after reload. 5 → Notifications listed "… confirmed the tentative hold for <venue> on <D+3>, 10:00–12:00 (<event>). You can now approve it before the hold expires."; the request page read "The Event Coordinator confirmed this hold." with Approve enabled. 6 → "Booking for … confirmed.", stored `confirmed`. First attempts failed in the test itself: it clicked Sign out on pages that have none; it now drops the session cookies instead.
+- **Status:** Pass
+- **Evidence:** tests/e2e/test_confirm_hold.py::test_the_coordinator_confirms_a_hold_and_venue_staff_then_approve_it[chromium]; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry`, working tree after `27d1a2c`; after the developer applied the S-81 SQL; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); full e2e suite: 71 passed, 9 failed and 3 errors with connection resets and read timeouts from a slow test project, all 12 then passed on rerun

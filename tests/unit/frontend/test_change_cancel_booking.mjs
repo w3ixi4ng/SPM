@@ -36,6 +36,7 @@ test('which bookings offer Change and Cancel, and what the screens say', () => {
   assert.deepEqual(bookingToChangeForm(HALL), {
     eventId: 'e1',
     venueId: 'v1',
+    allocatedAttendance: undefined,
     bookingDate: '2026-11-12',
     startTime: '09:00',
     endTime: '12:00',

@@ -34,6 +34,7 @@ def prepare(db, *, booking=None, conflicts=None, blocks=None):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[booking_row(**table(db).update.call_args.args[0])])
     return update
 
@@ -55,7 +56,11 @@ def test_decision_preserves_request(client, db, auth, payload, expected):
     assert saved['decided_by'] == STAFF
     assert datetime.fromisoformat(saved['decided_at'].replace('Z', '+00:00')) >= before
     values = table(db).update.call_args.args[0]
-    assert set(values) == {'status', 'decision_reason', 'decision_alternative', 'decided_by', 'decided_at'}
+    expected_fields = {'status', 'decision_reason', 'decision_alternative', 'decided_by', 'decided_at'}
+    if payload['decision'] == 'approved':
+        expected_fields |= {'approval_setup_minutes', 'approval_turnaround_minutes'}
+        assert (values['approval_setup_minutes'], values['approval_turnaround_minutes']) == (0, 0)
+    assert set(values) == expected_fields
     assert values['decision_reason'] == (payload.get('reason', '').strip() or None)
     assert values['decision_alternative'] == (payload.get('alternative', '').strip() or None)
     assert update.eq.call_args_list[0].args == ('id', BOOKING_ID)
@@ -65,6 +70,55 @@ def test_decision_preserves_request(client, db, auth, payload, expected):
             assert saved[key] == value
     assert datetime.fromisoformat(saved['submitted_at'].replace('Z', '+00:00')) == datetime.fromisoformat(booking_row()['submitted_at'])
     table(db).insert.assert_not_called()
+
+
+def test_held_booking_needs_coordinator_confirmation_before_staff_approval(client, db, auth):
+    """TC-BOOKINGS-017: ordinary pending approval remains available."""
+    prepare(db, booking=booking_row(status='held', hold_confirmed_at=None))
+    response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
+    assert response.status_code == 409
+    assert 'Event Coordinator confirms it' in response.json()['detail']
+    table(db).update.assert_not_called()
+
+
+def test_expired_hold_cannot_be_approved_as_an_ordinary_pending_request(client, db, auth):
+    prepare(db, booking=booking_row(status='pending', hold_release_reason='expired'))
+    response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
+    assert response.status_code == 409
+    table(db).update.assert_not_called()
+
+
+def test_confirmed_hold_can_be_approved_by_staff(client, db, auth):
+    prepare(db, booking=booking_row(status='held',
+        hold_confirmed_by='cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        hold_confirmed_at='2026-11-10T00:00:00+00:00'))
+    response = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'token'})
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'confirmed'
+
+
+def test_only_the_trusted_composite_can_record_a_confirmed_hold(client, db, monkeypatch):
+    assigned = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    monkeypatch.setenv('ASSIGNMENT_SERVICE_SECRET', 'test-service-token')
+    held = booking_row(status='held', hold_expires_at='2099-01-01T00:00:00+00:00')
+    prepare(db, booking=held)
+    path = f'/internal/bookings/{BOOKING_ID}/confirm-hold'
+    body = {'coordinator_id': assigned}
+    forbidden = client.post(path, json=body)
+    assert forbidden.status_code == 403
+    table(db).update.assert_not_called()
+
+    prepare(db, booking=held)
+    update = table(db).update.return_value
+    update.is_.return_value = update
+    update.gt.return_value = update
+    update.execute.return_value = SimpleNamespace(data=[{
+        **held, 'hold_confirmed_by': assigned,
+        'hold_confirmed_at': '2026-11-10T00:00:00+00:00',
+    }])
+    allowed = client.post(path, json=body, headers={'X-Assignment-Service-Token': 'test-service-token'})
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()['hold_confirmed_by'] == assigned
 
 
 @pytest.mark.parametrize('payload', [

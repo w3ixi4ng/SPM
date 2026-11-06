@@ -346,6 +346,7 @@ def test_a_replacement_is_stored_linked_with_the_events_details(client, world):
         'notes': 'Same setup as Studio B',
         'coordinator_id': C2, 'coordinator_name': 'Ben Tan', 'coordinator_email': 'ben@example.com',
         'event_name': 'Alumni talk', 'event_purpose': 'Annual alumni lecture', 'expected_attendance': 120,
+        'allocated_attendance': 120,
         'special_requirements': 'Lectern on stage', 'room_layout': 'theatre',
         'required_facilities': ['projector', 'microphones'], 'required_accessibility': ['wheelchair_access'],
         'venue_name': 'Hall C',
@@ -387,7 +388,7 @@ def test_an_unsuitable_venue_is_refused_and_nothing_is_stored(client, world):
     assert response.status_code == 422
     assert response.json() == {
         'detail': "This venue can't take this booking",
-        'errors': {'expected_attendance': 'Room D holds 100 people; this event expects 120'},
+        'errors': {'allocated_attendance': 'Room D holds 100 people; this booking allocates 120'},
     }
 
     response = replace(client, {'venue_id': HALL_J})
