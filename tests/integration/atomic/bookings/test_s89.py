@@ -38,11 +38,11 @@ def _read(admin, booking_id):
     return rows[0]
 
 
-def test_release_keeps_every_row_and_frees_the_venue_time(admin, booking_ids, actors):
+def test_release_keeps_every_row_and_frees_the_venue_time(admin, booking_ids, actors, venue_for):
     _, staff = actors("venue_staff")
     coordinator_id, coordinator = actors("event_coordinator")
     event_id, other_event = str(uuid.uuid4()), str(uuid.uuid4())
-    v1, v2, v3 = (str(uuid.uuid4()) for _ in range(3))
+    v1, v2, v3 = (venue_for() for _ in range(3))
 
     def body(venue_id, start, end, event=event_id):
         return {**booking_body(venue_id, start, end), "event_id": event, "event_name": "spm-test S-89"}
@@ -125,13 +125,13 @@ def _reopen(coordinator, event_id, operation):
 
 
 # --- TC-BOOKINGS-451 ------------------------------------------------------------
-def test_the_closure_intent_refuses_every_direct_mutation_and_is_withdrawable(admin, booking_ids, actors):
+def test_the_closure_intent_refuses_every_direct_mutation_and_is_withdrawable(admin, booking_ids, actors, venue_for):
     _, staff = actors("venue_staff")
     _, coordinator = actors("event_coordinator")
     event_id = str(uuid.uuid4())
 
     def body(start, end):
-        return {**booking_body(str(uuid.uuid4()), start, end), "event_id": event_id, "event_name": "spm-test S-89"}
+        return {**booking_body(venue_for(), start, end), "event_id": event_id, "event_name": "spm-test S-89"}
 
     try:
         pending = _create(booking_ids, body("09:00", "10:00"))
@@ -186,12 +186,12 @@ def test_the_closure_intent_refuses_every_direct_mutation_and_is_withdrawable(ad
 
 
 # --- TC-BOOKINGS-452 ------------------------------------------------------------
-def test_confirmations_racing_the_closure_never_survive_the_release(admin, booking_ids, actors):
+def test_confirmations_racing_the_closure_never_survive_the_release(admin, booking_ids, actors, venue_for):
     _, staff = actors("venue_staff")
     _, coordinator = actors("event_coordinator")
     event_id = str(uuid.uuid4())
     pendings = [
-        _create(booking_ids, {**booking_body(str(uuid.uuid4()), "09:00", "10:00"), "event_id": event_id})
+        _create(booking_ids, {**booking_body(venue_for(), "09:00", "10:00"), "event_id": event_id})
         for _ in range(8)
     ]
     operation = _ops()

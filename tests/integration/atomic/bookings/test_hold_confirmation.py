@@ -1,7 +1,7 @@
 """TC-BOOKINGS-131 (S-81 reopened): the Coordinator's confirmation of a hold
 is stored, gates approval, and is cleared when the hold is released. Run after
 the S-81 confirmation block of bookings.sql on .env.test."""
-import uuid
+import os
 
 import httpx
 
@@ -22,10 +22,11 @@ def _create(booking_ids, body):
     return response.json()["id"]
 
 
-def test_the_confirmation_is_stored_gates_approval_and_is_cleared_on_release(admin, booking_ids, actors):
+def test_the_confirmation_is_stored_gates_approval_and_is_cleared_on_release(admin, booking_ids, actors, venue_for):
     _, staff = actors("venue_staff")
-    coordinator_id, coordinator = actors("event_coordinator")
-    venue_id = str(uuid.uuid4())
+    coordinator_id, _ = actors("event_coordinator")
+    service_headers = {"X-Assignment-Service-Token": os.environ["ASSIGNMENT_SERVICE_SECRET"]}
+    venue_id = venue_for()
     h1 = _create(booking_ids, booking_body(venue_id, "09:00", "10:00"))
     h2 = _create(booking_ids, booking_body(venue_id, "13:00", "14:00"))
 
@@ -44,7 +45,7 @@ def test_the_confirmation_is_stored_gates_approval_and_is_cleared_on_release(adm
     assert row(h1)["status"] == "held"
 
     # 2. The Coordinator confirms it; the row records who and when.
-    confirmed = post(f"/bookings/{h1}/hold-confirmation", coordinator)
+    confirmed = post(f"/internal/bookings/{h1}/confirm-hold", service_headers, coordinator_id=coordinator_id)
     assert confirmed.status_code == 200, f"{confirmed.text} -- check the S-81 confirmation SQL is applied"
     stored = row(h1)
     assert stored["hold_confirmed_by"] == coordinator_id and stored["hold_confirmed_at"]
@@ -56,6 +57,6 @@ def test_the_confirmation_is_stored_gates_approval_and_is_cleared_on_release(adm
 
     # 4. Releasing a confirmed hold clears the confirmation.
     assert post(f"/bookings/{h2}/hold", staff, **EXPIRY).status_code == 200
-    assert post(f"/bookings/{h2}/hold-confirmation", coordinator).status_code == 200
+    assert post(f"/internal/bookings/{h2}/confirm-hold", service_headers, coordinator_id=coordinator_id).status_code == 200
     assert post(f"/bookings/{h2}/release", staff, reason="staff_released").status_code == 200
     assert row(h2) == {"status": "pending", "hold_confirmed_by": None, "hold_confirmed_at": None}

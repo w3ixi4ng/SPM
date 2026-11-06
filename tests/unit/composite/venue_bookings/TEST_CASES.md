@@ -814,11 +814,12 @@ Confirmed by the developer on 2026-09-30. Not yet executed.
 > no longer releases the event's other holds (TC-VENUEBOOKINGS-061, 062). The
 > event-state release and identical-retry halves still apply.
 
-- **Scenario:** Holds are released when their event closes or their requested slot is replaced (AC3, AC4).
+- **Scenario:** Holds are released when their event closes; an identical request is idempotent.
 - **Pre-conditions:** Event E has one active hold; events and bookings clients are mocked.
 - **Steps:** Synchronise E when its authoritative status is `rejected`, `cancelled`, and each nonterminal status; submit a replacement venue request with a changed venue, date or time; repeat the same request unchanged.
 - **Test data:** Original Studio B `2026-11-12` `09:00`–`12:00`; replacements change venue to Studio C, date to `2026-11-13`, or time to `13:00`–`16:00`.
-- **Expected:** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. The released audit row stays absent from every later actionable-list fetch even though its stored status is now `pending`, so a second dashboard fetch cannot offer a terminal event again. Each changed replacement releases the old hold with `booking_replaced` before the new Pending request is returned. An identical retry does not release or duplicate anything. Failure cannot leave a falsely available or half-replaced slot.
+- **Expected (current):** Rejected releases with `event_rejected`; cancelled releases with `event_cancelled`; other event statuses do not release. The released audit row stays absent from later actionable-list fetches. A changed request adds another booking without releasing the existing one (S-79). An identical retry does not duplicate anything.
+- **Historical note:** The previous Expected/Actual text described replacement behavior that S-79 superseded. It is retained only in the prior commit history; current behavior is specified above.
 - **Actual:** Rejected/cancelled events released and disappeared from actionable results; their resulting Pending audit rows stayed absent on a later fetch without another release write. Changed requests released the old hold, while identical retries returned the existing row.
 - **Status:** Pass
 - **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py`
@@ -1200,7 +1201,8 @@ Existing booking A for E: H, `2026-11-12` `09:00`–`17:00`, status `held`.
   1. `POST /venue-bookings` for R (capacity 40), `2026-11-12` 13:00–15:00.
   2. `POST /venue-bookings` for S, `2026-11-12` 17:00–19:00 (outside the event's window).
 - **Expected:**
-  1. `422` with `errors` naming capacity (40 < 120, the event's total).
+  1. `422` with `errors.allocated_attendance` naming capacity for the default
+     full event attendance; an explicit allocation of 35 is accepted.
   2. `422` with the window error "The booking must fall within the event's
      date and time".
   In both cases, no `POST /bookings` and no write touching A.
@@ -1513,22 +1515,47 @@ Their tests were updated and re-run with S-77, and pass.
 
 ## S-81 — tentative hold expiry orchestration
 
-### TC-VENUEBOOKINGS-093 — Venue Staff must send an expiry with a hold
+### Archived S-81 proposal formerly numbered TC-VENUEBOOKINGS-093 — Venue Staff must send an expiry with a hold
 
 - **Expected:** A timezone-aware future `expires_at` is forwarded unchanged to
   bookings. Missing, naive, or expired values return `422`; non-staff remain
   `401`/`403` and no downstream write occurs.
 
-### TC-VENUEBOOKINGS-094 — the assigned Coordinator is warned of expiry once
+### Archived S-81 proposal formerly numbered TC-VENUEBOOKINGS-094 — the assigned Coordinator is warned of expiry once
 
 - **Expected:** Placing the hold sends one `venue_hold_expiry` notification to
   the booking's Coordinator, naming when it will expire, with a stable
   deduplication key. Retrying produces no duplicate notification.
 
-### TC-VENUEBOOKINGS-095 — availability distinguishes and then removes a hold
+### Archived S-81 proposal formerly numbered TC-VENUEBOOKINGS-095 — availability distinguishes and then removes a hold
 
 - **Expected:** Before expiry the calendar entry is `held` and includes the
   expiry. Immediately afterwards it is absent and the slot can be requested.
+
+These were unexecuted planning entries. Their identifiers now belong to the
+implemented S-80 change/cancel cases below. Current S-81 coverage is
+`test_hold.py` (hold validation and notification), the hold expiry integration
+and browser cases, and TC-VENUEBOOKINGS-136 below.
+
+### TC-VENUEBOOKINGS-136 — expired hold notice is delivered once
+
+- **Scenario:** The periodic reconciler sends a durable expiry notice, then
+  marks the release notified; repeating the poll does not send it again.
+- **Pre-conditions:** Bookings returns one expired unnotified hold, then none.
+- **Steps:** Run two reconciliation passes.
+- **Expected:** One `venue_hold_expiry` notification to the Coordinator with
+  a stable key, followed by one mark-notified call. A failed notice remains
+  unmarked for retry and does not delay notices for other holds.
+- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py::test_expiry_reconciler_notifies_then_marks_and_does_not_repeat`; `test_one_failed_expiry_notice_does_not_delay_other_holds`.
+
+### TC-VENUEBOOKINGS-137 — only the currently assigned Coordinator confirms
+
+- **Scenario:** The composite checks the event's live assignment before
+  forwarding the hold confirmation with a server-only token.
+- **Expected:** Another Coordinator receives `404` and causes no booking
+  write; the assigned Coordinator's request reaches the internal bookings
+  confirmation route with their ID and the trusted token.
+- **Evidence:** `tests/unit/composite/venue_bookings/test_hold.py::test_only_the_current_assigned_coordinator_can_confirm_hold`
 
 ## S-78 — request replacement venue for affected booking
 

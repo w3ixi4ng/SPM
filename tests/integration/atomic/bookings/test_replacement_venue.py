@@ -30,20 +30,20 @@ def read(admin, booking_id):
     return rows[0]
 
 
-def confirmed_original(admin, booking_ids, staff):
-    v1 = str(uuid.uuid4())
+def confirmed_original(admin, booking_ids, staff, venue_for):
+    v1 = venue_for()
     original = create(booking_ids, booking_body(v1, '10:00', '12:00'))
     approve(original['id'], staff)
     return v1, original
 
 
 # --- TC-BOOKINGS-112 ------------------------------------------------------
-def test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot(admin, booking_ids, actors):
+def test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot(admin, booking_ids, actors, venue_for):
     _, staff = actors('venue_staff')
-    v1, original = confirmed_original(admin, booking_ids, staff)
+    v1, original = confirmed_original(admin, booking_ids, staff, venue_for)
     before = read(admin, original['id'])
 
-    v2 = str(uuid.uuid4())
+    v2 = venue_for()
     replacement = create(booking_ids, {
         **booking_body(v2, '10:00', '12:00'), 'event_id': original['event_id'], 'replaces_booking_id': original['id'],
     })
@@ -72,10 +72,10 @@ def test_approving_a_real_replacement_replaces_the_original_and_frees_its_slot(a
 
 
 # --- TC-BOOKINGS-113 ------------------------------------------------------
-def test_a_resolution_note_is_saved_and_read_back(admin, booking_ids, actors):
+def test_a_resolution_note_is_saved_and_read_back(admin, booking_ids, actors, venue_for):
     _, staff = actors('venue_staff')
     coordinator_id, coordinator = actors('event_coordinator')
-    _, original = confirmed_original(admin, booking_ids, staff)
+    _, original = confirmed_original(admin, booking_ids, staff, venue_for)
 
     resolved = httpx.post(f"{BASE_URL}/bookings/{original['id']}/alternative-resolution", headers=coordinator,
                           json={'note': 'Moved online'}, timeout=20)

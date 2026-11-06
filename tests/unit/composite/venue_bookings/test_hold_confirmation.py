@@ -22,7 +22,8 @@ NOT_CONFIRMED = "This hold can't be approved until the Event Coordinator confirm
 
 
 @pytest.fixture
-def held(services):
+def held(services, monkeypatch):
+    monkeypatch.setenv("ASSIGNMENT_SERVICE_SECRET", "test-service-token")
     services.booking = fake_response(200, dict(HELD))
     services.bookings.post = AsyncMock(return_value=fake_response(200, dict(CONFIRMED)))
     services.notifications.post = AsyncMock(
@@ -32,7 +33,7 @@ def held(services):
 
 def confirmation_calls(services):
     return [c for c in services.bookings.post.call_args_list
-            if c.args[0] == f"/bookings/{BOOKING_ID}/hold-confirmation"]
+            if c.args[0] == f"/internal/bookings/{BOOKING_ID}/confirm-hold"]
 
 
 # --- TC-VENUEBOOKINGS-480 --------------------------------------------------
@@ -42,7 +43,8 @@ def test_confirming_a_hold_informs_the_venue_staff_who_placed_it(client, held):
     assert response.status_code == 200, response.text
     assert response.json() == CONFIRMED
     [call] = confirmation_calls(held)
-    assert call.kwargs["cookies"] == {"sb_access_token": "k"}
+    assert call.kwargs["json"] == {"coordinator_id": COORDINATOR_ID}
+    assert call.kwargs["headers"] == {"X-Assignment-Service-Token": "test-service-token"}
     held.notifications.post.assert_called_once()
     path, kwargs = held.notifications.post.call_args.args[0], held.notifications.post.call_args.kwargs
     assert path == "/internal/notifications"

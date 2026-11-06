@@ -115,7 +115,7 @@ def test_a_venue_that_does_not_suit_the_event_is_warned_about_and_blocked(admin,
     choose(small)
     warning.wait_for(timeout=20000)
     assert small in warning.inner_text()
-    assert "Too small: holds 80, event expects 100" in warning.inner_text()
+    assert "Too small: holds 80, booking allocates 100" in warning.inner_text()
     assert send.is_disabled()
 
     choose(bare)

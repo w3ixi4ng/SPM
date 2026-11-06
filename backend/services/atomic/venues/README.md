@@ -8,12 +8,17 @@ another service's tables.
 | Method | Path | Permission | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/venues` | `venues:create` | Add a venue. |
-| `PATCH` | `/venues/{venue_id}` | `venues:update` | Update location, capacity, facilities, accessibility, setup and turnaround, or opening hours. |
+| `PATCH` | `/venues/{venue_id}` | `venues:update` | Update venue details; setup and turnaround changes return `409` once a confirmed booking exists. |
 | `GET` | `/venues` | `venues:view` | List every venue, by name A–Z. |
 | `GET` | `/venues/options` | `venues:view` | The fixed facilities, accessibility, room layout and day sets. |
 | `GET` | `/venues/{venue_id}` | `venues:view` | Return one venue. |
 | `GET` | `/venues/health` | none | Gateway-compatible liveness alias. |
 | `GET` | `/health` | none | Liveness check. |
+
+The database guard checks actual value changes. Sending the existing timing
+values or editing unrelated fields still succeeds after confirmation. Apply
+the requirement-alignment migration in `backend/sql/bookings.sql` after
+`backend/sql/venues.sql` in both dev and test before relying on this rule.
 
 `GET /internal/venues/{venue_id}` returns the same venue shape without
 session authorization for the `safety_checks` composite. Kong does not expose

@@ -23,6 +23,7 @@ import suitability
 import unavailability
 from clients import (
     INTERNAL_READ_TIMEOUT,
+    assignment_service_headers,
     get_bookings_client,
     get_events_client,
     get_notifications_client,
@@ -43,6 +44,57 @@ from schemas import (
 
 app = FastAPI(title="Venue Bookings Service")
 logger = logging.getLogger(__name__)
+_expiry_reconciler_task = None
+
+
+async def _reconcile_expired_holds_once(bookings, notifications):
+    headers = assignment_service_headers()
+    response = await bookings.get("/internal/bookings/expired-holds", headers=headers)
+    response.raise_for_status()
+    for held in response.json():
+        try:
+            notice = {
+                "recipient_id": held["coordinator_id"],
+                "event_id": held["event_id"],
+                "event_name": held["event_name"],
+                "kind": "venue_hold_expiry",
+                "message": f'The tentative hold for {held["venue_name"]} on {held["booking_date"]} has expired. The venue is available again.',
+                "deduplication_key": f'venue_hold_expired:{held["id"]}:{held["hold_expires_at"]}',
+            }
+            delivered = await notifications.post("/internal/notifications", json={"notifications": [notice]})
+            delivered.raise_for_status()
+            marked = await bookings.post(f'/internal/bookings/{held["id"]}/expiry-notified', headers=headers)
+            marked.raise_for_status()
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            logger.exception("Could not notify expiry for hold %s; retrying", held.get("id"))
+
+
+async def _reconcile_expired_holds():
+    """Release due holds and deliver one deduplicated expiry notice each."""
+    async with get_bookings_client() as bookings, get_notifications_client() as notifications:
+        while True:
+            try:
+                await _reconcile_expired_holds_once(bookings, notifications)
+            except (httpx.HTTPError, KeyError, ValueError, RuntimeError):
+                logger.exception("Could not reconcile expired venue holds; retrying")
+            await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def start_expiry_reconciler():
+    global _expiry_reconciler_task
+    if getattr(app.state, "expiry_reconciler_enabled", True):
+        _expiry_reconciler_task = asyncio.create_task(_reconcile_expired_holds())
+
+
+@app.on_event("shutdown")
+async def stop_expiry_reconciler():
+    if _expiry_reconciler_task is not None:
+        _expiry_reconciler_task.cancel()
+        try:
+            await _expiry_reconciler_task
+        except asyncio.CancelledError:
+            pass
 
 COORDINATOR_ROLE = "event_coordinator"
 ORGANISER_ROLE = "event_organiser"
@@ -201,6 +253,7 @@ def _booking_body(payload: VenueBookingRequest, user: dict, event: dict, venue: 
         "event_name": event["name"],
         "event_purpose": event["purpose"],
         "expected_attendance": event["expected_attendance"],
+        "allocated_attendance": payload.allocated_attendance or event["expected_attendance"],
         "special_requirements": event.get("special_requirements"),
         "room_layout": event.get("room_layout"),
         "required_facilities": event.get("required_facilities") or [],
@@ -412,8 +465,12 @@ async def submit_venue_booking(
         ),
         None,
     )
-    if existing:
+    if existing and (existing.get("allocated_attendance") or existing.get("expected_attendance") or event["expected_attendance"]) == (
+        payload.allocated_attendance or event["expected_attendance"]
+    ):
         return JSONResponse(status_code=status.HTTP_201_CREATED, content=existing)
+    if existing:
+        raise HTTPException(status_code=409, detail="This venue and time already has a request; change its allocation instead")
 
     body = _booking_body(payload, user, event, venue)
     # S-75: checked by the venue's current setup and turnaround.
@@ -478,7 +535,9 @@ async def change_venue_booking(
 
     response = await _call("Bookings", bookings.patch(
         f"/bookings/{booking_id}",
-        json={**payload.model_dump(mode="json"), "venue_name": venue["name"]},
+        json={**payload.model_dump(mode="json"), "venue_name": venue["name"],
+              "allocated_attendance": payload.allocated_attendance or event["expected_attendance"],
+              "expected_attendance": event["expected_attendance"]},
         params=occupancy.gap_params(venue),
         cookies=request.cookies,
     ))
@@ -756,13 +815,14 @@ def _day_label(value) -> str:
     return f"{day.day} {day:%b %Y}"
 
 
+@app.post("/venue-bookings/{booking_id}/confirm-hold")
 @app.post("/venue-bookings/{booking_id}/hold-confirmation")
 async def confirm_venue_hold(
     booking_id: UUID,
     request: Request,
     users: httpx.AsyncClient = Depends(get_users_client),
-    events: httpx.AsyncClient = Depends(get_events_client),
     bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
     notifications: httpx.AsyncClient = Depends(get_notifications_client),
 ):
     """S-81 reopened: the event's Coordinator confirms a tentative hold, so
@@ -775,8 +835,13 @@ async def confirm_venue_hold(
     )
     if event.get("status") != "planning":
         raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
+    try:
+        headers = assignment_service_headers()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     response = await _call("Bookings", bookings.post(
-        f"/bookings/{booking_id}/hold-confirmation", cookies=request.cookies,
+        f"/internal/bookings/{booking_id}/confirm-hold",
+        json={"coordinator_id": user["id"]}, headers=headers,
     ))
     conflict = _identified_conflict(response)
     if conflict:
@@ -1202,6 +1267,7 @@ async def request_replacement_venue(
         start_time=original["start_time"],
         end_time=original["end_time"],
         notes=payload.notes,
+        allocated_attendance=original.get("allocated_attendance") or original.get("expected_attendance"),
     )
     problems = suitability.problems(asked, event, venue)
     if problems:

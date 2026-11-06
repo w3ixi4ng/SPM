@@ -85,10 +85,14 @@ def problems(booking, event: dict, venue: dict) -> dict[str, str]:
     if hours:
         found["operating_hours"] = hours
 
-    attendance = event["expected_attendance"]
+    attendance = getattr(booking, "allocated_attendance", None) or event["expected_attendance"]
+    if attendance > event["expected_attendance"]:
+        found["allocated_attendance"] = (
+            f"Allocated attendance cannot exceed the event's expected {event['expected_attendance']}"
+        )
     if attendance > venue["capacity"]:
-        found["expected_attendance"] = (
-            f"{name} holds {venue['capacity']} people; this event expects {attendance}"
+        found["allocated_attendance"] = (
+            f"{name} holds {venue['capacity']} people; this booking allocates {attendance}"
         )
 
     # The requirements are the event's (S-36), not the request's.

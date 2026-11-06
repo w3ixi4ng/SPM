@@ -405,23 +405,23 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
 ## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
 
 Confirmed with the developer on 2026-11-05. See the bookings unit
-`TEST_CASES.md` for the criteria. **Blocked** until the S-81 confirmation
-block of `backend/sql/bookings.sql` is applied to the test project.
+`TEST_CASES.md` for the criteria. The S-81 columns and guard are in the
+requirement alignment block of `backend/sql/bookings.sql`.
 
 ## TC-BOOKINGS-131 — the confirmation is stored, gates approval, and is cleared on release
 
 - **Scenario:** The new columns and the approval guard against real storage.
 - **Pre-conditions:**
   - `.env.test` stack started immediately before.
-  - The S-81 confirmation SQL applied, and the schema exposed and granted.
+  - The requirement alignment SQL applied, and the schema exposed and granted.
   - Venue Staff S and Coordinator K (`spm-test-*`).
   - Two pending bookings, H1 and H2, for K, at different times.
 - **Steps:**
   1. As S, hold H1 (expiry 2099), then approve it.
-  2. As K, `POST /bookings/H1/hold-confirmation`. Read the row with the
+  2. With the trusted service token and K's id, `POST /internal/bookings/H1/confirm-hold`. Read the row with the
      admin client.
   3. As S, approve H1.
-  4. As S, hold H2. As K, confirm it. As S, release H2 (`staff_released`).
+  4. As S, hold H2. Confirm it through the trusted endpoint with K's id. As S, release H2 (`staff_released`).
      Read the row.
   5. Delete the rows and accounts.
 - **Expected:**

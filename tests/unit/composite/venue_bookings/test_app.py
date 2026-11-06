@@ -213,9 +213,9 @@ def test_the_venue_must_hold_the_expected_attendance(client, services):
 
     response = client.post("/venue-bookings", json=REQUEST)
 
-    assert_refused(response, services, "expected_attendance")
-    assert response.json()["errors"]["expected_attendance"] == (
-        "Studio B holds 150 people; this event expects 151"
+    assert_refused(response, services, "allocated_attendance")
+    assert response.json()["errors"]["allocated_attendance"] == (
+        "Studio B holds 150 people; this booking allocates 151"
     )
 
 
@@ -267,7 +267,7 @@ def test_every_problem_is_reported_at_once(client, services):
     assert set(response.json()["errors"]) == {
         "booking_date",
         "operating_hours",
-        "expected_attendance",
+        "allocated_attendance",
         "required_facilities",
         "room_layout",
     }
@@ -307,6 +307,7 @@ def test_the_request_carries_the_events_requirements_for_venue_staff(client, ser
         "event_name": "Alumni networking evening",
         "event_purpose": "Reconnect graduates with faculty",
         "expected_attendance": 120,
+        "allocated_attendance": 120,
         "special_requirements": "Vegetarian catering for 40",
         "required_accessibility": ["wheelchair_access"],
         "required_facilities": ["projector"],
@@ -522,7 +523,7 @@ def test_listing_an_events_requests_is_a_502_when_a_service_is_down(client, serv
 
 # TC-VENUEBOOKINGS-031: no new suitability implementation, just regression coverage.
 @pytest.mark.parametrize("changes,key", [
-    ({"capacity": 1}, "expected_attendance"),
+    ({"capacity": 1}, "allocated_attendance"),
     ({"facilities": []}, "required_facilities"),
     ({"accessibility": []}, "required_accessibility"),
 ])

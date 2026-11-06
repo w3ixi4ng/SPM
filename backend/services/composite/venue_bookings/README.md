@@ -37,6 +37,7 @@ all read attempts fail, the existing safe `502` response is returned.
 | `GET` | `/venue-bookings?event_id={id}` | `event_coordinator` | The requests sent for one of the caller's events, every status, oldest first. `404` if the event is not assigned to the caller. |
 | `GET` | `/venue-bookings/pending` | `venue_staff` | Every actionable pending or held request, oldest first. Terminal-event holds are released and removed. |
 | `POST` | `/venue-bookings/{id}/hold` | `venue_staff` | Place an exclusive tentative hold with required future, timezone-aware `expires_at`; the assigned Coordinator is told when it will expire. |
+| `POST` | `/venue-bookings/{id}/confirm-hold` | `event_coordinator` | The assigned Coordinator confirms an active hold before Staff approval. Repeated confirmation is idempotent. |
 | `POST` | `/venue-bookings/{id}/release` | `venue_staff` | Release a tentative hold immediately. |
 | `POST` | `/venue-bookings/{id}/hold-confirmation` | `event_coordinator` | S-81 reopened: the event's Coordinator confirms a tentative hold, so Venue Staff can approve it; the staff member who placed it is notified. See [S-81](#s-81-the-coordinator-confirms-a-hold). |
 | `GET` | `/venue-bookings/availability?venue_id={id}&from={date}&to={date}` | `event_coordinator`, `venue_staff` | S-30: a venue's holds, confirmed bookings and blocks across a range. |
@@ -54,6 +55,24 @@ all read attempts fail, the existing safe `502` response is returned.
 | `GET` | `/venue-bookings/restores` | `venue_staff` | S-90: open restore requests, each with the replacement confirming would withdraw. |
 | `POST` | `/venue-bookings/{id}/restore-decision` | `venue_staff` | S-90: confirm or decline a restore. |
 | `GET` | `/health`, `/venue-bookings/health` | none | Liveness check. |
+
+An omitted `allocated_attendance` assigns the event's full expected attendance
+to this booking. When several venues share attendees, the Coordinator supplies
+each venue's positive allocation; it cannot exceed the event's expected count
+or that venue's capacity. Each booking is checked independently. The event's
+total remains the event snapshot, and no exact sum across bookings is required.
+
+Venue Staff may approve an ordinary pending request. A held request needs
+Coordinator confirmation first. A service background task checks for expired
+holds every minute, releases their availability and sends a deduplicated
+expiry notification. Booking and notification writes are retried safely after
+temporary failures. The SQL migration in `backend/sql/bookings.sql` must be
+applied in both dev and test before this workflow is deployed.
+
+The composite checks the event's current assignment, then uses the existing
+server-only assignment token for the atomic confirmation write. This allows
+the current Coordinator to confirm even if the booking was made before a
+reassignment. Configure `ASSIGNMENT_SERVICE_SECRET` for both services.
 
 ## Requests
 
@@ -95,7 +114,7 @@ failures are reported together, keyed by the field to change:
 | --- | --- | --- |
 | `booking_date` | The booking starts before the event or ends after it (equal is fine) | `The booking must fall within the event's date and time` |
 | `operating_hours` | The venue has no hours that weekday, or the booking runs outside them (equal is fine) | `Studio B is closed on Saturdays` / `Studio B is open 08:00–20:00 on Thursdays` |
-| `expected_attendance` | The event's attendance is more than the venue's capacity | `Studio B holds 150 people; this event expects 151` |
+| `allocated_attendance` | This booking's allocation exceeds the event's total or the venue's capacity | `Studio B holds 150 people; this booking allocates 151` |
 | `required_facilities` | One of the event's facilities is not at the venue | `Studio B does not have: stage, whiteboard` |
 | `required_accessibility` | One of the event's accessibility features is not at the venue | `Studio B does not have: hearing_loop` |
 | `room_layout` | The venue does not offer the event's layout | `Studio B does not offer the banquet layout` |
@@ -756,9 +775,12 @@ Venue Staff approve a held booking only once the event's Coordinator has
 confirmed the hold (UAT A08). The rule itself is the bookings service's; see
 its [README](../../atomic/bookings/README.md#s-81-the-coordinator-confirms-a-hold).
 
-`POST /venue-bookings/{id}/hold-confirmation` takes no body. It is
+`POST /venue-bookings/{id}/hold-confirmation` and its
+`/venue-bookings/{id}/confirm-hold` alias take no body. They are
 authorized like an S-80 change: the event is read as
 `/events/assigned/{event_id}` with the caller's own session.
+The composite forwards the verified Coordinator's id to the bookings service
+through its trusted internal endpoint.
 
 | Status | When |
 | --- | --- |

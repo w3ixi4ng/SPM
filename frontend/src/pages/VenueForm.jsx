@@ -323,7 +323,7 @@ function VenueFormFields({ id }) {
       setErrors(fieldErrors)
       setFormError(editing ? venueUpdateErrorMessage(error) : venueErrorMessage(error))
       setSaving(false)
-      if (error.status === 409) document.querySelector('#name')?.focus()
+      if (error.status === 409 && !error.message?.includes('confirmed booking')) document.querySelector('#name')?.focus()
       else focusFirstError(fieldErrors)
     }
   }

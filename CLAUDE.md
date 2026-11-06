@@ -779,12 +779,15 @@ and so is the sprint branch itself after each merge. `fix` is the release
 branch for fixes made outside a sprint; a story's pull request into it is
 checked the same way.
 
-Integration and e2e both write to the one test Supabase project, so those two
-jobs share a concurrency group (`supabase-test-project`) across every run: only
-one uses the project at a time and the rest wait. GitHub keeps a single job
-waiting per group — if a third arrives, the older waiting one is cancelled and
-shows **Cancelled**; re-run it once the queue clears. Cancelled there is not a
-test failure.
+Integration and e2e both write to the one test Supabase project, so they live
+in their own reusable workflow, `supabase-suites.yml`, and the `tests.yml` job
+that calls it holds a concurrency group (`supabase-test-project`) across every
+run: only one run uses the project at a time and the rest wait. The lock sits
+on the calling job rather than on each job, because the e2e shards would
+otherwise queue behind each other — so never add a `concurrency` block inside
+`supabase-suites.yml`. GitHub keeps a single run waiting per group — if a third
+arrives, the older waiting one is cancelled and shows **Cancelled**; re-run it
+once the queue clears. Cancelled there is not a test failure.
 
 | Workflow | What it does | When it runs |
 | --- | --- | --- |
@@ -799,10 +802,10 @@ apart at a glance:
 
 | Job | Command | Needs |
 | --- | --- | --- |
-| **Unit (pytest)** | `pytest tests/unit` | Nothing |
+| **Unit (pytest)** | `pytest tests/unit --workers auto` | Nothing |
 | **Unit (node)** | `node --test tests/unit/frontend/test_*.mjs` | Nothing — no `npm ci`, these import `frontend/src/lib/` directly |
-| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration` | The repo secrets below |
-| **End-to-end (playwright)** | the same stack, plus `playwright install --with-deps chromium`, then `pytest tests/e2e` | The repo secrets below |
+| **Integration (pytest + docker)** | `docker compose --env-file .env.test up -d --build --wait`, then `pytest tests/integration --workers 2` — two, because every worker shares the runner's IP and Supabase Auth rate-limits sign-ins per IP (more than two gets `429 Too Many Requests`) — with `composite/event_requests/test_app.py` run on its own afterwards — its coordinator-assignment tests cannot share the project with another worker | The repo secrets below |
+| **End-to-end (playwright K/4)** | four runners, each with the same stack, plus `playwright install --with-deps chromium`, then `pytest tests/e2e --shard K/4 --workers 1 --reruns 2` — one browser per runner, because the four shards share one Supabase project and more than that overloads it | The repo secrets below |
 
 Both Docker jobs bring up the **whole** stack, Kong and the frontend included:
 the events tests exercise the gateway routes as well as the service directly,
@@ -810,11 +813,22 @@ and the browser has nothing to open otherwise. The e2e job waits for the
 integration job, pass or fail, rather than running alongside it: both write to
 the same test project, and a coordinator account an e2e journey creates
 mid-way through an integration test is one that test never blocked, so it wins
-the assignment. Both are skipped on pull
+the assignment. The e2e shards do share the project with each other, which is
+safe because every journey makes its own accounts and finds its rows by a
+unique name — keep it that way, since a journey that reads the whole table
+breaks only when its shard runs alongside the others. Both are skipped on pull
 requests from forks — those get no secrets, and a job that cannot authenticate
 would fail for a reason the contributor cannot fix.
 
-The e2e job uploads Playwright's `test-results/` on every run. A failed browser
+`--workers N` is the same flag as
+[Playwright's](https://playwright.dev/docs/test-parallel): N worker processes,
+files in parallel, the tests inside one file in order on one worker. pytest has
+no such flag, so `tests/conftest.py` defines it and hands it to `pytest-xdist`
+as `-n N --dist loadfile`. It works on every suite — `pytest tests/unit
+--workers auto` too.
+
+Each e2e shard uploads Playwright's `test-results/` on every run, as
+`playwright-results-K`. A failed browser
 test is close to unreadable without them.
 
 A missing secret would otherwise surface as "container is unhealthy", which

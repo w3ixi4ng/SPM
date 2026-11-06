@@ -603,8 +603,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
   const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
-  // S-81 reopened: the Coordinator confirming a tentative hold.
-  const [holdState, setHoldState] = useState({ bookingId: null, error: null })
+  const [holdState, setHoldState] = useState({ bookingId: null, error: null, notice: null })
   // S-90: the original being restored, and what the last request did.
   const [restoreState, setRestoreState] = useState({ bookingId: null, error: null, notice: null })
 
@@ -652,17 +651,6 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
     }
   }
 
-  async function confirmHold(booking) {
-    setHoldState({ bookingId: booking.id, error: null })
-    try {
-      await confirmVenueHold(booking.id)
-      await load()
-      setHoldState({ bookingId: null, error: null })
-    } catch (error) {
-      setHoldState({ bookingId: null, error: confirmHoldErrorMessage(error) })
-    }
-  }
-
   async function makePrimary(booking) {
     setPrimaryState({ bookingId: booking.id, error: null, notice: null })
     try {
@@ -671,6 +659,17 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
       setPrimaryState({ bookingId: null, error: null, notice: `${booking.venue_name} is now the primary venue.` })
     } catch (error) {
       setPrimaryState({ bookingId: null, error: primaryVenueErrorMessage(error), notice: null })
+    }
+  }
+
+  async function confirmHold(booking) {
+    setHoldState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await confirmVenueHold(booking.id)
+      await load()
+      setHoldState({ bookingId: null, error: null, notice: `Hold for ${booking.venue_name} confirmed. Venue Staff can approve it.` })
+    } catch (error) {
+      setHoldState({ bookingId: null, error: confirmHoldErrorMessage(error), notice: null })
     }
   }
 
@@ -696,6 +695,8 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
       {state.status === 'ready' && state.bookings.length === 0 && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venue requests sent yet.</p>
       )}
+      {holdState.error && <p role="alert" className="font-ui text-sm mb-3" style={{ color: C.rose }}>{holdState.error}</p>}
+      {holdState.notice && <p role="status" className="font-ui text-sm mb-3" style={{ color: C.green }}>{holdState.notice}</p>}
       {state.status === 'ready' && state.bookings.length > 0 && (
         <>
         {primaryVenuePrompt(state.bookings) && (

@@ -11,7 +11,7 @@ from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
 
 class VenueBookingChange(BaseModel):
@@ -26,6 +26,7 @@ class VenueBookingChange(BaseModel):
     start_time: time
     end_time: time
     notes: str | None = None
+    allocated_attendance: PositiveInt | None = None
 
     @field_validator("notes", mode="before")
     @classmethod
@@ -57,6 +58,7 @@ class VenueBookingRequest(BaseModel):
     start_time: time
     end_time: time
     notes: str | None = None
+    allocated_attendance: PositiveInt | None = None
 
     @field_validator("notes", mode="before")
     @classmethod

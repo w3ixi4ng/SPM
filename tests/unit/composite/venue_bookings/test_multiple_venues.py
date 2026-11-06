@@ -69,14 +69,30 @@ def test_each_booking_is_checked_for_suitability_on_its_own(client, services):
     outside = client.post("/venue-bookings", json=requested(start_time="17:00", end_time="19:00"))
 
     assert too_small.status_code == 422
-    assert too_small.json()["errors"]["expected_attendance"] == (
-        "Seminar Room holds 40 people; this event expects 120"
+    assert too_small.json()["errors"]["allocated_attendance"] == (
+        "Seminar Room holds 40 people; this booking allocates 120"
     )
     assert outside.status_code == 422
     assert outside.json()["errors"]["booking_date"] == (
         "The booking must fall within the event's date and time"
     )
     services.bookings.post.assert_not_called()
+
+
+def test_smaller_venue_accepts_explicit_allocation_and_rejects_over_event_total(client, services):
+    """TC-VENUEBOOKINGS-063: allocation belongs to each booking."""
+    with_booking_a(services)
+    services.set_venue(name="Seminar Room", capacity=40)
+    accepted = client.post("/venue-bookings", json=requested(
+        start_time="13:00", end_time="15:00", allocated_attendance=35,
+    ))
+    assert accepted.status_code == 201, accepted.text
+    assert services.sent_booking()["allocated_attendance"] == 35
+    too_many = client.post("/venue-bookings", json=requested(
+        start_time="15:00", end_time="16:00", allocated_attendance=121,
+    ))
+    assert too_many.status_code == 422
+    assert "allocated_attendance" in too_many.json()["errors"]
 
 
 def test_each_booking_is_checked_for_availability_on_its_own(client, services):
