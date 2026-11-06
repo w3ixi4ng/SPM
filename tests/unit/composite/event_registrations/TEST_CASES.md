@@ -647,18 +647,27 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_withdrawing_needs_a_signed_in_attendee, ::test_withdrawing_from_an_event_that_isnt_public, ::test_withdrawing_without_a_place; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
 
-## TC-EVENTREGISTRATIONS-039 — the promoted Attendee is notified
+## TC-EVENTREGISTRATIONS-039 — a withdrawal frees the place and notifies the next Attendee waiting
 
-> **Retired by S-55 (2026-10-30).** A freed place is now offered, not given. See TC-EVENTREGISTRATIONS-054. The record below is S-53's last run.
+> **Revived 2026-11-06 for S-55's rule.** Retired by S-55 on 2026-10-30, when a
+> freed place stopped being given and started being offered; it then specified
+> a `waiting_list_promotion` that no longer exists. Re-specified with the same
+> ID because it proves the same criterion, S-53 AC3, under today's rule. Its
+> S-53 record (promotion, `test_the_promoted_attendee_is_notified`) is
+> replaced. TC-EVENTREGISTRATIONS-054 keeps the offer message's wording and
+> variants; this case proves the AC end to end within the composite.
 
-- **Scenario:** When the freed place goes to the next Attendee in line, they get one notification with the event and entry details (S-53 AC3, AC4).
-- **Pre-conditions:** Registrations answers `200` with `promoted` = B's row for E (id `9999…9999`). Users `POST /internal/users/profiles` `{"ids": [B]}` answers B's profile.
-- **Steps:** `DELETE /event-registrations/events/E/registration`.
-- **Test data:** As above. E's one confirmed venue is "Seminar Room 2-1".
-- **Expected:** `200`, the same body as TC-EVENTREGISTRATIONS-036. Exactly one `POST /internal/notifications` with one row: `recipient_id` B, `event_id` E, `event_name` "Alumni networking evening", `kind` `waiting_list_promotion`, `deduplication_key` `waiting_list_promotion:99999999-9999-4999-8999-999999999999`, `message` "A place opened up: you're now registered for Alumni networking evening, 20 Nov 2026, 6:00 pm – 9:00 pm, at Seminar Room 2-1. Name: Ben Lee. Email: ben@example.com.". No row is addressed to A. With no confirmed venue, the message reads "…9:00 pm, venue to be confirmed. Name: …". It also works when promotion happens after registration has closed (clock `2026-11-16 12:00`).
-- **Actual:** `200`; one profile lookup for B; exactly one row to B with kind `waiting_list_promotion`, the expected message and key; none to A; no-venue wording "venue to be confirmed"; also sent after registration closed.
-- **Status:** Not Executed — retired by S-55 (2026-10-30); S-53 AC3 is now proven by TC-EVENTREGISTRATIONS-054
-- **Evidence:** None current: the test was removed when the case was retired. Last run (S-53): tests/unit/composite/event_registrations/test_s53.py::test_the_promoted_attendee_is_notified, ::test_a_promotion_without_a_confirmed_venue, ::test_a_promotion_after_registration_has_closed; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Scenario:** Withdrawing frees the Attendee's place and triggers the waiting-list notification (S-53 AC3, under S-55 AC1, AC2).
+- **Pre-conditions:** A holds a place at E. Registrations answers `POST /registrations/withdrawals` with `200` `{"withdrawn": <A's row>, "offered": <B's waiting-list entry, id `7777…7777`, `offered_at` set>}`. Users `POST /internal/users/profiles` answers B's profile (Ben Lee).
+- **Steps:** As A, `DELETE /event-registrations/events/E/registration`.
+- **Test data:** As above. A `3333…3333` (conftest), B `4444…4444`.
+- **Expected:**
+  1. `200` with A no longer holding anything: `"registered": false, "waitlisted": false, "offered": false`.
+  2. The place is freed through the registrations service: exactly one `POST /registrations/withdrawals` with `{"event_id": E, "attendee_id": A, "capacity": 2}`, and no `POST /registrations` for anyone.
+  3. The withdrawal sends exactly two notifications, in total: `registration_withdrawn` to A (S-74) and `waiting_list_offer` to B with `deduplication_key` `waiting_list_offer:77777777-7777-4777-8777-777777777777`. Nothing else — in particular no `waiting_list_promotion` and no `registration_confirmation`.
+- **Actual:** `200` with A holding nothing; one `POST /registrations/withdrawals` for A with capacity 2 and no other registrations call; exactly two notifications — `registration_withdrawn` to A and `waiting_list_offer` to B keyed `waiting_list_offer:7777…7777`.
+- **Status:** Pass
+- **Evidence:** `test_s53.py::test_withdrawing_frees_the_place_and_notifies_the_next_attendee_waiting`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTREGISTRATIONS-040 — a failed notification doesn't undo the withdrawal
 
@@ -675,8 +684,8 @@ promoted row id is `99999999-9999-4999-8999-999999999999`.
   | Users profiles answers `500` | `200`, same body; no notification sent |
   | Bookings answers `500` (venues unreadable) | `200`, same body; no notification sent |
 - **Actual:** All four failures → `200` with the same body; notifications attempted for the first two, not sent for the last two.
-- **Status:** Pass
-- **Evidence:** tests/unit/composite/event_registrations/test_s53.py::test_a_failed_notification_keeps_the_withdrawal; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
+- **Status:** Not Executed — retired by S-55 (2026-10-30); replaced by TC-EVENTREGISTRATIONS-055
+- **Evidence:** None current: the test was removed when the case was retired. Last run (S-53): tests/unit/composite/event_registrations/test_s53.py::test_a_failed_notification_keeps_the_withdrawal; 2026-10-26, branch `S-53/withdraw-registration` (on S-52 + S-49 `fde7b1f`), pre-commit working tree
 
 ## TC-EVENTREGISTRATIONS-041 — the registrations service fails
 
@@ -801,9 +810,14 @@ of -051 to -053.
 
 ### TC-EVENTREGISTRATIONS-051 — attendees receive only the explicitly primary venue
 
-- **Pre-conditions:** Published event E has confirmed bookings B1 and B2; B2 has `is_primary=true`.
-- **Steps:** Read E from the public list, public detail, Attendee dashboard, and build a registration notification.
-- **Expected:** Every attendee-facing result names only B2. B1 and all non-confirmed bookings are absent.
+- **Scenario:** For a multi-venue event, every attendee-facing view names only the venue the Coordinator marked primary (S-91 AC2, attendee half; S-56 AC3). The Organiser and Coordinator half of S-91 AC2 is TC-VENUEBOOKINGS-124.
+- **Pre-conditions:** Published, confirmed event E with three bookings: B1 "Room B" `confirmed`, not primary; B2 "Hall A" `confirmed`, `is_primary: true`; B3 "Hall C" `held`, `is_primary: true` (a marker on an unconfirmed booking, which must not count). Attendee A holds a place at E. Venues answers each booking's venue id with its name.
+- **Steps:** 1. `GET /event-registrations/events` (public list, signed out). 2. `GET /event-registrations/events/E` (public event page). 3. As A, `GET /event-registrations/me/registrations` (Attendee dashboard). 4. As Ada, `POST /event-registrations/events/E/registration` (builds the registration-confirmation notification).
+- **Test data:** As above. Bookings ids `b1`, `b2`, `b3`; venue ids `v-b1`, `v-b2`, `v-b3`.
+- **Expected:** 1 → E's `venues` is exactly `["Hall A"]`. 2 → `venues` is exactly `["Hall A"]`. 3 → E's row has `venue` `"Hall A"`. 4 → `201`, and the one notification's message contains "at Hall A." In none of the four does "Room B" or "Hall C" appear.
+- **Actual:** 1 and 2 → `venues` `["Hall A"]`; 3 → `venue` `"Hall A"`; 4 → `201` with one notification reading "…at Hall A.". "Room B" and "Hall C" appeared nowhere. With the primary filter removed from `_venue_names`, the test fails.
+- **Status:** Pass
+- **Evidence:** `test_s91.py::test_attendees_receive_only_the_explicitly_primary_venue`; `test_s56.py::test_secondary_confirmed_venues_are_never_exposed_to_the_attendee`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ### TC-EVENTREGISTRATIONS-052 — no primary reads as venue to be confirmed
 
@@ -824,7 +838,8 @@ Developer decisions (2026-10-30):
 - A place freed before the event starts is **offered** to the first Attendee
   on the waiting list (first come, first served). They are **not** registered.
   This replaces S-53's automatic promotion: TC-EVENTREGISTRATIONS-039 and -040
-  are retired in favour of -054 and -055.
+  are retired in favour of -054 and -055 (039 was revived for S-55's rule on
+  2026-11-06).
 - The offer is held for them. It counts as a taken place, so the event stays
   full to everyone else and nobody further down the line can take it.
 - It has no expiry. It stays open until the invited Attendee accepts or

@@ -89,7 +89,7 @@ def test_preparation_cannot_change_before_safety_approval(client, db, auth, life
     db.schema.return_value.table.return_value.insert.assert_not_called()
 
 
-# TC-EVENTS-124
+# TC-EVENTS-456 (was 124, which is S-62's)
 @pytest.mark.parametrize(
     ("role", "expected"),
     [
@@ -121,7 +121,17 @@ def test_unassigned_support_cannot_update_preparation(client, db, auth):
     db.schema.return_value.table.return_value.update.assert_not_called()
 
 
-# TC-EVENTS-125
+# TC-EVENTS-456 -- and nobody signed in can change it either.
+def test_no_session_cannot_update_preparation(client, db):
+    response = client.put(
+        f"/events/support-assigned/{EVENT_ID}/equipment-preparation",
+        json={"status": "ready"},
+    )
+    assert response.status_code == 401
+    db.schema.assert_not_called()
+
+
+# TC-EVENTS-457 (was 125, which is S-62's)
 @pytest.mark.parametrize(
     "payload",
     [

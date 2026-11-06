@@ -322,8 +322,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** `409` each, one `equipment_preparation` item labelled
   "Equipment preparation is Not Started" / "… In Progress".
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
-- **Status:** Pass
-- **Evidence:** `test_s17.py::test_equipment_preparation_must_be_ready`
+- **Status:** Not Executed — retired 2026-11-05; replaced by TC-SAFETYCHECKS-037. It no longer maps to S-17 AC2: preparation is not a mandatory arrangement before the safety check.
+- **Evidence:** None current: the test was removed when the case was retired. Last run: `test_s17.py::test_equipment_preparation_must_be_ready` at `cd996d0`.
 
 ## TC-SAFETYCHECKS-020 — every outstanding item is listed at once
 

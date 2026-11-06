@@ -158,19 +158,22 @@ resubmitting keeps that coordinator if they are still free and only falls
 back to a fresh pick when they are not — the same recheck-then-reassign
 shape editing a submitted event's date/time used before S-83.
 
-## TC-EVENTREQUESTS-021 — resubmitting a returned request keeps the same coordinator if still free
+## TC-EVENTREQUESTS-021 — a resubmitted request goes back to its current coordinator, even one now busy
 
-- **Pre-conditions:** `GET /events/{id}` (forwarded) reports `status:
-  returned`, assigned to coordinator A; the has-conflict check for A alone
-  reports `conflict: false`.
-- **Steps:** `POST /event-requests/{event_id}/submit` with the standard
-  submitted payload.
-- **Test data:** As above.
-- **Expected:** `200`; response `assigned_coordinator_id` is still A; only
-  the has-conflict check runs, not a full-pool pick.
-- **Actual:** As expected.
+> **Revived 2026-11-06 for S-83's rule.** It specified S-12's rule — keep the
+> coordinator only if still free, after a conflict check — which S-83 removed,
+> and its test was skipped. Re-specified with the same ID because it proves
+> the same criterion, S-13 AC5, under today's rule. TC-EVENTREQUESTS-042
+> covers the plain case; this one covers the difference S-83 made.
+
+- **Scenario:** After the Organiser resubmits a returned request, it goes back to the Coordinator currently assigned to it — even if that Coordinator now has another event at the amended time. It never returns to the unassigned queue and is never moved to someone else; only a Lead may reassign it (S-13 AC5).
+- **Pre-conditions:** `GET /events/{id}` (forwarded) reports `status: returned`, `assigned_coordinator_id` A. A has another event overlapping the amended window. Any `/events/coordinator-load` or other availability call fails the test.
+- **Steps:** As the owning Organiser, `POST /event-requests/{event_id}/submit` with the standard payload moved to `19:00`–`22:00`.
+- **Test data:** Coordinator A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`.
+- **Expected:** `200` with `assigned_coordinator_id` A. Exactly one Events write, `POST /events/{id}/submit/internal`, whose body carries `assigned_coordinator_id` A (never `null`, so the request can't land in the unassigned queue). No availability or coordinator-pool call is made, so A's other event can't move it.
+- **Actual:** `200` with coordinator A; one Events write (`submit/internal`) carrying A; no availability or coordinator-pool call.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_resubmitting_a_returned_request_keeps_the_same_coordinator_if_still_free`
+- **Evidence:** `test_app.py::test_a_resubmitted_request_goes_back_to_its_current_coordinator_even_if_busy`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-024 — resubmitting an event that is not found is 404
 
@@ -285,25 +288,32 @@ GET returns the persisted requirement and the assigned profile after reload.
 
 ## TC-EVENTREQUESTS-033 — the sole available Technical Support Staff member is assigned
 
-- **Pre-conditions:** The trusted pool contains Staff A; load reports no
-  conflict.
-- **Steps:** Request assignment for a planning event.
-- **Expected:** The composite sends Staff A to the guarded events write and
-  returns the saved requirement plus A's id, name, and email.
-- **Actual:** As expected in the full unit run.
+> **Re-specified 2026-11-06.** Its evidence named a test that never existed:
+> 033–035 had been merged into one test that only sets up a two-person tie
+> (TC-EVENTREQUESTS-035). This case now has its own test.
+
+- **Scenario:** When the Coordinator asks for technical support, the system picks the one available staff member itself; the Coordinator names no one, and can't (S-43 AC1, AC2).
+- **Pre-conditions:** Planning event E assigned to Coordinator A. The trusted pool (`GET /users/technical-support`) holds only Staff A ("SupportA", `supporta@example.com`). Events' load check reports A with `conflict: false`, `assigned_count: 0`.
+- **Steps:** 1. As the Coordinator, `POST /event-requests/E/technical-support-assignment` with `{"support_details": "Sound check"}`. 2. Repeat, adding `"assigned_technical_support_id": <Staff A>` to the body.
+- **Test data:** Staff A `44444444-4444-4444-8444-444444444444`.
+- **Expected:** 1 → `200`, `assignment_state` `"assigned"`, `assigned_staff` `{"id": A, "name": "SupportA", "email": "supporta@example.com"}`. The one guarded Events write (`PUT`) is exactly `{"coordinator_id": A-coordinator, "technical_support_details": "Sound check", "assigned_technical_support_id": Staff A}`. 2 → `422`, and no Events write: the request has no way to name a staff member.
+- **Actual:** 1 → `200` `assigned`, `assigned_staff` SupportA with id and email; one Events write naming Staff A. 2 → `422`, no Events write.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_the_sole_available_support_staff_member_is_assigned`
+- **Evidence:** `test_app.py::test_the_sole_available_support_staff_member_is_assigned`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-034 — overlapping live work removes a candidate
 
-- **Pre-conditions:** Load reports Staff A conflicts with another planning or
-  confirmed event, while Staff B is free.
-- **Steps:** Request assignment.
-- **Expected:** Staff B is assigned. Submitted/under-review work is already
-  excluded by the events load boundary and cannot remove a candidate.
-- **Actual:** As expected in the full unit run.
+> **Re-specified 2026-11-06.** Its evidence named a test that never existed;
+> the merged test never reported a conflict for anyone it then assigned.
+
+- **Scenario:** A staff member already working another event at the same time is not "available", so the system passes over them — even when they are otherwise the obvious pick (S-43 AC1).
+- **Pre-conditions:** Planning event E assigned to Coordinator A. The pool holds Staff A and Staff B. The load check reports A `conflict: true`, `assigned_count: 0` (less busy, and lowest id — the pick if it weren't for the overlap) and B `conflict: false`, `assigned_count: 3`.
+- **Steps:** As the Coordinator, `POST /event-requests/E/technical-support-assignment` with `{"support_details": "Sound check"}`.
+- **Test data:** Staff A `4444…4444`, Staff B `5555…5555`.
+- **Expected:** `200`, `assignment_state` `"assigned"`, `assigned_staff.id` B. The guarded Events write carries `assigned_technical_support_id` B, never A. The load check was asked about both A and B for E's window.
+- **Actual:** `200` with Staff B assigned and B in the Events write, never A; the load check was asked about A and B. With the overlap filter removed from the app, the test fails.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_overlapping_live_support_work_removes_a_candidate`
+- **Evidence:** `test_app.py::test_overlapping_live_support_work_removes_a_candidate`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTREQUESTS-035 — least busy selection and ties are deterministic
 

@@ -303,7 +303,15 @@ def test_event_organiser_has_the_sprint_one_permissions():
 
 
 # --- TC-EVENTS-028 --------------------------------------------------------
-def test_other_known_roles_have_only_their_read_permissions():
+# Every role but the Organiser (027) and Coordinator (057): exactly its own
+# permissions. The role list is pinned too, so a new role can't go unchecked.
+def test_every_other_role_receives_only_its_own_permissions():
+    assert set(ROLE_PERMISSIONS) == {
+        "event_organiser", "event_coordinator", "event_coordinator_lead",
+        "venue_staff", "technical_support", "attendee",
+    }
+    # S-02 AC5: a Lead assigns; nothing to approve, reject or confirm.
+    assert ROLE_PERMISSIONS["event_coordinator_lead"] == {"dashboard:view", "events:lead_assignments"}
     assert ROLE_PERMISSIONS["venue_staff"] == {"dashboard:view", "events:view_booking_status"}
     assert ROLE_PERMISSIONS["technical_support"] == {
         "dashboard:view",
@@ -313,6 +321,8 @@ def test_other_known_roles_have_only_their_read_permissions():
     assert ROLE_PERMISSIONS["attendee"] == {"dashboard:view"}
 
 
+# Not part of TC-EVENTS-028: Venue Staff's one events read, used to keep a
+# booking hold in step with its event.
 def test_venue_staff_can_read_only_an_events_booking_status(client, db, auth):
     authenticate(client, auth, fake_user(role="venue_staff"))
     query = db.schema.return_value.table.return_value.select.return_value
@@ -1158,7 +1168,7 @@ def _support_event(staff_id, **changes):
     }
 
 
-# --- TC-EVENTS-096 / 097 / 098 ------------------------------------------
+# --- TC-EVENTS-096 --------------------------------------------------------
 def test_support_load_counts_only_planning_and_confirmed_events(client, db):
     operation = (
         db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value
@@ -1192,6 +1202,68 @@ def test_support_load_counts_only_planning_and_confirmed_events(client, db):
     first_in.return_value.in_.assert_called_once_with(
         "status", ["planning", "pending_safety_check", "confirmed"]
     )
+
+
+def _support_load(client, db, rows, staff_ids):
+    db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value \
+        .execute.return_value = SimpleNamespace(data=rows)
+    return client.post("/events/technical-support-load", json={
+        "staff_ids": staff_ids,
+        "start_date": "2026-11-13", "start_time": "09:00",
+        "end_date": "2026-11-13", "end_time": "12:00",
+    })
+
+
+# --- TC-EVENTS-097 --------------------------------------------------------
+# S-43 AC1: who is in "the available pool" -- any real overlap, across
+# midnight too, makes a staff member busy; only touching does not.
+@pytest.mark.parametrize(
+    ("start_date", "start_time", "end_date", "end_time", "conflict"),
+    [
+        ("2026-11-13", "09:30:00", "2026-11-13", "10:30:00", True),
+        ("2026-11-13", "08:00:00", "2026-11-13", "13:00:00", True),
+        ("2026-11-13", "08:00:00", "2026-11-13", "09:30:00", True),
+        ("2026-11-13", "11:30:00", "2026-11-13", "13:00:00", True),
+        ("2026-11-12", "22:00:00", "2026-11-13", "09:30:00", True),
+        ("2026-11-13", "07:00:00", "2026-11-13", "09:00:00", False),
+        ("2026-11-13", "12:00:00", "2026-11-13", "14:00:00", False),
+        ("2026-11-12", "09:00:00", "2026-11-12", "12:00:00", False),
+    ],
+    ids=["contained", "covers-it", "overlaps-start", "overlaps-end", "across-midnight",
+         "ends-as-it-starts", "starts-as-it-ends", "day-before"],
+)
+def test_support_overlap_uses_the_complete_window(client, db, start_date, start_time, end_date, end_time, conflict):
+    row = _support_event(SUPPORT_A, start_date=start_date, start_time=start_time,
+                         end_date=end_date, end_time=end_time)
+
+    response = _support_load(client, db, [row], [SUPPORT_A])
+
+    assert response.status_code == 200
+    assert response.json() == [{"staff_id": SUPPORT_A, "conflict": conflict, "assigned_count": 1}]
+
+
+# --- TC-EVENTS-098 --------------------------------------------------------
+# S-43 AC1: each candidate's workload, so the least busy can be chosen -- and
+# someone with no work at all is still returned.
+def test_support_load_reports_each_candidates_live_workload(client, db):
+    support_c = "77777777-7777-4777-8777-777777777777"
+    rows = [
+        _support_event(SUPPORT_A, id="a1000000-0000-4000-8000-000000000001",
+                       start_date="2026-11-14", end_date="2026-11-14", start_time="09:00:00", end_time="10:00:00"),
+        _support_event(SUPPORT_A, id="a1000000-0000-4000-8000-000000000002",
+                       start_date="2026-11-15", end_date="2026-11-15", start_time="09:00:00", end_time="10:00:00"),
+        _support_event(SUPPORT_B, id="b1000000-0000-4000-8000-000000000001",
+                       start_date="2026-11-16", end_date="2026-11-16", start_time="09:00:00", end_time="10:00:00"),
+    ]
+
+    response = _support_load(client, db, rows, [SUPPORT_A, SUPPORT_B, support_c])
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"staff_id": SUPPORT_A, "conflict": False, "assigned_count": 2},
+        {"staff_id": SUPPORT_B, "conflict": False, "assigned_count": 1},
+        {"staff_id": support_c, "conflict": False, "assigned_count": 0},
+    ]
 
 
 def _support_target_select(db):

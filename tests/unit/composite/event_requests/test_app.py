@@ -133,27 +133,30 @@ def test_resubmitting_the_same_datetime_never_rechecks(client, users, events):
 
 
 # --- TC-EVENTREQUESTS-021 --------------------------------------------------
-@pytest.mark.skip(reason="Replaced by S-83 continuity without a conflict check")
-def test_resubmitting_a_returned_request_keeps_the_same_coordinator_if_still_free(client, users, events):
-    users.get.side_effect = users_get_side_effect(coordinators=[coordinator(COORDINATOR_A)])
+# S-13 AC5 under S-83: back to the current coordinator, even one now busy at
+# the amended time -- no availability check, never unassigned, never moved.
+def test_a_resubmitted_request_goes_back_to_its_current_coordinator_even_if_busy(client, users, events):
+    users.get.return_value = organiser_me_response()
     events.get.return_value = event_response(status_code=200, status="returned", assigned_coordinator_id=COORDINATOR_A)
-    events.post.side_effect = events_post_side_effect_with_loads(
-        {COORDINATOR_A: {"conflict": False, "assigned_count": 1}},
-        extra_path=f"/events/{EVENT_ID}/submit/internal",
-        extra_response=fake_response(
-            200, event_response(status_code=200, assigned_coordinator_id=COORDINATOR_A).json()
-        ),
-    )
+    resubmitted = event_response(status_code=200, assigned_coordinator_id=COORDINATOR_A).json()
 
-    response = client.post(f"/event-requests/{EVENT_ID}/submit", json=SUBMITTED)
+    async def events_post(path, **kwargs):
+        # A has another event at 19:00-22:00; a load check would move the request.
+        assert path == f"/events/{EVENT_ID}/submit/internal", f"unexpected events.post({path!r})"
+        return fake_response(200, resubmitted)
+
+    events.post.side_effect = events_post
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/submit",
+        json={**SUBMITTED, "start_time": "19:00", "end_time": "22:00"},
+    )
 
     assert response.status_code == 200
     assert response.json()["assigned_coordinator_id"] == COORDINATOR_A
-    # Only the has-conflict check runs -- no full-pool pick, since the
-    # current coordinator is still free.
-    assert events.post.call_args_list[0][1]["json"]["coordinator_ids"] == [COORDINATOR_A]
-    sent = events.post.call_args_list[-1].kwargs["json"]
-    assert sent["assigned_coordinator_id"] == COORDINATOR_A
+    assert events.post.await_count == 1
+    assert events.post.await_args.kwargs["json"]["assigned_coordinator_id"] == COORDINATOR_A
+    users.get.assert_awaited_once()  # only who's asking -- no coordinator-pool lookup
 
 
 # --- TC-EVENTREQUESTS-024 --------------------------------------------------
@@ -336,7 +339,67 @@ def test_assignment_runs_only_after_explicit_support_action(client, users, event
     events.put.assert_not_called()
 
 
-# --- TC-EVENTREQUESTS-033 / 034 / 035 ------------------------------------
+# --- TC-EVENTREQUESTS-033 --------------------------------------------------
+# S-43 AC1, AC2: the system picks the one available person; the Coordinator
+# names no one and can't.
+def test_the_sole_available_support_staff_member_is_assigned(client, users, events):
+    users.get.side_effect = support_users([support_profile(SUPPORT_A, "SupportA")])
+    events.get.return_value = planning_event()
+    events.post.return_value = fake_response(
+        200, [{"staff_id": SUPPORT_A, "conflict": False, "assigned_count": 0}]
+    )
+    events.put.return_value = assigned_support_event(SUPPORT_A)
+    url = f"/event-requests/{EVENT_ID}/technical-support-assignment"
+
+    response = client.post(url, json={"support_details": "Sound check"})
+
+    assert response.status_code == 200
+    assert response.json()["assignment_state"] == "assigned"
+    assert response.json()["assigned_staff"] == {
+        "id": SUPPORT_A, "name": "SupportA", "email": "supporta@example.com",
+    }
+    events.put.assert_awaited_once()
+    assert events.put.call_args.kwargs["json"] == {
+        "coordinator_id": COORDINATOR_A,
+        "technical_support_details": "Sound check",
+        "assigned_technical_support_id": SUPPORT_A,
+    }
+
+    events.put.reset_mock()
+    named = client.post(url, json={"support_details": "Sound check", "assigned_technical_support_id": SUPPORT_A})
+
+    assert named.status_code == 422
+    events.put.assert_not_awaited()
+
+
+# --- TC-EVENTREQUESTS-034 --------------------------------------------------
+# S-43 AC1: busy at that time means not available, even for the obvious pick.
+def test_overlapping_live_support_work_removes_a_candidate(client, users, events):
+    users.get.side_effect = support_users(
+        [support_profile(SUPPORT_A, "SupportA"), support_profile(SUPPORT_B, "SupportB")]
+    )
+    events.get.return_value = planning_event()
+    events.post.return_value = fake_response(200, [
+        # A would win on load and on id -- but is already working at that time.
+        {"staff_id": SUPPORT_A, "conflict": True, "assigned_count": 0},
+        {"staff_id": SUPPORT_B, "conflict": False, "assigned_count": 3},
+    ])
+    events.put.return_value = assigned_support_event(SUPPORT_B)
+
+    response = client.post(
+        f"/event-requests/{EVENT_ID}/technical-support-assignment",
+        json={"support_details": "Sound check"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment_state"] == "assigned"
+    assert response.json()["assigned_staff"]["id"] == SUPPORT_B
+    assert events.put.call_args.kwargs["json"]["assigned_technical_support_id"] == SUPPORT_B
+    asked = events.post.call_args.kwargs["json"]
+    assert sorted(asked["staff_ids"]) == sorted([SUPPORT_A, SUPPORT_B])
+
+
+# --- TC-EVENTREQUESTS-035 --------------------------------------------------
 def test_support_assignment_chooses_least_busy_then_lowest_id(client, users, events):
     pool = [support_profile(SUPPORT_B, "SupportB"), support_profile(SUPPORT_A, "SupportA")]
     users.get.side_effect = support_users(pool)

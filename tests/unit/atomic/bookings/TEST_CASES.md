@@ -350,7 +350,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Expected:** Missing/invalid credentials return 401; nonstaff 403; no denied write. Valid staff succeeds with trusted identity, never caller-supplied identity. Use existing local token-verification conventions, not an atomic-to-users HTTP call.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
-- **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_direct_nonstaff_call_forbidden; test_missing_and_invalid_session`.
+- **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_direct_nonstaff_call_forbidden; test_missing_and_invalid_session`. `test_missing_and_invalid_session` rerun 2026-11-06 on `update/e2e-shards`: its invalid session is now Supabase rejecting the token (`AuthApiError` 403) instead of a generic error, which TC-BOOKINGS-477 makes a `503`; still `401`, pass.
 
 ### TC-BOOKINGS-022 — Decision storage failures are safe
 
@@ -1656,3 +1656,47 @@ expiring in 2099.
 - **Actual:** Release and a new hold both write `hold_confirmed_by` and `hold_confirmed_at` as `null`.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/bookings/test_hold_confirmation.py::test_releasing_a_hold_clears_its_confirmation, ::test_a_new_hold_needs_a_new_confirmation; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## Session check: a rejected token vs Supabase Auth not answering
+
+Ports the users service's fix (`bb92dfd`, TC-USERS-035..038) to this
+service's `security.py` (`require_user`, which reads only the access token). Only a 4xx other than 429 from Supabase Auth is a
+verdict on the token. Anything else (a dropped connection, a timeout, a 5xx,
+a 429) is retried after 0.2 s and 0.5 s, then answers `503` "Authentication
+service unavailable" and leaves the cookies alone. Found by PR #98's
+integration runs, where composites got `401` from this service for valid
+sessions and reported `502` "... service unavailable". Retry pauses are
+patched to 0 in the tests.
+
+## TC-BOOKINGS-475 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403.
+- **Steps:** `POST /bookings/{id}/decision` `{"decision": "approved"}` (Venue Staff) with `sb_access_token=revoked-token`.
+- **Test data:** As above.
+- **Expected:** `401` "Not authenticated"; `get_user` called once.
+- **Actual:** `401` "Not authenticated" after one `get_user` call.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_session_check.py::test_a_rejected_token_is_401_without_retrying; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-BOOKINGS-476 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error under Test data, then returns a Venue Staff caller; no booking row is faked.
+- **Steps:** `POST /bookings/{id}/decision` `{"decision": "approved"}` (Venue Staff) with `sb_access_token=access-token`.
+- **Test data:** First attempt: `httpx.RemoteProtocolError("Server disconnected")`; separately, `httpx.ReadTimeout("timed out")`.
+- **Expected:** Each `404` "Booking not found" -- the session check passed; `get_user` called twice.
+- **Actual:** Each `404` "Booking not found" after two `get_user` calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_session_check.py::test_a_session_check_that_got_no_answer_is_retried (2 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-BOOKINGS-477 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as under Test data.
+- **Steps:** `POST /bookings/{id}/decision` `{"decision": "approved"}` (Venue Staff).
+- **Test data:** `httpx.RemoteProtocolError("Server disconnected")`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each `503` "Authentication service unavailable"; `get_user` called 3 times.
+- **Actual:** Each `503` "Authentication service unavailable" after 3 calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_session_check.py::test_no_answer_is_503_and_keeps_the_cookies (3 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).

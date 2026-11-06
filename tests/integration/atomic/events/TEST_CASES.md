@@ -137,7 +137,7 @@ preparation can be updated only after the Safety Officer's approval
 - **Expected:** 1 → `not_started`. 2 → `200` each; value, updater and timestamp persist in `events.events`. 3 → both reads show `ready`. 4 → denied, row unchanged. 5 → `409` "Equipment preparation can be updated once the Safety Officer has approved the event". 6 → still `not_started`, no updater or timestamp. The test deletes every row and account it creates.
 - **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (events container verified on the test project's `SUPABASE_URL`)
+- **Evidence:** `test_equipment_preparation.py::test_equipment_preparation_round_trip`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree; `.env.test` stack recreated with `--build` before this session's runs (events container verified on the test project's `SUPABASE_URL`)
 
 ---
 

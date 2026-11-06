@@ -1,10 +1,8 @@
 """Real service round trip for the event_requests composite -- see TEST_CASES.md.
 
-Every test below either blocks or exempts *every* coordinator that exists in
-the project, not just the ones it created — GET /users/coordinators sees the
-whole pool, so a leftover account from manual testing or an earlier run is
-just as eligible as a fixture's, and would otherwise make the assignment
-non-deterministic. See conftest.py's `block_other_coordinators`.
+S-83 made coordinator assignment a Lead's choice, so nothing here depends on
+which coordinators happen to be free; the S-12 cases that blocked the whole
+coordinator pool are gone.
 """
 
 from datetime import datetime
@@ -19,7 +17,6 @@ from .conftest import (
     EVENTS_BASE_URL,
     GATEWAY_BASE_URL,
     all_technical_support_ids,
-    block_other_coordinators,
     request_with_retry,
     requires_env,
 )
@@ -40,6 +37,7 @@ SUBMITTED = {
 
 # --- S-13: the organiser responds to a return -------------------------------
 
+NO_LONGER_AWAITING_CHANGES = "This request is no longer awaiting changes. Reload to see its current status."
 RETURN_WINDOW = {**SUBMITTED, "start_date": "2026-11-12", "end_date": "2026-11-12", "expected_attendance": 120}
 RETURN_DECISION = {
     "status": "returned",
@@ -108,37 +106,42 @@ def test_a_returned_request_is_amended_resubmitted_and_back_with_its_coordinator
 
 
 # --- TC-EVENTREQUESTS-106 ---------------------------------------------------
-@pytest.mark.skip(reason="S-83 preserves the Coordinator and does not reject schedule conflicts")
+# S-13 AC6: a failed resubmission changes nothing and says why. The failure is
+# one S-83 still produces -- a stale page resubmitting a request that is no
+# longer awaiting changes.
 def test_a_failed_resubmission_leaves_the_returned_request_exactly_as_it_was(
     organiser_session, coordinator_session, admin
 ):
     coordinator_id = coordinator_session["user_id"]
     organiser = {"Cookie": f"sb_access_token={organiser_session['access_token']}"}
-    blocked_window = {**RETURN_WINDOW, "start_time": "13:00", "end_time": "15:00", "expected_attendance": 80}
 
     with (
         httpx.Client(base_url=BASE_URL, timeout=15.0, headers=organiser) as api,
         httpx.Client(base_url=EVENTS_BASE_URL, timeout=15.0, headers=organiser) as events_api,
     ):
         event_id = _submit_and_return(api, admin, organiser_session, coordinator_id)
-        # Nobody exempt: the event's own coordinator is busy at the new window too.
-        organiser_session["event_ids"].extend(
-            block_other_coordinators(admin, organiser_session["user_id"], set(), blocked_window)
+
+        first = request_with_retry(
+            api, "POST", f"/event-requests/{event_id}/submit", json={**RETURN_WINDOW, "expected_attendance": 80}
         )
+        assert first.status_code == 200, first.text
+        assert first.json()["status"] == "submitted"
 
         before = request_with_retry(events_api, "GET", f"/events/{event_id}")
         assert before.status_code == 200, before.text
 
-        refused = request_with_retry(api, "POST", f"/event-requests/{event_id}/submit", json=blocked_window)
+        stale = {**RETURN_WINDOW, "expected_attendance": 60, "start_time": "13:00", "end_time": "15:00"}
+        refused = request_with_retry(api, "POST", f"/event-requests/{event_id}/submit", json=stale)
         assert refused.status_code == 409, refused.text
-        assert refused.json()["detail"] == "No event coordinator is available for the requested date and time"
+        assert refused.json()["detail"] == NO_LONGER_AWAITING_CHANGES
 
         after = request_with_retry(events_api, "GET", f"/events/{event_id}")
         assert after.status_code == 200, after.text
         assert after.json() == before.json()
-        assert after.json()["status"] == "returned"
+        assert after.json()["status"] == "submitted"
+        assert after.json()["expected_attendance"] == 80
         assert after.json()["start_time"] == "09:00:00"
-        assert after.json()["expected_attendance"] == 120
+        assert after.json()["assigned_coordinator_id"] == coordinator_id
 
 
 # --- TC-EVENTREQUESTS-107 ---------------------------------------------------
