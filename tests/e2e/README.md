@@ -90,6 +90,18 @@ only coherent on the origin that serves both.
 
 ## What goes here
 
+The `sign_in` fixture observes the login response and retries only HTTP 429,
+at most twice (5s then 10s, or the numeric `Retry-After`, capped at 30s).
+Other failures and persistent rate limits fail immediately with the status
+and role. It reuses the loaded login page after logout to avoid another
+session bootstrap. Test users remain unique per test; sessions are not shared
+between users or tests.
+
+User cleanup accepts only Auth's 404 `User not found` as already absent and
+logs the user ID. Other cleanup errors still fail. An absent user or event
+during a test remains a failure: teardown tolerance does not establish why
+that data disappeared from the shared TEST project.
+
 Whole journeys a person would recognise, named after the journey rather than
 the service — `test_sign_up.py`, not `test_users.py`.
 
