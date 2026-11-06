@@ -3651,3 +3651,14 @@ Confirmed by the developer 2026-11-04.
 - **Actual:** (a), (b) `403` "Trusted assignment service required"; (c) `404` "Event not found"; no write.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_only_the_composite_may_call_it; tests/unit/atomic/events/test_s78_replanning.py::test_an_unknown_event_is_not_found; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-456 — a missing Supabase Auth verdict does not invalidate a session
+
+- **Scenario:** An Auth connection loss while checking an event session must not be reported as a rejected token.
+- **Pre-conditions:** An access cookie is present. The fake Auth client either disconnects once, keeps failing, or definitively rejects the token.
+- **Steps:** Check the current user with the access cookie. For an expired token, retry refresh using the refresh cookie.
+- **Test data:** `sb_access_token=access-token`; `sb_refresh_token=refresh-token`; simulated disconnect, upstream `500`, rate limit `429`, and rejected token `401`.
+- **Expected:** A transient failure followed by a valid user succeeds. Repeated missing verdicts return `503` without clearing cookies. A definitive token rejection returns `401` without retry. Refresh retries after a connection loss.
+- **Actual:** Focused unit tests passed for those paths.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_security.py`; focused local run on PR #95.

@@ -134,6 +134,12 @@ The remaining internal and attendee roles intentionally receive no
 speculative event permissions. Their permissions can expand when a
 corresponding project story defines a workflow.
 
+For authenticated endpoints, a definitively rejected access and refresh
+token returns `401`. If Supabase Auth disconnects, times out, or returns an
+upstream failure, the service retries briefly and returns `503` with
+`{"detail":"Authentication service unavailable"}` if it still has no verdict.
+It keeps the session cookies in that case.
+
 ### Coordinator event information (S-18)
 
 The three assigned-event write routes accept only events in `planning`,
