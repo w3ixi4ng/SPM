@@ -37,6 +37,9 @@ import {
 import {
   alternativeArrangementsNotice,
   bookingClashMessage,
+  confirmHoldErrorMessage,
+  confirmVenueHold,
+  coordinatorHoldState,
   outsideHoursWarning,
   bookingDateLabel,
   bookingStatusMeta,
@@ -600,6 +603,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
   const [cancelNotice, setCancelNotice] = useState(null)
   const cancelTriggerRef = useRef(null)
   const [primaryState, setPrimaryState] = useState({ bookingId: null, error: null, notice: null })
+  const [holdState, setHoldState] = useState({ bookingId: null, error: null, notice: null })
   // S-90: the original being restored, and what the last request did.
   const [restoreState, setRestoreState] = useState({ bookingId: null, error: null, notice: null })
 
@@ -658,6 +662,17 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
     }
   }
 
+  async function confirmHold(booking) {
+    setHoldState({ bookingId: booking.id, error: null, notice: null })
+    try {
+      await confirmVenueHold(booking.id)
+      await load()
+      setHoldState({ bookingId: null, error: null, notice: `Hold for ${booking.venue_name} confirmed. Venue Staff can approve it.` })
+    } catch (error) {
+      setHoldState({ bookingId: null, error: confirmHoldErrorMessage(error), notice: null })
+    }
+  }
+
   return (
     <section aria-labelledby="venue-requests-heading">
       <div className="flex items-center gap-2 mb-2">
@@ -680,6 +695,8 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
       {state.status === 'ready' && state.bookings.length === 0 && (
         <p className="font-ui text-sm" style={{ color: C.inkFaint }}>No venue requests sent yet.</p>
       )}
+      {holdState.error && <p role="alert" className="font-ui text-sm mb-3" style={{ color: C.rose }}>{holdState.error}</p>}
+      {holdState.notice && <p role="status" className="font-ui text-sm mb-3" style={{ color: C.green }}>{holdState.notice}</p>}
       {state.status === 'ready' && state.bookings.length > 0 && (
         <>
         {primaryVenuePrompt(state.bookings) && (
@@ -692,6 +709,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
             const { label, color } = bookingStatusMeta(booking.status)
             const unavailable = alternativeArrangementsNotice(booking)
             const replacing = replacementState(booking, state.bookings)
+            const hold = coordinatorHoldState(booking)
             return (
               <li
                 key={booking.id}
@@ -754,6 +772,24 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
                     {booking.decision_reason && <p className="whitespace-pre-wrap">Reason: {booking.decision_reason}</p>}
                     {booking.decision_alternative && <p className="whitespace-pre-wrap">Alternative: {booking.decision_alternative}</p>}
                     {booking.decided_at && <p>Decided {new Date(booking.decided_at).toLocaleString()}</p>}
+                  </div>
+                )}
+                {hold && (
+                  // S-81 reopened: Venue Staff approve a hold only once it is confirmed.
+                  <div className="w-full flex flex-wrap items-center gap-3 font-ui text-sm">
+                    <p style={{ color: C.ink }}>{hold.text}</p>
+                    {hold.canConfirm && (
+                      <button
+                        type="button"
+                        onClick={() => confirmHold(booking)}
+                        disabled={holdState.bookingId !== null}
+                        aria-label={`Confirm hold on ${booking.venue_name}`}
+                        className="px-4 py-2 rounded-sm font-medium transition-transform duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+                        style={{ backgroundColor: C.teal, color: C.paper }}
+                      >
+                        {holdState.bookingId === booking.id ? 'Confirming…' : 'Confirm hold'}
+                      </button>
+                    )}
                   </div>
                 )}
                 {outsideHoursWarning(booking) && (
@@ -825,6 +861,7 @@ function VenueRequests({ eventId, eventStatus, canRequest, notice, onLoaded }) {
         </ul>
         </>
       )}
+      {holdState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{holdState.error}</p>}
       {primaryState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{primaryState.error}</p>}
       {restoreState.error && <p role="alert" className="font-ui text-sm mt-4" style={{ color: C.rose }}>{restoreState.error}</p>}
       <div className="flex flex-wrap items-center gap-4 mt-6">

@@ -11,7 +11,7 @@ SUPPORT_A = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 SUPPORT_B = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
 
-def prepared_event(status="planning", preparation="not_started", **changes):
+def prepared_event(status="confirmed", preparation="not_started", **changes):
     values = dict(
         status=status,
         assigned_technical_support_id=SUPPORT_A,
@@ -39,8 +39,8 @@ def arrange_update(db, rows):
     operation.execute.return_value = SimpleNamespace(data=rows)
 
 
-# TC-EVENTS-123
-@pytest.mark.parametrize("lifecycle", ["planning", "confirmed", "preparation"])
+# TC-EVENTS-453 (was TC-EVENTS-123) -- after the Safety Officer's approval
+@pytest.mark.parametrize("lifecycle", ["confirmed", "preparation"])
 @pytest.mark.parametrize("value", ["in_progress", "ready", "not_started"])
 def test_assigned_support_can_record_each_status_and_move_backwards(
     client, db, auth, lifecycle, value
@@ -66,9 +66,30 @@ def test_assigned_support_can_record_each_status_and_move_backwards(
     assert values["equipment_preparation_status"] == value
     assert values["equipment_preparation_updated_by"] == SUPPORT_A
     assert values["equipment_preparation_updated_at"]
+    update_filter = db.schema.return_value.table.return_value.update.return_value.eq.return_value.eq.return_value.in_
+    update_filter.assert_called_once_with("status", ["confirmed", "preparation"])
 
 
-# TC-EVENTS-124
+# TC-EVENTS-454 -- S-26 AC2: not before the Safety Officer's approval
+@pytest.mark.parametrize("lifecycle", ["planning", "pending_safety_check"])
+def test_preparation_cannot_change_before_safety_approval(client, db, auth, lifecycle):
+    authenticate(client, auth, fake_user(user_id=SUPPORT_A, role="technical_support"))
+    arrange_read(db, [prepared_event(status=lifecycle)])
+
+    response = client.put(
+        f"/events/support-assigned/{EVENT_ID}/equipment-preparation",
+        json={"status": "ready"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Equipment preparation can be updated once the Safety Officer has approved the event"
+    }
+    db.schema.return_value.table.return_value.update.assert_not_called()
+    db.schema.return_value.table.return_value.insert.assert_not_called()
+
+
+# TC-EVENTS-456 (was 124, which is S-62's)
 @pytest.mark.parametrize(
     ("role", "expected"),
     [
@@ -100,7 +121,17 @@ def test_unassigned_support_cannot_update_preparation(client, db, auth):
     db.schema.return_value.table.return_value.update.assert_not_called()
 
 
-# TC-EVENTS-125
+# TC-EVENTS-456 -- and nobody signed in can change it either.
+def test_no_session_cannot_update_preparation(client, db):
+    response = client.put(
+        f"/events/support-assigned/{EVENT_ID}/equipment-preparation",
+        json={"status": "ready"},
+    )
+    assert response.status_code == 401
+    db.schema.assert_not_called()
+
+
+# TC-EVENTS-457 (was 125, which is S-62's)
 @pytest.mark.parametrize(
     "payload",
     [

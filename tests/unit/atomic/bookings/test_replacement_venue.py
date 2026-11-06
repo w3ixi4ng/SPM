@@ -116,6 +116,7 @@ def prepare_decision(db, booking):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[{**booking, **table(db).update.call_args.args[0]}])
     return update
 
@@ -167,6 +168,7 @@ def prepare_resolution(db, booking):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[{**booking, **table(db).update.call_args.args[0]}])
     return update
 

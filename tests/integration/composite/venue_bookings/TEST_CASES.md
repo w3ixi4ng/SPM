@@ -78,7 +78,7 @@ and the gateway route.
 - **Test data:** As above.
 - **Expected:**
   - Step 2: `422`, with `booking_date`, `operating_hours` and
-    `expected_attendance` in `errors`.
+    `allocated_attendance` in `errors` (the event's full attendance is the default allocation).
   - Step 3: `0`.
 - **Actual:** `422` with `booking_date`, `operating_hours` and `expected_attendance` in `errors`; no row saved.
 - **Status:** Pass
@@ -94,7 +94,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; fre
 - Pre-conditions: Approved test stack; event attendance 120 requiring projector and wheelchair_access; suitable venue capacity 150.
 - Steps: 1. Submit booking; PATCH venue capacity=100, facilities=[], accessibility=[]; submit again; read old booking.
 - Test data: Values specified above; existing shared fixtures supply remaining required fields.
-- Expected: Edit succeeds; new request 422 for all three mismatches; original booking identical and remains listed.
+- Expected: Edit succeeds; new request 422 for `allocated_attendance`, facilities and accessibility; original booking identical and remains listed.
 - Actual: Initial booking creation returned 502. Bookings logs report PGRST204: accessibility_requirements column missing from schema cache. History assertions could not execute.
 - Status: Blocked
 - Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_venue_edit_preserves_history_and_new_requests_use_saved_values`; local pytest and bookings container logs.
@@ -106,7 +106,7 @@ Latest S-28 execution: 2026-09-27; base `0d27acc` plus S-28 working changes; fre
 - Pre-conditions: Approved test stack; world fixture event expects 120, projector and wheelchair_access.
 - Steps: 1. Staff PATCH capacity=100, facilities=[], accessibility=[]. 2. Coordinator submits for 2026-11-12 09:00-12:00.
 - Test data: World fixture venue starts with capacity 150 and both required features.
-- Expected: Update 200; submission 422 naming all three conflicts; no booking stored.
+- Expected: Update 200; submission 422 naming `allocated_attendance`, facilities and accessibility; no booking stored.
 - Actual: PATCH succeeded; new submission returned 422 for capacity, facilities and accessibility; no booking was stored.
 - Status: Pass
 - Evidence: `tests/integration/composite/venue_bookings/test_app.py::test_new_request_uses_updated_venue_values`; local .env.test execution.
@@ -183,9 +183,9 @@ Confirmed by the developer on 2026-10-07. Not yet executed.
 **Blocked** until the S-75 section of `backend/sql/venues.sql` has been run
 in the test project.
 
-### TC-VENUEBOOKINGS-107 — changing a venue's times flags the new clash and is used for the next request
+### TC-VENUEBOOKINGS-107 — confirmed booking prevents changing venue timing
 
-- **Scenario:** Real services and Kong agree (AC3, AC4).
+- **Scenario:** Real services and Kong enforce the confirmed-booking timing freeze.
 - **Pre-conditions:** A fresh `.env.test` stack. A Coordinator, Venue Staff,
   a test venue open `thu` 08:00–20:00 with setup and turnaround 0, and two
   planning events. Booking A confirmed 10:00–12:00 and B held 12:30–14:00 on
@@ -193,11 +193,13 @@ in the test project.
 - **Steps:**
   1. Staff `GET /api/venue-bookings/clashes` for the venue: none.
   2. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`, `turnaround_minutes: 45`.
-  3. Staff list clashes again; the Coordinator lists B's event requests.
-  4. The Coordinator requests 12:00–12:30 for another planning event.
-- **Expected:** Step 3: the A–B pair is listed, and B carries the clash
-  warning. A and B are unchanged in `bookings.bookings`. Step 4: `409` "…in
-  use until 12:45." Cleanup deletes every row created.
+  3. Staff PATCH unchanged timing values plus an unrelated description.
+  4. The Coordinator requests an available 14:30–15:00 slot.
+- **Expected (current):** Step 2 returns `409`; timing and both bookings stay
+  unchanged. Step 3 returns `200`; the description changes. Step 4 returns
+  `201` under the saved zero-minute timing.
+- **Historical note:** The Actual, Status and Evidence below belong to the
+  previous implementation, which allowed changing timing after confirmation.
 - **Actual:** Through Kong: no clashes at 0/0; after Staff saved 30/45 the A–B pair was listed and B carried the 10:00 clash; both bookings unchanged; 12:00–12:30 refused "…in use until 12:45."
 - **Status:** Pass
 - **Evidence:** `tests/integration/composite/venue_bookings/test_setup_turnaround.py::test_new_times_flag_the_clash_and_govern_the_next_request`; `.env.test` stack rebuilt immediately before (venues container on the test project's `SUPABASE_URL`), 2026-10-08; 20 passed.
@@ -213,13 +215,13 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
 - **Scenario:** Real services and Kong agree on the refusal and the review
   list (S-76 AC3, AC5).
 - **Pre-conditions:** A fresh `.env.test` stack. Venue Staff, a Coordinator,
-  a test venue open `thu` 08:00–20:00 at setup and turnaround 0, three
+  a test venue open `thu` 08:00–20:00, three
   planning events. On 2026-11-12: A confirmed 10:00–12:00 ("Alumni talk"),
   C confirmed 13:00–14:00, B pending 12:00–12:45 (none overlapping
-  at 0/0, so the rows are valid before step 1).
+  by event times). A and C are directly seeded historical rows.
 - **Steps:**
   1. Staff `PATCH /api/venues/{id}` with `setup_minutes: 30`,
-     `turnaround_minutes: 45`.
+     `turnaround_minutes: 45` before the confirmed rows are seeded.
   2. Staff approve B through `/api/venue-bookings/{B}/decision`.
   3. Staff `GET /api/venue-bookings/clashes` (no `venue_id`).
 - **Expected:**
@@ -238,7 +240,9 @@ No schema change: S-76 needs only the S-75 SQL already in `backend/sql/`.
 
 Story: S-79 Book Multiple Venues for One Event.
 Confirmed by the developer on 2026-10-11. Executed 2026-10-11 on branch `S-79/book-multiple-venues-for-one-event` (on top of `43b91d1`).
-No schema change: S-79 needs only the SQL already in `backend/sql/`.
+The requirement alignment adds `allocated_attendance` to `bookings.bookings`;
+apply the data-preserving block at the end of `backend/sql/bookings.sql` in
+both dev and test before running this revised case.
 For the criteria mapping and the agreed decisions, see the S-79 section of
 `tests/unit/composite/venue_bookings/TEST_CASES.md`.
 
@@ -256,14 +260,15 @@ For the criteria mapping and the agreed decisions, see the S-79 section of
 - **Steps:** As the Coordinator, through `/api/venue-bookings`:
   1. Request Main Hall, 09:00–17:00; Venue Staff hold it.
   2. Request Studio, 13:00–15:00 (same time, different venue).
-  3. Request Seminar Room, 13:00–15:00.
+  3. Request Seminar Room, 13:00–15:00 first without an allocation, then with 35 attendees.
   4. Request Main Hall, 16:00–18:00.
   5. `GET /api/venue-bookings?event_id=E`.
 - **Expected:**
   1. `201`, then `200` for the hold.
   2. `201`. In `bookings.bookings`, booking 1 is still `held` with no
      `hold_release_reason`.
-  3. `422`, naming capacity (40 < 120).
+  3. First `422`, naming capacity (40 < 120); then `201` with
+     `allocated_attendance: 35`, while full event attendance remains 120.
   4. `409` "… is already tentatively held on …", because the event's own
      booking 1 holds Main Hall.
   5. `200` with exactly bookings 1 (`held`) and 2 (`pending`), both with
@@ -351,9 +356,17 @@ Status resets to Not Executed until re-run.
 
 - **Scenario:** The complete S-81 service path stores a required expiry, informs the Coordinator before it occurs, and removes the expired hold from availability.
 - **Pre-conditions:** `.env.test` stack; S-81 bookings and notifications migrations applied in the test project.
-- **Steps:** Request a venue through Kong; place a hold with an expiry as Venue Staff; read the Coordinator inbox; move the expiry into the past; load availability through Kong.
+- **Steps (current):** Request a venue through Kong; place a hold with an
+  expiry as Venue Staff; refuse premature approval; have the assigned
+  Coordinator confirm twice; read the Coordinator inbox; move expiry into the
+  past; load availability; refuse late confirmation and approval.
 - **Test data:** 12 Nov 2026, 09:00–12:00; expiry one hour ahead and then one second behind the current time.
-- **Expected:** The hold contains its expiry; exactly one `venue_hold_expiry` notification names the tentative hold; availability has no live booking after expiry; storage retains the row as pending with release reason `expired` and a release timestamp.
+- **Expected (current):** The hold contains its expiry; premature approval is
+  `409`, confirmation is idempotent, late confirmation and approval are `409`;
+  availability has no live booking after expiry; storage retains `pending`
+  with release reason `expired`, and the event remains Planning.
+- **Historical note:** The Actual, Status and Evidence below describe the
+  prior execution, before these new confirmation assertions were added.
 - **Actual:** Kong stored the expiry and one Coordinator notice; after expiry,
   the calendar had no live entry and storage retained `pending/expired` audit data.
 - **Status:** Pass
@@ -516,3 +529,50 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
 - **Actual:** `200`; exactly the confirmed, held and blocked entries for V1–V3; the pending and `D+1` bookings absent; rows deleted.
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/venue_bookings/test_occupied.py::test_a_dates_occupied_times_come_back_through_the_stack; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with the bookings and venue_bookings integration suites: 40 passed, 1 failed (`test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`, unrelated; passed on rerun)
+
+## S-78 (revision) — a replacement returns a confirmed event to Planning
+
+Acceptance criteria and design as in
+`tests/unit/composite/venue_bookings/TEST_CASES.md` (S-78 revision).
+
+Drafted 2026-11-04 on `S-78/request-replacement-venue-for-affected-booking`.
+Confirmed by the developer 2026-11-04.
+
+## TC-VENUEBOOKINGS-138 — approving a replacement replans a confirmed event, through the real services
+
+- **Scenario:** AC1, AC4. Proves the composite reaches the events route with its token, and the notices are stored.
+- **Pre-conditions:** `.env.test` stack started with `--build` immediately before; the test project has every schema applied. `ASSIGNMENT_SERVICE_SECRET` set in `.env.test`.
+- **Steps:** 1. Seed, with the admin client: Organiser G, Coordinator K, Venue Staff S, Attendee A; venues V and W; event E `confirmed` (safety approved) assigned to K, A registered; booking O `confirmed` at V; an unavailable period over O; booking R `pending` at W with `replaces_booking_id` O. 2. Sign in as S and `POST /venue-bookings/R/decision`. 3. Read E, its history and the notifications with the admin client. 4. Delete everything seeded.
+- **Test data:** Names `spm-test S78R …`; `{"decision": "approved"}`.
+- **Expected:** 2 → `200`, R `confirmed`. 3 → E `planning`, `safety_decision` null, `safety_recheck_required` true; one `venue_replanned` history entry; one notification each to K and G containing "is back in planning"; none to A. 4 leaves no rows.
+- **Actual:** 2 `200`, R `confirmed`. 3 E `planning`, `safety_decision` null, `safety_recheck_required` true; one `venue_replanned` entry with `previous_status` `confirmed`; "is back in planning" notices to exactly K and G; none to A. 4 cleaned up.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_s78_replanning.py::test_approving_a_replacement_replans_a_confirmed_event; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (verified on the test project's `SUPABASE_URL`; venue_bookings has `ASSIGNMENT_SERVICE_SECRET`). Numbered 137 when drafted; renumbered on rebasing onto `fix`, where S-34 had already taken 137.
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria. Applied to dev and test by the developer on
+2026-11-05; executed.
+
+## TC-VENUEBOOKINGS-139 — through Kong, the Coordinator confirms and Venue Staff are told
+
+- **Pre-conditions:**
+  - `.env.test` stack started immediately before.
+  - The S-81 confirmation SQL applied in the test project.
+  - The `world` fixture (Coordinator K assigned to a planning event, Venue
+    Staff S, venue V).
+- **Steps:**
+  1. As K, request V on 2026-11-12 09:00–12:00. As S, hold it (expiry 2099).
+  2. As S, approve it.
+  3. As K, `POST /api/venue-bookings/{id}/hold-confirmation`.
+  4. As S, `GET /api/notifications`, then approve the booking.
+- **Expected:**
+  - Step 2: `409` with the not-yet-confirmed detail.
+  - Step 3: `200`, with `hold_confirmed_by` = K.
+  - Step 4: S's inbox holds one `venue_hold_confirmed` notification naming V,
+    12 Nov 2026 and 09:00–12:00. The approval is `200`, `confirmed`.
+  - Cleanup deletes the notification, booking, event and accounts.
+- **Actual:** 2 → `409` with the not-confirmed detail. 3 → `200`, `hold_confirmed_by` = K. 4 → S's inbox held one `venue_hold_confirmed` notice naming the venue and 12 Nov 2026, 09:00–12:00; approval `200` `confirmed`. Cleanup removed everything.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_hold_confirmation.py::test_through_kong_the_coordinator_confirms_and_venue_staff_are_told; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; after the developer applied the S-81 SQL to dev and test; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); bookings, notifications and venue_bookings integration suites: 44 passed

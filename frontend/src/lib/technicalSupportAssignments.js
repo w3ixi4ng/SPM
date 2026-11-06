@@ -24,6 +24,17 @@ export const EQUIPMENT_PREPARATION_OPTIONS = Object.freeze([
   Object.freeze({ value: 'ready', label: 'Ready' }),
 ])
 
+// S-26 AC2: preparation opens once the Safety Officer has approved the event,
+// which moves it to `confirmed` (S-86 AC5); `preparation` comes after that.
+// Mirrors PREPARATION_UPDATABLE_STATUSES in the events service.
+const PREPARATION_UPDATABLE_STATUSES = new Set(['confirmed', 'preparation'])
+
+export const PREPARATION_NOT_YET_MESSAGE = 'Equipment preparation opens once the Safety Officer approves the event.'
+
+export function canUpdateEquipmentPreparation(status) {
+  return PREPARATION_UPDATABLE_STATUSES.has(status)
+}
+
 export function equipmentPreparationLabel(status) {
   return EQUIPMENT_PREPARATION_OPTIONS.find((option) => option.value === status)?.label
     ?? status

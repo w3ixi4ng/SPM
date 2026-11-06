@@ -134,8 +134,13 @@ booking carries an unresolved S-77 unavailability flag.
 
 **Equipment / technical support arranged** — only when the event has at least
 one equipment requirement or `technical_support_required: true`: Technical
-Support is assigned, the sign-off is `approved`, and
-`equipment_preparation_status` is `ready`.
+Support is assigned and the sign-off is `approved`.
+
+Equipment preparation is **not** part of readiness (amended 2026-11-05). S-26
+AC2 lets preparation change only after the Safety Officer's approval, so it
+cannot be a condition of submitting for that approval. TC-SAFETYCHECKS-019 is
+retired; TC-SAFETYCHECKS-017 and -020 drop the `equipment_preparation` item;
+TC-SAFETYCHECKS-037 proves preparation no longer blocks.
 
 Each outstanding item is `{"code", "label", "booking_id"?}`:
 
@@ -148,7 +153,6 @@ Each outstanding item is `{"code", "label", "booking_id"?}`:
 | `technical_support_unassigned` | Technical Support has not been assigned |
 | `technical_signoff_awaiting` | Technical Support has not approved the equipment arrangements |
 | `technical_signoff_declined` | Technical Support declined: {reason} |
-| `equipment_preparation` | Equipment preparation is {Not Started / In Progress} |
 
 Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 `2026-11-20`); bookings `B1` Hall A, `B2` Studio 2, `B3` Room 5, all on
@@ -283,12 +287,12 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Steps:** Submit as `C1`. Repeat with no requirements but
   `technical_support_required: true`.
 - **Test data:** As above.
-- **Expected:** Both → `409`; outstanding is `technical_support_unassigned`,
-  `technical_signoff_awaiting`, `equipment_preparation` (label "Equipment
-  preparation is Not Started"), in that order. No write.
-- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Expected:** Both → `409`; outstanding is exactly
+  `technical_support_unassigned`, `technical_signoff_awaiting`, in that order
+  — no `equipment_preparation` item (amended 2026-11-05). No write.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_s17.py::test_signoff_needed_without_support_assigned`
+- **Evidence:** `test_s17.py::test_signoff_needed_without_support_assigned`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-SAFETYCHECKS-018 — sign-off awaiting or declined
 
@@ -307,6 +311,10 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 
 ## TC-SAFETYCHECKS-019 — equipment preparation must be Ready
 
+> **Retired 2026-11-05.** Conflicted with S-26 AC2: preparation can change only
+> after the Safety Officer's approval, so it can't be required before
+> submission. Replaced by TC-SAFETYCHECKS-037. The record below is its last run.
+
 - **Scenario:** Preparation must be Ready when sign-off is needed.
 - **Pre-conditions:** `B1` `confirmed`; `T1` assigned; sign-off `approved`.
 - **Steps:** Submit with preparation `not_started`, then `in_progress`.
@@ -314,8 +322,8 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Expected:** `409` each, one `equipment_preparation` item labelled
   "Equipment preparation is Not Started" / "… In Progress".
 - **Actual:** Passed at `cd996d0`: every point under Expected held.
-- **Status:** Pass
-- **Evidence:** `test_s17.py::test_equipment_preparation_must_be_ready`
+- **Status:** Not Executed — retired 2026-11-05; replaced by TC-SAFETYCHECKS-037. It no longer maps to S-17 AC2: preparation is not a mandatory arrangement before the safety check.
+- **Evidence:** None current: the test was removed when the case was retired. Last run: `test_s17.py::test_equipment_preparation_must_be_ready` at `cd996d0`.
 
 ## TC-SAFETYCHECKS-020 — every outstanding item is listed at once
 
@@ -325,14 +333,14 @@ Shared test data: event `E1` (`planning`, assigned to Coordinator `C1`, date
 - **Steps:** Submit as `C1`; then `GET
   /safety-checks/coordinator/events/E1/readiness`.
 - **Test data:** As above.
-- **Expected:** Submit → `409` with exactly six items: `venue_missing`,
+- **Expected:** Submit → `409` with exactly five items: `venue_missing`,
   `venue_awaiting` (`B2`), `venue_rejected` (`B3`),
-  `technical_support_unassigned`, `technical_signoff_awaiting`,
-  `equipment_preparation`. Readiness → `200` `{"ready": false, "outstanding":
-  [the same six]}`. Neither writes.
-- **Actual:** Passed at `cd996d0`: every point under Expected held.
+  `technical_support_unassigned`, `technical_signoff_awaiting` — no
+  `equipment_preparation` (amended 2026-11-05). Readiness → `200`
+  `{"ready": false, "outstanding": [the same five]}`. Neither writes.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_s17.py::test_every_outstanding_item_listed`; `test_s17.py::test_readiness_of_a_ready_event`
+- **Evidence:** `test_s17.py::test_every_outstanding_item_listed`; `test_s17.py::test_readiness_of_a_ready_event`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-SAFETYCHECKS-021 — there is no override
 
@@ -578,3 +586,21 @@ Source: Product Backlog row 63. Latest S-60 execution: 2026-11-01 on `S-60/revie
 - **Actual:** Routine S-18 edit added no S-60 flag; significant S-18 edit left safety blocked until re-review.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s60.py::test_routine_s18_edit_stays_available_without_service_token; tests/e2e/test_update_event_information.py::test_coordinator_updates_event_and_restarts_safety_lifecycle[chromium]
+
+## TC-SAFETYCHECKS-037 — equipment preparation does not block submission
+
+- **Scenario:** An event whose arrangements are approved can be submitted for
+  the Operational Safety Check whatever its preparation status, because
+  preparation only starts after approval (S-26 AC2; S-17 AC1, AC2).
+- **Pre-conditions:** `B1` `confirmed`; one equipment requirement; `T1`
+  assigned; sign-off `approved`.
+- **Steps:** For each preparation value, `GET
+  /safety-checks/coordinator/events/E1/readiness`, then submit as `C1`.
+- **Test data:** Preparation `not_started`, `in_progress`, `ready`.
+- **Expected:** Each readiness → `200` `{"ready": true, "outstanding": []}`.
+  Each submit → `200` and one Events write moving `E1` to
+  `pending_safety_check`. No response contains an `equipment_preparation`
+  item.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_s17.py::test_equipment_preparation_does_not_block_submission`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree

@@ -3,6 +3,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 from playwright.sync_api import expect
 
@@ -46,6 +47,31 @@ def test_tentative_hold_expiry_is_visible_notified_and_releases_the_slot(
     inbox = page.get_by_role('region', name='Notifications')
     expect(inbox).to_contain_text('tentative hold', timeout=30000)
     expect(inbox).to_contain_text(venue['name'])
+    # Observe the browser's own reads: missing data or a failed dependency
+    # should fail here, rather than surface as a missing-button timeout.
+    with page.expect_response(
+        lambda response: response.request.method == 'GET'
+        and urlsplit(response.url).path == '/api/venue-bookings'
+        and urlsplit(response.url).query == f"event_id={event['id']}"
+    ) as bookings_response:
+        with page.expect_response(
+            lambda response: response.request.method == 'GET'
+            and urlsplit(response.url).path == f"/api/events/assigned/{event['id']}"
+        ) as event_response:
+            page.goto(f"/coordinator/events/{event['id']}")
+        assert event_response.value.status == 200, (
+            f"Assigned event {event['id']} returned {event_response.value.status}"
+        )
+    response = bookings_response.value
+    assert response.status == 200, f"Booking list for event {event['id']} returned {response.status}"
+    held = next((row for row in response.json() if row['id'] == booking['id']), None)
+    assert held is not None, f"Booking {booking['id']} missing for event {event['id']}"
+    assert held['status'] == 'held', held['status']
+    assert held['hold_confirmed_at'] is None
+    sent = page.get_by_role('list', name='Venue requests sent')
+    expect(sent).to_contain_text('Venue Staff are holding this venue for you. Confirm the hold so they can approve it.')
+    sent.get_by_role('button', name=f"Confirm hold on {venue['name']}", exact=True).click()
+    expect(page.get_by_role('status').filter(has_text='Venue Staff can approve it')).to_be_visible(timeout=30000)
 
     admin.schema('bookings').table('bookings').update({
         'hold_expires_at': (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()

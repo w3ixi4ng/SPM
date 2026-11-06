@@ -28,8 +28,10 @@ def add_venue(admin, staff, name, capacity):
     ).execute()
 
 
-def request_venue(page, event_id, venue_name, start, end):
+def request_venue(page, event_id, venue_name, start, end, attendance=None):
     page.wait_for_url(re.compile(rf"/coordinator/events/{event_id}/request-venue$"), timeout=20000)
+    if attendance is not None:
+        page.get_by_label("Attendees allocated to this venue").fill(str(attendance))
     venue_row = page.get_by_role("list", name="Venues").get_by_role("listitem").filter(has_text=venue_name)
     venue_row.get_by_text("Fits", exact=True).wait_for(timeout=20000)
     venue_row.get_by_role("radio").check()
@@ -50,7 +52,7 @@ def test_a_coordinator_adds_a_second_venue_and_sees_both_with_their_status(admin
     hall = f"spm-e2e Hall {suffix}"
     studio = f"spm-e2e Studio {suffix}"
     add_venue(admin, staff, hall, 300)
-    add_venue(admin, staff, studio, 150)
+    add_venue(admin, staff, studio, 40)
     event = (
         admin.schema("events")
         .table("events")
@@ -85,7 +87,7 @@ def test_a_coordinator_adds_a_second_venue_and_sees_both_with_their_status(admin
     request_venue(page, event["id"], hall, "09:00", "17:00")
 
     page.get_by_role("link", name="Add another venue").click()
-    request_venue(page, event["id"], studio, "13:00", "15:00")
+    request_venue(page, event["id"], studio, "13:00", "15:00", 35)
 
     page.reload()
     sent = page.get_by_role("list", name="Venue requests sent")
@@ -96,3 +98,5 @@ def test_a_coordinator_adds_a_second_venue_and_sees_both_with_their_status(admin
         for text in ("12 Nov 2026", times, "Pending"):
             row.get_by_text(text, exact=False).first.wait_for()
     page.get_by_role("link", name="Add another venue").wait_for()
+    stored = admin.schema("bookings").table("bookings").select("venue_name,allocated_attendance").eq("event_id", event["id"]).execute().data
+    assert {row["venue_name"]: row["allocated_attendance"] for row in stored} == {hall: 120, studio: 35}

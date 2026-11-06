@@ -318,29 +318,34 @@ Supabase clients mocked. They use no network, database, or Docker.
 ## TC-EVENTS-027 — Event Organiser permissions
 
 > **S-62 (2026-10-11):** the expected set now also includes `events:request_cancellation`.
+> **Re-recorded 2026-11-06:** Expected listed only the Sprint 1 set while the
+> test checked the current one; it now names the current set.
 
-- **Scenario:** The public organiser role has exactly the supported Sprint 1 permissions.
+- **Scenario:** The Event Organiser can do exactly the Organiser's actions and nothing else (S-02 AC1).
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the `event_organiser` permission set.
 - **Test data:** `event_organiser`.
-- **Expected:** Dashboard access plus exactly create, save draft, view own,
-  update own draft, and submit own.
-- **Actual:** As expected.
+- **Expected:** Exactly `dashboard:view`, `events:create`, `events:save_draft`, `events:view_own`, `events:update_own_draft`, `events:submit_own`, `events:request_cancellation` (S-62), `events:close_registration` (S-50) and `events:request_changes` (S-59).
+- **Actual:** The Organiser's set was exactly the nine listed.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_event_organiser_has_the_sprint_one_permissions`
+- **Evidence:** `test_app.py::test_event_organiser_has_the_sprint_one_permissions`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
-## TC-EVENTS-028 — other roles only receive dashboard access
+## TC-EVENTS-028 — every other role receives only its own permissions
 
-- **Scenario:** Roles with no defined workflow gain no unimplemented event
-  powers. `event_coordinator` moved to its own case (TC-EVENTS-057) once it
-  gained `events:view_assigned`.
+> **Re-specified 2026-11-06.** It said these roles get only `dashboard:view`;
+> S-24, S-26 and S-43 have since given Venue Staff and Technical Support their
+> own reads and writes, and its evidence named a renamed test. It now also
+> covers the Event Coordinator Lead, which no case checked, and that the role
+> list holds no role outside TC-EVENTS-027, -057 and this case.
+
+- **Scenario:** Every role other than the Event Organiser (TC-EVENTS-027) and the Event Coordinator (TC-EVENTS-057) can do exactly its own actions and nothing else, and no role exists that none of the three cases checks (S-02 AC1; for the Lead, S-02 AC5).
 - **Pre-conditions:** The centralized role policy is loaded.
-- **Steps:** Read the permission set for every other known role.
-- **Test data:** `venue_staff`, `technical_support`, `attendee`.
-- **Expected:** Each role has exactly `dashboard:view` and no `events:*` permission.
-- **Actual:** As expected.
+- **Steps:** 1. Read the set of known roles. 2. Read the permission set for each role in the test data.
+- **Test data:** `event_coordinator_lead`, `venue_staff`, `technical_support`, `attendee`.
+- **Expected:** 1 → exactly `event_organiser`, `event_coordinator`, `event_coordinator_lead`, `venue_staff`, `technical_support`, `attendee`. 2 → `event_coordinator_lead`: exactly `dashboard:view`, `events:lead_assignments` — nothing to approve, reject or confirm. `venue_staff`: exactly `dashboard:view`, `events:view_booking_status`. `technical_support`: exactly `dashboard:view`, `events:view_support_assigned`, `events:update_equipment_preparation`. `attendee`: exactly `dashboard:view`.
+- **Actual:** Exactly the six roles; Lead, Venue Staff, Technical Support and Attendee each had exactly the listed set.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_other_known_roles_only_have_dashboard_permission`
+- **Evidence:** `test_app.py::test_every_other_role_receives_only_its_own_permissions`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-029 — unknown role is rejected
 
@@ -591,65 +596,6 @@ an already-decided `assigned_coordinator_id` — a field an organiser's own
 request can never set. Both new routes are internal: no Kong entry, called
 only by `event_requests` over the Docker network, never by a browser.
 
-## TC-EVENTS-049 — coordinator load reports no conflict with an empty schedule
-
-- **Scenario:** A coordinator with nothing assigned is free for any window.
-- **Pre-conditions:** The assignment-filtered select for that coordinator
-  returns no rows.
-- **Steps:** `POST /events/coordinator-load` with one coordinator id and a
-  window.
-- **Test data:** Coordinator id above; window `2026-10-20 18:00`–`21:00`.
-- **Expected:** `200`; that coordinator's entry has `conflict: false,
-  assigned_count: 0`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_reports_no_conflict_with_empty_schedule`
-
-## TC-EVENTS-050 — coordinator load reports a conflict on any overlap
-
-- **Scenario:** The requested window intersects an assigned event's window at
-  all, not only when the two match exactly.
-- **Pre-conditions:** The coordinator has one assigned submitted event
-  `18:00`–`21:00` on `2026-10-20`.
-- **Steps:** `POST /events/coordinator-load` with a request window that
-  overlaps only partially: `20:00`–`22:00` the same day.
-- **Test data:** As above.
-- **Expected:** `200`; `conflict: true`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_reports_a_conflict_on_any_overlap`
-
-## TC-EVENTS-051 — back-to-back events do not conflict
-
-- **Scenario:** A request starting exactly when an existing assigned event
-  ends (or ending exactly when one starts) does not count as an overlap.
-- **Pre-conditions:** The coordinator has one assigned submitted event
-  `18:00`–`21:00` on `2026-10-20`.
-- **Steps:** `POST /events/coordinator-load` with a request window
-  `21:00`–`22:00` the same day.
-- **Test data:** As above.
-- **Expected:** `200`; `conflict: false`.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_back_to_back_events_do_not_conflict`
-
-## TC-EVENTS-052 — only live commitments count toward load or conflict
-
-- **Scenario:** Only submitted (awaiting decision) and planning (accepted,
-  arrangements underway) events are committed time on a coordinator's
-  schedule. Drafts never counted. Returned and rejected don't either, since
-  neither is a live commitment. Revised for S-36: `planning` replaces
-  `approved`, which no longer exists.
-- **Pre-conditions:** None beyond the shared fakes.
-- **Steps:** `POST /events/coordinator-load`; inspect the Supabase query sent.
-- **Test data:** One coordinator id, any window.
-- **Expected:** The query filters on `status in ("submitted", "planning")`.
-  Every other status is excluded in the query itself, not filtered out
-  afterwards, so it can never reach the conflict check or the count.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_query_only_counts_submitted_and_planning_events`
-
 ## TC-EVENTS-053 — internal create trusts the caller's organiser and starts unassigned
 
 - **Scenario:** Unlike the public `POST /events`, this route does not derive
@@ -718,17 +664,17 @@ browser-facing routes.
 ## TC-EVENTS-057 — event_coordinator has the view and decide permissions
 
 > **S-61 (2026-10-11):** the expected set now also includes `events:decide_cancellation`.
+> **Re-recorded 2026-11-06:** Expected listed only the S-14 set while the test
+> checked the current one; it now names the current set.
 
-- **Scenario:** S-14 adds a second coordinator workflow: deciding a request,
-  on top of viewing it.
+- **Scenario:** The Event Coordinator can do exactly the Coordinator's actions and nothing else (S-02 AC1).
 - **Pre-conditions:** The centralized role policy is loaded.
 - **Steps:** Read the `event_coordinator` permission set.
 - **Test data:** `event_coordinator`.
-- **Expected:** Exactly `dashboard:view`, `events:view_assigned`, and
-  `events:decide`.
-- **Actual:** As expected.
+- **Expected:** Exactly `dashboard:view`, `events:view_assigned`, `events:update_assigned`, `events:decide`, `events:decide_cancellation` (S-61), `events:request_reassignment`, `events:view_change_requests` and `events:cancel_for_venue_unavailability` (S-89).
+- **Actual:** The Coordinator's set was exactly the eight listed.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_event_coordinator_has_the_view_and_decide_permissions`
+- **Evidence:** `test_app.py::test_event_coordinator_has_the_view_and_decide_permissions`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-058 — coordinator lists only their assigned events
 
@@ -789,21 +735,6 @@ coordinator no longer had free. `event_requests` needs two things from this
 service to fix that: a way to exclude an event's own row when checking
 conflicts, and a trusted way to write a date/time change and a reassignment
 in one update.
-
-## TC-EVENTS-062 — coordinator load excludes the given event from conflict and count
-
-- **Scenario:** Rechecking an event that already carries this exact window
-  and assignment must not have it conflict with itself.
-- **Pre-conditions:** The coordinator has one assigned submitted event —
-  the same one being rechecked — covering the requested window exactly.
-- **Steps:** `POST /events/coordinator-load` with `exclude_event_id` set to
-  that event's id.
-- **Test data:** One event, `id` equal to `exclude_event_id`.
-- **Expected:** `200`; `conflict: false, assigned_count: 0` — without
-  `exclude_event_id` this would conflict with itself.
-- **Actual:** As expected.
-- **Status:** Pass
-- **Evidence:** `test_app.py::test_coordinator_load_excludes_the_given_event_from_conflict_and_count`
 
 ## TC-EVENTS-063 — internal update cannot reassign the coordinator
 
@@ -1324,50 +1255,61 @@ staff member.
 - **Status:** Pass
 - **Evidence:** `test_schemas.py::test_support_assignment_fields_are_server_managed`
 
-## TC-EVENTS-096 — only planning and confirmed assignments contribute to support load
+## TC-EVENTS-096 — only live assignments contribute to support load
 
-- **Scenario:** Availability ignores events that do not occupy Technical
-  Support Staff under the confirmed S-43 rule.
-- **Pre-conditions:** The fake returns assignments for all supported lifecycle
-  labels.
-- **Steps:** `POST /events/technical-support-load` with two staff ids and a
-  requested window.
-- **Test data:** Assigned events in `planning`, `confirmed`, `draft`,
-  `submitted`, `returned`, `rejected`, `completed`, and `cancelled`.
-- **Expected:** The storage query requests only `planning` and `confirmed`.
-  Only those rows contribute to `assigned_count` or an overlap conflict;
-  submitted/under-review does not block availability.
-- **Actual:** The query and response included only planning and confirmed assignments.
+> **Re-recorded 2026-11-06.** S-17 added `pending_safety_check`, which the
+> code and test count as live; the Expected still said only `planning` and
+> `confirmed`.
+
+- **Scenario:** Only work a Technical Support member is actually committed to makes them busy (S-43 AC1, "available pool").
+- **Pre-conditions:** The fake returns assignments for staff A and B.
+- **Steps:** `POST /events/technical-support-load` with A and B and a requested window.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`.
+- **Expected:** The storage query asks only for `planning`, `pending_safety_check` and `confirmed` events. Draft, submitted, returned, rejected, completed and cancelled work never counts toward load or conflict.
+- **Actual:** The storage query asked for exactly `planning`, `pending_safety_check` and `confirmed`.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_support_load_counts_only_planning_and_confirmed_events`
+- **Evidence:** `test_app.py::test_support_load_counts_only_planning_and_confirmed_events`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-097 — support overlap uses the complete date/time window
 
-- **Scenario:** Any real overlap makes a staff member unavailable, while
-  back-to-back events remain valid.
-- **Pre-conditions:** One staff member has stored planning assignments.
-- **Steps:** Check containment, partial overlap, cross-midnight overlap, and
-  both touching-boundary directions.
-- **Test data:** Requested window `2026-11-13 09:00`–`12:00`, plus the windows
-  described above.
-- **Expected:** Every positive-duration overlap reports `conflict=true`.
-  An assignment ending at `09:00` or starting at `12:00` does not conflict.
-- **Actual:** Every real overlap conflicted and both touching-boundary cases remained available.
+> **Re-specified 2026-11-06.** Its evidence named two tests that never
+> existed; the merged test checked only one overlap and one boundary. It now
+> has its own test over every window it lists.
+
+- **Scenario:** A Technical Support member is unavailable for any real overlap with the requested window, across midnight too, and available for work that only touches it (S-43 AC1: who is in "the available pool").
+- **Pre-conditions:** Staff A has exactly one live assignment, set per row below.
+- **Steps:** For each row, `POST /events/technical-support-load` for A with the requested window.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`. A's assignment:
+
+  | Row | A's assignment | `conflict` |
+  | --- | --- | --- |
+  | contained | `11-13 09:30`–`10:30` | `true` |
+  | covers it | `11-13 08:00`–`13:00` | `true` |
+  | overlaps the start | `11-13 08:00`–`09:30` | `true` |
+  | overlaps the end | `11-13 11:30`–`13:00` | `true` |
+  | across midnight | `11-12 22:00`–`11-13 09:30` | `true` |
+  | ends as it starts | `11-13 07:00`–`09:00` | `false` |
+  | starts as it ends | `11-13 12:00`–`14:00` | `false` |
+  | the day before | `11-12 09:00`–`12:00` | `false` |
+- **Expected:** `200` with one row for A whose `conflict` is as in the table, and `assigned_count` `1` every time.
+- **Actual:** All eight rows gave the `conflict` in the table with `assigned_count` 1. With the overlap rule changed to count touching windows, the two touching rows fail.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_support_load_detects_overlap`, `test_app.py::test_support_load_allows_back_to_back_events`
+- **Evidence:** `test_app.py::test_support_overlap_uses_the_complete_window` (8 params); 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-098 — support load reports each candidate's live workload
 
-- **Scenario:** The composite can implement least-busy selection without
-  reading event storage itself.
-- **Pre-conditions:** Candidates A, B, and C have respectively two, one, and
-  zero planning/confirmed assignments; none overlaps the requested window.
-- **Steps:** Request support load for A, B, and C.
-- **Expected:** The response keeps all requested ids and reports counts
-  `2`, `1`, and `0`, with `conflict=false` for each.
-- **Actual:** Every requested candidate was returned with the expected live count and conflict flag.
+> **Re-specified 2026-11-06.** Its evidence named a test that never existed;
+> the merged test had no candidate with zero work, which is the case that
+> shows every requested id comes back.
+
+- **Scenario:** For each candidate, the system learns how much live work they have, so it can choose the least busy — and a candidate with no work at all is still returned (S-43 AC1).
+- **Pre-conditions:** Candidates A, B and C have two, one and zero live assignments; none overlaps the requested window.
+- **Steps:** `POST /events/technical-support-load` for A, B and C, in that order.
+- **Test data:** Requested window `2026-11-13 09:00`–`12:00`; A's assignments `11-14 09:00`–`10:00` and `11-15 09:00`–`10:00`; B's `11-16 09:00`–`10:00`.
+- **Expected:** `200` with exactly three rows, in request order: A `assigned_count` 2, B 1, C 0, each `conflict: false`.
+- **Actual:** Three rows in request order: A 2, B 1, C 0, none in conflict.
 - **Status:** Pass
-- **Evidence:** `test_app.py::test_support_load_reports_each_candidates_live_workload`
+- **Evidence:** `test_app.py::test_support_load_reports_each_candidates_live_workload`; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-099 — the internal action records support need and assignment atomically
 
@@ -1428,7 +1370,7 @@ A new composite-only route, `POST /events/overlapping`, like
 number, as agreed with the developer on 2026-09-30 (this file's 001–099 range
 is full).
 
-## TC-EVENTS-105 — overlapping planning and confirmed events are returned
+## TC-EVENTS-105 — overlapping committed stages are returned
 
 - **Scenario:** The events that can reserve equipment for a window (S-44 AC2).
 - **Pre-conditions:** The fake returns, for statuses `planning` and
@@ -1440,16 +1382,17 @@ is full).
 - **Expected:** `200` with E5, E1, E2 in start order, each with `id`, `name`,
   `status`, `start_date`, `start_time`, `end_date`, `end_time`. E4 (starts as
   the window ends) and E6 (ends as it starts) are back-to-back and left out.
-  The query filters `status in (planning, confirmed)`.
+  The query filters `status in (planning, pending_safety_check, confirmed, preparation)`.
 - **Actual:** E5, E1, E2 returned in start order with the seven fields; back-to-back E4 and E6 left out; the query filtered status in (planning, confirmed) with a coarse date range.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/events/test_overlapping.py::test_overlapping_planning_and_confirmed_events_are_returned_in_start_order`
 
-## TC-EVENTS-106 — other statuses never reserve
+## TC-EVENTS-106 — terminal and draft statuses never reserve
 
 - **Scenario:** Rejected, returned, draft and submitted events hold nothing.
 - **Steps:** Inspect the storage query from TC-EVENTS-105.
-- **Expected:** Only `planning` and `confirmed` are requested, so an
+- **Expected:** Only `planning`, `pending_safety_check`, `confirmed` and
+  `preparation` are requested, so an
   overlapping `rejected`, `returned`, `draft` or `submitted` event is never
   returned.
 - **Actual:** Only planning and confirmed were requested.
@@ -2114,28 +2057,55 @@ decisions confirmed by the developer on 2026-10-19.
 ## S-26 — Update Equipment Preparation Status
 
 Story: S-26 Update Equipment Preparation Status. Acceptance criteria and test
-cases confirmed by the developer on 2026-10-11. These cases are the canonical
-backend trace for the story and have not yet been executed.
+cases confirmed by the developer on 2026-10-11; amended 2026-11-05 to follow
+AC2.
 
 | Acceptance criterion | Cases |
 | --- | --- |
-| Technical Support can set Not Started, In Progress, and Ready | TC-EVENTS-123 |
-| The current status is available to the event readiness view | TC-EVENTS-123, TC-EVENTS-126 |
-| Only assigned Technical Support can change the status | TC-EVENTS-124 |
-| Confirmed rules: backwards transitions, eligible event states, audit, and safe races/failures | TC-EVENTS-123–125 |
+| AC1: Technical Support Staff can set Not Started, In Progress, and Ready | TC-EVENTS-453 |
+| AC2: Preparation status can only be updated once the event is in Preparation (after the Safety Officer's approval) | TC-EVENTS-453, TC-EVENTS-454 |
+| AC3: The current status is visible on the event's readiness view | TC-EVENTS-453, TC-EVENTS-455 (integration) |
+| AC4: Only Technical Support Staff (or an authorised role) can change it | TC-EVENTS-456 |
+| Safe races and failures | TC-EVENTS-457 |
 
-### TC-EVENTS-123 — assigned Technical Support records every preparation state with an audit trail
+**AC2, as confirmed by the developer on 2026-11-05.** The Safety Officer's
+approval moves an event to `confirmed` (S-86 AC5), and nothing yet moves it on
+to `preparation`. "In Preparation (after the Safety Officer's approval)" is
+therefore read as **`confirmed` or `preparation`**. An event in `planning` or
+`pending_safety_check` has not been approved, and its preparation status cannot
+be changed. Because preparation now follows the safety check, S-17 no longer
+requires it before submission (TC-SAFETYCHECKS-019 retired).
 
-- **Scenario:** The assigned Technical Support worker maintains one equipment preparation status for the event.
-- **Pre-conditions:** An event assigned to Technical Support A is in each eligible lifecycle state: `planning`, `confirmed`, or `preparation`.
-- **Steps:** Read a newly eligible event; update it to `in_progress`, then `ready`, then back to `not_started`; read it again.
+**Renumbered.** This case was TC-EVENTS-123, which is also the S-62
+cancellation case above; the S-62 case keeps 123. The S-26 case is now
+TC-EVENTS-453 and the S-26 integration case TC-EVENTS-455 (was TC-EVENTS-126).
+TC-EVENTS-124 and -125 had the same clash with the S-62 cases above; on
+2026-11-06 the S-26 ones became TC-EVENTS-456 and -457. The S-62 cases keep
+124 and 125.
+
+### TC-EVENTS-453 — after safety approval, assigned Technical Support records every preparation state
+
+- **Scenario:** Once the Safety Officer has approved the event, its assigned Technical Support worker maintains one equipment preparation status for it (S-26 AC1, AC2).
+- **Pre-conditions:** An event assigned to Technical Support A, in each approved lifecycle state: `confirmed` and `preparation`.
+- **Steps:** Read the event; `PUT /events/support-assigned/{id}/equipment-preparation` as A with `in_progress`, then `ready`, then back to `not_started`; read it again.
 - **Test data:** Event `33333333-3333-4333-8333-333333333333`; Technical Support A `dddddddd-dddd-4ddd-8ddd-dddddddddddd`; the three status values.
-- **Expected:** A new event reads as `not_started`. Every transition succeeds, including moving backwards; the response and later event read expose the current status, authenticated updater id, and a server-generated update time.
-- **Actual:** All three values persisted in every eligible lifecycle state; each response contained the authenticated updater and server timestamp.
+- **Expected:** The event reads as `not_started` before the first update. Every update returns `200`, including moving backwards; the response and the later read expose the current status, A's id as updater, and a server-generated update time. The conditional write filters on `status in ('confirmed', 'preparation')`.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards`
+- **Evidence:** `test_equipment_preparation.py::test_assigned_support_can_record_each_status_and_move_backwards` (6 params); 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
-### TC-EVENTS-124 — preparation updates are restricted to the assigned Technical Support worker
+### TC-EVENTS-454 — before safety approval, preparation status cannot be changed
+
+- **Scenario:** An event the Safety Officer has not approved refuses a preparation update, and nothing is written (S-26 AC2).
+- **Pre-conditions:** An event assigned to Technical Support A, in each unapproved lifecycle state: `planning` and `pending_safety_check`, with preparation `not_started`.
+- **Steps:** As A, `PUT /events/support-assigned/{id}/equipment-preparation` with `{"status": "ready"}`, once per state.
+- **Test data:** As TC-EVENTS-453.
+- **Expected:** `409` with detail `"Equipment preparation can be updated once the Safety Officer has approved the event"`. No update is sent to storage and no history row is written; the event still reads `not_started`.
+- **Actual:** Every point under Expected held.
+- **Status:** Pass
+- **Evidence:** `test_equipment_preparation.py::test_preparation_cannot_change_before_safety_approval` (2 params); 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
+
+### TC-EVENTS-456 — preparation updates are restricted to the assigned Technical Support worker
 
 - **Scenario:** Event assignment and trusted role jointly control the write.
 - **Pre-conditions:** The eligible event is assigned to Technical Support A.
@@ -2144,9 +2114,9 @@ backend trace for the story and have not yet been executed.
 - **Expected:** A succeeds. B sees `404` so another worker's assignment is not disclosed. Other authenticated roles receive `403`; no session receives `401`; no denied request writes storage. The Coordinator can still read the resulting status through their existing assigned-event view.
 - **Actual:** Assigned Technical Support was authorised; unassigned support was hidden with `404`; every other tested role was denied before storage.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_only_assigned_support_can_update_preparation`
+- **Evidence:** `test_equipment_preparation.py::test_only_assigned_support_can_update_preparation` (5 roles → `403`); `::test_unassigned_support_cannot_update_preparation` (B → `404`); `::test_no_session_cannot_update_preparation` (`401`). A succeeding is TC-EVENTS-453.; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
-### TC-EVENTS-125 — invalid, stale, concurrent, and failed preparation updates never report success
+### TC-EVENTS-457 — invalid, stale, concurrent, and failed preparation updates never report success
 
 - **Scenario:** A response cannot claim a preparation change that storage did not make.
 - **Pre-conditions:** Invalid payloads; an event that is missing, reassigned, cancelled, or changed concurrently; and a storage exception.
@@ -2155,7 +2125,7 @@ backend trace for the story and have not yet been executed.
 - **Expected:** Invalid payloads return `422` before storage. Missing or hidden assignments return `404`; ineligible or concurrently changed events return `409`. The conditional write matches event id, assigned worker, and eligible lifecycle status. Storage failure returns safe `500`; no case fabricates a changed response.
 - **Actual:** Invalid bodies failed before storage, an empty conditional update returned `409`, and a simulated storage exception returned only the safe service error.
 - **Status:** Pass
-- **Evidence:** `test_equipment_preparation.py::test_invalid_and_stale_updates_never_report_success`
+- **Evidence:** `test_equipment_preparation.py::test_invalid_and_stale_updates_never_report_success` (`422`); `::test_concurrent_preparation_change_returns_conflict` (`409`); `::test_storage_failure_is_safe` (safe `500`); `::test_unassigned_support_cannot_update_preparation` (hidden assignment `404`). Ineligible status `409` is TC-EVENTS-454.; 2026-11-06, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## S-17 — submit an event for the Operational Safety Check
 
@@ -2346,11 +2316,13 @@ Coordinator `C1` = `c0000000-0000-4000-8000-000000000001`, Coordinator `C2` =
   2. Technical Support's assigned list. 3. S-26 equipment preparation update
   by `T1`. 4. S-62 cancellation request by the Organiser.
 - **Test data:** As above.
-- **Expected:** 1 and 2 include `E1`; 3 → `200`; 4 → `200`, exactly as for a
-  `confirmed` event.
-- **Actual:** Passed at `cd996d0`: every point under Expected held.
+- **Expected:** 1 and 2 include `E1`; 4 → `200`, exactly as for a
+  `confirmed` event. 3 is the exception: `409` "Equipment preparation can be
+  updated once the Safety Officer has approved the event", nothing written —
+  S-26 AC2 opens preparation only after approval (amended 2026-11-05).
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`
+- **Evidence:** `test_s17.py::test_pending_safety_check_is_open_everywhere_confirmed_is`; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 
 ## S-61 — review and approve cancellation request
@@ -3066,7 +3038,7 @@ The Supabase fake records every `insert` made on `event_history`.
 ## TC-EVENTS-196 — Technical Support's sign-off and preparation status are recorded
 
 - **Scenario:** Equipment decisions owned by the events service are recorded (S-82 AC1).
-- **Pre-conditions:** E is `planning`, Technical Support T assigned, `equipment_preparation_status` `not_started`.
+- **Pre-conditions:** E is `planning`, Technical Support T assigned, `equipment_preparation_status` `not_started`. Before step 3 the Safety Officer has approved E, so it is `confirmed` — preparation can be updated only after safety approval (S-26 AC2). Amended 2026-11-05.
 - **Steps:**
   1. `PUT /internal/events/E/technical-signoff` as T with `{"decision": "declined", "reason": "Projector unavailable"}`.
   2. Repeat with `{"decision": "approved"}`.
@@ -3076,9 +3048,9 @@ The Supabase fake records every `insert` made on `event_history`.
   1 → `technical_signoff_declined`, `{"reason": "Projector unavailable"}`.
   2 → `technical_signoff_approved`, `{"reason": null}`.
   3 → `equipment_preparation_changed`, `{"from": "not_started", "to": "in_progress"}`.
-- **Actual:** As expected.
+- **Actual:** Every point under Expected held.
 - **Status:** Pass
-- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree
+- **Evidence:** test_s82.py::test_signoff_and_preparation_are_recorded; 2026-10-28, branch `S-82/view-event-change-history` (on sprint4 `97c66b8`), pre-commit working tree; 2026-11-05, branch `update/tests` (on fix `d67e0e6`), pre-commit working tree
 
 ## TC-EVENTS-197 — a refused action records nothing
 
@@ -3633,3 +3605,134 @@ developer confirmation.
 - **Actual:** Each of the three stored with category `venue`; an unknown action `422`.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s90.py::test_the_history_accepts_the_three_restore_steps; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
+
+## S-78 (revision) — a replacement returns a confirmed event to Planning
+
+Acceptance criteria and design as in
+`tests/unit/composite/venue_bookings/TEST_CASES.md` (S-78 revision). This
+service owns the transition, on
+`POST /internal/events/{event_id}/venue-replanning`.
+
+Drafted 2026-11-04 on `S-78/request-replacement-venue-for-affected-booking`.
+Confirmed by the developer 2026-11-04.
+
+## TC-EVENTS-412 — a confirmed event returns to Planning and needs a fresh safety check
+
+- **Scenario:** AC1. The same reset an S-60 significant edit makes.
+- **Pre-conditions:** E is `confirmed`, `safety_decision` `approved`, `safety_officer_id` O, `safety_decided_at` set, `safety_recheck_required` false. The service token is configured.
+- **Steps:** `POST /internal/events/E/venue-replanning` with header `X-Assignment-Service-Token`.
+- **Test data:** `{"actor_id": S, "booking_id": R, "venue_name": "Hall W", "replaced_venue_name": "Hall V"}`.
+- **Expected:** `200 {"replanned": true, "status": "planning"}`. E is updated to `status` `planning`, `safety_decision`, `safety_decision_reason`, `safety_officer_id` and `safety_decided_at` null, `safety_recheck_required` true. The update is conditional on `status in (confirmed, pending_safety_check)`. One history row: action `venue_replanned`, category `venue`, actor S as `venue_staff`, details `{"booking_id": R, "venue_name": "Hall W", "replaced_venue_name": "Hall V", "previous_status": "confirmed"}`.
+- **Actual:** `200 {"replanned": true, "status": "planning"}`; the reset written conditionally on `status in (confirmed, pending_safety_check)`; one `venue_replanned` row as specified.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_a_confirmed_or_waiting_event_returns_to_planning[confirmed]; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-413 — an event waiting for its safety check returns to Planning
+
+- **Scenario:** AC1.
+- **Pre-conditions:** E is `pending_safety_check` (safety fields null).
+- **Steps:** As 412.
+- **Test data:** As 412.
+- **Expected:** `200 {"replanned": true, "status": "planning"}`. E is `planning` with `safety_recheck_required` true. One history row with `"previous_status": "pending_safety_check"`.
+- **Actual:** As 412, with `"previous_status": "pending_safety_check"`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_a_confirmed_or_waiting_event_returns_to_planning[pending_safety_check]; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-414 — any other status is left as it is
+
+- **Scenario:** AC2.
+- **Pre-conditions:** (a) E is `planning`. (b) E is `cancelled`.
+- **Steps:** As 412, once for each.
+- **Test data:** As 412.
+- **Expected:** `200 {"replanned": false, "status": "<unchanged>"}` for each. No update and no history row.
+- **Actual:** `200 {"replanned": false}` with the status unchanged for both; no update; no history.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_any_other_status_is_left_as_it_is; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-415 — calling again, or after a concurrent change, writes nothing twice
+
+- **Scenario:** Design. The composite may retry; the status may change between read and write.
+- **Pre-conditions:** (a) E was returned to Planning by a first call. (b) E is `confirmed` when read, but the conditional update matches no row (it changed meanwhile), and a re-read shows `planning`.
+- **Steps:** As 412.
+- **Test data:** As 412.
+- **Expected:** (a) `200 {"replanned": false, "status": "planning"}`; still exactly one `venue_replanned` row. (b) `200 {"replanned": false, "status": "planning"}`; no history row.
+- **Actual:** (a) and (b) `200 {"replanned": false, "status": "planning"}`; no history row.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_calling_again_after_the_event_moved_writes_nothing; tests/unit/atomic/events/test_s78_replanning.py::test_a_concurrent_change_is_reported_without_history; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-416 — only the composite may call it, for an event that exists
+
+- **Scenario:** Design. Not reachable from a browser.
+- **Pre-conditions:** (a) No token. (b) A wrong token. (c) A valid token, E does not exist.
+- **Steps:** As 412.
+- **Test data:** As 412; (c) a random event id.
+- **Expected:** (a), (b) `403` "Trusted assignment service required". (c) `404` "Event not found". No write in any of them.
+- **Actual:** (a), (b) `403` "Trusted assignment service required"; (c) `404` "Event not found"; no write.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_only_the_composite_may_call_it; tests/unit/atomic/events/test_s78_replanning.py::test_an_unknown_event_is_not_found; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-456 — a missing Supabase Auth verdict does not invalidate a session
+
+- **Scenario:** An Auth connection loss while checking an event session must not be reported as a rejected token.
+- **Pre-conditions:** An access cookie is present. The fake Auth client either disconnects once, keeps failing, or definitively rejects the token.
+- **Steps:** Check the current user with the access cookie. For an expired token, retry refresh using the refresh cookie.
+- **Test data:** `sb_access_token=access-token`; `sb_refresh_token=refresh-token`; simulated disconnect, upstream `500`, rate limit `429`, and rejected token `401`.
+- **Expected:** A transient failure followed by a valid user succeeds. Repeated missing verdicts return `503` without clearing cookies. A definitive token rejection returns `401` without retry. Refresh retries after a connection loss.
+- **Actual:** Focused unit tests passed for those paths.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_security.py`; focused local run on PR #95.
+
+## Session check: a rejected token vs Supabase Auth not answering
+
+Ports the users service's fix (`bb92dfd`, TC-USERS-035..038) to this
+service's `security.py`. Only a 4xx other than 429 from Supabase Auth is a
+verdict on the token. Anything else (a dropped connection, a timeout, a 5xx,
+a 429) is retried after 0.2 s and 0.5 s, then answers `503` "Authentication
+service unavailable" and leaves the cookies alone. Found by PR #98's
+integration runs, where composites got `401` from this service for valid
+sessions and reported `502` "... service unavailable". Retry pauses are
+patched to 0 in the tests.
+
+## TC-EVENTS-458 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403. No refresh cookie.
+- **Steps:** `GET /events` (the Organiser's event list) with `sb_access_token=revoked-token`.
+- **Test data:** As above.
+- **Expected:** `401` "Not authenticated"; `get_user` called once.
+- **Actual:** `401` "Not authenticated" after one `get_user` call.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_session_check.py::test_a_rejected_token_is_401_without_retrying; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-EVENTS-459 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error under Test data, then returns the caller; the route's data is faked to succeed.
+- **Steps:** `GET /events` (the Organiser's event list) with `sb_access_token=access-token`.
+- **Test data:** First attempt: `httpx.RemoteProtocolError("Server disconnected")`; separately, `httpx.ReadTimeout("timed out")`.
+- **Expected:** Each `200`; `get_user` called twice.
+- **Actual:** Each `200` `[]` after two `get_user` calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_session_check.py::test_a_session_check_that_got_no_answer_is_retried (2 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-EVENTS-460 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as under Test data. Both cookies are sent.
+- **Steps:** `GET /events` (the Organiser's event list).
+- **Test data:** `httpx.RemoteProtocolError("Server disconnected")`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each `503` "Authentication service unavailable"; `get_user` called 3 times; `refresh_session` not called; no `Set-Cookie`.
+- **Actual:** Each `503` "Authentication service unavailable" after 3 calls. No refresh; no `Set-Cookie`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_session_check.py::test_no_answer_is_503_and_keeps_the_cookies (3 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-EVENTS-461 — a refresh that got no answer is retried
+
+- **Scenario:** The same applies to renewing an expired session.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "token is expired", 401. `refresh_session` first raises `httpx.RemoteProtocolError("Server disconnected")`, then returns a new session (`new-access` / `new-refresh`) for the caller.
+- **Steps:** `GET /events` (the Organiser's event list) with both cookies.
+- **Test data:** As above.
+- **Expected:** `200`; `refresh_session` called twice; the response sets `sb_access_token=new-access`.
+- **Actual:** `200`; two `refresh_session` calls; `sb_access_token=new-access` set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_session_check.py::test_a_refresh_that_got_no_answer_is_retried; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).

@@ -297,6 +297,9 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
   2. Inspect the update and response.
 - **Test data:** decision=approved; reason omitted; alternative omitted.
 - **Expected:** 200; status confirmed; decided_by=S; server decided_at; update matches both B.id and status=pending. Only decision fields/status change; every original request field and submitted_at remain identical.
+- **S-81 extension:** A held booking cannot be approved until its assigned
+  Coordinator confirms the hold. An expired hold cannot be approved after it
+  returns to pending. Ordinary pending approval remains available.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
 - **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_decision_preserves_request`.
@@ -347,7 +350,7 @@ No S-33 hold behaviour or S-38 cross-request overlap guarantee is included.
 - **Expected:** Missing/invalid credentials return 401; nonstaff 403; no denied write. Valid staff succeeds with trusted identity, never caller-supplied identity. Use existing local token-verification conventions, not an atomic-to-users HTTP call.
 - **Actual:** Passed in local isolated suites: 529 Python tests and 59 Node tests.
 - **Status:** Pass
-- **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_direct_nonstaff_call_forbidden; test_missing_and_invalid_session`.
+- **Evidence:** `tests/unit/atomic/bookings/test_decision.py`; local execution, no CI run. Node IDs/test names: `test_direct_nonstaff_call_forbidden; test_missing_and_invalid_session`. `test_missing_and_invalid_session` rerun 2026-11-06 on `update/e2e-shards`: its invalid session is now Supabase rejecting the token (`AuthApiError` 403) instead of a generic error, which TC-BOOKINGS-477 makes a `503`; still `401`, pass.
 
 ### TC-BOOKINGS-022 — Decision storage failures are safe
 
@@ -922,7 +925,7 @@ follows. Their tests were updated and re-run with S-77, and pass:
 S-33; all earlier release rules remain in force. The browser presents expiry
 times in Singapore time and the service stores a timezone-aware instant.
 
-### TC-BOOKINGS-057 — every hold needs a future expiry
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-057 — every hold needs a future expiry
 
 - **Scenario:** Venue Staff cannot create an indefinite or expired hold.
 - **Steps:** Place a hold with no expiry, a timezone-free expiry, a past expiry,
@@ -931,22 +934,27 @@ times in Singapore time and the service stores a timezone-aware instant.
   booking. The last stores `status=held`, server-owned audit fields, and the
   same expiry instant.
 
-### TC-BOOKINGS-058 — expiry releases the slot before it is used
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-058 — expiry releases the slot before it is used
 
 - **Scenario:** An expired hold cannot block or become a confirmed booking.
 - **Steps:** Read availability and claim the same slot after the hold expires.
 - **Expected:** The old row becomes `pending`, with `hold_released_at` and
   reason `expired`; it is absent from live availability and the claim succeeds.
 
-### TC-BOOKINGS-059 — released holds remain auditable
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-059 — released holds remain auditable
 
 - **Expected:** Manual, event-terminal, replacement and expiry releases retain
   the hold timestamps and expiry; only an active `held` row is live.
 
-### TC-BOOKINGS-060 — concurrent expiry processing is idempotent
+### Archived S-81 proposal formerly numbered TC-BOOKINGS-060 — concurrent expiry processing is idempotent
 
 - **Expected:** At most one conditional update wins; all callers see the slot
   available and the first `expired` release audit is preserved.
+
+These planning entries were never executable cases. Their reused numbers
+belong to later implemented booking-change cases. The S-81 behavior is covered
+by TC-BOOKINGS-017's held/expired checks, existing hold tests, and the hold
+expiry integration and browser cases.
 
 ## S-78 — request replacement venue for affected booking
 
@@ -1530,3 +1538,165 @@ venues, still always bounded by a date range.
 - **Actual:** `[P, Q]` with no venue filter; one venue's list unchanged; every missing or reversed range `422`.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/bookings/test_occupied.py::test_blocks_can_be_listed_for_a_range_across_venues, ::test_one_venues_blocks_are_unchanged, ::test_blocks_always_need_a_range; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; Python 3.14, pytest: 1970 passed and 17 skipped across `tests/unit`
+
+## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
+
+Story: S-81 Place Tentative Venue Hold with Expiry (with S-37 Approve or
+Reject Booking with Reason or Alternative).
+
+Found in UAT (manual check A08). Confirmed with the developer on 2026-11-05.
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| The Event Coordinator confirms a held venue, which informs Venue Staff | TC-BOOKINGS-470, 471, 472, 131; TC-VENUEBOOKINGS-480 to 483, 139; TC-NOTIFICATIONS-017; TC-FRONTEND-420, 421, 423; TC-E2E-480 |
+| A held booking is approved only after the Event Coordinator has confirmed the hold | TC-BOOKINGS-473, 474, 131; TC-VENUEBOOKINGS-484, 139; TC-FRONTEND-422; TC-E2E-480 |
+
+Decisions:
+
+- Only a **held** booking waits for the Coordinator. A pending request that
+  was never held can still be approved directly, and a held booking can
+  still be rejected or released at any time.
+- The Coordinator confirming is recorded on the booking as
+  `hold_confirmed_by` and `hold_confirmed_at`. Releasing the hold, or placing
+  it again, clears both.
+- Confirming notifies the Venue Staff member who placed the hold
+  (`held_by`), in-app. Every Venue Staff member sees the confirmation on the
+  request page.
+- S-81 expiry is unchanged: a confirmed hold still expires if it isn't
+  approved in time.
+- **Needs SQL** (`backend/sql/bookings.sql`, `backend/sql/notifications.sql`),
+  run in both projects. Integration and e2e cases are Blocked until it is.
+
+Existing cases changed by this:
+
+- **TC-BOOKINGS-040** and **049** approve a held booking to prove a self-clash
+  and a block. Their held booking is now also confirmed by its Coordinator,
+  so the new gate doesn't stop it first. What each proves is unchanged.
+- **TC-E2E-227** holds and then approves P. The
+hold is now confirmed for P's Coordinator, with the admin client, between
+those two steps. TC-E2E-480 covers the Coordinator's step in the browser.
+
+TC-BOOKINGS-470–479 reserved. Unit cases executed 2026-11-05.
+
+Throughout: booking H is held by Venue Staff S, for Coordinator K's event,
+expiring in 2099.
+
+## TC-BOOKINGS-470 — the Coordinator confirms a held booking
+
+- **Pre-conditions:** Storage fake returns H, held and unconfirmed. The trusted
+  composite service secret is configured.
+- **Steps:** `POST /internal/bookings/H/confirm-hold` with the service token
+  and `coordinator_id` K in the body.
+- **Expected:**
+  - `200` with H, now carrying `hold_confirmed_by` = K and `hold_confirmed_at`
+    set.
+  - Exactly one update, writing only those two fields, conditional on
+    `status = held`.
+- **Actual:** `200` with `hold_confirmed_by` = K and `hold_confirmed_at` set; one update of exactly those two fields, conditional on `status = held`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_hold_confirmation.py::test_the_coordinator_confirms_a_held_booking; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-471 — confirming twice changes nothing
+
+- **Pre-conditions:** H is held and already confirmed by K at
+  `2026-11-05T02:00:00+00:00`.
+- **Steps:** `POST /internal/bookings/H/confirm-hold` with the service token and K.
+- **Expected:** `200` with H unchanged, keeping the original
+  `hold_confirmed_at`. No update is written.
+- **Actual:** `200`, original `hold_confirmed_at` kept; no update.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_hold_confirmation.py::test_confirming_twice_changes_nothing; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-472 — only a live hold, only the trusted composite
+
+- **Steps:**
+  1. `POST /internal/bookings/{id}/confirm-hold` with K for a pending, a confirmed
+     and a rejected booking, and for a hold whose expiry has passed.
+  2. The same for H without the trusted service token.
+  3. The same as K for an id the fake doesn't have.
+- **Expected:**
+  - Step 1: `409` with `"Only a tentative hold can be confirmed"` each time.
+    The expired hold is released first, as on every read.
+  - Step 2: `403`.
+  - Step 3: `404` with `"Booking not found"`.
+  - No confirmation is written in any step.
+- **Actual:** `409` "Only a tentative hold can be confirmed" for pending, confirmed, rejected and expired (after `expire_holds`); Venue Staff and Organiser `403`; no session `401`; missing `404`; never a write.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_hold_confirmation.py::test_only_a_live_hold_can_be_confirmed, ::test_only_a_coordinator_confirms_a_hold, ::test_confirming_needs_a_session, ::test_confirming_a_missing_booking_is_not_found; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-473 — a held booking is approved only once its Coordinator has confirmed it
+
+- **Pre-conditions:** Venue Staff session.
+- **Steps:** `POST /bookings/{id}/decision` for each booking below.
+- **Test data:** H held and unconfirmed, approved; the same H, rejected
+  with reason `"Room needs repairs"`; H held and confirmed, approved; a
+  pending booking P that was never held, approved.
+- **Expected:**
+  - Unconfirmed H, approved: `409` with `"This hold can't be approved until
+    the Event Coordinator confirms it."`, and no write.
+  - Unconfirmed H, rejected: `200`, `rejected`.
+  - Confirmed H, approved: `200`, `confirmed`.
+  - P, approved: `200`, `confirmed`, unchanged from today.
+  - Each approval's update carries a guard, so a hold is approved only while
+    it is confirmed.
+- **Actual:** Unconfirmed H approved: `409` with the exact message, no write. Rejected: `200` `rejected`. Confirmed H and never-held P approved: `200` `confirmed`, each update guarded by `status.eq.pending,hold_confirmed_at.not.is.null`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_hold_confirmation.py::test_an_unconfirmed_hold_cannot_be_approved, ::test_an_unconfirmed_hold_can_still_be_rejected, ::test_a_confirmed_hold_and_a_never_held_request_are_approved; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## TC-BOOKINGS-474 — releasing or re-placing a hold clears the confirmation
+
+- **Steps:**
+  1. Release confirmed H (`staff_released`).
+  2. Place a new hold on a pending booking that carries an old confirmation.
+- **Expected:**
+  - Step 1: the update writes `hold_confirmed_by: null` and
+    `hold_confirmed_at: null` along with the release.
+  - Step 2: the hold's update writes both as `null`, so a new hold always
+    needs a new confirmation.
+- **Actual:** Release and a new hold both write `hold_confirmed_by` and `hold_confirmed_at` as `null`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_hold_confirmation.py::test_releasing_a_hold_clears_its_confirmation, ::test_a_new_hold_needs_a_new_confirmation; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## Session check: a rejected token vs Supabase Auth not answering
+
+Ports the users service's fix (`bb92dfd`, TC-USERS-035..038) to this
+service's `security.py` (`require_user`, which reads only the access token). Only a 4xx other than 429 from Supabase Auth is a
+verdict on the token. Anything else (a dropped connection, a timeout, a 5xx,
+a 429) is retried after 0.2 s and 0.5 s, then answers `503` "Authentication
+service unavailable" and leaves the cookies alone. Found by PR #98's
+integration runs, where composites got `401` from this service for valid
+sessions and reported `502` "... service unavailable". Retry pauses are
+patched to 0 in the tests.
+
+## TC-BOOKINGS-475 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403.
+- **Steps:** `POST /bookings/{id}/decision` `{"decision": "approved"}` (Venue Staff) with `sb_access_token=revoked-token`.
+- **Test data:** As above.
+- **Expected:** `401` "Not authenticated"; `get_user` called once.
+- **Actual:** `401` "Not authenticated" after one `get_user` call.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_session_check.py::test_a_rejected_token_is_401_without_retrying; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-BOOKINGS-476 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error under Test data, then returns a Venue Staff caller; no booking row is faked.
+- **Steps:** `POST /bookings/{id}/decision` `{"decision": "approved"}` (Venue Staff) with `sb_access_token=access-token`.
+- **Test data:** First attempt: `httpx.RemoteProtocolError("Server disconnected")`; separately, `httpx.ReadTimeout("timed out")`.
+- **Expected:** Each `404` "Booking not found" -- the session check passed; `get_user` called twice.
+- **Actual:** Each `404` "Booking not found" after two `get_user` calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_session_check.py::test_a_session_check_that_got_no_answer_is_retried (2 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-BOOKINGS-477 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as under Test data.
+- **Steps:** `POST /bookings/{id}/decision` `{"decision": "approved"}` (Venue Staff).
+- **Test data:** `httpx.RemoteProtocolError("Server disconnected")`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each `503` "Authentication service unavailable"; `get_user` called 3 times.
+- **Actual:** Each `503` "Authentication service unavailable" after 3 calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/bookings/test_session_check.py::test_no_answer_is_503_and_keeps_the_cookies (3 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).

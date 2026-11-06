@@ -37,6 +37,7 @@ def slot(booking: dict) -> SimpleNamespace:
         booking_date=date.fromisoformat(str(booking["booking_date"])),
         start_time=time.fromisoformat(str(booking["start_time"])),
         end_time=time.fromisoformat(str(booking["end_time"])),
+        allocated_attendance=booking.get("allocated_attendance") or booking.get("expected_attendance"),
     )
 
 

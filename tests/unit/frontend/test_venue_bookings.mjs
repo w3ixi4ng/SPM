@@ -208,7 +208,7 @@ test('each venue is marked against the event requirements', () => {
 
   assert.deepEqual(venueFit(event, fitting), [])
   assert.deepEqual(venueFit(event, failing), [
-    'Too small: holds 80, event expects 100',
+    'Too small: holds 80, booking allocates 100',
     'No Banquet layout',
     'Missing: Stage',
     'Missing: Hearing loop',
@@ -236,7 +236,7 @@ test("a venue that doesn't suit the event produces a warning listing why", () =>
 
   assert.equal(
     venueWarning(event, venue({ capacity: 80 })),
-    "Studio B doesn't suit this event: Too small: holds 80, event expects 100. Choose a venue that fits.",
+    "Studio B doesn't suit this event: Too small: holds 80, booking allocates 100. Choose a venue that fits.",
   )
   assert.equal(
     venueWarning(event, venue({ capacity: 150, room_layouts: ['theatre'], facilities: [], accessibility: [] })),

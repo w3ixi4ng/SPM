@@ -23,6 +23,7 @@ import suitability
 import unavailability
 from clients import (
     INTERNAL_READ_TIMEOUT,
+    assignment_service_headers,
     get_bookings_client,
     get_events_client,
     get_notifications_client,
@@ -43,6 +44,57 @@ from schemas import (
 
 app = FastAPI(title="Venue Bookings Service")
 logger = logging.getLogger(__name__)
+_expiry_reconciler_task = None
+
+
+async def _reconcile_expired_holds_once(bookings, notifications):
+    headers = assignment_service_headers()
+    response = await bookings.get("/internal/bookings/expired-holds", headers=headers)
+    response.raise_for_status()
+    for held in response.json():
+        try:
+            notice = {
+                "recipient_id": held["coordinator_id"],
+                "event_id": held["event_id"],
+                "event_name": held["event_name"],
+                "kind": "venue_hold_expiry",
+                "message": f'The tentative hold for {held["venue_name"]} on {held["booking_date"]} has expired. The venue is available again.',
+                "deduplication_key": f'venue_hold_expired:{held["id"]}:{held["hold_expires_at"]}',
+            }
+            delivered = await notifications.post("/internal/notifications", json={"notifications": [notice]})
+            delivered.raise_for_status()
+            marked = await bookings.post(f'/internal/bookings/{held["id"]}/expiry-notified', headers=headers)
+            marked.raise_for_status()
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            logger.exception("Could not notify expiry for hold %s; retrying", held.get("id"))
+
+
+async def _reconcile_expired_holds():
+    """Release due holds and deliver one deduplicated expiry notice each."""
+    async with get_bookings_client() as bookings, get_notifications_client() as notifications:
+        while True:
+            try:
+                await _reconcile_expired_holds_once(bookings, notifications)
+            except (httpx.HTTPError, KeyError, ValueError, RuntimeError):
+                logger.exception("Could not reconcile expired venue holds; retrying")
+            await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def start_expiry_reconciler():
+    global _expiry_reconciler_task
+    if getattr(app.state, "expiry_reconciler_enabled", True):
+        _expiry_reconciler_task = asyncio.create_task(_reconcile_expired_holds())
+
+
+@app.on_event("shutdown")
+async def stop_expiry_reconciler():
+    if _expiry_reconciler_task is not None:
+        _expiry_reconciler_task.cancel()
+        try:
+            await _expiry_reconciler_task
+        except asyncio.CancelledError:
+            pass
 
 COORDINATOR_ROLE = "event_coordinator"
 ORGANISER_ROLE = "event_organiser"
@@ -70,6 +122,9 @@ CONFLICT_PHRASES = (
     "Can't confirm this booking: it overlaps ", "Can't hold this booking: it overlaps ",
     # S-89: the event is being (or was) cancelled; its bookings are closed.
     "This event is being cancelled, so its venue bookings can no longer change.",
+    # S-81 reopened: a hold waits for its Coordinator's confirmation.
+    "This hold can't be approved until the Event Coordinator confirms it.",
+    "Only a tentative hold can be confirmed",
 )
 INTERNAL_GET_ATTEMPTS = 3
 INTERNAL_GET_BACKOFF = (0.5, 1.0)
@@ -198,6 +253,7 @@ def _booking_body(payload: VenueBookingRequest, user: dict, event: dict, venue: 
         "event_name": event["name"],
         "event_purpose": event["purpose"],
         "expected_attendance": event["expected_attendance"],
+        "allocated_attendance": payload.allocated_attendance or event["expected_attendance"],
         "special_requirements": event.get("special_requirements"),
         "room_layout": event.get("room_layout"),
         "required_facilities": event.get("required_facilities") or [],
@@ -409,8 +465,12 @@ async def submit_venue_booking(
         ),
         None,
     )
-    if existing:
+    if existing and (existing.get("allocated_attendance") or existing.get("expected_attendance") or event["expected_attendance"]) == (
+        payload.allocated_attendance or event["expected_attendance"]
+    ):
         return JSONResponse(status_code=status.HTTP_201_CREATED, content=existing)
+    if existing:
+        raise HTTPException(status_code=409, detail="This venue and time already has a request; change its allocation instead")
 
     body = _booking_body(payload, user, event, venue)
     # S-75: checked by the venue's current setup and turnaround.
@@ -475,7 +535,9 @@ async def change_venue_booking(
 
     response = await _call("Bookings", bookings.patch(
         f"/bookings/{booking_id}",
-        json={**payload.model_dump(mode="json"), "venue_name": venue["name"]},
+        json={**payload.model_dump(mode="json"), "venue_name": venue["name"],
+              "allocated_attendance": payload.allocated_attendance or event["expected_attendance"],
+              "expected_attendance": event["expected_attendance"]},
         params=occupancy.gap_params(venue),
         cookies=request.cookies,
     ))
@@ -747,6 +809,71 @@ async def release_venue_booking(
     raise _unavailable("Bookings")
 
 
+def _day_label(value) -> str:
+    # "1 Nov 2026", never "01 Nov 2026", as in every other message.
+    day = date.fromisoformat(str(value)[:10])
+    return f"{day.day} {day:%b %Y}"
+
+
+@app.post("/venue-bookings/{booking_id}/confirm-hold")
+@app.post("/venue-bookings/{booking_id}/hold-confirmation")
+async def confirm_venue_hold(
+    booking_id: UUID,
+    request: Request,
+    users: httpx.AsyncClient = Depends(get_users_client),
+    bookings: httpx.AsyncClient = Depends(get_bookings_client),
+    events: httpx.AsyncClient = Depends(get_events_client),
+    notifications: httpx.AsyncClient = Depends(get_notifications_client),
+):
+    """S-81 reopened: the event's Coordinator confirms a tentative hold, so
+    Venue Staff can approve it, and the staff member who placed it is told.
+    Authorized like S-80: the event is read with the caller's own session."""
+    user = await _authenticate(request, users, COORDINATOR_ROLE)
+    booking = await _booking_by_id(bookings, booking_id)
+    event = await _fetch(
+        "Events", events, f'/events/assigned/{booking["event_id"]}', request.cookies, "Event not found"
+    )
+    if event.get("status") != "planning":
+        raise HTTPException(status_code=409, detail=NOT_IN_PLANNING)
+    try:
+        headers = assignment_service_headers()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    response = await _call("Bookings", bookings.post(
+        f"/internal/bookings/{booking_id}/confirm-hold",
+        json={"coordinator_id": user["id"]}, headers=headers,
+    ))
+    conflict = _identified_conflict(response)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
+    if response.status_code == status.HTTP_404_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Bookings")
+    held = response.json()
+    notice = {
+        "recipient_id": held["held_by"],
+        "event_id": held["event_id"],
+        "event_name": held["event_name"],
+        "kind": "venue_hold_confirmed",
+        "message": (
+            f'{user["name"]} confirmed the tentative hold for {held["venue_name"]} on '
+            f'{_day_label(held["booking_date"])}, {str(held["start_time"])[:5]}–{str(held["end_time"])[:5]} '
+            f'({held["event_name"]}). You can now approve it before the hold expires.'
+        ),
+        "deduplication_key": f'venue_hold_confirmed:{held["id"]}:{held["held_at"]}',
+    }
+    # Best effort, like the S-81 expiry notice: the confirmation is saved, and
+    # Venue Staff see it on the request page either way.
+    try:
+        notified = await notifications.post("/internal/notifications", json={"notifications": [notice]})
+        if notified.status_code != status.HTTP_201_CREATED:
+            raise RuntimeError(f"Notifications answered {notified.status_code}")
+    except Exception as exc:
+        logger.warning("Hold %s confirmed but Venue Staff could not be notified", held["id"], exc_info=exc)
+    return held
+
+
 @app.post("/venue-bookings/{booking_id}/decision")
 async def decide_venue_booking(
     booking_id: UUID,
@@ -765,6 +892,13 @@ async def decide_venue_booking(
         await _venue_gap(booking_id, venues, bookings, request.cookies)
         if payload.decision == "approved" else {"setup_minutes": 0, "turnaround_minutes": 0}
     )
+    # S-78 revision: replan before recording the approval, so a failure here
+    # leaves nothing decided rather than a confirmed event at a venue its
+    # safety check never covered.
+    replanned = (
+        await _replan_for_replacement(booking_id, staff, events, bookings)
+        if payload.decision == "approved" else None
+    )
     response = await _call("Bookings", bookings.post(
         f"/bookings/{booking_id}/decision",
         json=payload.model_dump(mode="json"), params=gap, cookies=request.cookies,
@@ -776,6 +910,8 @@ async def decide_venue_booking(
             decided, reason=payload.reason, alternative=payload.alternative,
         ))
         await _notify_venue_decision(decided, payload, events, notifications)
+        if replanned:
+            await _notify_replanned(decided, replanned, events, notifications)
         return decided
     conflict = _identified_conflict(response)
     if conflict:
@@ -789,6 +925,79 @@ async def decide_venue_booking(
     if response.status_code in messages:
         raise HTTPException(status_code=response.status_code, detail=messages[response.status_code])
     raise _unavailable("Bookings")
+
+
+async def _replan_for_replacement(booking_id, staff: dict, events, bookings) -> dict | None:
+    """S-78 revision: approving a replacement takes the event off the venue
+    its Operational Safety Check covered, so a confirmed event (or one
+    waiting for its check) goes back to planning. Returns the venues swapped
+    when the event actually moved, None otherwise -- including for a booking
+    that replaces nothing."""
+    booking = await _booking_by_id(bookings, booking_id)
+    if not booking.get("replaces_booking_id"):
+        return None
+    # S-81: a held replacement cannot be approved before its Coordinator
+    # confirms it. Avoid resetting the event when this approval will be
+    # refused by the bookings service.
+    if booking.get("status") == "held" and not booking.get("hold_confirmed_at"):
+        raise HTTPException(
+            status_code=409,
+            detail="This hold can't be approved until the Event Coordinator confirms it.",
+        )
+    if booking.get("hold_release_reason") == "expired":
+        raise HTTPException(status_code=409, detail="This booking request has already been decided")
+    original = await _booking_by_id(bookings, booking["replaces_booking_id"])
+    swap = {
+        "venue_name": booking.get("venue_name") or "the replacement venue",
+        "replaced_venue_name": original.get("venue_name") or "the original venue",
+    }
+    try:
+        headers = assignment_service_headers()
+    except RuntimeError as exc:
+        logger.error("Cannot replan event %s: %s", booking["event_id"], exc)
+        raise _unavailable("Events") from exc
+    response = await _call("Events", events.post(
+        f'/internal/events/{booking["event_id"]}/venue-replanning',
+        json={"actor_id": str(staff["id"]), "booking_id": str(booking["id"]), **swap},
+        headers=headers,
+    ))
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Events")
+    return swap if response.json().get("replanned") else None
+
+
+async def _notify_replanned(booking: dict, swap: dict, events, notifications) -> None:
+    """S-78 revision AC4: the Coordinator and Organiser, never Attendees."""
+    event = await _event_notification_scope(events, booking["event_id"])
+    name, new, old = event["name"], swap["venue_name"], swap["replaced_venue_name"]
+    messages = {
+        event.get("assigned_coordinator_id"): (
+            f"{name} is back in planning: {new} replaced {old}. Submit it for a fresh "
+            "Operational Safety Check once its arrangements are ready."
+        ),
+        event.get("organiser_id"): (
+            f"{name} is back in planning because its venue changed to {new}. It will be "
+            "confirmed again after a fresh Operational Safety Check."
+        ),
+    }
+    rows = [
+        {
+            "recipient_id": str(recipient),
+            "event_id": str(booking["event_id"]),
+            "event_name": name,
+            "kind": "venue_booking_decision",
+            "message": message,
+            "deduplication_key": f"venue_replanned:{booking['id']}:{recipient}",
+        }
+        for recipient, message in messages.items() if recipient
+    ]
+    if not rows:
+        return
+    response = await _call("Notifications", notifications.post(
+        "/internal/notifications", json={"notifications": rows}
+    ))
+    if response.status_code != status.HTTP_201_CREATED:
+        raise _unavailable("Notifications")
 
 
 async def _venue_gap(booking_id, venues, bookings, cookies) -> dict:
@@ -1140,6 +1349,7 @@ async def request_replacement_venue(
         start_time=original["start_time"],
         end_time=original["end_time"],
         notes=payload.notes,
+        allocated_attendance=original.get("allocated_attendance") or original.get("expected_attendance"),
     )
     problems = suitability.problems(asked, event, venue)
     if problems:

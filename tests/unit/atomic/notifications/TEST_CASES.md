@@ -171,7 +171,13 @@ against a real table is proven by TC-VENUEBOOKINGS-110.
 
 ## TC-NOTIFICATIONS-011 — a waiting-list promotion is accepted
 
-- **Scenario:** The inbox accepts the S-53 kind, so an Attendee promoted off the waiting list can be told they now hold a place (S-53 AC3).
+> **No longer proves S-53 AC3 (2026-11-06).** Since S-55 nothing sends
+> `waiting_list_promotion`: a freed place is offered, and the Attendee is told
+> with `waiting_list_offer` (TC-NOTIFICATIONS-012). This case only shows the
+> inbox still accepts the old kind, which the schema and SQL still list.
+> Dropping the kind would be an SQL change to apply to both projects.
+
+- **Scenario:** The inbox accepts the S-53 kind, so an Attendee promoted off the waiting list can be told they now hold a place (supporting; no current AC — see the note).
 - **Pre-conditions:** The fake batch upsert echoes its rows.
 - **Steps:** `POST /internal/notifications` with one row of kind `waiting_list_promotion`.
 - **Test data:** Recipient `44444444-4444-4444-8444-444444444444`; event
@@ -254,3 +260,78 @@ Drafted and confirmed by the developer on 2026-10-31 before implementation.
 - **Actual:** Every S-63 kind returned `201` on its first request and exact retry; the stable key remained unchanged. Existing kinds, including `equipment_unavailable`, remained valid.
 - **Status:** Pass
 - **Evidence:** `test_app.py::test_s63_organiser_notification_kinds_are_accepted_and_idempotent`; 2026-11-01, branch `S-63/notify-organiser-event-decisions-and-changes` merged with `origin/sprint4` `92b230c`; Python 3.12, pytest: 1755 passed and 17 skipped across `tests/unit`.
+
+## S-81 reopened — Venue Staff are told when a Coordinator confirms a hold
+
+Confirmed with the developer on 2026-11-05. See the bookings unit
+`TEST_CASES.md` for the criteria. This case needs the
+`notifications_kind_allowed` change in `backend/sql/notifications.sql`.
+Executed 2026-11-05.
+
+## TC-NOTIFICATIONS-017 — the hold-confirmed kind is accepted and deduplicated
+
+- **Pre-conditions:** Fake notification storage returns the upserted row.
+- **Steps:** Twice `POST /internal/notifications` with the same row, kind
+  `venue_hold_confirmed`.
+- **Test data:** Recipient Venue Staff `abababab-abab-4bab-8bab-abababababab`;
+  key `venue_hold_confirmed:H:2026-11-05T01:00:00+00:00`.
+- **Expected:** `201` both times, resolving to one stored row. An unknown
+  kind is still `422`.
+- **Actual:** `201` twice with the same stored row; an unknown kind `422`.
+- **Status:** Pass
+- **Evidence:** `test_app.py::test_s81_hold_confirmed_kind_is_accepted_and_idempotent`; 2026-11-05, branch `S-81/place-tentative-venue-hold-with-expiry` (on `fix` `3eb1b5b`), working tree; Python 3.14, pytest: 2012 passed and 17 skipped across `tests/unit`
+
+## Session check: a rejected token vs Supabase Auth not answering
+
+Ports the users service's fix (`bb92dfd`, TC-USERS-035..038) to this
+service's `security.py`. Only a 4xx other than 429 from Supabase Auth is a
+verdict on the token. Anything else (a dropped connection, a timeout, a 5xx,
+a 429) is retried after 0.2 s and 0.5 s, then answers `503` "Authentication
+service unavailable" and leaves the cookies alone. Found by PR #98's
+integration runs, where composites got `401` from this service for valid
+sessions and reported `502` "... service unavailable". Retry pauses are
+patched to 0 in the tests.
+
+## TC-NOTIFICATIONS-018 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403. No refresh cookie.
+- **Steps:** `GET /notifications` (the caller's inbox) with `sb_access_token=revoked-token`.
+- **Test data:** As above.
+- **Expected:** `401` "Not authenticated"; `get_user` called once.
+- **Actual:** `401` "Not authenticated" after one `get_user` call.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/notifications/test_session_check.py::test_a_rejected_token_is_401_without_retrying; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-NOTIFICATIONS-019 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error under Test data, then returns the caller; the route's data is faked to succeed.
+- **Steps:** `GET /notifications` (the caller's inbox) with `sb_access_token=access-token`.
+- **Test data:** First attempt: `httpx.RemoteProtocolError("Server disconnected")`; separately, `httpx.ReadTimeout("timed out")`.
+- **Expected:** Each `200`; `get_user` called twice.
+- **Actual:** Each `200` `[]` after two `get_user` calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/notifications/test_session_check.py::test_a_session_check_that_got_no_answer_is_retried (2 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-NOTIFICATIONS-020 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as under Test data. Both cookies are sent.
+- **Steps:** `GET /notifications` (the caller's inbox).
+- **Test data:** `httpx.RemoteProtocolError("Server disconnected")`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each `503` "Authentication service unavailable"; `get_user` called 3 times; `refresh_session` not called; no `Set-Cookie`.
+- **Actual:** Each `503` "Authentication service unavailable" after 3 calls. No refresh; no `Set-Cookie`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/notifications/test_session_check.py::test_no_answer_is_503_and_keeps_the_cookies (3 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-NOTIFICATIONS-021 — a refresh that got no answer is retried
+
+- **Scenario:** The same applies to renewing an expired session.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "token is expired", 401. `refresh_session` first raises `httpx.RemoteProtocolError("Server disconnected")`, then returns a new session (`new-access` / `new-refresh`) for the caller.
+- **Steps:** `GET /notifications` (the caller's inbox) with both cookies.
+- **Test data:** As above.
+- **Expected:** `200`; `refresh_session` called twice; the response sets `sb_access_token=new-access`.
+- **Actual:** `200`; two `refresh_session` calls; `sb_access_token=new-access` set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/notifications/test_session_check.py::test_a_refresh_that_got_no_answer_is_retried; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).

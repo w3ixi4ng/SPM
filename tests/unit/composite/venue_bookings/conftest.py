@@ -27,6 +27,9 @@ os.environ.setdefault("EVENTS_SERVICE_URL", "http://events:8002")
 os.environ.setdefault("VENUES_SERVICE_URL", "http://venues:8003")
 os.environ.setdefault("BOOKINGS_SERVICE_URL", "http://bookings:8004")
 os.environ.setdefault("NOTIFICATIONS_SERVICE_URL", "http://notifications:8006")
+# S-78 revision: approving a replacement calls the events service's internal
+# replanning route with this credential.
+os.environ.setdefault("ASSIGNMENT_SERVICE_SECRET", "unit-assignment-secret")
 
 # Services use flat imports because each Docker image runs from its own
 # folder. Load this service while preserving any same-named modules another
@@ -237,6 +240,7 @@ def no_retry_delay(monkeypatch):
 
 @pytest.fixture
 def client(services):
+    app.state.expiry_reconciler_enabled = False
     app.dependency_overrides[get_users_client] = lambda: services.users
     app.dependency_overrides[get_events_client] = lambda: services.events
     app.dependency_overrides[get_venues_client] = lambda: services.venues
@@ -245,3 +249,4 @@ def client(services):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    app.state.expiry_reconciler_enabled = True

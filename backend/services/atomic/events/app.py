@@ -63,6 +63,8 @@ from schemas import (
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
     VenueCancellationCreate,
+    VenueReplanningCreate,
+    VenueReplanningRead,
     EVENT_HISTORY_ACTIONS,
     HISTORY_CATEGORIES,
     SAFETY_EDIT_FIELDS,
@@ -99,6 +101,12 @@ OVERSIGHT_ACTIVE_STATUSES = ACTIVE_ASSIGNMENT_STATUSES
 EQUIPMENT_PREPARATION_EVENT_STATUSES = [
     "planning", "pending_safety_check", "confirmed", "preparation",
 ]
+# S-26 AC2: preparation can change only once the Safety Officer has approved
+# the event. Approval moves it to `confirmed` (S-86 AC5) and nothing yet moves
+# it on, so "in Preparation (after approval)" is `confirmed` or `preparation`.
+# Support still sees its planning work above; it just can't prepare it yet.
+PREPARATION_UPDATABLE_STATUSES = ["confirmed", "preparation"]
+PREPARATION_NOT_YET = "Equipment preparation can be updated once the Safety Officer has approved the event"
 COORDINATOR_EDITABLE_STATUSES = ["planning", "confirmed", "preparation"]
 SIGNIFICANT_EVENT_FIELDS = frozenset({
     "start_date", "start_time", "end_date", "end_time",
@@ -110,7 +118,8 @@ EVENT_INFORMATION_FIELDS = frozenset({
     "internal_notes", *SIGNIFICANT_EVENT_FIELDS,
 })
 # Events whose equipment and Technical Support are committed (S-43, S-44).
-COMMITTED_EVENT_STATUSES = ["planning", "pending_safety_check", "confirmed"]
+COMMITTED_EVENT_STATUSES = ["planning", "pending_safety_check", "confirmed", "preparation"]
+SUPPORT_LOAD_STATUSES = ["planning", "pending_safety_check", "confirmed"]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -543,6 +552,8 @@ def update_equipment_preparation(
 ):
     staff_id = str(user.id)
     existing = _get_support_assigned_event(event_id, staff_id, db)
+    if existing.get("status") not in PREPARATION_UPDATABLE_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PREPARATION_NOT_YET)
     values = {
         "equipment_preparation_status": payload.status.value,
         "equipment_preparation_updated_by": staff_id,
@@ -554,7 +565,7 @@ def update_equipment_preparation(
         .update(values)
         .eq("id", str(event_id))
         .eq("assigned_technical_support_id", staff_id)
-        .in_("status", EQUIPMENT_PREPARATION_EVENT_STATUSES)
+        .in_("status", PREPARATION_UPDATABLE_STATUSES)
     )
     result = _execute(operation)
     if not result.data:
@@ -953,6 +964,64 @@ def resubmit_safety_returned_event(
         )
     _record(db, event_id, payload.coordinator_id, "event_coordinator", "safety_resubmitted")
     return result.data[0]
+
+
+# S-78 revision: the statuses whose safety check (done, or about to be done)
+# covers the venue a replacement is taking away.
+VENUE_REPLANNING_STATUSES = ["confirmed", "pending_safety_check"]
+
+
+@app.post("/internal/events/{event_id}/venue-replanning", response_model=VenueReplanningRead)
+def replan_for_venue_replacement(
+    event_id: UUID,
+    payload: VenueReplanningCreate,
+    _service=Depends(require_assignment_service),
+    db: Client = Depends(get_db),
+):
+    """S-78 revision: a confirmed event, or one waiting for its check, goes
+    back to planning when Venue Staff approve a replacement venue -- the same
+    reset an S-60 significant edit makes. Any other status is left alone.
+
+    The venue_bookings composite calls this before recording the approval,
+    and may call it again on a retry: the conditional update means only the
+    call that actually moves the event writes history."""
+    found = _execute(
+        db.schema(SCHEMA).table(TABLE).select("id,status").eq("id", str(event_id))
+    )
+    if not found.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    previous = found.data[0]["status"]
+    if previous not in VENUE_REPLANNING_STATUSES:
+        return {"replanned": False, "status": previous}
+
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({
+            "status": "planning",
+            "safety_recheck_required": True,
+            "safety_decision": None,
+            "safety_decision_reason": None,
+            "safety_officer_id": None,
+            "safety_decided_at": None,
+        })
+        .eq("id", str(event_id))
+        .in_("status", VENUE_REPLANNING_STATUSES)
+    )
+    if not result.data:
+        # Changed between the read and the write; report where it is now.
+        now = _execute(
+            db.schema(SCHEMA).table(TABLE).select("status").eq("id", str(event_id))
+        )
+        return {"replanned": False, "status": now.data[0]["status"] if now.data else previous}
+
+    _record(db, event_id, payload.actor_id, "venue_staff", "venue_replanned", {
+        "booking_id": str(payload.booking_id),
+        "venue_name": payload.venue_name,
+        "replaced_venue_name": payload.replaced_venue_name,
+        "previous_status": previous,
+    })
+    return {"replanned": True, "status": "planning"}
 
 
 _NOT_IN_PLANNING = "This event is not in planning"
@@ -2007,8 +2076,8 @@ def coordinator_load(payload: CoordinatorLoadRequest, db: Client = Depends(get_d
 def overlapping_events(payload: OverlappingEventsRequest, db: Client = Depends(get_db)):
     """S-44: the live events whose time overlaps a window -- the ones whose
     equipment requirements reserve equipment then. Planning, pending safety
-    check and confirmed events are committed; draft, submitted, returned and
-    rejected are not."""
+    check, confirmed and preparation events are committed; terminal events
+    and requests awaiting a decision are not."""
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
@@ -2055,7 +2124,7 @@ def technical_support_load(
             "id,assigned_technical_support_id,start_date,start_time,end_date,end_time"
         )
         .in_("assigned_technical_support_id", ids)
-        .in_("status", COMMITTED_EVENT_STATUSES)
+        .in_("status", SUPPORT_LOAD_STATUSES)
     )
     rows = _execute(operation).data
     by_staff: dict[str, list[dict]] = {staff_id: [] for staff_id in ids}

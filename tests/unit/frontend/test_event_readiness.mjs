@@ -7,7 +7,8 @@ import {
 } from '../../../frontend/src/lib/eventReadiness.js'
 
 test('readiness derives every implemented area from its owning data', () => {
-  const event = { equipment_preparation_status: 'ready' }
+  // TC-FRONTEND-119: a confirmed event, so preparation counts (S-26 AC2).
+  const event = { status: 'confirmed', technical_signoff_decision: 'approved', equipment_preparation_status: 'ready' }
   const readiness = buildEventReadiness(event, [
     { status: 'pending' },
     { id: 'b1', status: 'confirmed', venue_name: 'Hall A', venue_preparation_status: 'ready' },
@@ -25,7 +26,7 @@ test('readiness derives every implemented area from its owning data', () => {
 
 test('readiness stays outstanding until its underlying data is complete', () => {
   const readiness = buildEventReadiness(
-    { equipment_preparation_status: 'in_progress' },
+    { status: 'confirmed', technical_signoff_decision: 'approved', equipment_preparation_status: 'in_progress' },
     [{ status: 'held' }],
     [],
   )
@@ -51,6 +52,8 @@ test('readiness loads fresh venue and equipment data through Kong', async () => 
 
   try {
     const result = await loadEventReadiness('event 1/2', {
+      status: 'confirmed',
+      technical_signoff_decision: 'approved',
       equipment_preparation_status: 'ready',
     })
     assert.equal(result.summary.ready, true)
@@ -65,7 +68,7 @@ test('readiness loads fresh venue and equipment data through Kong', async () => 
 })
 
 test('venue readiness lists every confirmed venue and waits for all to be ready', () => {
-  const readiness = buildEventReadiness({ equipment_preparation_status: 'ready' }, [
+  const readiness = buildEventReadiness({ status: 'confirmed', technical_signoff_decision: 'approved', equipment_preparation_status: 'ready' }, [
     { id: 'a', status: 'confirmed', venue_name: 'Hall A', venue_preparation_status: 'ready' },
     { id: 'b', status: 'confirmed', venue_name: 'Room B', venue_preparation_status: 'in_progress' },
     { id: 'c', status: 'rejected', venue_name: 'Room C', venue_preparation_status: 'ready' },
@@ -76,4 +79,26 @@ test('venue readiness lists every confirmed venue and waits for all to be ready'
   assert.deepEqual(venue.items.map(({ label, status }) => [label, status]), [
     ['Hall A', 'Ready'], ['Room B', 'In Progress'],
   ])
+})
+
+// TC-FRONTEND-425 -- S-26 AC2: before the Safety Officer's approval,
+// preparation can't be updated, so it can't hold readiness Outstanding.
+test('technical support readiness counts preparation only after safety approval', () => {
+  const venue = [{ id: 'b1', status: 'confirmed', venue_name: 'Hall A', venue_preparation_status: 'ready' }]
+  const support = (event) => buildEventReadiness(event, venue, [{ required_quantity: 1 }]).areas
+    .find(({ id }) => id === 'technical_support')
+  const pick = ({ state, detail }) => ({ state, detail })
+
+  assert.deepEqual(pick(support({
+    status: 'planning', technical_signoff_decision: 'approved', equipment_preparation_status: 'not_started',
+  })), { state: 'complete', detail: 'Equipment preparation starts after the safety check' })
+  assert.deepEqual(pick(support({
+    status: 'planning', technical_signoff_decision: null, equipment_preparation_status: 'not_started',
+  })), { state: 'outstanding', detail: 'Technical Support has not approved the equipment arrangements' })
+  assert.deepEqual(pick(support({
+    status: 'confirmed', technical_signoff_decision: 'approved', equipment_preparation_status: 'in_progress',
+  })), { state: 'outstanding', detail: 'Equipment preparation is In Progress' })
+  assert.deepEqual(pick(support({
+    status: 'confirmed', technical_signoff_decision: 'approved', equipment_preparation_status: 'ready',
+  })), { state: 'complete', detail: 'Equipment preparation is Ready' })
 })

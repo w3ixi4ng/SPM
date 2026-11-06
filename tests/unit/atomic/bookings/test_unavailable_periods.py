@@ -234,7 +234,9 @@ def test_a_hold_that_ends_as_the_period_starts_is_placed(client, db, auth):
 # --- TC-BOOKINGS-049 ------------------------------------------------------
 def test_a_confirmation_overlapping_the_period_is_refused(client, db, auth):
     held = booking_row(venue_id=STUDIO_B, booking_date='2026-11-13', start_time='14:00:00',
-                       end_time='16:00:00', status='held', held_by=STAFF, held_at='2026-11-10T00:00:00+00:00')
+                       end_time='16:00:00', status='held', held_by=STAFF, held_at='2026-11-10T00:00:00+00:00',
+                       # S-81 reopened: confirmed, so only the period stops it.
+                       hold_confirmed_by='cccccccc-cccc-4ccc-8ccc-cccccccccccc', hold_confirmed_at='2026-11-10T01:00:00+00:00')
     lookups(db, [held], [], [P])
 
     response = client.post(f'/bookings/{held["id"]}/decision', json={'decision': 'approved'}, cookies=COOKIE)
@@ -251,6 +253,7 @@ def test_a_held_request_in_the_period_can_still_be_rejected(client, db, auth):
     update = table(db).update.return_value
     update.eq.return_value = update
     update.in_.return_value = update
+    update.or_.return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(
         data=[{**held, **table(db).update.call_args.args[0]}]
     )

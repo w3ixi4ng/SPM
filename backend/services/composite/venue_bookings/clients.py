@@ -9,6 +9,7 @@ EVENTS_URL = os.environ["EVENTS_SERVICE_URL"]
 VENUES_URL = os.environ["VENUES_SERVICE_URL"]
 BOOKINGS_URL = os.environ["BOOKINGS_SERVICE_URL"]
 NOTIFICATIONS_URL = os.environ["NOTIFICATIONS_SERVICE_URL"]
+
 BOOKINGS_TIMEOUT = 15.0
 INTERNAL_READ_TIMEOUT = httpx.Timeout(
     connect=5.0,
@@ -16,6 +17,15 @@ INTERNAL_READ_TIMEOUT = httpx.Timeout(
     write=5.0,
     pool=5.0,
 )
+
+
+def assignment_service_headers() -> dict[str, str]:
+    """The server-owned credential for the other services' internal routes
+    (S-78's replanning among them), never copied from a browser request."""
+    secret = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    if not secret:
+        raise RuntimeError("Assignment service is not configured")
+    return {"X-Assignment-Service-Token": secret}
 
 
 def get_users_client() -> httpx.AsyncClient:

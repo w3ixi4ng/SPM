@@ -15,10 +15,8 @@ from .conftest import (
     OTHER_USER_ID,
     ROLE_PERMISSIONS,
     authenticate,
-    coordinator_event_row,
     event_row,
     fake_user,
-    on_coordinator_rows,
     on_decision_update,
     on_insert,
     on_owned_list,
@@ -305,7 +303,15 @@ def test_event_organiser_has_the_sprint_one_permissions():
 
 
 # --- TC-EVENTS-028 --------------------------------------------------------
-def test_other_known_roles_have_only_their_read_permissions():
+# Every role but the Organiser (027) and Coordinator (057): exactly its own
+# permissions. The role list is pinned too, so a new role can't go unchecked.
+def test_every_other_role_receives_only_its_own_permissions():
+    assert set(ROLE_PERMISSIONS) == {
+        "event_organiser", "event_coordinator", "event_coordinator_lead",
+        "venue_staff", "technical_support", "attendee",
+    }
+    # S-02 AC5: a Lead assigns; nothing to approve, reject or confirm.
+    assert ROLE_PERMISSIONS["event_coordinator_lead"] == {"dashboard:view", "events:lead_assignments"}
     assert ROLE_PERMISSIONS["venue_staff"] == {"dashboard:view", "events:view_booking_status"}
     assert ROLE_PERMISSIONS["technical_support"] == {
         "dashboard:view",
@@ -315,6 +321,8 @@ def test_other_known_roles_have_only_their_read_permissions():
     assert ROLE_PERMISSIONS["attendee"] == {"dashboard:view"}
 
 
+# Not part of TC-EVENTS-028: Venue Staff's one events read, used to keep a
+# booking hold in step with its event.
 def test_venue_staff_can_read_only_an_events_booking_status(client, db, auth):
     authenticate(client, auth, fake_user(role="venue_staff"))
     query = db.schema.return_value.table.return_value.select.return_value
@@ -517,90 +525,6 @@ def test_cannot_submit_another_users_draft(client, db, auth):
 # because the caller is the event_requests service, not a browser.
 
 
-# --- TC-EVENTS-049 --------------------------------------------------------
-def test_coordinator_load_reports_no_conflict_with_empty_schedule(client, db):
-    on_coordinator_rows(db, [])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "18:00",
-            "end_date": "2026-10-20",
-            "end_time": "21:00",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json() == [
-        {"coordinator_id": COORDINATOR_A, "conflict": False, "assigned_count": 0}
-    ]
-
-
-# --- TC-EVENTS-050 --------------------------------------------------------
-def test_coordinator_load_reports_a_conflict_on_any_overlap(client, db):
-    on_coordinator_rows(db, [coordinator_event_row(COORDINATOR_A)])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "20:00",
-            "end_date": "2026-10-20",
-            "end_time": "22:00",
-        },
-    )
-
-    assert response.status_code == 200
-    result = response.json()[0]
-    assert result["conflict"] is True
-    assert result["assigned_count"] == 1
-
-
-# --- TC-EVENTS-051 --------------------------------------------------------
-def test_coordinator_load_back_to_back_events_do_not_conflict(client, db):
-    on_coordinator_rows(db, [coordinator_event_row(COORDINATOR_A)])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "21:00",
-            "end_date": "2026-10-20",
-            "end_time": "22:00",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()[0]["conflict"] is False
-
-
-# --- TC-EVENTS-052 --------------------------------------------------------
-def test_coordinator_load_query_only_counts_submitted_and_planning_events(client, db):
-    on_coordinator_rows(db, [])
-
-    client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "18:00",
-            "end_date": "2026-10-20",
-            "end_time": "21:00",
-        },
-    )
-
-    # Drafts, returned, and rejected are filtered out in the query itself,
-    # not after -- so they never reach the conflict or count logic at all.
-    # Planning counts alongside submitted -- both are live commitments.
-    db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.assert_called_once_with(
-        "status", ["submitted", "planning"]
-    )
-
-
 # --- TC-EVENTS-053 --------------------------------------------------------
 def test_internal_create_trusts_caller_organiser_but_starts_unassigned(client, db):
     stored = event_row(status="submitted", assigned_coordinator_id=None, **SUBMITTED)
@@ -716,30 +640,6 @@ def test_coordinator_views_one_assigned_event(client, db, auth):
 
 
 # --- Rechecking a submitted event's assignment on edit ---------------------
-
-
-# --- TC-EVENTS-062 --------------------------------------------------------
-def test_coordinator_load_excludes_the_given_event_from_conflict_and_count(client, db):
-    on_coordinator_rows(db, [coordinator_event_row(COORDINATOR_A, id=EVENT_ID)])
-
-    response = client.post(
-        "/events/coordinator-load",
-        json={
-            "coordinator_ids": [COORDINATOR_A],
-            "start_date": "2026-10-20",
-            "start_time": "18:00",
-            "end_date": "2026-10-20",
-            "end_time": "21:00",
-            "exclude_event_id": EVENT_ID,
-        },
-    )
-
-    assert response.status_code == 200
-    result = response.json()[0]
-    # Without exclude_event_id this would conflict with itself (identical
-    # window) and count toward assigned_count -- excluded, it does neither.
-    assert result["conflict"] is False
-    assert result["assigned_count"] == 0
 
 
 # --- TC-EVENTS-063 --------------------------------------------------------
@@ -1268,7 +1168,7 @@ def _support_event(staff_id, **changes):
     }
 
 
-# --- TC-EVENTS-096 / 097 / 098 ------------------------------------------
+# --- TC-EVENTS-096 --------------------------------------------------------
 def test_support_load_counts_only_planning_and_confirmed_events(client, db):
     operation = (
         db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value
@@ -1302,6 +1202,68 @@ def test_support_load_counts_only_planning_and_confirmed_events(client, db):
     first_in.return_value.in_.assert_called_once_with(
         "status", ["planning", "pending_safety_check", "confirmed"]
     )
+
+
+def _support_load(client, db, rows, staff_ids):
+    db.schema.return_value.table.return_value.select.return_value.in_.return_value.in_.return_value \
+        .execute.return_value = SimpleNamespace(data=rows)
+    return client.post("/events/technical-support-load", json={
+        "staff_ids": staff_ids,
+        "start_date": "2026-11-13", "start_time": "09:00",
+        "end_date": "2026-11-13", "end_time": "12:00",
+    })
+
+
+# --- TC-EVENTS-097 --------------------------------------------------------
+# S-43 AC1: who is in "the available pool" -- any real overlap, across
+# midnight too, makes a staff member busy; only touching does not.
+@pytest.mark.parametrize(
+    ("start_date", "start_time", "end_date", "end_time", "conflict"),
+    [
+        ("2026-11-13", "09:30:00", "2026-11-13", "10:30:00", True),
+        ("2026-11-13", "08:00:00", "2026-11-13", "13:00:00", True),
+        ("2026-11-13", "08:00:00", "2026-11-13", "09:30:00", True),
+        ("2026-11-13", "11:30:00", "2026-11-13", "13:00:00", True),
+        ("2026-11-12", "22:00:00", "2026-11-13", "09:30:00", True),
+        ("2026-11-13", "07:00:00", "2026-11-13", "09:00:00", False),
+        ("2026-11-13", "12:00:00", "2026-11-13", "14:00:00", False),
+        ("2026-11-12", "09:00:00", "2026-11-12", "12:00:00", False),
+    ],
+    ids=["contained", "covers-it", "overlaps-start", "overlaps-end", "across-midnight",
+         "ends-as-it-starts", "starts-as-it-ends", "day-before"],
+)
+def test_support_overlap_uses_the_complete_window(client, db, start_date, start_time, end_date, end_time, conflict):
+    row = _support_event(SUPPORT_A, start_date=start_date, start_time=start_time,
+                         end_date=end_date, end_time=end_time)
+
+    response = _support_load(client, db, [row], [SUPPORT_A])
+
+    assert response.status_code == 200
+    assert response.json() == [{"staff_id": SUPPORT_A, "conflict": conflict, "assigned_count": 1}]
+
+
+# --- TC-EVENTS-098 --------------------------------------------------------
+# S-43 AC1: each candidate's workload, so the least busy can be chosen -- and
+# someone with no work at all is still returned.
+def test_support_load_reports_each_candidates_live_workload(client, db):
+    support_c = "77777777-7777-4777-8777-777777777777"
+    rows = [
+        _support_event(SUPPORT_A, id="a1000000-0000-4000-8000-000000000001",
+                       start_date="2026-11-14", end_date="2026-11-14", start_time="09:00:00", end_time="10:00:00"),
+        _support_event(SUPPORT_A, id="a1000000-0000-4000-8000-000000000002",
+                       start_date="2026-11-15", end_date="2026-11-15", start_time="09:00:00", end_time="10:00:00"),
+        _support_event(SUPPORT_B, id="b1000000-0000-4000-8000-000000000001",
+                       start_date="2026-11-16", end_date="2026-11-16", start_time="09:00:00", end_time="10:00:00"),
+    ]
+
+    response = _support_load(client, db, rows, [SUPPORT_A, SUPPORT_B, support_c])
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"staff_id": SUPPORT_A, "conflict": False, "assigned_count": 2},
+        {"staff_id": SUPPORT_B, "conflict": False, "assigned_count": 1},
+        {"staff_id": support_c, "conflict": False, "assigned_count": 0},
+    ]
 
 
 def _support_target_select(db):

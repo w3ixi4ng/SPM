@@ -68,6 +68,8 @@ def _execute(operation):
     try:
         return operation.execute()
     except APIError as exc:
+        if exc.code == "P0001" and "confirmed_venue_timing_locked" in str(exc):
+            raise HTTPException(status_code=409, detail="Setup and turnaround cannot change while this venue has a confirmed booking") from exc
         if exc.code == UNIQUE_VIOLATION:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

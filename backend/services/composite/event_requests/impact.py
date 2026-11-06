@@ -112,9 +112,9 @@ def assess(
         if not changed and not window_changed:
             continue
         item = catalogue_by_id.get(str(identity)) or (live_current.get(str(identity), {}).get("equipment") or {})
-        reason = "The required quantity or item changed; revalidate its preparation and reservation."
+        reason = "The required quantity or item changed; revalidate its reservation."
         if window_changed and not changed:
-            reason = "The event window changed; revalidate this item's availability and preparation."
+            reason = "The event window changed; revalidate this item's availability."
         if changed and identity not in catalogue_by_id:
             reason = "The changed item is not active and available in the live catalogue."
         elif item and new_equipment.get(identity, 0) + reserved.get(str(identity), 0) > int(item.get("total_quantity") or 0):

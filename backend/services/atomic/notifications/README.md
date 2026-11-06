@@ -40,7 +40,9 @@ deduplication key. Supported kinds are `event_assignment`,
 `event_reassignment`, `venue_unavailable` (a Coordinator's or Organiser's
 booking needs alternative arrangements), `equipment_unavailable` (a confirmed
 or preparation event needs replacement equipment), `venue_hold_expiry` (the
-time a tentative hold will be released), `registration_confirmation` (an
+time a tentative hold will be released), `venue_hold_confirmed` (S-81
+reopened: the Event Coordinator confirmed a hold this Venue Staff member
+placed; needs the S-81 block of `notifications.sql`), `registration_confirmation` (an
 Attendee's place at an event was recorded), `waiting_list_promotion` (S-53: a
 withdrawal freed a place and this Attendee, first on the waiting list, now
 holds it; no longer sent since S-55, kept for rows already stored), and
@@ -98,3 +100,18 @@ docker compose --env-file .env.test down -v
 docker compose --env-file .env.test up -d --build --wait
 pytest tests/integration/atomic/notifications
 ```
+
+## Session check: `401` vs `503`
+
+Every route that needs a session verifies the `sb_access_token` cookie with
+Supabase Auth, trying the refresh cookie when the access token is rejected. Only Supabase rejecting the token (a 4xx other than
+429) makes it a dead session: `401` `{"detail": "Not authenticated"}`. A
+check that got no verdict -- a dropped connection, a timeout, a 5xx or a 429
+-- is retried after 0.2 s and 0.5 s, and then answers:
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `503` | `{"detail": "Authentication service unavailable"}` | Supabase Auth gave no verdict after two retries. Not a logout: the cookies are left alone, so retry the request. |
+
+The same rule as the users service (TC-USERS-035..038); here it is
+TC-NOTIFICATIONS-018..021.

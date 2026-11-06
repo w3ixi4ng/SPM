@@ -4,7 +4,9 @@ import test from 'node:test'
 import { hasPermission, PERMISSIONS } from '../../../frontend/src/lib/access.js'
 import {
   EQUIPMENT_PREPARATION_OPTIONS,
+  PREPARATION_NOT_YET_MESSAGE,
   assignedEventWork,
+  canUpdateEquipmentPreparation,
   equipmentPreparationErrorMessage,
   equipmentPreparationLabel,
   updateEquipmentPreparation,
@@ -46,4 +48,18 @@ test('dashboard contracts expose editable support and read-only coordinator stat
   assert.equal(equipmentPreparationLabel(), 'Not Started')
   assert.match(equipmentPreparationErrorMessage({ status: 500 }), /not saved/)
   assert.match(equipmentPreparationErrorMessage({ status: 409, message: 'Reload' }), /Reload/)
+})
+
+// TC-FRONTEND-424 -- S-26 AC2: read-only until the Safety Officer approves.
+test('preparation is read-only until safety approval', () => {
+  assert.deepEqual(
+    ['planning', 'pending_safety_check', 'confirmed', 'preparation'].map(canUpdateEquipmentPreparation),
+    [false, false, true, true],
+  )
+  assert.equal(
+    PREPARATION_NOT_YET_MESSAGE,
+    'Equipment preparation opens once the Safety Officer approves the event.',
+  )
+  const refused = 'Equipment preparation can be updated once the Safety Officer has approved the event'
+  assert.equal(equipmentPreparationErrorMessage({ status: 409, message: refused }), refused)
 })

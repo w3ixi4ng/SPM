@@ -4,10 +4,9 @@ Pure functions over the catalogue, the events overlapping the window and
 their requirements, exactly as the services return them, so the counting is
 testable without HTTP and the route stays thin.
 
-- Reserved: requirements on the overlapping events. The events service only
-  returns planning, pending safety check and confirmed events, so rejected,
-  returned, draft and submitted events already hold nothing by the time they
-  get here.
+- Reserved: requirements on overlapping planning, pending safety check,
+  confirmed and preparation events. The events service filters out terminal
+  events before they reach this calculation.
 - Unavailable: the pool-wide operational status. A pool that is
   "unavailable" or "maintenance" has none free for any window.
 - Retired items are not part of the check at all.

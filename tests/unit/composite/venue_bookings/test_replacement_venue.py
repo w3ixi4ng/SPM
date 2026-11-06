@@ -346,6 +346,7 @@ def test_a_replacement_is_stored_linked_with_the_events_details(client, world):
         'notes': 'Same setup as Studio B',
         'coordinator_id': C2, 'coordinator_name': 'Ben Tan', 'coordinator_email': 'ben@example.com',
         'event_name': 'Alumni talk', 'event_purpose': 'Annual alumni lecture', 'expected_attendance': 120,
+        'allocated_attendance': 120,
         'special_requirements': 'Lectern on stage', 'room_layout': 'theatre',
         'required_facilities': ['projector', 'microphones'], 'required_accessibility': ['wheelchair_access'],
         'venue_name': 'Hall C',
@@ -387,7 +388,7 @@ def test_an_unsuitable_venue_is_refused_and_nothing_is_stored(client, world):
     assert response.status_code == 422
     assert response.json() == {
         'detail': "This venue can't take this booking",
-        'errors': {'expected_attendance': 'Room D holds 100 people; this event expects 120'},
+        'errors': {'allocated_attendance': 'Room D holds 100 people; this booking allocates 120'},
     }
 
     response = replace(client, {'venue_id': HALL_J})
@@ -476,6 +477,11 @@ def test_once_approved_the_original_reads_replaced_and_unflagged(client, world):
     world.one[R1_ID] = booking(R1_ID, HALL_C, 'pending', replaces_booking_id=A_ID)
     world.post_answers[f'/bookings/{R1_ID}/decision'] = fake_response(200, r1)
     world.services.user = me('venue_staff')
+    # S-78 revision: approving asks Events to replan first; this world's
+    # event is in planning, so Events answers that nothing moved.
+    world.services.events.post = AsyncMock(
+        return_value=fake_response(200, {'replanned': False, 'status': 'planning'})
+    )
 
     decided = client.post(f'/venue-bookings/{R1_ID}/decision', json={'decision': 'approved'}, cookies=COOKIE)
 
