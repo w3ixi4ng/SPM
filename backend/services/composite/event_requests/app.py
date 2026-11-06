@@ -356,11 +356,14 @@ async def _change_event(event_id: UUID, role: str, cookies, events: httpx.AsyncC
 
 
 async def _change_equipment(event_id: UUID, equipment: httpx.AsyncClient) -> list[dict]:
+    path = "/internal/equipment-requirements"
     try:
-        response = await equipment.get("/internal/equipment-requirements", params={"event_id": str(event_id)})
+        response = await equipment.get(path, params={"event_id": str(event_id)})
     except httpx.HTTPError as exc:
+        logger.warning("Downstream GET %s for event %s failed: %s", path, event_id, type(exc).__name__)
         raise HTTPException(status_code=502, detail="Equipment service unavailable") from exc
     if response.status_code != 200:
+        logger.warning("Downstream GET %s for event %s returned %s", path, event_id, response.status_code)
         raise HTTPException(status_code=502, detail="Equipment service unavailable")
     return response.json()
 
@@ -473,14 +476,21 @@ async def submit_event_change_request(
     raise HTTPException(status_code=502, detail="Events service unavailable. Nothing was changed.")
 
 
-async def _s60_json(service: str, awaitable, *, allowed: set[int] = frozenset()) -> object:
+async def _s60_json(
+    service: str, awaitable, *, allowed: set[int] = frozenset(),
+    operation: str | None = None, event_id: UUID | None = None,
+) -> object:
     try:
         response = await awaitable
     except httpx.HTTPError as exc:
+        if operation is not None:
+            logger.warning("Downstream %s for event %s failed: %s", operation, event_id, type(exc).__name__)
         raise HTTPException(status_code=502, detail=f"{service} service unavailable") from exc
     if response.status_code in allowed:
         raise HTTPException(status_code=response.status_code, detail=response.json().get("detail", "Request changed"))
     if response.status_code != 200:
+        if operation is not None:
+            logger.warning("Downstream %s for event %s returned %s", operation, event_id, response.status_code)
         raise HTTPException(status_code=502, detail=f"{service} service unavailable")
     return response.json()
 
@@ -500,7 +510,10 @@ async def _s60_assessment(
 ) -> tuple[list[dict], list[dict]]:
     event_id = UUID(event["id"])
     requirement_rows = await _change_equipment(event_id, equipment)
-    booking_rows = await _s60_json("Bookings", bookings.get("/bookings", params={"event_id": str(event_id)}))
+    booking_rows = await _s60_json(
+        "Bookings", bookings.get("/bookings", params={"event_id": str(event_id)}),
+        operation="GET /bookings", event_id=event_id,
+    )
     venue_rows: dict[str, dict] = {}
     nearby: dict[str, list[dict]] = {}
     proposed = change["proposed_values"]
@@ -508,25 +521,34 @@ async def _s60_assessment(
         venue_id = str(booking["venue_id"])
         if venue_id in venue_rows:
             continue
-        venue_rows[venue_id] = await _s60_json("Venues", venues.get(f"/internal/venues/{venue_id}"))
+        venue_rows[venue_id] = await _s60_json(
+            "Venues", venues.get(f"/internal/venues/{venue_id}"),
+            operation=f"GET /internal/venues/{venue_id}", event_id=event_id,
+        )
         nearby[venue_id] = await _s60_json("Bookings", bookings.get("/bookings", params={
             "venue_id": venue_id, "from": proposed["start_date"], "to": proposed["end_date"],
-        }))
-    catalogue = await _s60_json("Equipment", equipment.get("/equipment/selection", cookies=cookies), allowed={401, 403})
+        }), operation="GET /bookings", event_id=event_id)
+    catalogue = await _s60_json(
+        "Equipment", equipment.get("/equipment/selection", cookies=cookies),
+        allowed={401, 403}, operation="GET /equipment/selection", event_id=event_id,
+    )
     window = {key: proposed[key] for key in ("start_date", "start_time", "end_date", "end_time")}
-    overlapping = await _s60_json("Events", events.post("/events/overlapping", json=window))
+    overlapping = await _s60_json(
+        "Events", events.post("/events/overlapping", json=window),
+        operation="POST /events/overlapping", event_id=event_id,
+    )
     overlapping_requirements = []
     if overlapping:
         overlapping_requirements = await _s60_json("Equipment", equipment.get(
             "/internal/equipment-requirements",
             params=[("event_ids", row["id"]) for row in overlapping],
-        ))
+        ), operation="GET /internal/equipment-requirements", event_id=event_id)
     technical_conflict = False
     if event.get("assigned_technical_support_id"):
         load = await _s60_json("Events", events.post("/events/technical-support-load", json={
             "staff_ids": [event["assigned_technical_support_id"]],
             "exclude_event_id": event["id"], **window,
-        }))
+        }), operation="POST /events/technical-support-load", event_id=event_id)
         technical_conflict = any(row["conflict"] for row in load)
     return impact.assess(
         event, change, booking_rows, venue_rows, nearby, requirement_rows,
