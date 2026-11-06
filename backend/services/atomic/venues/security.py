@@ -1,6 +1,7 @@
 """Cookie authentication and role checks for the venues service."""
 
 import os
+from threading import Lock
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from supabase import Client
@@ -13,6 +14,13 @@ REFRESH_COOKIE = "sb_refresh_token"
 COOKIE_SECURE = os.environ.get("AUTH_COOKIE_SECURE", "true").lower() != "false"
 COOKIE_SAMESITE = "lax"
 REFRESH_MAX_AGE = 60 * 60 * 24 * 30
+
+# supabase-py's synchronous auth client carries mutable session state and is
+# not safe for simultaneous calls from FastAPI's worker threads: two
+# overlapping checks can fail and read as a dead session (401). Serialise the
+# Supabase Auth calls, as bookings/security.py does; the venue reads and
+# writes themselves stay concurrent.
+_auth_lock = Lock()
 
 
 def set_session_cookies(response: Response, session) -> None:
@@ -56,7 +64,8 @@ def get_current_user(
     access_token = request.cookies.get(ACCESS_COOKIE)
     if access_token:
         try:
-            user = auth.auth.get_user(access_token).user
+            with _auth_lock:
+                user = auth.auth.get_user(access_token).user
         except Exception:
             user = None
         if user is not None:
@@ -65,7 +74,8 @@ def get_current_user(
     refresh_token = request.cookies.get(REFRESH_COOKIE)
     if refresh_token:
         try:
-            renewed = auth.auth.refresh_session(refresh_token)
+            with _auth_lock:
+                renewed = auth.auth.refresh_session(refresh_token)
         except Exception:
             renewed = None
         if (
