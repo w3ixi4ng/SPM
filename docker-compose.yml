@@ -277,6 +277,7 @@ services:
       EVENTS_SERVICE_URL: ${EVENTS_SERVICE_URL}
       VENUES_SERVICE_URL: ${VENUES_SERVICE_URL}
       BOOKINGS_SERVICE_URL: ${BOOKINGS_SERVICE_URL}
+      # Used by S-78 event replanning and trusted S-81 hold confirmation.
       ASSIGNMENT_SERVICE_SECRET: ${ASSIGNMENT_SERVICE_SECRET:-}
       NOTIFICATIONS_SERVICE_URL: ${NOTIFICATIONS_SERVICE_URL:-http://notifications:8006}
     depends_on:

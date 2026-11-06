@@ -892,6 +892,13 @@ async def decide_venue_booking(
         await _venue_gap(booking_id, venues, bookings, request.cookies)
         if payload.decision == "approved" else {"setup_minutes": 0, "turnaround_minutes": 0}
     )
+    # S-78 revision: replan before recording the approval, so a failure here
+    # leaves nothing decided rather than a confirmed event at a venue its
+    # safety check never covered.
+    replanned = (
+        await _replan_for_replacement(booking_id, staff, events, bookings)
+        if payload.decision == "approved" else None
+    )
     response = await _call("Bookings", bookings.post(
         f"/bookings/{booking_id}/decision",
         json=payload.model_dump(mode="json"), params=gap, cookies=request.cookies,
@@ -903,6 +910,8 @@ async def decide_venue_booking(
             decided, reason=payload.reason, alternative=payload.alternative,
         ))
         await _notify_venue_decision(decided, payload, events, notifications)
+        if replanned:
+            await _notify_replanned(decided, replanned, events, notifications)
         return decided
     conflict = _identified_conflict(response)
     if conflict:
@@ -916,6 +925,79 @@ async def decide_venue_booking(
     if response.status_code in messages:
         raise HTTPException(status_code=response.status_code, detail=messages[response.status_code])
     raise _unavailable("Bookings")
+
+
+async def _replan_for_replacement(booking_id, staff: dict, events, bookings) -> dict | None:
+    """S-78 revision: approving a replacement takes the event off the venue
+    its Operational Safety Check covered, so a confirmed event (or one
+    waiting for its check) goes back to planning. Returns the venues swapped
+    when the event actually moved, None otherwise -- including for a booking
+    that replaces nothing."""
+    booking = await _booking_by_id(bookings, booking_id)
+    if not booking.get("replaces_booking_id"):
+        return None
+    # S-81: a held replacement cannot be approved before its Coordinator
+    # confirms it. Avoid resetting the event when this approval will be
+    # refused by the bookings service.
+    if booking.get("status") == "held" and not booking.get("hold_confirmed_at"):
+        raise HTTPException(
+            status_code=409,
+            detail="This hold can't be approved until the Event Coordinator confirms it.",
+        )
+    if booking.get("hold_release_reason") == "expired":
+        raise HTTPException(status_code=409, detail="This booking request has already been decided")
+    original = await _booking_by_id(bookings, booking["replaces_booking_id"])
+    swap = {
+        "venue_name": booking.get("venue_name") or "the replacement venue",
+        "replaced_venue_name": original.get("venue_name") or "the original venue",
+    }
+    try:
+        headers = assignment_service_headers()
+    except RuntimeError as exc:
+        logger.error("Cannot replan event %s: %s", booking["event_id"], exc)
+        raise _unavailable("Events") from exc
+    response = await _call("Events", events.post(
+        f'/internal/events/{booking["event_id"]}/venue-replanning',
+        json={"actor_id": str(staff["id"]), "booking_id": str(booking["id"]), **swap},
+        headers=headers,
+    ))
+    if response.status_code != status.HTTP_200_OK:
+        raise _unavailable("Events")
+    return swap if response.json().get("replanned") else None
+
+
+async def _notify_replanned(booking: dict, swap: dict, events, notifications) -> None:
+    """S-78 revision AC4: the Coordinator and Organiser, never Attendees."""
+    event = await _event_notification_scope(events, booking["event_id"])
+    name, new, old = event["name"], swap["venue_name"], swap["replaced_venue_name"]
+    messages = {
+        event.get("assigned_coordinator_id"): (
+            f"{name} is back in planning: {new} replaced {old}. Submit it for a fresh "
+            "Operational Safety Check once its arrangements are ready."
+        ),
+        event.get("organiser_id"): (
+            f"{name} is back in planning because its venue changed to {new}. It will be "
+            "confirmed again after a fresh Operational Safety Check."
+        ),
+    }
+    rows = [
+        {
+            "recipient_id": str(recipient),
+            "event_id": str(booking["event_id"]),
+            "event_name": name,
+            "kind": "venue_booking_decision",
+            "message": message,
+            "deduplication_key": f"venue_replanned:{booking['id']}:{recipient}",
+        }
+        for recipient, message in messages.items() if recipient
+    ]
+    if not rows:
+        return
+    response = await _call("Notifications", notifications.post(
+        "/internal/notifications", json={"notifications": rows}
+    ))
+    if response.status_code != status.HTTP_201_CREATED:
+        raise _unavailable("Notifications")
 
 
 async def _venue_gap(booking_id, venues, bookings, cookies) -> dict:

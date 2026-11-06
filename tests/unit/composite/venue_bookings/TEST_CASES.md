@@ -2448,6 +2448,135 @@ F  confirmed  2026-10-29 (Thu, past) 08:00–09:00
 - **Status:** Pass
 - **Evidence:** tests/unit/composite/venue_bookings/test_outside_hours.py::test_a_venue_that_cant_be_read_fails_the_list; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
 
+## S-78 (revision) — a replacement returns a confirmed event to Planning
+
+Defect found in UAT flow 7a: approving a replacement venue for a confirmed
+event left it `confirmed`, so it ran at a venue its Operational Safety Check
+never covered. Acceptance criteria from the developer's answers, 2026-11-04:
+
+| Acceptance criterion | Cases |
+| --- | --- |
+| AC1: When Venue Staff **approve** a replacement booking for an event that is `confirmed` or `pending_safety_check`, the event returns to `planning` and needs a fresh Operational Safety Check | 402, 403; TC-EVENTS-412, 413; TC-VENUEBOOKINGS-138 |
+| AC2: Approving a replacement for an event in any other status, approving a booking that is not a replacement, or rejecting a replacement leaves the event's status unchanged | 404, 405, 406; TC-EVENTS-414 |
+| AC3: Venue Staff confirming a **restore** to the original venue (S-90) leaves the event's status unchanged | 409 |
+| AC4: When the event returns to Planning this way, the assigned Coordinator and the Organiser each get one notification saying so. Attendees get none | 402, 403, 404; TC-VENUEBOOKINGS-138 |
+
+Design, for confirmation with the cases:
+
+- The events service does the transition, on a new internal route
+  `POST /internal/events/{event_id}/venue-replanning`, guarded by the existing
+  `X-Assignment-Service-Token` (so `venue_bookings` is given
+  `ASSIGNMENT_SERVICE_SECRET` in `docker-compose.yml`). It clears the safety
+  decision and sets `safety_recheck_required`, exactly as an S-60 significant
+  edit does, and writes one `venue_replanned` history entry.
+- The composite calls it **before** asking Bookings to record the approval.
+  If Events fails, nothing is decided and Venue Staff can simply retry. The
+  cost is case 408: if Bookings then refuses the approval, the event is left
+  in Planning anyway.
+- Notices use the existing `venue_booking_decision` kind, so no SQL change.
+
+Drafted 2026-11-04 on `S-78/request-replacement-venue-for-affected-booking`
+(from `origin/sprint4` `03b60ba`). Confirmed by the developer 2026-11-04.
+
+## TC-VENUEBOOKINGS-402 — approving a replacement for a confirmed event returns it to Planning
+
+- **Scenario:** AC1, AC4. The approval sends the event back for a fresh safety check and tells the Coordinator and Organiser.
+- **Pre-conditions:** Venue Staff session S. Event E `confirmed`, Organiser G, assigned Coordinator K. Booking O (`confirmed`, Hall V) is flagged; booking R (`pending`, Hall W) has `replaces_booking_id` O. Events answers the replanning `200 {"replanned": true, "status": "planning"}`; Bookings answers the decision `200` with R `confirmed`; notifications `201`.
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`; event name `Showcase`; venues `Hall V`, `Hall W`.
+- **Expected:** `200` with R `confirmed`. Events receives exactly one `POST /internal/events/E/venue-replanning`, **before** the Bookings decision, carrying the service token and `{"actor_id": S, "booking_id": R, "venue_name": "Hall W", "replaced_venue_name": "Hall V"}`. Besides the existing decision notice, notifications receives exactly two `venue_booking_decision` rows: to K, "Showcase is back in planning: Hall W replaced Hall V. Submit it for a fresh Operational Safety Check once its arrangements are ready."; to G, "Showcase is back in planning because its venue changed to Hall W. It will be confirmed again after a fresh Operational Safety Check." No call reaches the registrations service.
+- **Actual:** `200`, R `confirmed`; one replanning call with the token and body, before the decision; the two notices to K and G with the expected wording, kind `venue_booking_decision`; no other recipient.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_approving_a_replacement_replans_first_and_tells_coordinator_and_organiser[confirmed]; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-403 — the same for an event waiting for its safety check
+
+- **Scenario:** AC1, AC4. An event awaiting its check would otherwise be approved for the old venue.
+- **Pre-conditions:** As 402, but E is `pending_safety_check`.
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** As 402: one replanning call before the decision, `200`, and the same two notices.
+- **Actual:** As 402. The composite only sees Events' `replanned` answer; the `pending_safety_check` reset itself is TC-EVENTS-413.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_approving_a_replacement_replans_first_and_tells_coordinator_and_organiser[pending_safety_check]; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-404 — a replacement for an event already in Planning sends no extra notices
+
+- **Scenario:** AC2, AC4. Nothing changes, so nobody is told it changed.
+- **Pre-conditions:** As 402, but E is `planning`; Events answers the replanning `200 {"replanned": false, "status": "planning"}`.
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** `200`. The replanning call is made once. Notifications receives only the existing decision notice, no "back in planning" row.
+- **Actual:** `200`; one replanning call; only the existing decision notice.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_an_event_already_in_planning_gets_no_back_in_planning_notice; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-405 — approving a booking that is not a replacement never replans
+
+- **Scenario:** AC2. An ordinary venue request on a confirmed event is unaffected.
+- **Pre-conditions:** As 402, but R has `replaces_booking_id` null.
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** `200`. No request reaches `/internal/events/*/venue-replanning`. No "back in planning" notice.
+- **Actual:** `200`; no replanning call; no notice.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_approving_a_booking_that_replaces_nothing_never_replans; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-406 — rejecting a replacement never replans
+
+- **Scenario:** AC2. The event keeps its original venue, which its safety check covers.
+- **Pre-conditions:** As 402.
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "rejected", "reason": "Hall W is being repainted"}`.
+- **Expected:** `200` with R `rejected`. No request reaches `/internal/events/*/venue-replanning`. No "back in planning" notice.
+- **Actual:** `200` with R `rejected`; no replanning call; no notice.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_rejecting_a_replacement_never_replans; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-407 — if Events cannot replan, nothing is decided
+
+- **Scenario:** Design. A failed transition must not leave a confirmed event at an unchecked venue.
+- **Pre-conditions:** As 402, but Events answers the replanning `503`.
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** `502` "Events service unavailable" (this service's convention for a failed dependency). Bookings receives no decision call, so R stays `pending`. No notification is sent.
+- **Actual:** `502` "Events service unavailable" both when Events answers `503` and when the secret is missing; no decision call; no notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_if_events_cannot_replan_nothing_is_decided; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-408 — a refused approval leaves the event in Planning
+
+- **Scenario:** Design, the accepted cost of replanning first.
+- **Pre-conditions:** As 402, but Bookings answers the decision `409` (already decided).
+- **Steps:** `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** `409` "This booking request has already been decided", as today. The replanning call was made, so E is `planning`. No notification is sent.
+- **Actual:** `409` "This booking request has already been decided"; the replanning call was made; no notification.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_replanning.py::test_a_refused_approval_leaves_the_event_replanned_and_tells_nobody; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-409 — confirming a restore never replans
+
+- **Scenario:** AC3. Restoring keeps the venue the safety check already covered.
+- **Pre-conditions:** Venue Staff session. E `confirmed`; O (`confirmed`, Hall V) has a restore request; R (`pending`, Hall W) replaces O. Bookings answers the restore decision `200`.
+- **Steps:** `POST /venue-bookings/O/restore-decision`.
+- **Test data:** `{"decision": "approved"}`.
+- **Expected:** `200` as in the S-90 cases. No request reaches `/internal/events/*/venue-replanning`. No "back in planning" notice.
+- **Actual:** `200`; no replanning call; no notice.
+- **Status:** Pass
+- **Evidence:** tests/unit/composite/venue_bookings/test_s78_restore.py::test_confirming_a_restore_never_replans; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-VENUEBOOKINGS-410 — a refused S-81 hold approval does not replan the event
+
+- **Scenario:** S-78 replanning must not happen for a replacement that S-81 cannot approve.
+- **Pre-conditions:** R replaces O. R is either held without Coordinator confirmation or pending after its hold expired.
+- **Steps:** As Venue Staff, approve R through `POST /venue-bookings/R/decision`.
+- **Test data:** `{"decision": "approved"}`; R has `hold_confirmed_at: null` while held, or `hold_release_reason: expired` while pending.
+- **Expected:** `409` with the relevant hold or decision reason. No replanning request, booking decision write, or notification.
+- **Actual:** Both cases returned `409` before any replanning or decision request; no notice was sent.
+- **Status:** Pass
+- **Evidence:** `tests/unit/composite/venue_bookings/test_s78_replanning.py::test_an_unapprovable_replacement_does_not_replan_the_event`; focused local run on the resolved PR branch.
+
 ## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
 
 Confirmed with the developer on 2026-11-05. The criteria, decisions and case

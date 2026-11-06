@@ -3606,6 +3606,82 @@ developer confirmation.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/events/test_s90.py::test_the_history_accepts_the_three_restore_steps; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Python 3.12.5, pytest 9.1.1: 1944 passed and 17 skipped across `tests/unit`
 
+## S-78 (revision) — a replacement returns a confirmed event to Planning
+
+Acceptance criteria and design as in
+`tests/unit/composite/venue_bookings/TEST_CASES.md` (S-78 revision). This
+service owns the transition, on
+`POST /internal/events/{event_id}/venue-replanning`.
+
+Drafted 2026-11-04 on `S-78/request-replacement-venue-for-affected-booking`.
+Confirmed by the developer 2026-11-04.
+
+## TC-EVENTS-412 — a confirmed event returns to Planning and needs a fresh safety check
+
+- **Scenario:** AC1. The same reset an S-60 significant edit makes.
+- **Pre-conditions:** E is `confirmed`, `safety_decision` `approved`, `safety_officer_id` O, `safety_decided_at` set, `safety_recheck_required` false. The service token is configured.
+- **Steps:** `POST /internal/events/E/venue-replanning` with header `X-Assignment-Service-Token`.
+- **Test data:** `{"actor_id": S, "booking_id": R, "venue_name": "Hall W", "replaced_venue_name": "Hall V"}`.
+- **Expected:** `200 {"replanned": true, "status": "planning"}`. E is updated to `status` `planning`, `safety_decision`, `safety_decision_reason`, `safety_officer_id` and `safety_decided_at` null, `safety_recheck_required` true. The update is conditional on `status in (confirmed, pending_safety_check)`. One history row: action `venue_replanned`, category `venue`, actor S as `venue_staff`, details `{"booking_id": R, "venue_name": "Hall W", "replaced_venue_name": "Hall V", "previous_status": "confirmed"}`.
+- **Actual:** `200 {"replanned": true, "status": "planning"}`; the reset written conditionally on `status in (confirmed, pending_safety_check)`; one `venue_replanned` row as specified.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_a_confirmed_or_waiting_event_returns_to_planning[confirmed]; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-413 — an event waiting for its safety check returns to Planning
+
+- **Scenario:** AC1.
+- **Pre-conditions:** E is `pending_safety_check` (safety fields null).
+- **Steps:** As 412.
+- **Test data:** As 412.
+- **Expected:** `200 {"replanned": true, "status": "planning"}`. E is `planning` with `safety_recheck_required` true. One history row with `"previous_status": "pending_safety_check"`.
+- **Actual:** As 412, with `"previous_status": "pending_safety_check"`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_a_confirmed_or_waiting_event_returns_to_planning[pending_safety_check]; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-414 — any other status is left as it is
+
+- **Scenario:** AC2.
+- **Pre-conditions:** (a) E is `planning`. (b) E is `cancelled`.
+- **Steps:** As 412, once for each.
+- **Test data:** As 412.
+- **Expected:** `200 {"replanned": false, "status": "<unchanged>"}` for each. No update and no history row.
+- **Actual:** `200 {"replanned": false}` with the status unchanged for both; no update; no history.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_any_other_status_is_left_as_it_is; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-415 — calling again, or after a concurrent change, writes nothing twice
+
+- **Scenario:** Design. The composite may retry; the status may change between read and write.
+- **Pre-conditions:** (a) E was returned to Planning by a first call. (b) E is `confirmed` when read, but the conditional update matches no row (it changed meanwhile), and a re-read shows `planning`.
+- **Steps:** As 412.
+- **Test data:** As 412.
+- **Expected:** (a) `200 {"replanned": false, "status": "planning"}`; still exactly one `venue_replanned` row. (b) `200 {"replanned": false, "status": "planning"}`; no history row.
+- **Actual:** (a) and (b) `200 {"replanned": false, "status": "planning"}`; no history row.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_calling_again_after_the_event_moved_writes_nothing; tests/unit/atomic/events/test_s78_replanning.py::test_a_concurrent_change_is_reported_without_history; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-416 — only the composite may call it, for an event that exists
+
+- **Scenario:** Design. Not reachable from a browser.
+- **Pre-conditions:** (a) No token. (b) A wrong token. (c) A valid token, E does not exist.
+- **Steps:** As 412.
+- **Test data:** As 412; (c) a random event id.
+- **Expected:** (a), (b) `403` "Trusted assignment service required". (c) `404` "Event not found". No write in any of them.
+- **Actual:** (a), (b) `403` "Trusted assignment service required"; (c) `404` "Event not found"; no write.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/events/test_s78_replanning.py::test_only_the_composite_may_call_it; tests/unit/atomic/events/test_s78_replanning.py::test_an_unknown_event_is_not_found; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; Python 3.12.5: 1968 passed and 17 skipped across `tests/unit`
+
+## TC-EVENTS-456 — a missing Supabase Auth verdict does not invalidate a session
+
+- **Scenario:** An Auth connection loss while checking an event session must not be reported as a rejected token.
+- **Pre-conditions:** An access cookie is present. The fake Auth client either disconnects once, keeps failing, or definitively rejects the token.
+- **Steps:** Check the current user with the access cookie. For an expired token, retry refresh using the refresh cookie.
+- **Test data:** `sb_access_token=access-token`; `sb_refresh_token=refresh-token`; simulated disconnect, upstream `500`, rate limit `429`, and rejected token `401`.
+- **Expected:** A transient failure followed by a valid user succeeds. Repeated missing verdicts return `503` without clearing cookies. A definitive token rejection returns `401` without retry. Refresh retries after a connection loss.
+- **Actual:** Focused unit tests passed for those paths.
+- **Status:** Pass
+- **Evidence:** `tests/unit/atomic/events/test_security.py`; focused local run on PR #95.
+
 ## Session check: a rejected token vs Supabase Auth not answering
 
 Ports the users service's fix (`bb92dfd`, TC-USERS-035..038) to this

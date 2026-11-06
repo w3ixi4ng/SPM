@@ -530,6 +530,25 @@ Drafted 2026-11-01 on `S-90/restore-original-venue-booking` (from
 - **Status:** Pass
 - **Evidence:** tests/integration/composite/venue_bookings/test_occupied.py::test_a_dates_occupied_times_come_back_through_the_stack; 2026-11-04, branch `S-34/search-and-filter-venues` (on `fix` `9550298`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); with the bookings and venue_bookings integration suites: 40 passed, 1 failed (`test_replacement_venue.py::test_through_kong_resolving_the_flag_with_a_note_clears_it`, unrelated; passed on rerun)
 
+## S-78 (revision) — a replacement returns a confirmed event to Planning
+
+Acceptance criteria and design as in
+`tests/unit/composite/venue_bookings/TEST_CASES.md` (S-78 revision).
+
+Drafted 2026-11-04 on `S-78/request-replacement-venue-for-affected-booking`.
+Confirmed by the developer 2026-11-04.
+
+## TC-VENUEBOOKINGS-138 — approving a replacement replans a confirmed event, through the real services
+
+- **Scenario:** AC1, AC4. Proves the composite reaches the events route with its token, and the notices are stored.
+- **Pre-conditions:** `.env.test` stack started with `--build` immediately before; the test project has every schema applied. `ASSIGNMENT_SERVICE_SECRET` set in `.env.test`.
+- **Steps:** 1. Seed, with the admin client: Organiser G, Coordinator K, Venue Staff S, Attendee A; venues V and W; event E `confirmed` (safety approved) assigned to K, A registered; booking O `confirmed` at V; an unavailable period over O; booking R `pending` at W with `replaces_booking_id` O. 2. Sign in as S and `POST /venue-bookings/R/decision`. 3. Read E, its history and the notifications with the admin client. 4. Delete everything seeded.
+- **Test data:** Names `spm-test S78R …`; `{"decision": "approved"}`.
+- **Expected:** 2 → `200`, R `confirmed`. 3 → E `planning`, `safety_decision` null, `safety_recheck_required` true; one `venue_replanned` history entry; one notification each to K and G containing "is back in planning"; none to A. 4 leaves no rows.
+- **Actual:** 2 `200`, R `confirmed`. 3 E `planning`, `safety_decision` null, `safety_recheck_required` true; one `venue_replanned` entry with `previous_status` `confirmed`; "is back in planning" notices to exactly K and G; none to A. 4 cleaned up.
+- **Status:** Pass
+- **Evidence:** tests/integration/composite/venue_bookings/test_s78_replanning.py::test_approving_a_replacement_replans_a_confirmed_event; 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; `.env.test` stack recreated with `--build` immediately before (verified on the test project's `SUPABASE_URL`; venue_bookings has `ASSIGNMENT_SERVICE_SECRET`). Numbered 137 when drafted; renumbered on rebasing onto `fix`, where S-34 had already taken 137.
+
 ## S-81 reopened — the Event Coordinator confirms a hold before Venue Staff approve it
 
 Confirmed with the developer on 2026-11-05. See the bookings unit

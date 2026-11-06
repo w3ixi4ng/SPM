@@ -3483,3 +3483,14 @@ Revised for S-90: TC-FRONTEND-275's list of history actions gains
 - **Actual:** The summary as expected; notices "Studio B restored for Alumni networking evening." and "Restore of Studio B for Alumni networking evening declined."
 - **Status:** Pass
 - **Evidence:** test_restore_original_venue.mjs::venue staff see what confirming a restore will do; 2026-11-01, branch `S-90/restore-original-venue-booking` (on sprint4 `3c5851b`, rebased after S-89), post-rebase working tree; Node 22.16.0: 228 passed across frontend unit
+
+## TC-FRONTEND-414 — the history page describes a return to Planning after a venue replacement
+
+- **Scenario:** S-78 revision, AC1. The new `venue_replanned` entry reads as a sentence, like the other venue steps.
+- **Pre-conditions:** `frontend/src/lib/eventHistory.js` imported directly; no browser.
+- **Steps:** `describeEntry` for one entry.
+- **Test data:** `{"category": "venue", "action": "venue_replanned", "details": {"venue_name": "Hall W", "replaced_venue_name": "Hall V", "previous_status": "confirmed"}}`.
+- **Expected:** "Returned to planning: Hall W replaced Hall V. A fresh Operational Safety Check is needed."
+- **Actual:** The expected sentence.
+- **Status:** Pass
+- **Evidence:** tests/unit/frontend/test_event_history.mjs (TC-FRONTEND-414); 2026-11-04, branch `S-78/request-replacement-venue-for-affected-booking` (on sprint4 `03b60ba`), pre-commit working tree; node --test: 230 passed. Numbered 405 when drafted; renumbered on rebasing onto `fix`, where S-34 had already taken 405–413

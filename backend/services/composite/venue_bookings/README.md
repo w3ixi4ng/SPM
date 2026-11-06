@@ -230,7 +230,9 @@ the test project — `users`, `events` (including the S-36 `planning` change),
 [`backend/sql/`](../../../sql/README.md).
 
 **Development** — `.env` filled in from `.env.example`, including
-`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL` and `NOTIFICATIONS_SERVICE_URL`:
+`VENUES_SERVICE_URL`, `BOOKINGS_SERVICE_URL`, `NOTIFICATIONS_SERVICE_URL` and
+`ASSIGNMENT_SERVICE_SECRET` (the same value the events service has; approving
+a replacement fails with `502` without it):
 
 ```bash
 docker compose up --build
@@ -647,6 +649,15 @@ stored request.
   `replaced` — see the
   [bookings contract](../../atomic/bookings/README.md#s-78-replacement-requests-and-resolutions).
   A replaced booking is never flagged.
+- **Approving a replacement returns a `confirmed` or `pending_safety_check`
+  event to `planning`** (S-78 revision), for a fresh Operational Safety
+  Check. The composite asks the events service first
+  (`POST /internal/events/{event_id}/venue-replanning`); if that fails the
+  answer is `502` `Events service unavailable` and nothing is decided, so
+  Venue Staff can retry. When the event moved, its Coordinator and Organiser
+  each get one `venue_booking_decision` notice saying it is back in planning;
+  Attendees get none. A rejection, a booking that replaces nothing, and a
+  confirmed restore (S-90) never replan.
 
 ### `POST /venue-bookings/{id}/resolution`
 

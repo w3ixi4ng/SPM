@@ -477,6 +477,11 @@ def test_once_approved_the_original_reads_replaced_and_unflagged(client, world):
     world.one[R1_ID] = booking(R1_ID, HALL_C, 'pending', replaces_booking_id=A_ID)
     world.post_answers[f'/bookings/{R1_ID}/decision'] = fake_response(200, r1)
     world.services.user = me('venue_staff')
+    # S-78 revision: approving asks Events to replan first; this world's
+    # event is in planning, so Events answers that nothing moved.
+    world.services.events.post = AsyncMock(
+        return_value=fake_response(200, {'replanned': False, 'status': 'planning'})
+    )
 
     decided = client.post(f'/venue-bookings/{R1_ID}/decision', json={'decision': 'approved'}, cookies=COOKIE)
 

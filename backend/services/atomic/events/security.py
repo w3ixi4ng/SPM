@@ -3,6 +3,7 @@
 import logging
 import os
 import time
+from threading import Lock
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from supabase import Client
@@ -18,6 +19,13 @@ except ImportError:  # pragma: no cover - older releases keep them here
         from gotrue.errors import AuthApiError
 
 logger = logging.getLogger(__name__)
+
+# supabase-py's synchronous auth client carries mutable session state and is
+# not safe for simultaneous calls from FastAPI's worker threads: two
+# overlapping checks can fail and read as a dead session. Serialise the
+# Supabase Auth calls, as bookings/security.py does; the event reads and
+# writes themselves stay concurrent.
+_auth_lock = Lock()
 
 ACCESS_COOKIE = "sb_access_token"
 REFRESH_COOKIE = "sb_refresh_token"
@@ -83,11 +91,14 @@ def _ask_auth(call):
 
     A call that got no verdict is retried; if it never gets one, that is a
     503, never a 401 -- treating a network blip as a dead session signs a
-    working user out, and fails a composite's call on their behalf.
+    working user out, and fails a composite's call on their behalf. The lock
+    is held per attempt, not across the pauses, so one slow check doesn't
+    hold up every other request.
     """
     for delay in (*AUTH_RETRY_DELAYS, None):
         try:
-            return call()
+            with _auth_lock:
+                return call()
         except Exception as exc:
             if _rejected(exc):
                 return None

@@ -181,10 +181,12 @@ def test_two_concurrent_submissions_leave_one_pending_row(organiser_session, adm
     def submit(attendance):
         with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=15.0) as api:
             return request_with_retry(api, "POST", f"/event-requests/{event_id}/change-requests",
-                headers=cookie(organiser_session), json=proposal(attendance)).status_code
+                headers=cookie(organiser_session), json=proposal(attendance))
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        statuses = list(pool.map(submit, (150, 180)))
-    assert sorted(statuses) == [201, 409]
+        responses = list(pool.map(submit, (150, 180)))
+    assert sorted(response.status_code for response in responses) == [201, 409], [
+        (response.status_code, response.text) for response in responses
+    ]
     rows = admin.schema("events").table("change_requests").select("status").eq("event_id", event_id).execute().data
     assert rows == [{"status": "pending"}]

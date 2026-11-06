@@ -63,6 +63,8 @@ from schemas import (
     TechnicalSupportLoadRequest,
     SafetyDecisionValue,
     VenueCancellationCreate,
+    VenueReplanningCreate,
+    VenueReplanningRead,
     EVENT_HISTORY_ACTIONS,
     HISTORY_CATEGORIES,
     SAFETY_EDIT_FIELDS,
@@ -962,6 +964,64 @@ def resubmit_safety_returned_event(
         )
     _record(db, event_id, payload.coordinator_id, "event_coordinator", "safety_resubmitted")
     return result.data[0]
+
+
+# S-78 revision: the statuses whose safety check (done, or about to be done)
+# covers the venue a replacement is taking away.
+VENUE_REPLANNING_STATUSES = ["confirmed", "pending_safety_check"]
+
+
+@app.post("/internal/events/{event_id}/venue-replanning", response_model=VenueReplanningRead)
+def replan_for_venue_replacement(
+    event_id: UUID,
+    payload: VenueReplanningCreate,
+    _service=Depends(require_assignment_service),
+    db: Client = Depends(get_db),
+):
+    """S-78 revision: a confirmed event, or one waiting for its check, goes
+    back to planning when Venue Staff approve a replacement venue -- the same
+    reset an S-60 significant edit makes. Any other status is left alone.
+
+    The venue_bookings composite calls this before recording the approval,
+    and may call it again on a retry: the conditional update means only the
+    call that actually moves the event writes history."""
+    found = _execute(
+        db.schema(SCHEMA).table(TABLE).select("id,status").eq("id", str(event_id))
+    )
+    if not found.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    previous = found.data[0]["status"]
+    if previous not in VENUE_REPLANNING_STATUSES:
+        return {"replanned": False, "status": previous}
+
+    result = _execute(
+        db.schema(SCHEMA)
+        .table(TABLE)
+        .update({
+            "status": "planning",
+            "safety_recheck_required": True,
+            "safety_decision": None,
+            "safety_decision_reason": None,
+            "safety_officer_id": None,
+            "safety_decided_at": None,
+        })
+        .eq("id", str(event_id))
+        .in_("status", VENUE_REPLANNING_STATUSES)
+    )
+    if not result.data:
+        # Changed between the read and the write; report where it is now.
+        now = _execute(
+            db.schema(SCHEMA).table(TABLE).select("status").eq("id", str(event_id))
+        )
+        return {"replanned": False, "status": now.data[0]["status"] if now.data else previous}
+
+    _record(db, event_id, payload.actor_id, "venue_staff", "venue_replanned", {
+        "booking_id": str(payload.booking_id),
+        "venue_name": payload.venue_name,
+        "replaced_venue_name": payload.replaced_venue_name,
+        "previous_status": previous,
+    })
+    return {"replanned": True, "status": "planning"}
 
 
 _NOT_IN_PLANNING = "This event is not in planning"
