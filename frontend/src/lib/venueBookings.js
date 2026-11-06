@@ -26,6 +26,7 @@ export function emptyVenueBookingForm(eventId) {
     startTime: '',
     endTime: '',
     notes: '',
+    allocatedAttendance: '',
   }
 }
 
@@ -39,6 +40,9 @@ export function venueBookingFormToPayload(form) {
   }
   const notes = form.notes.trim()
   if (notes) payload.notes = notes
+  if (form.allocatedAttendance !== '' && form.allocatedAttendance != null) {
+    payload.allocated_attendance = Number(form.allocatedAttendance)
+  }
   return payload
 }
 
@@ -71,10 +75,14 @@ function hoursProblem(venue, when) {
 // Why `venue` would not suit `event`, before anything is sent -- an empty list
 // when it fits. Opening hours are checked only when `when`, the booking's date
 // and time, is given (S-34); the service checks them again on send.
-export function venueFit(event, venue, when) {
+export function venueFit(event, venue, when, allocatedAttendance = '') {
   const problems = []
-  if (event.expected_attendance > venue.capacity) {
-    problems.push(`Too small: holds ${venue.capacity}, event expects ${event.expected_attendance}`)
+  const attendance = allocatedAttendance === '' ? event.expected_attendance : Number(allocatedAttendance)
+  if (!Number.isInteger(attendance) || attendance < 1 || attendance > event.expected_attendance) {
+    problems.push(`Allocate 1 to ${event.expected_attendance} attendees`)
+  }
+  if (attendance > venue.capacity) {
+    problems.push(`Too small: holds ${venue.capacity}, booking allocates ${attendance}`)
   }
   if (event.room_layout && !venue.room_layouts.includes(event.room_layout)) {
     problems.push(`No ${optionLabel(event.room_layout)} layout`)
@@ -93,9 +101,9 @@ export function venueFit(event, venue, when) {
 // null when it does, or when nothing is selected yet. While it is showing,
 // Send request is disabled: the service would refuse the request anyway, so
 // the Coordinator is steered to a venue that fits instead.
-export function venueWarning(event, venue, when) {
+export function venueWarning(event, venue, when, allocatedAttendance = '') {
   if (!venue) return null
-  const problems = venueFit(event, venue, when)
+  const problems = venueFit(event, venue, when, allocatedAttendance)
   if (problems.length === 0) return null
   return `${venue.name} doesn't suit this event: ${problems.join('; ')}. Choose a venue that fits.`
 }
@@ -605,6 +613,7 @@ export function bookingToChangeForm(booking) {
   return {
     eventId: booking.event_id,
     venueId: booking.venue_id,
+    allocatedAttendance: booking.allocated_attendance ?? booking.expected_attendance,
     bookingDate: booking.booking_date,
     startTime: shortTime(booking.start_time),
     endTime: shortTime(booking.end_time),

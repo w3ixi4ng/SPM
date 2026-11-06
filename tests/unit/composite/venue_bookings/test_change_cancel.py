@@ -62,7 +62,7 @@ def test_the_assigned_coordinator_changes_one_booking(client, writes):
     writes.bookings.patch.assert_awaited_once()
     call = writes.bookings.patch.await_args
     assert call.args == (f"/bookings/{BOOKING_ID}",)
-    assert call.kwargs["json"] == {**CHANGE, "start_time": "14:00:00", "end_time": "16:00:00", "venue_name": "Studio C"}
+    assert call.kwargs["json"] == {**CHANGE, "start_time": "14:00:00", "end_time": "16:00:00", "venue_name": "Studio C", "allocated_attendance": 120, "expected_attendance": 120}
     assert call.kwargs["params"] == {"setup_minutes": 15, "turnaround_minutes": 30}
     assert call.kwargs["cookies"] == {"sb_access_token": "k"}
     writes.bookings.delete.assert_not_called()
@@ -79,7 +79,7 @@ def test_an_unsuitable_change_is_refused_before_anything_is_written(client, writ
     outside = client.patch(URL, json={**CHANGE, "start_time": "17:00", "end_time": "19:00"})
 
     assert too_small.status_code == 422
-    assert "expected_attendance" in too_small.json()["errors"]
+    assert "allocated_attendance" in too_small.json()["errors"]
     assert outside.status_code == 422
     assert "booking_date" in outside.json()["errors"]
     _no_writes(writes)

@@ -194,14 +194,18 @@ Overlapping events returned by the events service: E1 `planning`
 
 - **Scenario:** The core check (AC1, AC2).
 - **Pre-conditions:** Users returns `technical_support`. Events
-  `POST /events/overlapping` returns E1, E2, E5. Equipment `GET /equipment`
+  `POST /events/overlapping` first returns E1, E2, E5. Equipment `GET /equipment`
   returns the three items; `GET /internal/equipment-requirements?event_ids=…`
   returns the E1, E2, E5 requirements.
-- **Steps:** `GET /equipment-requirements/availability?start_date=2026-11-12&start_time=09:00&end_date=2026-11-12&end_time=12:00`.
+- **Steps:** Check availability for 2026-11-12 09:00–12:00, then repeat with
+  overlapping Pending Safety Check and Preparation events requiring one
+  microphone each.
 - **Expected:** `200` with `checked_at` (server time, ISO 8601), the window
   echoed back, `quantity: null`, and `items` in type order:
   - Projector: `total 4, reserved 1, unavailable 4, available 0, over_reserved false`
-  - Wireless Microphone: `total 12, reserved 10, unavailable 0, available 2, over_reserved false`
+  - Wireless Microphone: first `reserved 10, available 2`; second
+    `reserved 12, available 0` and reservations include all four committed
+    lifecycle stages.
 
   Old Speaker (retired) is absent. Each item has `sufficient: null` and a
   `reservations` list: for the microphone, E5 (2), E1 (5), E2 (3) in start

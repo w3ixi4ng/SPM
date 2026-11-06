@@ -93,8 +93,8 @@ function hoursSummary(operatingHours) {
     .join(', ')
 }
 
-function VenueOption({ venue, event, when, selected, onSelect }) {
-  const problems = venueFit(event, venue, when)
+function VenueOption({ venue, event, when, allocatedAttendance, selected, onSelect }) {
+  const problems = venueFit(event, venue, when, allocatedAttendance)
   const fits = problems.length === 0
   return (
     <li style={{ borderColor: C.line }}>
@@ -151,13 +151,17 @@ function RequestForm({ event, booking = null, onSent }) {
     bookingDate: event.start_date ?? '',
     startTime: shortTime(event.start_time),
     endTime: shortTime(event.end_time),
+    allocatedAttendance: event.expected_attendance,
   }))
   const [venues, setVenues] = useState({ status: 'loading', list: [] })
   const [sendState, setSendState] = useState({ status: 'idle', errors: [] })
   // S-34: the filters start from what the event needs. Their date and time
   // are the booking's own fields, so the panel only switches "open then" on
   // or off (on to start; Clear filters turns it off).
-  const [filters, setFilters] = useState(() => venueFiltersFromEvent(event))
+  const [filters, setFilters] = useState(() => ({
+    ...venueFiltersFromEvent(event),
+    attendance: String(booking?.allocated_attendance ?? event.expected_attendance ?? ''),
+  }))
   const [openThen, setOpenThen] = useState(true)
   const [options, setOptions] = useState(null)
 
@@ -182,10 +186,11 @@ function RequestForm({ event, booking = null, onSent }) {
   }, occupied.entries)
 
   const selectedVenue = venues.list.find((venue) => venue.id === form.venueId) ?? null
-  const warning = venueWarning(event, selectedVenue, when)
+  const warning = venueWarning(event, selectedVenue, when, form.allocatedAttendance)
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
+    if (field === 'allocatedAttendance') setFilters((current) => ({ ...current, attendance: value }))
   }
 
   async function handleSubmit(e) {
@@ -194,6 +199,9 @@ function RequestForm({ event, booking = null, onSent }) {
       !form.venueId && 'Choose a venue.',
       !form.bookingDate && 'Choose a date.',
       (!form.startTime || !form.endTime) && 'Enter a start and end time.',
+      (!Number.isInteger(Number(form.allocatedAttendance)) || Number(form.allocatedAttendance) < 1
+        || Number(form.allocatedAttendance) > event.expected_attendance) &&
+        `Allocate 1 to ${event.expected_attendance} attendees.`,
     ].filter(Boolean)
     if (missing.length > 0) {
       setSendState({ status: 'idle', errors: missing })
@@ -256,6 +264,13 @@ function RequestForm({ event, booking = null, onSent }) {
         </div>
       </div>
 
+      <div className="mb-6">
+        <Label htmlFor="venue-request-attendance">Attendees allocated to this venue</Label>
+        <input id="venue-request-attendance" type="number" min="1" max={event.expected_attendance}
+          value={form.allocatedAttendance} onChange={(e) => update('allocatedAttendance', e.target.value)}
+          className={INPUT_CLASS} style={INPUT_STYLE} />
+      </div>
+
       <fieldset className="border-0 p-0 m-0 mb-8">
         <legend className="font-display text-xl mb-3" style={{ color: C.ink }}>Choose a venue</legend>
         {venues.status === 'ready' && venues.list.length > 0 && (
@@ -296,6 +311,7 @@ function RequestForm({ event, booking = null, onSent }) {
                 venue={venue}
                 event={event}
                 when={when}
+                allocatedAttendance={form.allocatedAttendance}
                 selected={form.venueId === venue.id}
                 onSelect={(venueId) => update('venueId', venueId)}
               />

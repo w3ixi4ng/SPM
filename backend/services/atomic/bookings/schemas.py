@@ -86,6 +86,7 @@ class BookingCreate(BaseModel):
     event_name: str = Field(min_length=1)
     event_purpose: str = Field(min_length=1)
     expected_attendance: PositiveInt
+    allocated_attendance: PositiveInt | None = None
     special_requirements: str | None = None
     required_accessibility: list[AccessibilityFeature] = Field(default_factory=list)
     required_facilities: list[Facility] = Field(default_factory=list)
@@ -134,6 +135,8 @@ class BookingChange(BaseModel):
     start_time: time
     end_time: time
     notes: str | None = None
+    allocated_attendance: PositiveInt | None = None
+    expected_attendance: PositiveInt | None = None
 
     @field_validator("venue_name", mode="before")
     @classmethod
@@ -164,9 +167,12 @@ class BookingRead(BaseModel):
     hold_expires_at: datetime | None = None
     hold_released_at: datetime | None = None
     hold_release_reason: HoldReleaseReason | None = None
-    # S-81 reopened: the Event Coordinator confirmed the hold.
+    # S-81: the assigned Event Coordinator confirmed the tentative hold.
     hold_confirmed_by: UUID | None = None
     hold_confirmed_at: datetime | None = None
+    hold_expiry_notified_at: datetime | None = None
+    approval_setup_minutes: int | None = None
+    approval_turnaround_minutes: int | None = None
     venue_preparation_status: VenuePreparationStatus = "not_started"
     venue_preparation_updated_by: UUID | None = None
     venue_preparation_updated_at: datetime | None = None
@@ -187,6 +193,7 @@ class BookingRead(BaseModel):
     event_name: str
     event_purpose: str
     expected_attendance: int
+    allocated_attendance: int | None = None
     special_requirements: str | None
     required_accessibility: list[str]
     required_facilities: list[str]
@@ -337,6 +344,11 @@ class HoldRelease(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: HoldReleaseReason
+
+
+class CoordinatorHoldConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    coordinator_id: UUID
 
 
 class HoldCreate(BaseModel):

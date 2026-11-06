@@ -116,7 +116,8 @@ EVENT_INFORMATION_FIELDS = frozenset({
     "internal_notes", *SIGNIFICANT_EVENT_FIELDS,
 })
 # Events whose equipment and Technical Support are committed (S-43, S-44).
-COMMITTED_EVENT_STATUSES = ["planning", "pending_safety_check", "confirmed"]
+COMMITTED_EVENT_STATUSES = ["planning", "pending_safety_check", "confirmed", "preparation"]
+SUPPORT_LOAD_STATUSES = ["planning", "pending_safety_check", "confirmed"]
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -2015,8 +2016,8 @@ def coordinator_load(payload: CoordinatorLoadRequest, db: Client = Depends(get_d
 def overlapping_events(payload: OverlappingEventsRequest, db: Client = Depends(get_db)):
     """S-44: the live events whose time overlaps a window -- the ones whose
     equipment requirements reserve equipment then. Planning, pending safety
-    check and confirmed events are committed; draft, submitted, returned and
-    rejected are not."""
+    check, confirmed and preparation events are committed; terminal events
+    and requests awaiting a decision are not."""
     operation = (
         db.schema(SCHEMA)
         .table(TABLE)
@@ -2063,7 +2064,7 @@ def technical_support_load(
             "id,assigned_technical_support_id,start_date,start_time,end_date,end_time"
         )
         .in_("assigned_technical_support_id", ids)
-        .in_("status", COMMITTED_EVENT_STATUSES)
+        .in_("status", SUPPORT_LOAD_STATUSES)
     )
     rows = _execute(operation).data
     by_staff: dict[str, list[dict]] = {staff_id: [] for staff_id in ids}

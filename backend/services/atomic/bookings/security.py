@@ -1,6 +1,8 @@
 """Verify the session at the atomic decision boundary, including direct calls."""
 
+import hmac
 import logging
+import os
 import time
 from threading import Lock
 
@@ -92,3 +94,10 @@ def require_coordinator(user=Depends(require_user)):
     if (getattr(user, "app_metadata", None) or {}).get("role") != "event_coordinator":
         raise HTTPException(status_code=403, detail="Permission denied")
     return user
+
+
+def require_assignment_service(request: Request):
+    secret = os.environ.get("ASSIGNMENT_SERVICE_SECRET")
+    supplied = request.headers.get("X-Assignment-Service-Token", "")
+    if not secret or not hmac.compare_digest(supplied, secret):
+        raise HTTPException(status_code=403, detail="Permission denied")

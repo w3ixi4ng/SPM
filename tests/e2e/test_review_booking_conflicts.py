@@ -23,9 +23,9 @@ def test_staff_are_told_which_booking_blocks_an_approval_and_the_clash_stays_lis
     organiser = make_user("event_organiser")
     venue = add_venue(admin, staff, uuid.uuid4().hex[:6])
     events = {label: add_event(admin, organiser, coordinator, label, d(3)) for label in "ABCE"}
-    # The times go on first: once a confirmed booking exists they are locked
-    # (S-75 reopened). They make A block B, and C clash with E; all four are
-    # valid at 0/0, i.e. by their own times.
+    # Save timing before any confirmed booking exists. The direct rows below
+    # model historical bookings whose event times do not overlap but whose
+    # occupied windows clash after setup and turnaround are considered.
     admin.schema("venues").table("venues").update(
         {"setup_minutes": 30, "turnaround_minutes": 45}).eq("id", venue["id"]).execute()
     seed(admin, events["A"], venue, coordinator, staff, "confirmed", "10:00", "12:00")

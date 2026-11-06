@@ -273,8 +273,8 @@ contract without a browser.
     all four venues show, the Weekend venue marked `"Closed on Thursdays"`
     under its name, and the checkbox is unticked. Ticking it hides the
     Weekend venue again; clearing once more shows all four.
-  - Step 3: a warning naming the Small venue and `"Too small: holds 80, event
-    expects 100"` is shown, and **Send request** is disabled.
+  - Step 3: a warning naming the Small venue and `"Too small: holds 80, booking
+    allocates 100"` is shown, and **Send request** is disabled.
   - Step 4: the warning names the Bare venue and `"Missing: Projector"`;
     **Send request** is still disabled.
   - Step 5: the warning names the Weekend venue and `"Closed on
@@ -713,36 +713,30 @@ Story: S-75 Configure Venue Setup and Turnaround Time.
 Confirmed by the developer on 2026-10-07. Not yet executed.
 **Blocked** until the S-75 SQL has been run in the test project.
 
-## TC-E2E-228 — Venue Staff set setup and turnaround times, see the new clash, and the Coordinator is warned
+## TC-E2E-228 — Venue Staff cannot change timing after a booking is confirmed
 
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   Coordinator, a test venue open every day 08:00–20:00 with 0/0, and on
-  `D+3`: A held 10:00–12:00 and B held 12:30–14:00 (B's event assigned
-  to the Coordinator). A is held, not confirmed: since S-75 was reopened, a
-  confirmed booking dated today or later locks the times this case sets
-  (TC-E2E-470).
+  `D+3`: A confirmed 10:00–12:00 and B held 12:30–14:00 (B's event assigned
+  to the Coordinator). The confirmed booking locks timing changes.
 - **Steps:**
   1. Staff edit the venue: setup 0 h 30 min, turnaround 0 h 45 min; save.
-     (Hours and minutes boxes since the developer's change of 2026-10-08.)
-  2. The Coordinator opens B's event, then the venue's calendar on `D+3`.
-- **Expected:**
-  - Step 1: the times are saved, and the page lists A and B as clashing.
-  - Neither booking is removed.
-  - Step 2: B shows the clash warning, "Clashes with another held booking".
-  - The calendar shows "Setup 30 min · Turnaround 45 min" and "Tentatively
-    held 10:00–12:00 · expires 1 Jan, 12:00 · venue in use 09:30–12:45".
-- **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept, both still held; the Coordinator saw "Clashes with another held booking" with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Tentatively held 10:00–12:00 · expires 1 Jan, 12:00 · venue in use 09:30–12:45".
-- **Status:** Pass
-- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_set_setup_and_turnaround_see_the_clash_and_the_coordinator_is_warned[chromium]`; 2026-11-05, branch `update/tests` (on `0a74b20`), working tree; `.env.test` stack recreated with `--build` immediately before (users container verified on the test project's `SUPABASE_URL`); test_setup_turnaround: 2 passed. Previously failed in CI shard 2/4 on all three attempts: the test project refused the save with `confirmed_venue_timing_locked` because A was seeded confirmed.
+- **Expected (current):** The form shows a confirmed-booking error. Timing
+  remains 0/0 and neither booking is removed.
+- **Historical note:** Actual, Status and Evidence below record the old
+  behavior and are not evidence that the revised case has passed.
+- **Actual:** Staff saved 30/45 on the venue form and saw A and B listed as clashing; both bookings kept; the Coordinator saw the warning with "venue in use 09:30–12:45"; the calendar showed "Setup 30 min · Turnaround 45 min" and "Booked 10:00–12:00 · venue in use 09:30–12:45".
+- **Status:** Not Executed after the revised requirement.
+- **Evidence:** `tests/e2e/test_setup_turnaround.py::test_staff_cannot_change_setup_and_turnaround_after_confirmation[chromium]`.
 
 ## TC-E2E-227 — Venue Staff open a request from a compact list and decide it on its own page
 
 - **Scenario:** The list stays short; the work happens on the request's page.
-- **Pre-conditions:** As TC-E2E-228, plus a pending request P.
+- **Pre-conditions:** As TC-E2E-228 except A is held, plus a pending request P.
 - **Steps:**
   1. Staff open their dashboard.
   2. Click P's row; reload the page.
-  3. Place a hold, then approve P.
+  3. Approve P as an ordinary pending request.
 - **Expected:**
   - Step 1: each request is one row (event, venue, date and time, status);
     the list has no hold button or decision form.
@@ -808,9 +802,8 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
 - **Pre-conditions:** A fresh `.env.test` stack and Chromium. Venue Staff, a
   test venue open every day 08:00–20:00 at setup 30, turnaround 45. On
   `D+3`: A confirmed 10:00–12:00 ("Alumni talk") and B pending 12:30–14:00;
-  C confirmed 15:00–16:00 and E confirmed 16:30–17:00 (none overlapping by
-  their own times). The times are set before the bookings are seeded: once a
-  confirmed booking exists they are locked (S-75 reopened).
+  C confirmed 15:00–16:00 and E confirmed 16:30–17:00. Confirmed rows are
+  directly seeded historical data after the timing is saved.
 - **Steps:**
   1. Staff open B from the request list and approve it.
   2. Staff open the dashboard, then reload it.
@@ -820,9 +813,11 @@ Confirmed by the developer on 2026-10-09. Executed 2026-10-09.
     (event 10:00–12:00, 30 min setup, 45 min turnaround)." B stays pending.
   - Step 2: "Clashes to review" lists the venue with the C–E pair, before
     and after the reload, with no Dismiss button. Nothing is removed.
-- **Actual:** 
-- **Status:** Not Executed — seeding amended 2026-11-06 for the test project's lock on a venue's times while an upcoming confirmed booking stands (`confirmed_venue_timing_locked`); awaiting the PR #98 CI run
-- **Evidence:** `tests/e2e/test_review_booking_conflicts.py::test_staff_are_told_which_booking_blocks_an_approval_and_the_clash_stays_listed[chromium]`
+- **Actual:** Approving B showed the specified alert naming Event A with 09:30–12:45; B stayed pending; "Clashes to review" listed the venue with C and E before and after reload, with no Dismiss; no booking removed.
+- **Status:** Pass
+- **Evidence:** `test_reassign_event_coordinator.py::test_lead_reassigns_event_and_transfers_access[chromium]`;
+  local Chromium against a freshly rebuilt `.env.test` stack on 2026-10-09:
+  1 passed.
 
 ## TC-E2E-238 — Lead oversees every Coordinator and sees reassignment move work
 
@@ -1153,8 +1148,10 @@ overview `230` -> `238`, S-26 preparation `232` -> `239`, S-81 hold expiry
   venue/time becomes available again.
 - **Expected:** Blank expiry is refused; the request and calendar show the
   hold and expiry distinctly; the Coordinator receives an expiry notice; the
-  calendar removes the hold after expiry without manual release and storage
-  records `expired`.
+  Coordinator can confirm the active hold; the calendar removes it after
+  expiry without manual release and storage records `expired`.
+- **Historical note:** The Actual, Status and Evidence below predate the new
+  Coordinator confirmation step in this journey.
 - **Actual:** Chromium refused a blank expiry, displayed the active hold and
   expiry, showed the Coordinator notice, and showed the slot as available
   after automatic expiry; storage recorded `pending/expired`.

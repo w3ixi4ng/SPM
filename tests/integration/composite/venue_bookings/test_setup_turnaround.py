@@ -1,5 +1,4 @@
-"""TC-VENUEBOOKINGS-107 (S-75): new setup/turnaround times flag the clash they
-create and are used for the next request, through Kong."""
+"""TC-VENUEBOOKINGS-107 (S-75): confirmed bookings freeze venue timing."""
 
 import httpx
 
@@ -30,13 +29,11 @@ def seed(admin, world, event_id, status, start, end):
     return admin.schema("bookings").table("bookings").insert(row).execute().data[0]
 
 
-def test_new_times_flag_the_clash_and_govern_the_next_request(admin, auth_client, world, more_events):
+def test_confirmed_booking_blocks_timing_changes_but_allows_other_updates(admin, auth_client, world, more_events):
     staff = cookie_for(auth_client, world["staff"])
     coordinator = cookie_for(auth_client, world["coordinator"])
     event_b, event_c = more_events
-    # A is held: a confirmed A dated today or later locks the times this
-    # case sets (S-75 reopened; the test project enforces it).
-    a = seed(admin, world, world["event_id"], "held", "10:00", "12:00")
+    a = seed(admin, world, world["event_id"], "confirmed", "10:00", "12:00")
     b = seed(admin, world, event_b, "held", "12:30", "14:00")
 
     with httpx.Client(base_url=GATEWAY_BASE_URL, timeout=20.0) as api:
@@ -48,25 +45,26 @@ def test_new_times_flag_the_clash_and_govern_the_next_request(admin, auth_client
         # 1. With 0/0 nothing clashes.
         assert clash_pairs() == []
 
-        # 2. Staff set the venue's times.
-        saved = api.patch(f"/venues/{world['venue_id']}", headers=staff,
+        # 2. A real timing change is refused once a confirmed booking exists.
+        refused = api.patch(f"/venues/{world['venue_id']}", headers=staff,
                           json={"setup_minutes": 30, "turnaround_minutes": 45})
-        assert saved.status_code == 200, saved.text
-
-        # 3. The A-B pair is listed, and B's Coordinator sees the warning.
-        [pair] = clash_pairs()
-        assert {pair["first"]["id"], pair["second"]["id"]} == {a["id"], b["id"]}
-        listed = api.get("/venue-bookings", headers=coordinator, params={"event_id": event_b})
-        assert listed.status_code == 200, listed.text
-        [b_row] = listed.json()
-        assert [c["start_time"][:5] for c in b_row["clashes"]] == ["10:00"]
-        stored = admin.schema("bookings").table("bookings").select("id,status").in_("id", [a["id"], b["id"]]).execute().data
-        assert sorted(row["status"] for row in stored) == ["held", "held"]
-
-        # 4. The next request is checked by the new times.
-        refused = api.post("/venue-bookings", headers=coordinator, json={
-            "event_id": event_c, "venue_id": world["venue_id"], "booking_date": DAY,
-            "start_time": "12:00", "end_time": "12:30",
-        })
         assert refused.status_code == 409, refused.text
-        assert refused.json()["detail"].endswith("it is in use until 12:45.")
+        assert "confirmed booking" in refused.json()["detail"]
+
+        # 3. Unchanged timing values and unrelated venue details remain editable.
+        saved = api.patch(f"/venues/{world['venue_id']}", headers=staff,
+                          json={"setup_minutes": 0, "turnaround_minutes": 0,
+                                "location": "New Wing"})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["location"] == "New Wing"
+        assert saved.json()["setup_minutes"] == 0
+        assert clash_pairs() == []
+        stored = admin.schema("bookings").table("bookings").select("id,status").in_("id", [a["id"], b["id"]]).execute().data
+        assert sorted(row["status"] for row in stored) == ["confirmed", "held"]
+
+        # 4. The occupied windows stay at their saved values.
+        available = api.post("/venue-bookings", headers=coordinator, json={
+            "event_id": event_c, "venue_id": world["venue_id"], "booking_date": DAY,
+            "start_time": "14:30", "end_time": "15:00",
+        })
+        assert available.status_code == 201, available.text

@@ -27,7 +27,7 @@ def stock(admin):
 
     def hold(status, start, end, quantity):
         decided = {"decision": "rejected", "decision_reason": "spm-test"} if status == "rejected" else {"decision": "approved"}
-        if status == "confirmed":
+        if status in ("confirmed", "preparation"):
             # S-17: Confirmed is reached only through the Safety Officer's approval.
             decided.update(safety_decision="approved", safety_officer_id=str(uuid.uuid4()),
                            safety_decided_at="2026-10-02T00:00:00Z")
@@ -60,7 +60,10 @@ def test_the_availability_check_through_kong_reflects_live_events_and_requiremen
     headers = cookie_for(auth_client, stock["support"])
     planning = stock["hold"]("planning", "10:00", "11:00", 3)
     confirmed = stock["hold"]("confirmed", "11:30", "13:00", 2)
+    pending_safety = stock["hold"]("pending_safety_check", "10:30", "11:30", 1)
+    preparation = stock["hold"]("preparation", "10:45", "11:45", 1)
     stock["hold"]("rejected", "10:00", "11:00", 4)
+    stock["hold"]("cancelled", "10:00", "11:00", 4)
     stock["hold"]("planning", "12:00", "13:00", 5)  # back-to-back with the window
 
     def check():
@@ -72,9 +75,9 @@ def test_the_availability_check_through_kong_reflects_live_events_and_requiremen
         return items[0]
 
     first = check()
-    assert (first["reserved"], first["available"], first["sufficient"]) == (5, 5, True)
-    assert [r["event_id"] for r in first["reservations"]] == [planning, confirmed]
+    assert (first["reserved"], first["available"], first["sufficient"]) == (7, 3, False)
+    assert set(r["event_id"] for r in first["reservations"]) == {planning, confirmed, pending_safety, preparation}
 
     stock["hold"]("planning", "09:00", "10:00", 1)
     second = check()
-    assert (second["reserved"], second["available"], second["sufficient"]) == (6, 4, False)
+    assert (second["reserved"], second["available"], second["sufficient"]) == (8, 2, False)

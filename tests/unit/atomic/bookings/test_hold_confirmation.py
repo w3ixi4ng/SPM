@@ -11,8 +11,10 @@ from .conftest import BOOKING_ID, app, booking_row, database_module, lookups, ta
 STAFF = "abababab-abab-4bab-8bab-abababababab"
 COORDINATOR = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 COOKIE = {"sb_access_token": "verified-token"}
-CONFIRM = f"/bookings/{BOOKING_ID}/hold-confirmation"
+CONFIRM = f"/internal/bookings/{BOOKING_ID}/confirm-hold"
 DECIDE = f"/bookings/{BOOKING_ID}/decision"
+SERVICE_HEADERS = {"X-Assignment-Service-Token": "test-service-token"}
+CONFIRM_BODY = {"coordinator_id": COORDINATOR}
 NOT_CONFIRMED = "This hold can't be approved until the Event Coordinator confirms it."
 HELD = booking_row(status="held", held_by=STAFF, held_at="2026-11-05T01:00:00+00:00",
                    hold_expires_at="2099-01-01T04:00:00+00:00")
@@ -31,9 +33,18 @@ def signed_in():
     app.dependency_overrides.pop(database_module.get_auth, None)
 
 
+@pytest.fixture
+def trusted(monkeypatch):
+    monkeypatch.setenv("ASSIGNMENT_SERVICE_SECRET", "test-service-token")
+
+
+def confirm(client, headers=SERVICE_HEADERS):
+    return client.post(CONFIRM, headers=headers, json=CONFIRM_BODY)
+
+
 def echo_update(db, base):
     update = table(db).update.return_value
-    for method in ("eq", "in_", "or_"):
+    for method in ("eq", "in_", "or_", "is_", "gt"):
         getattr(update, method).return_value = update
     update.execute.side_effect = lambda: SimpleNamespace(data=[{**base, **table(db).update.call_args.args[0]}])
     return update
@@ -44,12 +55,11 @@ def written(db):
 
 
 # --- TC-BOOKINGS-470 --------------------------------------------------------
-def test_the_coordinator_confirms_a_held_booking(client, db, signed_in):
-    signed_in("event_coordinator", COORDINATOR)
+def test_the_coordinator_confirms_a_held_booking(client, db, trusted):
     lookups(db, [HELD])
     update = echo_update(db, HELD)
 
-    response = client.post(CONFIRM, cookies=COOKIE)
+    response = confirm(client)
 
     assert response.status_code == 200, response.text
     assert response.json()["hold_confirmed_by"] == COORDINATOR
@@ -60,11 +70,10 @@ def test_the_coordinator_confirms_a_held_booking(client, db, signed_in):
 
 
 # --- TC-BOOKINGS-471 --------------------------------------------------------
-def test_confirming_twice_changes_nothing(client, db, signed_in):
-    signed_in("event_coordinator", COORDINATOR)
+def test_confirming_twice_changes_nothing(client, db, trusted):
     lookups(db, [CONFIRMED_HOLD])
 
-    response = client.post(CONFIRM, cookies=COOKIE)
+    response = confirm(client)
 
     assert response.status_code == 200, response.text
     assert response.json()["hold_confirmed_at"] == "2026-11-05T02:00:00Z"
@@ -80,11 +89,10 @@ def test_confirming_twice_changes_nothing(client, db, signed_in):
     booking_row(status="pending", held_by=STAFF, held_at="2026-11-01T00:00:00+00:00",
                 hold_released_at="2026-11-02T00:00:00+00:00", hold_release_reason="expired"),
 ])
-def test_only_a_live_hold_can_be_confirmed(client, db, signed_in, row):
-    signed_in("event_coordinator", COORDINATOR)
+def test_only_a_live_hold_can_be_confirmed(client, db, trusted, row):
     lookups(db, [row])
 
-    response = client.post(CONFIRM, cookies=COOKIE)
+    response = confirm(client)
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Only a tentative hold can be confirmed"
@@ -92,27 +100,17 @@ def test_only_a_live_hold_can_be_confirmed(client, db, signed_in, row):
     table(db).update.assert_not_called()
 
 
-@pytest.mark.parametrize("role", ["venue_staff", "event_organiser"])
-def test_only_a_coordinator_confirms_a_hold(client, db, signed_in, role):
-    signed_in(role, STAFF)
+def test_only_the_trusted_composite_confirms_a_hold(client, db, trusted):
     lookups(db, [HELD])
 
-    assert client.post(CONFIRM, cookies=COOKIE).status_code == 403
+    assert confirm(client, headers={}).status_code == 403
     table(db).update.assert_not_called()
 
 
-def test_confirming_needs_a_session(client, db):
-    lookups(db, [HELD])
-
-    assert client.post(CONFIRM).status_code == 401
-    table(db).update.assert_not_called()
-
-
-def test_confirming_a_missing_booking_is_not_found(client, db, signed_in):
-    signed_in("event_coordinator", COORDINATOR)
+def test_confirming_a_missing_booking_is_not_found(client, db, trusted):
     lookups(db, [])
 
-    response = client.post(CONFIRM, cookies=COOKIE)
+    response = confirm(client)
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Booking not found"

@@ -262,6 +262,7 @@ export function updateVenue(id, form) {
 }
 
 export function venueUpdateErrorMessage(error) {
+  if (error.status === 409 && error.message?.includes('confirmed booking')) return error.message
   if (error.status === 403) return 'Your role is not permitted to edit venues.'
   if (error.status === 404) return 'This venue could not be found. Return to the catalogue.'
   if (!error.status || error.status >= 500) return 'We could not confirm that your changes were saved. Reload the venue before trying again.'

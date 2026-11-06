@@ -21,8 +21,10 @@ internal-service contract. Atomic services never call the users service.
 | `POST` | `/bookings` | Store a checked booking request as `pending`. It does not reserve the slot. Refused with `409` if the slot already overlaps a hold, confirmed booking, or block. |
 | `POST` | `/bookings/{id}/hold` | Venue Staff only: turn a pending request into an exclusive tentative hold until the required future `expires_at`. The service records the staff member and timestamps; an overlapping live slot returns `409`. |
 | `POST` | `/bookings/{id}/release` | Release a hold back to pending and record its release time and reason. Venue Staff can release manually; the owning Coordinator can release with `booking_replaced` (no longer sent by `venue_bookings` since S-79, which keeps every request an event makes). |
-| `POST` | `/bookings/{id}/hold-confirmation` | S-81 reopened, Event Coordinator only: confirm a tentative hold so Venue Staff can approve it. See [S-81](#s-81-the-coordinator-confirms-a-hold). |
-| `POST` | `/bookings/{id}/decision` | Venue Staff only: finally confirm or reject a pending or held request; confirmation overlapping another live booking or an unavailable period is refused, and so is approving a hold its Coordinator hasn't confirmed (S-81 reopened). |
+| `POST` | `/bookings/{id}/decision` | Venue Staff only: confirm an ordinary pending request or a held request after Coordinator confirmation; reject either. Expired holds cannot be approved. |
+| `POST` | `/internal/bookings/{id}/confirm-hold` | Trusted composite only: record current Coordinator confirmation of an active hold. Requires `X-Assignment-Service-Token` and `coordinator_id` in JSON. |
+| `GET` | `/internal/bookings/expired-holds` | Internal reconciler: release due holds and list unnotified expiries. |
+| `POST` | `/internal/bookings/{id}/expiry-notified` | Internal reconciler: mark a delivered expiry notice; safe to repeat. |
 | `GET` | `/bookings?status=pending` | List pending requests, oldest first. `status=actionable` lists pending and held requests. |
 | `GET` | `/bookings?status=live&from={date}` | S-76: every held and confirmed booking dated `from` or later, every venue (optionally `venue_id`), ordered by venue, date, start. `from` is required (`422` without). S-34: an optional `to` (inclusive) bounds it; `to` before `from` is `422`. |
 | `GET` | `/bookings?event_id={id}` | List the requests sent for one event, every status, oldest first. |
@@ -60,6 +62,7 @@ internal-service contract. Atomic services never call the users service.
 | `event_name` | string | yes | Trimmed; not blank. |
 | `event_purpose` | string | yes | Trimmed; not blank. |
 | `expected_attendance` | integer | yes | At least `1`. |
+| `allocated_attendance` | integer | no | Attendees assigned to this venue; 1 through the event's expected attendance. Defaults to the full event attendance. |
 | `venue_name` | string | yes | Trimmed; not blank. |
 | `special_requirements` | string or null | no | The event's other requirements, free text. Blank becomes null. |
 | `required_accessibility` | array of string | no | From the venue accessibility set. Defaults to `[]`. |
@@ -620,15 +623,15 @@ A held booking is approved only once the Event Coordinator has confirmed the
 hold (UAT A08). A request that was never held is approved directly, as before.
 Rejecting or releasing a hold never needs the confirmation.
 
-`POST /bookings/{id}/hold-confirmation` takes no body. Only
-`event_coordinator` may call it. Which events are theirs is the events
-service's to say; the `venue_bookings` composite checks that first.
+`POST /internal/bookings/{id}/confirm-hold` takes `coordinator_id` in JSON
+and the trusted assignment service header. The `venue_bookings` composite
+checks that the caller is the event's currently assigned Coordinator first.
 
 | Status | When |
 | --- | --- |
 | `200` | The booking, with `hold_confirmed_by` (the Coordinator) and `hold_confirmed_at`. Confirming an already confirmed hold returns it unchanged. |
 | `409` | `{"detail": "Only a tentative hold can be confirmed"}`: the booking is pending, decided, or its hold has expired. Due holds are released first, as on every read. |
-| `401` / `403` / `404` | No session; not a Coordinator; `{"detail": "Booking not found"}`. |
+| `401` / `404` | Missing trusted service header; `{"detail": "Booking not found"}`. |
 
 Approving an unconfirmed hold through `POST /bookings/{id}/decision` is
 `409` with `{"detail": "This hold can't be approved until the Event
@@ -639,7 +642,7 @@ approved unconfirmed.
 Releasing a hold, or placing a new one, sets both `hold_confirmed_*` fields
 back to `null`. Every booking read includes the two fields.
 
-**Before running it:** apply the `BEGIN S-81 COORDINATOR CONFIRMS A HOLD`
+**Before running it:** apply the `BEGIN REQUIREMENT ALIGNMENT MIGRATION`
 block of [`bookings.sql`](../../../sql/bookings.sql) in **both** dev and
 test. Tests: `pytest tests/unit/atomic/bookings/test_hold_confirmation.py`;
 on a freshly recreated `.env.test` stack,

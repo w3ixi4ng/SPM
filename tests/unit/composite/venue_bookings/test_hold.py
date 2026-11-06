@@ -1,7 +1,9 @@
 """S-33 hold routing and event-state release orchestration."""
 
-from unittest.mock import AsyncMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from .conftest import (
@@ -12,7 +14,86 @@ from .conftest import (
     VENUE_ID,
     fake_response,
     me,
+    app_module,
 )
+
+
+def test_expiry_reconciler_notifies_then_marks_and_does_not_repeat(monkeypatch):
+    """TC-VENUEBOOKINGS-136: one durable notice per expired hold."""
+    held = {
+        "id": BOOKING_ID, "coordinator_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "event_id": EVENT_ID, "event_name": "Alumni networking evening",
+        "venue_name": "Studio B", "booking_date": "2026-11-12",
+        "hold_expires_at": "2026-11-12T10:00:00+00:00",
+    }
+    monkeypatch.setenv('ASSIGNMENT_SERVICE_SECRET', 'test-service-token')
+    bookings, notifications = MagicMock(), MagicMock()
+    bookings.get = AsyncMock(side_effect=[fake_response(200, [held]), fake_response(200, [])])
+    bookings.post = AsyncMock(return_value=fake_response(200, held))
+    notifications.post = AsyncMock(return_value=fake_response(201, {}))
+    asyncio.run(app_module._reconcile_expired_holds_once(bookings, notifications))
+    asyncio.run(app_module._reconcile_expired_holds_once(bookings, notifications))
+    notifications.post.assert_awaited_once()
+    body = notifications.post.await_args.kwargs["json"]["notifications"][0]
+    assert body["recipient_id"] == held["coordinator_id"]
+    assert body["deduplication_key"] == f'venue_hold_expired:{BOOKING_ID}:{held["hold_expires_at"]}'
+    bookings.post.assert_awaited_once_with(
+        f'/internal/bookings/{BOOKING_ID}/expiry-notified',
+        headers={'X-Assignment-Service-Token': 'test-service-token'},
+    )
+    assert bookings.get.await_args_list[0].kwargs['headers'] == {'X-Assignment-Service-Token': 'test-service-token'}
+
+
+def test_one_failed_expiry_notice_does_not_delay_other_holds(monkeypatch):
+    """TC-VENUEBOOKINGS-136: a failed row remains unmarked for the next pass."""
+    monkeypatch.setenv('ASSIGNMENT_SERVICE_SECRET', 'test-service-token')
+    base = {
+        'coordinator_id': 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        'event_id': EVENT_ID, 'event_name': 'Alumni networking evening',
+        'venue_name': 'Studio B', 'booking_date': '2026-11-12',
+        'hold_expires_at': '2026-11-12T10:00:00+00:00',
+    }
+    bookings, notifications = MagicMock(), MagicMock()
+    bookings.get = AsyncMock(return_value=fake_response(200, [
+        {**base, 'id': BOOKING_ID}, {**base, 'id': '55555555-5555-4555-8555-555555555555'},
+    ]))
+    bookings.post = AsyncMock(return_value=fake_response(200, {}))
+    notifications.post = AsyncMock(side_effect=[
+        httpx.ConnectError('temporary failure'), fake_response(201, {}),
+    ])
+    asyncio.run(app_module._reconcile_expired_holds_once(bookings, notifications))
+    assert notifications.post.await_count == 2
+    bookings.post.assert_awaited_once_with(
+        '/internal/bookings/55555555-5555-4555-8555-555555555555/expiry-notified',
+        headers={'X-Assignment-Service-Token': 'test-service-token'},
+    )
+
+
+def test_only_the_current_assigned_coordinator_can_confirm_hold(client, services, monkeypatch):
+    """TC-VENUEBOOKINGS-137: assignment is checked before the trusted write."""
+    monkeypatch.setenv('ASSIGNMENT_SERVICE_SECRET', 'test-service-token')
+    services.user = me('event_coordinator', id='dddddddd-dddd-4ddd-8ddd-dddddddddddd')
+    services.events.get = AsyncMock(return_value=fake_response(404, {'detail': 'Event not found'}))
+    denied = client.post(f'/venue-bookings/{BOOKING_ID}/confirm-hold')
+    assert denied.status_code == 404
+    services.bookings.post.assert_not_awaited()
+
+    services.user = me('event_coordinator', id='cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+    services.events.get = AsyncMock(return_value=fake_response(200, {'status': 'planning'}))
+    held = {
+        **services.booking.json(), 'status': 'held', 'held_by': STAFF_ID,
+        'held_at': '2026-11-05T01:00:00+00:00', 'booking_date': '2026-11-12',
+        'start_time': '09:00:00', 'end_time': '12:00:00',
+        'venue_name': 'Studio B', 'event_name': 'Alumni networking evening',
+    }
+    services.bookings.post = AsyncMock(return_value=fake_response(200, held))
+    allowed = client.post(f'/venue-bookings/{BOOKING_ID}/confirm-hold')
+    assert allowed.status_code == 200, allowed.text
+    services.bookings.post.assert_awaited_once_with(
+        f'/internal/bookings/{BOOKING_ID}/confirm-hold',
+        json={'coordinator_id': 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        headers={'X-Assignment-Service-Token': 'test-service-token'},
+    )
 
 
 @pytest.mark.parametrize("action", ["hold", "release"])
