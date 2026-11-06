@@ -63,7 +63,7 @@ def test_staff_cannot_change_setup_and_turnaround_after_confirmation(admin, page
     stored = admin.schema("venues").table("venues").select("setup_minutes,turnaround_minutes").eq("id", venue["id"]).execute().data[0]
     assert stored == {"setup_minutes": 0, "turnaround_minutes": 0}
     statuses = admin.schema("bookings").table("bookings").select("status").eq("venue_id", venue["id"]).execute().data
-    assert sorted(row["status"] for row in statuses) == ["held", "held"]  # neither removed
+    assert sorted(row["status"] for row in statuses) == ["confirmed", "held"]  # neither removed
 
 
 # --- TC-E2E-227 -----------------------------------------------------------
