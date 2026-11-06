@@ -451,6 +451,12 @@ def test_a_withdrawal_offers_the_freed_place_to_the_next_in_line(client, db):
         "offered_at": "2026-11-06T04:00:00Z",
     }
     assert "promoted" not in body
+    # S-53 AC3, "frees the place": through the one withdraw function, as in 016.
+    db.schema.assert_called_with("registrations")
+    _register(db).assert_called_once_with(
+        "withdraw", {"p_event_id": EVENT_ID, "p_attendee_id": ATTENDEE_A, "p_capacity": 2}
+    )
+    db.schema.return_value.table.assert_not_called()
 
 
 # --- TC-REGISTRATIONS-021 -------------------------------------------------

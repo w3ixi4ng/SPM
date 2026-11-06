@@ -3,12 +3,29 @@
 import logging
 import os
 import time
+from threading import Lock
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from supabase import Client
-from supabase_auth.errors import AuthApiError
 
 from database import get_auth
+
+try:  # supabase-py re-exports the auth errors
+    from supabase import AuthApiError
+except ImportError:  # pragma: no cover - older releases keep them here
+    try:
+        from supabase_auth.errors import AuthApiError
+    except ImportError:
+        from gotrue.errors import AuthApiError
+
+logger = logging.getLogger(__name__)
+
+# supabase-py's synchronous auth client carries mutable session state and is
+# not safe for simultaneous calls from FastAPI's worker threads: two
+# overlapping checks can fail and read as a dead session. Serialise the
+# Supabase Auth calls, as bookings/security.py does; the event reads and
+# writes themselves stay concurrent.
+_auth_lock = Lock()
 
 ACCESS_COOKIE = "sb_access_token"
 REFRESH_COOKIE = "sb_refresh_token"
@@ -16,29 +33,6 @@ REFRESH_COOKIE = "sb_refresh_token"
 COOKIE_SECURE = os.environ.get("AUTH_COOKIE_SECURE", "true").lower() != "false"
 COOKIE_SAMESITE = "lax"
 REFRESH_MAX_AGE = 60 * 60 * 24 * 30
-AUTH_RETRY_DELAYS = (0.2, 0.5)
-AUTH_UNAVAILABLE = "Authentication service unavailable"
-logger = logging.getLogger(__name__)
-
-
-def _rejected(exc: Exception) -> bool:
-    """Only a definitive Auth 4xx (except rate limiting) rejects a token."""
-    code = getattr(exc, "status", None)
-    return isinstance(exc, AuthApiError) and isinstance(code, int) and 400 <= code < 500 and code != 429
-
-
-def _ask_auth(call):
-    """Retry missing Auth verdicts; never turn an upstream outage into 401."""
-    for delay in (*AUTH_RETRY_DELAYS, None):
-        try:
-            return call()
-        except Exception as exc:
-            if _rejected(exc):
-                return None
-            if delay is None:
-                logger.warning("Supabase Auth gave no verdict: %r", exc)
-                raise HTTPException(status_code=503, detail=AUTH_UNAVAILABLE) from exc
-            time.sleep(delay)
 
 
 def set_session_cookies(response: Response, session) -> None:
@@ -73,6 +67,50 @@ def clear_session_cookies(response: Response) -> None:
         )
 
 
+# Pauses before each retry of an Auth call that never got a verdict. Ported
+# from the users service (TC-USERS-035..038).
+AUTH_RETRY_DELAYS = (0.2, 0.5)
+AUTH_UNAVAILABLE = "Authentication service unavailable"
+
+
+def _rejected(exc: Exception) -> bool:
+    """Supabase looked at the token and said no: expired, revoked, malformed
+    or already used. Anything else -- a dropped connection, a timeout, a 5xx
+    or a 429 -- says nothing about the token."""
+    status_code = getattr(exc, "status", None)
+    return (
+        isinstance(exc, AuthApiError)
+        and isinstance(status_code, int)
+        and 400 <= status_code < 500
+        and status_code != 429
+    )
+
+
+def _ask_auth(call):
+    """The answer to `call`, or None if Supabase rejected the token.
+
+    A call that got no verdict is retried; if it never gets one, that is a
+    503, never a 401 -- treating a network blip as a dead session signs a
+    working user out, and fails a composite's call on their behalf. The lock
+    is held per attempt, not across the pauses, so one slow check doesn't
+    hold up every other request.
+    """
+    for delay in (*AUTH_RETRY_DELAYS, None):
+        try:
+            with _auth_lock:
+                return call()
+        except Exception as exc:
+            if _rejected(exc):
+                return None
+            if delay is None:
+                logger.warning("Supabase Auth gave no verdict: %r", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=AUTH_UNAVAILABLE,
+                ) from exc
+            time.sleep(delay)
+
+
 def get_current_user(
     request: Request,
     response: Response,
@@ -81,6 +119,8 @@ def get_current_user(
     """Return the verified Supabase user represented by the session cookies."""
     access_token = request.cookies.get(ACCESS_COOKIE)
     if access_token:
+        # Expired, revoked, or malformed all mean the same thing here: fall
+        # through and try the refresh token. No answer at all is a 503.
         answer = _ask_auth(lambda: auth.auth.get_user(access_token))
         user = answer.user if answer is not None else None
         if user is not None:

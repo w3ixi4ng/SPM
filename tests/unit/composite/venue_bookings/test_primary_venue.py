@@ -80,3 +80,20 @@ def test_the_organiser_lists_every_venue_with_the_primary_marker(client, service
     assert event_call.args == (f"/events/{EVENT_ID}",)
     assert event_call.kwargs["cookies"] == {"sb_access_token": "token"}
     services.venues.get.assert_not_awaited()
+
+
+# TC-VENUEBOOKINGS-124 -- the Coordinator half of S-91 AC2. A Coordinator's
+# list is also checked for clashes, so the rows carry their dates and times.
+def test_the_coordinator_lists_every_venue_with_the_primary_marker(client, services):
+    when = {"booking_date": "2026-11-12", "start_time": "09:00:00", "end_time": "12:00:00"}
+    rows = [confirmed(is_primary=True, **when),
+            confirmed(id="55555555-5555-4555-8555-555555555555", venue_name="Studio C", **when)]
+    services.user = me("event_coordinator")
+    services.pending = fake_response(200, rows)
+
+    response = client.get(f"/venue-bookings?event_id={EVENT_ID}", cookies={"sb_access_token": "token"})
+
+    assert response.status_code == 200, response.text
+    listed = response.json()
+    assert [(row["venue_name"], row["is_primary"]) for row in listed] == [("Studio B", True), ("Studio C", False)]
+    assert services.events.get.await_args.args == (f"/events/assigned/{EVENT_ID}",)

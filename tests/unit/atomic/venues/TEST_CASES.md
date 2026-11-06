@@ -590,3 +590,58 @@ removed (S-28 AC3). TC-VENUES-037–049 reserved.
 - **Actual:** `422` for both, no write.
 - **Status:** Pass
 - **Evidence:** tests/unit/atomic/venues/test_update_hours.py::test_the_name_and_room_layouts_stay_protected; 2026-11-04, branch `S-34/search-and-filter-venues` (S-28 added at the developer's request), working tree; Python 3.14, pytest: 1986 passed and 17 skipped across `tests/unit`
+
+## Session check: a rejected token vs Supabase Auth not answering
+
+Ports the users service's fix (`bb92dfd`, TC-USERS-035..038) to this
+service's `security.py`. Only a 4xx other than 429 from Supabase Auth is a
+verdict on the token. Anything else (a dropped connection, a timeout, a 5xx,
+a 429) is retried after 0.2 s and 0.5 s, then answers `503` "Authentication
+service unavailable" and leaves the cookies alone. Found by PR #98's
+integration runs, where composites got `401` from this service for valid
+sessions and reported `502` "... service unavailable". Retry pauses are
+patched to 0 in the tests.
+
+## TC-VENUES-040 — a rejected token is a 401 straight away
+
+- **Scenario:** Supabase rejects the token, so the session check doesn't retry.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "invalid JWT", status 403. No refresh cookie.
+- **Steps:** `GET /venues` (the venue catalogue) with `sb_access_token=revoked-token`.
+- **Test data:** As above.
+- **Expected:** `401` "Not authenticated"; `get_user` called once.
+- **Actual:** `401` "Not authenticated" after one `get_user` call.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_session_check.py::test_a_rejected_token_is_401_without_retrying; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-VENUES-041 — a session check that got no answer is retried
+
+- **Scenario:** A blip on the way to Supabase is not a logout.
+- **Pre-conditions:** `get_user` first raises the error under Test data, then returns the caller; the route's data is faked to succeed.
+- **Steps:** `GET /venues` (the venue catalogue) with `sb_access_token=access-token`.
+- **Test data:** First attempt: `httpx.RemoteProtocolError("Server disconnected")`; separately, `httpx.ReadTimeout("timed out")`.
+- **Expected:** Each `200`; `get_user` called twice.
+- **Actual:** Each `200` `[]` after two `get_user` calls.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_session_check.py::test_a_session_check_that_got_no_answer_is_retried (2 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-VENUES-042 — no answer at all is a 503, and the cookies stay
+
+- **Scenario:** Supabase Auth is unreachable or overloaded, so the service says that instead of claiming the user is signed out.
+- **Pre-conditions:** Every `get_user` call fails as under Test data. Both cookies are sent.
+- **Steps:** `GET /venues` (the venue catalogue).
+- **Test data:** `httpx.RemoteProtocolError("Server disconnected")`; `AuthApiError` status 500; `AuthApiError` status 429.
+- **Expected:** Each `503` "Authentication service unavailable"; `get_user` called 3 times; `refresh_session` not called; no `Set-Cookie`.
+- **Actual:** Each `503` "Authentication service unavailable" after 3 calls. No refresh; no `Set-Cookie`.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_session_check.py::test_no_answer_is_503_and_keeps_the_cookies (3 params); 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).
+
+## TC-VENUES-043 — a refresh that got no answer is retried
+
+- **Scenario:** The same applies to renewing an expired session.
+- **Pre-conditions:** `get_user` raises `AuthApiError` "token is expired", 401. `refresh_session` first raises `httpx.RemoteProtocolError("Server disconnected")`, then returns a new session (`new-access` / `new-refresh`) for the caller.
+- **Steps:** `GET /venues` (the venue catalogue) with both cookies.
+- **Test data:** As above.
+- **Expected:** `200`; `refresh_session` called twice; the response sets `sb_access_token=new-access`.
+- **Actual:** `200`; two `refresh_session` calls; `sb_access_token=new-access` set.
+- **Status:** Pass
+- **Evidence:** tests/unit/atomic/venues/test_session_check.py::test_a_refresh_that_got_no_answer_is_retried; 2026-11-06, branch `update/e2e-shards` (on `0eb56dc`), pre-commit working tree; full `tests/unit`: 2054 passed. Against the old `security.py` the new file fails 29 of 34 (the five rejected-token cases already held).

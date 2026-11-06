@@ -647,3 +647,18 @@ block of [`bookings.sql`](../../../sql/bookings.sql) in **both** dev and
 test. Tests: `pytest tests/unit/atomic/bookings/test_hold_confirmation.py`;
 on a freshly recreated `.env.test` stack,
 `pytest tests/integration/atomic/bookings/test_hold_confirmation.py`.
+
+## Session check: `401` vs `503`
+
+Every route that needs a session verifies the `sb_access_token` cookie with
+Supabase Auth. Only Supabase rejecting the token (a 4xx other than
+429) makes it a dead session: `401` `{"detail": "Not authenticated"}`. A
+check that got no verdict -- a dropped connection, a timeout, a 5xx or a 429
+-- is retried after 0.2 s and 0.5 s, and then answers:
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `503` | `{"detail": "Authentication service unavailable"}` | Supabase Auth gave no verdict after two retries. Not a logout: the cookies are left alone, so retry the request. |
+
+The same rule as the users service (TC-USERS-035..038); here it is
+TC-BOOKINGS-475..477.

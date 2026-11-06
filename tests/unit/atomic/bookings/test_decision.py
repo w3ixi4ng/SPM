@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from supabase import AuthApiError
 
 from .conftest import app, database_module, BOOKING_ID, booking_row, table
 
@@ -152,8 +153,12 @@ def test_direct_nonstaff_call_forbidden(client, db, auth, role):
 
 def test_missing_and_invalid_session(client, db, auth):
     assert client.post(PATH, json={'decision': 'approved'}).status_code == 401
-    auth.auth.get_user.side_effect = RuntimeError('private auth detail')
-    assert client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'bad'}).status_code == 401
+    # Invalid means Supabase rejected it. An error with no verdict is a 503
+    # (TC-BOOKINGS-477), not a dead session.
+    auth.auth.get_user.side_effect = AuthApiError('invalid JWT', 403, None)
+    refused = client.post(PATH, json={'decision': 'approved'}, cookies={'sb_access_token': 'bad'})
+    assert refused.status_code == 401
+    assert refused.json() == {'detail': 'Not authenticated'}
     table(db).update.assert_not_called()
 
 
