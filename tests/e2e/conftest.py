@@ -9,13 +9,24 @@ Nothing here talks to a service port directly. If a test needs to reach past
 the browser it uses the admin client, the same way the integration suite does.
 """
 
-import re
+import logging
 import os
+import re
+import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from tests.supabase_client import create_client
+
+try:
+    from supabase import AuthApiError
+except ImportError:
+    try:
+        from supabase_auth.errors import AuthApiError
+    except ImportError:
+        from gotrue.errors import AuthApiError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_TEST = REPO_ROOT / ".env.test"
@@ -45,6 +56,17 @@ _load_env_test()
 E2E_BASE_URL = f"http://localhost:{os.environ.get('KONG_PROXY_PORT', '8000')}"
 
 PASSWORD = "correct-horse-battery-staple"
+
+
+def _delete_test_user(admin, user_id: str) -> None:
+    try:
+        admin.auth.admin.delete_user(user_id)
+    except AuthApiError as exc:
+        if str(exc.status) != "404" or exc.message.lower() != "user not found":
+            raise
+        # Keep unexpected disappearance visible without failing successful cleanup.
+        logging.getLogger(__name__).warning("Test Auth user already absent: %s", user_id)
+
 
 requires_env = pytest.mark.skipif(
     not all(
@@ -197,18 +219,41 @@ def make_user(admin):
             "attendee_id", user_id
         ).execute()
         # users.users cascades from auth.users, so the profile goes with this.
-        admin.auth.admin.delete_user(user_id)
+        _delete_test_user(admin, user_id)
 
 
 @pytest.fixture
 def sign_in(page):
-    """Sign in through the real login form and wait for the redirect."""
+    """Use the real form; retry only explicit rate limits, at most twice."""
 
     def _sign_in(user: dict):
-        page.goto("/login")
+        # Role switches commonly arrive here after logout already reached /login.
+        # Avoid reloading the app and repeating its session bootstrap request.
+        if urlsplit(page.url).path != "/login":
+            page.goto("/login")
         page.fill("input[name=email]", user["email"])
         page.fill("input[name=password]", user["password"])
-        page.click("button[type=submit]")
+        for attempt in range(3):
+            with page.expect_response(
+                lambda response: response.request.method == "POST"
+                and urlsplit(response.url).path == "/api/users/login"
+            ) as pending:
+                page.click("button[type=submit]")
+            response = pending.value
+            if response.status != 429 or attempt == 2:
+                assert response.status == 200, (
+                    f"POST /api/users/login returned {response.status} "
+                    f"for role {user['role']} on attempt {attempt + 1}"
+                )
+                break
+            retry_after = response.headers.get("retry-after", "")
+            delay = int(retry_after) if retry_after.isdigit() else 5 * (attempt + 1)
+            assert delay <= 30, "Auth rate limit requires more than 30s; stop retrying"
+            logging.getLogger(__name__).warning(
+                "POST /api/users/login returned 429 for role %s; retrying in %ss",
+                user["role"], delay,
+            )
+            time.sleep(delay)
         return page
 
     return _sign_in
