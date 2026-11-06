@@ -47,3 +47,6 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Demo account logins. Shared in the submission, never committed.
+accounts.txt
